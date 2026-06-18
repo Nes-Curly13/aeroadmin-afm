@@ -1,0 +1,32 @@
+{
+  "_comment": "Config de cadencias de fumigación. Editar libremente. El seed-cadences.js respeta precedencia: by_parcel_external_id > by_drone > by_crop > defaults.",
+  "_source": "docs/FUMIGATION_CADENCE.md",
+
+  "defaults": {
+    "_comment": "Defaults por field_type. Si el cliente no confirma cadencias específicas, el script usa estas.",
+    "Farmland": 14,
+    "Orchards": 10
+  },
+
+  "by_crop": {
+    "_comment": "Override por tipo de cultivo. El crop_type viene del schedule actual de la parcela.",
+    "Caña de azúcar": 14,
+    "Frutales": 10,
+    "Café": 21,
+    "Maíz": 21,
+    "Arroz": 10
+  },
+
+  "by_drone": {
+    "_comment": "Override por código de modelo de dron (ver tabla dji_drone_models). Útil si el cliente tiene varios drones y la cadencia varía por equipo.",
+    "201": 10,
+    "72": 14,
+    "0": 14
+  },
+
+  "by_parcel_external_id": {
+    "_comment": "Override específico por parcela (external_id = el de DJI). Usar para casos especiales (parcelas experimentales, mayor vigilancia, etc).",
+    "1268692918907510784-flyer-0047243d-610e-4d2e-84a4-198ac9ac31db": 7,
+    "1268692918907510784-flyer-15600a3c-9733-40d2-b52a-81aa7f695e81": 7
+  }
+}

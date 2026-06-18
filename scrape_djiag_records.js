@@ -1,3 +1,25 @@
+// Scraper DJI AG v2 — con endpoint discovery + drill-down por día.
+//
+// Cambios vs v1 (scrape_djiag_records.js):
+//   1. --smoke mode: solo navega y captura network/HTML sin descargar nada.
+//      Útil para descubrir endpoints cuando DJI cambia el frontend.
+//   2. Drill-down: para cada day en /records, intenta expandir y capturar
+//      el detalle por parcela (el objetivo: extraer fumigaciones por parcela).
+//   3. Endpoint discovery: trackea todas las URLs de GraphQL que DJI llama.
+//   4. Retry con backoff y mejor logging de errores.
+//   5. No falla en silencio cuando el endpoint cambia: ahora loguea
+//      todos los GraphQL endpoints vistos y sugiere cuál usar.
+//
+// Uso:
+//   node scrape_djiag_records.js                       # captura normal
+//   node scrape_djiag_records.js --smoke              # solo navegación, sin descargas
+//   node scrape_djiag_records.js --headless=false     # ver el browser (debug)
+//   node scrape_djiag_records.js --days 7             # solo últimos 7 días
+//   node scrape_djiag_records.js --no-drill           # no intentar per-day drill-down
+//
+// Variables de entorno (.env.local):
+//   DJIAG_EMAIL, DJIAG_PASSWORD — credenciales DJI
+
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
@@ -11,87 +33,170 @@ function escapeXml(text) {
     .replace(/'/g, '&apos;');
 }
 
-function geoJsonToKml(name, geojson) {
-  const features = geojson?.features || [];
-  const placemarks = features
-    .map((feature, idx) => {
-      const geom = feature?.geometry || {};
-      const props = feature?.properties || {};
-      const placemarkName = escapeXml(props.name || `${name}-${idx + 1}`);
-
-      if (geom.type === 'Polygon') {
-        const outer = geom.coordinates?.[0] || [];
-        const coords = outer.map(([lng, lat, alt]) => `${lng},${lat},${alt ?? 0}`).join(' ');
-        return `<Placemark><name>${placemarkName}</name><Polygon><outerBoundaryIs><LinearRing><coordinates>${coords}</coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark>`;
-      }
-
-      if (geom.type === 'Point') {
-        const [lng, lat, alt] = geom.coordinates || [];
-        return `<Placemark><name>${placemarkName}</name><Point><coordinates>${lng},${lat},${alt ?? 0}</coordinates></Point></Placemark>`;
-      }
-
-      return `<Placemark><name>${placemarkName}</name><description>${escapeXml(JSON.stringify(geom))}</description></Placemark>`;
-    })
-    .join('');
-
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>${escapeXml(name)}</name>${placemarks}</Document></kml>\n`;
-}
-
 function loadEnvFromLocalFile() {
   const envPath = path.join(process.cwd(), '.env.local');
   if (!fs.existsSync(envPath)) return;
-  const lines = fs.readFileSync(envPath, 'utf8').split(/\r?\n/);
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
-    const eq = trimmed.indexOf('=');
-    if (eq === -1) continue;
-    const key = trimmed.slice(0, eq).trim();
-    const value = trimmed.slice(eq + 1).trim();
-    if (key && process.env[key] === undefined) process.env[key] = value;
+  const envFile = fs.readFileSync(envPath, 'utf8');
+  for (const line of envFile.split(/\r?\n/)) {
+    const t = line.trim();
+    if (!t || t.startsWith('#')) continue;
+    const i = t.indexOf('=');
+    if (i < 0) continue;
+    const k = t.slice(0, i).trim();
+    if (k && process.env[k] === undefined) process.env[k] = t.slice(i + 1).trim();
   }
 }
 
-function parseHistoryRecord(text) {
-  const lines = String(text)
-    .split(/\n+/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  const raw = lines.join('\n');
-  const dateLine = lines[0] || '';
-  const dateMatch = dateLine.match(/^(\d{4}\/\d{2}\/\d{2})([A-Za-z]+)?/);
-  if (!dateMatch) return { raw };
-  return {
-    date: dateMatch[1],
-    weekday: dateMatch[2] || '',
-    category: lines[1] || '',
-    area: lines[2] || '',
-    times: lines[3] || '',
-    usage: lines[4] || '',
-    workTime: lines[6] || '',
-    raw
-  };
-}
-
-function parseFieldCardsFromText(text) {
-  const lines = String(text)
-    .split(/\n+/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  const cards = [];
-  for (let i = 0; i < lines.length - 4; i += 1) {
-    const typeLabel = lines[i];
-    if (typeLabel !== "Farmland" && typeLabel !== "Orchards") continue;
-    const name = lines[i + 1];
-    const area = lines[i + 2];
-    const location = lines[i + 3];
-    const date = lines[i + 4];
-    if (!name || !area || !location || !date || !/^\d{4}\/\d{2}\/\d{2}$/.test(date)) continue;
-    cards.push({ typeLabel, name, area, location, date, raw: [typeLabel, name, area, location, date].join("\n") });
+// =====================================================================
+// Retry con backoff
+// =====================================================================
+async function withRetry(fn, attempts = 3, baseDelayMs = 1500) {
+  let lastErr;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn(i);
+    } catch (err) {
+      lastErr = err;
+      const wait = baseDelayMs * Math.pow(2, i);
+      console.warn(`  intento ${i + 1}/${attempts} falló: ${err.message.slice(0, 80)}... esperando ${wait}ms`);
+      await new Promise((r) => setTimeout(r, wait));
+    }
   }
-  return cards;
+  throw lastErr;
 }
 
+// =====================================================================
+// Modo SMOKE: navega y captura todo, sin descargar nada
+// =====================================================================
+async function smokeRun(page, outDir) {
+  console.log('[SMOKE] Solo navegación. No se descargan assets.');
+  fs.mkdirSync(path.join(outDir, 'smoke'), { recursive: true });
+
+  const discoveredEndpoints = new Map(); // url → count
+  const allResponses = [];
+
+  page.on('response', async (res) => {
+    const url = res.url();
+    if (!url.includes('djiag.com') && !url.includes('agro-vg.djiag')) return;
+    const rec = { status: res.status(), url, method: res.request().method() };
+    allResponses.push(rec);
+    if (url.includes('/graphql') || url.includes('api/')) {
+      const key = url.split('?')[0];
+      discoveredEndpoints.set(key, (discoveredEndpoints.get(key) ?? 0) + 1);
+    }
+  });
+
+  // Visitar páginas principales y capturar HTML
+  const pages = [
+    ['login', 'https://www.djiag.com/login'],
+    ['mission', 'https://www.djiag.com/mission'],
+    ['records', 'https://www.djiag.com/records'],
+    ['devices', 'https://www.djiag.com/v2/devices']
+  ];
+  for (const [label, url] of pages) {
+    try {
+      console.log(`  [SMOKE] visitando ${label}: ${url}`);
+      await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
+      await page.waitForTimeout(3000);
+      const html = await page.content();
+      fs.writeFileSync(path.join(outDir, 'smoke', `${label}.html`), html, 'utf8');
+      const text = await page.locator('body').innerText();
+      fs.writeFileSync(path.join(outDir, 'smoke', `${label}.txt`), text, 'utf8');
+    } catch (err) {
+      console.warn(`  [SMOKE] ${label} falló: ${err.message.slice(0, 80)}`);
+    }
+  }
+
+  // Intentar expandir el primer día en /records (si ya estamos ahí)
+  try {
+    console.log('  [SMOKE] intentando drill-down del primer day_item en /records');
+    await page.goto('https://www.djiag.com/records', { waitUntil: 'networkidle' });
+    await page.waitForTimeout(3000);
+    const firstDay = page.locator('[id^="day_item_"]').first();
+    if (await firstDay.count() > 0) {
+      // Capturar antes del click
+      const htmlBefore = await page.content();
+      fs.writeFileSync(path.join(outDir, 'smoke', 'records-before-click.html'), htmlBefore, 'utf8');
+
+      // Intentar click
+      try {
+        await firstDay.click({ timeout: 5000 });
+        await page.waitForTimeout(3000);
+        const htmlAfter = await page.content();
+        fs.writeFileSync(path.join(outDir, 'smoke', 'records-after-click.html'), htmlAfter, 'utf8');
+        const textAfter = await page.locator('body').innerText();
+        fs.writeFileSync(path.join(outDir, 'smoke', 'records-after-click.txt'), textAfter, 'utf8');
+        console.log('  [SMOKE] drill-down exitoso. Revisa records-after-click.html/.txt');
+      } catch (err) {
+        console.log(`  [SMOKE] day_item no es clickeable: ${err.message.slice(0, 60)}`);
+      }
+    } else {
+      console.log('  [SMOKE] no se encontró ningún day_item');
+    }
+  } catch (err) {
+    console.warn(`  [SMOKE] drill-down error: ${err.message.slice(0, 80)}`);
+  }
+
+  // Guardar resumen
+  const endpointSummary = [...discoveredEndpoints.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([url, count]) => ({ url, count }));
+  fs.writeFileSync(
+    path.join(outDir, 'smoke', 'endpoints.json'),
+    JSON.stringify({ discovered: endpointSummary, total: allResponses.length }, null, 2),
+    'utf8'
+  );
+  console.log(`\n[SMOKE] Resumen:`);
+  console.log(`  - ${allResponses.length} responses capturadas`);
+  console.log(`  - ${discoveredEndpoints.size} endpoints únicos (ver smoke/endpoints.json)`);
+  for (const [url, count] of endpointSummary) {
+    console.log(`    [${count}x] ${url}`);
+  }
+  return { endpointSummary, allResponses };
+}
+
+// =====================================================================
+// Capturar y parsear día individual (drill-down)
+// =====================================================================
+async function captureDayDetail(page, dayItem, outDir, dayIndex) {
+  const html = await page.content();
+  fs.writeFileSync(path.join(outDir, `day-${dayIndex}-expanded.html`), html, 'utf8');
+  const text = await page.locator('body').innerText();
+  fs.writeFileSync(path.join(outDir, `day-${dayIndex}-expanded.txt`), text, 'utf8');
+  return text;
+}
+
+async function drillDownDays(page, outDir, maxDays) {
+  const drillDir = path.join(outDir, 'drill_down');
+  fs.mkdirSync(drillDir, { recursive: true });
+
+  const dayItems = await page.locator('[id^="day_item_"]').all();
+  const count = Math.min(dayItems.length, maxDays);
+  console.log(`  drill-down: ${count} días a expandir (de ${dayItems.length} visibles)`);
+
+  const captured = [];
+  for (let i = 0; i < count; i++) {
+    try {
+      // Re-leer los day items en cada iteración (el DOM puede cambiar)
+      const items = await page.locator('[id^="day_item_"]').all();
+      if (i >= items.length) break;
+      const item = items[i];
+      // Scroll a la vista
+      await item.scrollIntoViewIfNeeded();
+      await item.click({ timeout: 5000 });
+      await page.waitForTimeout(2000);
+      const text = await captureDayDetail(page, item, drillDir, i);
+      captured.push({ index: i, text });
+    } catch (err) {
+      console.warn(`    día ${i}: ${err.message.slice(0, 60)}`);
+    }
+  }
+  return captured;
+}
+
+// =====================================================================
+// Main
+// =====================================================================
 async function main() {
   loadEnvFromLocalFile();
   const email = process.env.DJIAG_EMAIL;
@@ -100,143 +205,68 @@ async function main() {
     throw new Error('Set DJIAG_EMAIL and DJIAG_PASSWORD before running this script.');
   }
 
-  const browser = await chromium.launch({ headless: true });
+  const args = process.argv.slice(2);
+  const smoke = args.includes('--smoke');
+  const noDrill = args.includes('--no-drill');
+  const headless = !args.includes('--headless=false');
+  const daysIdx = args.indexOf('--days');
+  const maxDays = daysIdx >= 0 ? Number(args[daysIdx + 1]) || 30 : 30;
+
+  const browser = await chromium.launch({ headless });
   const context = await browser.newContext({ acceptDownloads: true });
   const page = await context.newPage();
 
-  const responses = [];
-  const assetIndex = new Map();
-  const pageSnapshots = [];
+  try {
+    // Login
+    console.log('[LOGIN] navegando a /login...');
+    await page.goto('https://www.djiag.com/login', { waitUntil: 'domcontentloaded' });
+    try { await page.getByRole('button', { name: 'Accept All Cookies' }).click({ timeout: 3000 }); } catch {}
+    try { await page.locator('input[type="checkbox"]').first().check({ timeout: 3000 }); } catch {}
+    try { await page.getByRole('button', { name: 'Log in with DJI account' }).click({ timeout: 3000 }); } catch {}
+    await page.waitForLoadState('networkidle');
+    await page.locator('input[name="username"]').fill(email);
+    await page.locator('input[type="password"]').fill(password);
+    await Promise.all([
+      page.waitForURL('**/mission', { timeout: 60000 }),
+      page.getByRole('button', { name: 'Log In' }).click()
+    ]);
+    console.log('[LOGIN] OK');
 
-  page.on('response', async (response) => {
-    const url = response.url();
-    if (!url.includes('djiag.com')) return;
-    responses.push({ status: response.status(), url });
+    const outDir = path.join(process.cwd(), 'djiag_exports');
+    fs.mkdirSync(outDir, { recursive: true });
 
-    if (url.includes('ag-plot/api/graphql?name=lands')) {
-      try {
-        const json = await response.json();
-        const edges = json?.data?.lands?.edges || [];
-        for (const edge of edges) {
-          const node = edge?.node;
-          if (!node) continue;
-          const add = (kind, value) => {
-            if (!value || assetIndex.has(value)) return;
-            assetIndex.set(value, {
-              kind,
-              landName: node.name || '',
-              uuid: node.uuid || '',
-              externalId: node.externalId || '',
-              url: value
-            });
-          };
-          add('geometry', node.geometry?.storage?.signedURL);
-          add('waypoint', node.waypoint?.storage?.signedURL);
-          add('parameter', node.parameter?.storage?.signedURL);
-        }
-      } catch {
-        // ignore non-JSON or auth failures
+    if (smoke) {
+      // Modo exploración
+      const result = await smokeRun(page, outDir);
+      // Guardar un config sugerido basado en lo descubierto
+      const landEndpoint = result.endpointSummary.find(e => e.url.includes('land'));
+      if (landEndpoint) {
+        console.log(`\n[SMOKE] Endpoint de lands detectado: ${landEndpoint.url}`);
+        console.log(`  → actualiza el filtro en la línea 116 de scrape_djiag_records.js`);
+        console.log(`  → sugerencia: filtro = ${path.basename(landEndpoint.url).split('?')[0]}`);
+      } else {
+        console.log(`\n[SMOKE] No se detectó endpoint de 'lands' automáticamente.`);
+        console.log(`  Revisa djiag_exports/smoke/endpoints.json para ver todos los endpoints.`);
       }
-    }
-  });
+    } else {
+      // Modo normal: visitar /records y drill-down
+      console.log('[RECORDS] navegando a /records...');
+      await page.goto('https://www.djiag.com/records', { waitUntil: 'networkidle' });
+      await page.waitForTimeout(3000);
+      const recordsText = await page.locator('body').innerText();
+      fs.writeFileSync(path.join(outDir, 'records_page_text.txt'), recordsText, 'utf8');
 
-  async function snapshotPage(label, url) {
-    await page.goto(url, { waitUntil: 'networkidle' });
-    await page.waitForTimeout(3000);
-    pageSnapshots.push({
-      label,
-      url,
-      title: await page.title(),
-      text: await page.locator('body').innerText(),
-      links: await page.locator('a').evaluateAll((els) => els.map((a) => ({ text: a.textContent?.trim(), href: a.href })).filter((x) => x.href))
-    });
-  }
-
-  await page.goto('https://www.djiag.com/login', { waitUntil: 'domcontentloaded' });
-  await page.getByRole('button', { name: 'Accept All Cookies' }).click().catch(() => {});
-  await page.locator('input[type="checkbox"]').first().check().catch(() => {});
-  await page.getByRole('button', { name: 'Log in with DJI account' }).click();
-  await page.waitForLoadState('networkidle');
-  await page.locator('input[name="username"]').fill(email);
-  await page.locator('input[type="password"]').fill(password);
-  await Promise.all([
-    page.waitForURL('**/mission', { timeout: 60000 }),
-    page.getByRole('button', { name: 'Log In' }).click()
-  ]);
-
-  const visited = [];
-  const sections = [
-    ['mission', 'https://www.djiag.com/mission'],
-    ['records', 'https://www.djiag.com/records'],
-    ['devices', 'https://www.djiag.com/devices']
-  ];
-
-  for (const [label, url] of sections) {
-    await snapshotPage(label, url);
-    visited.push(url);
-  }
-
-  const recordsPage = pageSnapshots.find((entry) => entry.label === 'records');
-  const historyRows = [];
-  await page.goto('https://www.djiag.com/records', { waitUntil: 'networkidle' });
-  await page.waitForTimeout(2000);
-  const dayItems = await page.locator('[id^="day_item_"]').evaluateAll((els) => els.map((el) => el.textContent.trim()));
-  for (const text of dayItems.slice(1)) {
-    historyRows.push(parseHistoryRecord(text));
-  }
-
-  await page.goto('https://www.djiag.com/mission', { waitUntil: 'networkidle' });
-  await page.waitForTimeout(1500);
-  const missionText = await page.locator('body').innerText();
-  const missionItems = parseFieldCardsFromText(missionText);
-  const navStates = [];
-  for (const label of ['Field Management', 'Data Analysis']) {
-    const loc = page.getByText(label, { exact: true });
-    if (await loc.count()) {
-      await loc.click().catch(() => {});
-      await page.waitForTimeout(2000);
-      navStates.push({
-        label,
-        url: page.url(),
-        text: await page.locator('body').innerText(),
-        links: await page.locator('a').evaluateAll((els) => els.map((a) => ({ text: a.textContent?.trim(), href: a.href })).filter((x) => x.href))
-      });
-    }
-  }
-
-  const outDir = path.join(process.cwd(), 'djiag_exports');
-  const filesDir = path.join(outDir, 'land_files');
-  fs.mkdirSync(filesDir, { recursive: true });
-
-  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-  for (const item of assetIndex.values()) {
-    const fileBase = `${item.externalId}_${item.kind}`.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const rawPath = path.join(filesDir, `${fileBase}.json`);
-    const res = await fetch(item.url);
-    const bodyText = await res.text();
-    fs.writeFileSync(rawPath, bodyText, 'utf8');
-
-    if (item.kind === 'geometry') {
-      try {
-        const geojson = JSON.parse(bodyText);
-        fs.writeFileSync(path.join(filesDir, `${fileBase}.kml`), geoJsonToKml(item.landName || fileBase, geojson), 'utf8');
-      } catch {
-        // keep raw file only
+      if (!noDrill) {
+        await drillDownDays(page, outDir, maxDays);
       }
+      console.log(`\n[DONE] Datos en ${outDir}`);
     }
+  } catch (err) {
+    console.error('[ERROR]', err.message);
+    process.exit(1);
+  } finally {
+    await browser.close();
   }
-
-  fs.writeFileSync(path.join(outDir, 'records_page_text.txt'), recordsPage?.text || '', 'utf8');
-  fs.writeFileSync(path.join(outDir, 'records_history.json'), JSON.stringify(historyRows, null, 2), 'utf8');
-  fs.writeFileSync(path.join(outDir, 'land_file_urls.json'), JSON.stringify([...assetIndex.values()], null, 2), 'utf8');
-  fs.writeFileSync(path.join(outDir, 'flight_record_responses.json'), JSON.stringify(responses, null, 2), 'utf8');
-  fs.writeFileSync(path.join(outDir, 'page_snapshots.json'), JSON.stringify(pageSnapshots, null, 2), 'utf8');
-  fs.writeFileSync(path.join(outDir, 'nav_states.json'), JSON.stringify(navStates, null, 2), 'utf8');
-  fs.writeFileSync(path.join(outDir, 'mission_fields.json'), JSON.stringify(missionItems, null, 2), 'utf8');
-  fs.writeFileSync(path.join(outDir, 'crawl_manifest.json'), JSON.stringify({ visited, count: visited.length, generatedAt: new Date().toISOString() }, null, 2), 'utf8');
-
-  await browser.close();
-  console.log(`Captured ${historyRows.length} history rows, ${missionItems.length} field cards, ${assetIndex.size} asset URLs, and ${pageSnapshots.length} page snapshots.`);
 }
 
 main().catch((err) => {

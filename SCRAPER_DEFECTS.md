@@ -826,3 +826,57 @@ Es la base para el sistema de notificaciones que el cliente quiere ("cuÃ¡ndo deb
 ### 10.9 Errores pre-existentes detectados (no causados por esta entrega)
 
 - `tests/api-routes.test.ts:44` y `:64` â€” los tests pasan `new NextRequest(...)` a handlers que no aceptan argumentos. Vitest es permisivo pero `tsc` se queja. Pasa en runtime, no bloquea.
+
+## 11. Scraper v2 + seed-cadences config (jun 2026)
+
+### 11.1 Scraper — endpoint discovery + drill-down
+
+scrape_djiag_records.js reescrito con tres mejoras:
+
+**Modo --smoke**: navega y captura todas las URLs que DJI llama (login, mission, records, devices), expande el primer día en /records y guarda todo en djiag_exports/smoke/. Sin descargas. Útil cuando DJI cambia el frontend y necesitamos ver qué endpoints existen antes de tocar el filtro.
+
+**Drill-down por día**: el bug crítico de v1 era que solo capturaba el rollup diario de /records (no por parcela). v2 hace click en cada day_item y captura el detalle expandido en djiag_exports/drill_down/day-N-expanded.html|txt. El objetivo es extraer fumigaciones por parcela del HTML expandido.
+
+**Endpoint discovery**: loguea todas las URLs de GraphQL en smoke/endpoints.json con conteo de hits. Permite identificar cuál es el endpoint real de parcelas fumigadas.
+
+Uso:
+`ash
+node scrape_djiag_records.js --smoke              # solo navegación
+node scrape_djiag_records.js                       # captura normal con drill-down
+node scrape_djiag_records.js --no-drill            # solo rollups (v1 behavior)
+node scrape_djiag_records.js --days 7              # últimos 7 días
+node scrape_djiag_records.js --headless=false     # ver browser
+`
+
+### 11.2 Filtro incorrecto en v1 (defecto 2.1 explicado)
+
+v1 filtraba por url.includes('ag-plot/api/graphql?name=lands') pero DJI nunca llama ese endpoint. El endpoint real es gro-vg.djiag.com/api/graphql?name=userProfile (visible en flight_record_responses.json con 401s pre-login, 200s post-login). v2 ya no asume — descubre.
+
+### 11.3 seed-cadences.js — config JSON + override por parcela/dron/cultivo
+
+Antes era un script one-shot con cadencias hardcoded. Ahora:
+
+`ash
+# Editar config/fumigation-cadences.json y correr:
+node scripts/seed-cadences.js --config config/fumigation-cadences.json
+
+# Dry-run (no escribe):
+node scripts/seed-cadences.js --config config/fumigation-cadences.json --dry-run
+
+# Sin config: modo interactivo (pregunta cadencia por cadencia)
+node scripts/seed-cadences.js --interactive
+`
+
+**Precedencia de override** (mayor prioridad primero):
+1. y_parcel_external_id (caso especial por parcela)
+2. y_drone (por modelo de dron)
+3. y_crop (por tipo de cultivo)
+4. defaults (por field_type)
+
+Solo escribe schedules donde last_fumigation_date IS NULL (idempotente — no pisa fumigaciones manuales). Marca overrides en logs para que el admin vea qué se cambió vs el default.
+
+### 11.4 Lo que sigue pendiente
+
+- **Parsear el HTML del drill-down** para escribir filas en dji_fumigations (con source='djiscraper'). v2 captura el HTML pero el parser está pendiente — depende de los selectores reales que DJI usa en el día expandido. **Acción requerida**: correr --smoke, abrir ecords-after-click.html, identificar el selector de la lista de parcelas fumigadas ese día y agregar el parser.
+- **Migrar dji_fumigations con datos históricos**: una vez el parser esté listo, hacer una corrida inicial para poblar fumigaciones de los últimos N días.
+- **Reemplazar los defaults del import** con lectura desde config/fumigation-cadences.json (Fase 2.5 del importer).
