@@ -16,7 +16,9 @@ export function parseOptionalIntParam(value: string | null, paramName: string) {
   };
 }
 
-export function parseIntParam(value: string, paramName: string, min = 1, max?: number) {
+export function parseIntParam(value: string, paramName: string, min = 1, max?: number):
+  | { value: number; error?: undefined }
+  | { value?: undefined; error: string } {
   if (!/^\d+$/.test(value)) {
     return {
       error: `${paramName} must be a positive integer.`

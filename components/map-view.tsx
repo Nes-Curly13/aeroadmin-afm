@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { useMemo, useState } from "react";
 
 import type { DjiAlertRecord, DjiAssetRecord, DjiDailySummaryRecord, DjiParcelRecord } from "@/lib/types";
@@ -218,6 +219,22 @@ export function MapView({
             ))}
           </div>
         </div>
+
+        {/* Link al detalle completo */}
+        {selectedParcel && (
+          <div className="rounded-xl border border-[#0b5f2d]/20 bg-[#f4f7f4] p-4">
+            <h4 className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#587064]">Más detalle</h4>
+            <p className="mt-1 text-xs text-[#4a5b50]">
+              Vista de página completa con áreas comparadas, plan de vuelo y acciones.
+            </p>
+            <Link
+              className="mt-3 block rounded-full bg-[#0b5f2d] px-4 py-2 text-center text-sm font-semibold text-white"
+              href={`/parcels/${selectedParcel.id}`}
+            >
+              Ver detalle completo →
+            </Link>
+          </div>
+        )}
 
         {selectedAlert && (
           <div className="mt-4 rounded-xl border border-[#a93232]/30 bg-[#fff5f3] p-4">

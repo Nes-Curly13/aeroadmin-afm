@@ -258,6 +258,24 @@ export async function getParcelsSummary() {
   );
 }
 
+/**
+ * Devuelve una sola parcela por id, con todas sus geometrías como GeoJSON.
+ * Devuelve null si no existe.
+ */
+export async function getParcelById(id: number): Promise<DjiParcelRecord | null> {
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      const result = await db.query<DjiParcelRecord>(
+        `${djiParcelsQuery} WHERE id = $1`,
+        [id]
+      );
+      return result.rows[0] ?? null;
+    },
+    async () => null
+  );
+}
+
 export async function getParcels(page = 1, limit = 20) {
   const db = getDb();
   const offset = (page - 1) * limit;
