@@ -1,13 +1,22 @@
 import { getDb } from "@/lib/db";
 import fs from "node:fs";
 import path from "node:path";
+import {
+  CADENCE_DEFAULTS,
+  computeNextDueDate,
+  daysUntilNextDue,
+  getFumigationStatus
+} from "@/lib/fumigation-cadence";
 import type {
   DashboardMetrics,
   DjiAssetRecord,
   DjiDailySummaryRecord,
   DjiFlightRecord,
   DjiAlertRecord,
-  DjiParcelRecord
+  DjiFumigationEvent,
+  DjiFumigationSchedule,
+  DjiParcelRecord,
+  UpcomingFumigation
 } from "@/lib/types";
 
 interface MetricsRow {
@@ -273,6 +282,247 @@ export async function getParcelById(id: number): Promise<DjiParcelRecord | null>
       return result.rows[0] ?? null;
     },
     async () => null
+  );
+}
+
+// ============================================================
+// Fumigaciones: schedule + eventos
+// ============================================================
+
+const fumigationScheduleByParcelQuery = `
+  SELECT
+    parcel_id,
+    crop_type,
+    recommended_cadence_days,
+    last_fumigation_date,
+    next_due_date,
+    is_active,
+    notes
+  FROM dji_fumigation_schedule
+`;
+
+const fumigationEventsByParcelQuery = `
+  SELECT
+    id,
+    parcel_id,
+    fumigation_date,
+    product_used,
+    dose_l_per_ha,
+    area_fumigated_m2,
+    drone_code_used,
+    duration_minutes,
+    notes,
+    recorded_by,
+    recorded_at,
+    source
+  FROM dji_fumigations
+  WHERE parcel_id = $1
+  ORDER BY fumigation_date DESC, recorded_at DESC
+`;
+
+/**
+ * Devuelve el schedule de una parcela (o null si no existe).
+ */
+export async function getFumigationSchedule(parcelId: number): Promise<DjiFumigationSchedule | null> {
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      const result = await db.query<DjiFumigationSchedule>(
+        `${fumigationScheduleByParcelQuery} WHERE parcel_id = $1`,
+        [parcelId]
+      );
+      return result.rows[0] ?? null;
+    },
+    async () => null
+  );
+}
+
+/**
+ * Lista de eventos de fumigación de una parcela, ordenados por fecha desc.
+ */
+export async function getFumigationEventsByParcel(parcelId: number): Promise<DjiFumigationEvent[]> {
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      const result = await db.query<DjiFumigationEvent>(fumigationEventsByParcelQuery, [parcelId]);
+      return result.rows;
+    },
+    async () => []
+  );
+}
+
+/**
+ * Inserta un nuevo evento de fumigación. Recalcula `next_due_date`
+ * en el schedule correspondiente.
+ */
+export async function createFumigationEvent(event: {
+  parcel_id: number;
+  fumigation_date: string;
+  product_used?: string | null;
+  dose_l_per_ha?: number | null;
+  area_fumigated_m2?: number | null;
+  drone_code_used?: number | null;
+  duration_minutes?: number | null;
+  notes?: string | null;
+  recorded_by?: string | null;
+}): Promise<DjiFumigationEvent> {
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      const client = await db.connect();
+      try {
+        await client.query("BEGIN");
+        const ins = await client.query<DjiFumigationEvent>(
+          `
+            INSERT INTO dji_fumigations
+              (parcel_id, fumigation_date, product_used, dose_l_per_ha,
+               area_fumigated_m2, drone_code_used, duration_minutes, notes,
+               recorded_by, source)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'manual')
+            RETURNING
+              id, parcel_id, fumigation_date, product_used, dose_l_per_ha,
+              area_fumigated_m2, drone_code_used, duration_minutes, notes,
+              recorded_by, recorded_at, source
+          `,
+          [
+            event.parcel_id,
+            event.fumigation_date,
+            event.product_used ?? null,
+            event.dose_l_per_ha ?? null,
+            event.area_fumigated_m2 ?? null,
+            event.drone_code_used ?? null,
+            event.duration_minutes ?? null,
+            event.notes ?? null,
+            event.recorded_by ?? null
+          ]
+        );
+        const created = ins.rows[0];
+
+        // Recalcular last_fumigation_date y next_due_date en el schedule
+        const sched = await getFumigationSchedule(event.parcel_id);
+        const cadence = sched?.recommended_cadence_days ?? 14;
+        const next = computeNextDueDate(event.fumigation_date, cadence);
+        await client.query(
+          `
+            UPDATE dji_fumigation_schedule
+            SET last_fumigation_date = $2,
+                next_due_date = $3,
+                updated_at = NOW()
+            WHERE parcel_id = $1
+          `,
+          [event.parcel_id, event.fumigation_date, next]
+        );
+        await client.query("COMMIT");
+        return created;
+      } catch (e) {
+        await client.query("ROLLBACK");
+        throw e;
+      } finally {
+        client.release();
+      }
+    },
+    async () => {
+      throw new Error("DB no disponible");
+    }
+  );
+}
+
+/**
+ * Actualiza la cadencia esperada de una parcela. Si la parcela no tiene
+ * schedule, lo crea con los defaults.
+ */
+export async function setFumigationCadence(parcelId: number, cadenceDays: number): Promise<void> {
+  if (!Number.isFinite(cadenceDays) || cadenceDays < 1 || cadenceDays > 365) {
+    throw new Error("cadence_days debe estar entre 1 y 365");
+  }
+  const db = getDb();
+  await withLocalFallback(
+    async () => {
+      const parcel = await getParcelById(parcelId);
+      if (!parcel) throw new Error("Parcela no encontrada");
+      const def = parcel.is_orchard
+        ? CADENCE_DEFAULTS.Orchards
+        : CADENCE_DEFAULTS.Farmland;
+      const current = await getFumigationSchedule(parcelId);
+      const cropType = current?.crop_type ?? def.crop_type;
+      const lastDate = current?.last_fumigation_date ?? null;
+      const next = computeNextDueDate(lastDate, cadenceDays);
+      await db.query(
+        `
+          INSERT INTO dji_fumigation_schedule
+            (parcel_id, crop_type, recommended_cadence_days, last_fumigation_date, next_due_date, is_active)
+          VALUES ($1, $2, $3, $4, $5, true)
+          ON CONFLICT (parcel_id) DO UPDATE
+          SET recommended_cadence_days = EXCLUDED.recommended_cadence_days,
+              crop_type = EXCLUDED.crop_type,
+              next_due_date = EXCLUDED.next_due_date,
+              updated_at = NOW()
+        `,
+        [parcelId, cropType, cadenceDays, lastDate, next]
+      );
+    },
+    async () => {
+      throw new Error("DB no disponible");
+    }
+  );
+}
+
+/**
+ * Devuelve las próximas fumigaciones (overdue + due_soon) ordenadas por
+ * urgencia. Calcula el estado en aplicación, no en la BD, para que siempre
+ * esté fresco al consultar.
+ */
+export async function getUpcomingFumigations(limit = 10): Promise<UpcomingFumigation[]> {
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      const result = await db.query<{
+        parcel_id: number;
+        land_name: string | null;
+        external_id: string;
+        field_type: string;
+        is_orchard: boolean;
+        drone_model_name: string | null;
+        crop_type: string;
+        recommended_cadence_days: number;
+        last_fumigation_date: string | null;
+      }>(`
+        SELECT
+          p.id            AS parcel_id,
+          p.land_name,
+          p.external_id,
+          p.field_type,
+          p.is_orchard,
+          p.drone_model_name,
+          s.crop_type,
+          s.recommended_cadence_days,
+          s.last_fumigation_date
+        FROM dji_fumigation_schedule s
+        JOIN dji_parcels p ON p.id = s.parcel_id
+        WHERE s.is_active = true
+      `);
+      const now = new Date();
+      const enriched: UpcomingFumigation[] = result.rows.map((row) => {
+        const status = getFumigationStatus(row.last_fumigation_date, row.recommended_cadence_days, now);
+        const days = daysUntilNextDue(row.last_fumigation_date, row.recommended_cadence_days, now);
+        return {
+          ...row,
+          next_due_date: computeNextDueDate(row.last_fumigation_date, row.recommended_cadence_days)?.toISOString().slice(0, 10) ?? null,
+          days_until_next_due: days,
+          status
+        };
+      });
+      // Ordenar: overdue primero (más viejo primero), luego due_soon
+      enriched.sort((a, b) => {
+        const order = { overdue: 0, due_soon: 1, ok: 2, no_history: 3 };
+        if (order[a.status] !== order[b.status]) return order[a.status] - order[b.status];
+        const aDays = a.days_until_next_due ?? 0;
+        const bDays = b.days_until_next_due ?? 0;
+        return aDays - bDays; // más negativo (más vencido) primero
+      });
+      return enriched.slice(0, limit);
+    },
+    async () => []
   );
 }
 

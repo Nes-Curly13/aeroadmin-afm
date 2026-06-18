@@ -160,6 +160,25 @@ function loadAssetFile(rawPath) {
 // Donde externalId es dígitos (account/org id) y uuid es hex con guiones.
 const DJI_FILE_PATTERN = /^(\d+)-flyer-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})_(geometry|parameter|waypoint)\.json$/i;
 
+// Cadencia por defecto por field_type (en días).
+// Justificación: docs/FUMIGATION_CADENCE.md
+//   - Farmland (caña): 14 días (Cenicaña MIPE, conservador)
+//   - Orchards (frutales): 10 días (hongos en temporada de lluvias)
+const DEFAULT_CADENCE_DAYS = {
+  Farmland: 14,
+  Orchards: 10
+};
+
+function getDefaultCadenceDays(fieldType) {
+  if (fieldType === "Orchards") return DEFAULT_CADENCE_DAYS.Orchards;
+  return DEFAULT_CADENCE_DAYS.Farmland;
+}
+
+const DEFAULT_CROP_TYPE = {
+  Farmland: "Caña de azúcar",
+  Orchards: "Frutales"
+};
+
 /**
  * Extrae el `<Document><name>` de un KML de DJI.
  * Devuelve null si no se puede parsear o no hay name.
@@ -604,6 +623,32 @@ async function main() {
     await loadGroupedAssets(grouped, filesDir);
     const parcelsWritten = await writeDjiParcels(client, batchId, grouped);
 
+    // Fase 2.5: schedule de fumigación (1 fila por parcela activa)
+    // Solo crea filas para parcelas que NO tengan ya un schedule.
+    // La cadencia viene del field_type (Orchards → 10d, otros → 14d).
+    const scheduleResult = await client.query(`
+      INSERT INTO dji_fumigation_schedule
+        (parcel_id, crop_type, recommended_cadence_days, is_active)
+      SELECT
+        p.id,
+        CASE WHEN p.is_orchard THEN $1::text ELSE $2::text END AS crop_type,
+        CASE WHEN p.is_orchard THEN $3::int ELSE $4::int END AS cadence,
+        true AS is_active
+      FROM dji_parcels p
+      WHERE p.batch_id = $5
+        AND NOT EXISTS (
+          SELECT 1 FROM dji_fumigation_schedule s
+          WHERE s.parcel_id = p.id
+        )
+    `, [
+      DEFAULT_CROP_TYPE.Orchards,
+      DEFAULT_CROP_TYPE.Farmland,
+      DEFAULT_CADENCE_DAYS.Orchards,
+      DEFAULT_CADENCE_DAYS.Farmland,
+      batchId
+    ]);
+    const schedulesWritten = scheduleResult.rowCount ?? 0;
+
     // Intentar enriquecer declared_area_ha desde dji_field_catalog
     // buscando por land_name (join aproximado — si el land_name del catálogo
     // matchea el del asset, copiamos el área declarada).
@@ -628,7 +673,7 @@ async function main() {
 
     await client.query('COMMIT');
     console.log(
-      `Imported batch ${batchId}: ${history.length} daily summaries, ${fields.length} field cards, ${assetIndex.length} asset records, ${parcelsWritten} normalized parcels`
+      `Imported batch ${batchId}: ${history.length} daily summaries, ${fields.length} field cards, ${assetIndex.length} asset records, ${parcelsWritten} normalized parcels, ${schedulesWritten} fumigation schedules`
     );
   } catch (error) {
     await client.query('ROLLBACK');

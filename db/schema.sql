@@ -139,3 +139,46 @@ CREATE INDEX IF NOT EXISTS idx_dji_parcels_is_orchard   ON dji_parcels(is_orchar
 CREATE INDEX IF NOT EXISTS idx_dji_parcels_spray_geom   ON dji_parcels USING GIST (spray_geom);
 CREATE INDEX IF NOT EXISTS idx_dji_parcels_waypoints    ON dji_parcels USING GIST (waypoints);
 CREATE INDEX IF NOT EXISTS idx_dji_parcels_ref_point    ON dji_parcels USING GIST (reference_point);
+
+-- ============================================================
+-- DJI FUMIGATION SCHEDULE (cadencia esperada por parcela)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS dji_fumigation_schedule (
+  id                    SERIAL PRIMARY KEY,
+  parcel_id             INTEGER NOT NULL REFERENCES dji_parcels(id) ON DELETE CASCADE,
+  crop_type             TEXT NOT NULL,
+  recommended_cadence_days INT NOT NULL CHECK (recommended_cadence_days > 0),
+  last_fumigation_date  DATE,
+  next_due_date         DATE,
+  is_active             BOOLEAN NOT NULL DEFAULT true,
+  notes                 TEXT,
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (parcel_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_dji_fumigation_schedule_parcel    ON dji_fumigation_schedule(parcel_id);
+CREATE INDEX IF NOT EXISTS idx_dji_fumigation_schedule_next_due ON dji_fumigation_schedule(next_due_date) WHERE is_active = true;
+
+-- ============================================================
+-- DJI FUMIGATIONS (eventos de fumigación por parcela)
+-- ============================================================
+-- Una fila por evento de fumigación realizado. Llenada manualmente
+-- por el operador (DJI no expone histórico por parcela).
+CREATE TABLE IF NOT EXISTS dji_fumigations (
+  id                  SERIAL PRIMARY KEY,
+  parcel_id           INTEGER NOT NULL REFERENCES dji_parcels(id) ON DELETE CASCADE,
+  fumigation_date     DATE NOT NULL,
+  product_used        TEXT,
+  dose_l_per_ha       NUMERIC(8, 2),
+  area_fumigated_m2   NUMERIC(12, 2),
+  drone_code_used     INT REFERENCES dji_drone_models(code) ON DELETE SET NULL,
+  duration_minutes    INT,
+  notes               TEXT,
+  recorded_by         TEXT,
+  recorded_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  source              TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('manual', 'djiscraper', 'import'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_dji_fumigations_parcel_date ON dji_fumigations(parcel_id, fumigation_date DESC);
+CREATE INDEX IF NOT EXISTS idx_dji_fumigations_date       ON dji_fumigations(fumigation_date DESC);

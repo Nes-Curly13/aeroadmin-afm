@@ -3,7 +3,14 @@ import { notFound } from "next/navigation";
 
 import { AppShell } from "@/components/app-shell";
 import { ParcelDetail } from "@/components/parcels/parcel-detail";
-import { getParcelById, getParcelsNormalized } from "@/api/repositories";
+import { ParcelFumigations } from "@/components/parcels/parcel-fumigations";
+import {
+  getFumigationEventsByParcel,
+  getFumigationSchedule,
+  getParcelById,
+  getParcelsNormalized
+} from "@/api/repositories";
+import { daysUntilNextDue, getFumigationStatus } from "@/lib/fumigation-cadence";
 
 export const dynamic = "force-dynamic";
 
@@ -18,22 +25,27 @@ export default async function ParcelPage({
     notFound();
   }
 
-  const [parcel, allParcels] = await Promise.all([
+  const [parcel, allParcels, schedule, events] = await Promise.all([
     getParcelById(id),
-    getParcelsNormalized(1, 200)
+    getParcelsNormalized(1, 200),
+    getFumigationSchedule(id),
+    getFumigationEventsByParcel(id)
   ]);
 
   if (!parcel) {
     notFound();
   }
 
-  // Calcular índice de la parcela actual para navegación prev/next
   const currentIndex = allParcels.data.findIndex((p) => p.id === id);
   const prev = currentIndex > 0 ? allParcels.data[currentIndex - 1] : null;
   const next =
     currentIndex >= 0 && currentIndex < allParcels.data.length - 1
       ? allParcels.data[currentIndex + 1]
       : null;
+
+  const cadence = schedule?.recommended_cadence_days ?? 14;
+  const status = getFumigationStatus(schedule?.last_fumigation_date ?? null, cadence);
+  const days = daysUntilNextDue(schedule?.last_fumigation_date ?? null, cadence);
 
   return (
     <AppShell
@@ -67,7 +79,16 @@ export default async function ParcelPage({
       }
       title={parcel.land_name ?? "Parcela sin nombre"}
     >
-      <ParcelDetail parcel={parcel} />
+      <div className="space-y-5">
+        <ParcelDetail parcel={parcel} />
+        <ParcelFumigations
+          daysUntilNextDue={days}
+          events={events}
+          parcel={parcel}
+          schedule={schedule}
+          status={status}
+        />
+      </div>
     </AppShell>
   );
 }

@@ -1,7 +1,8 @@
 import { AppShell } from "@/components/app-shell";
 import { OperationsPanel } from "@/components/dashboard/operations-panel";
+import { UpcomingFumigations } from "@/components/dashboard/upcoming-fumigations";
 import { MetricCard } from "@/components/ui/metric-card";
-import { getAlerts, getDashboardMetrics, getFlights, getParcels } from "@/api/repositories";
+import { getAlerts, getDashboardMetrics, getFlights, getParcels, getUpcomingFumigations } from "@/api/repositories";
 import { formatArea, formatNumber } from "@/lib/format";
 import { getDashboardKpiTone } from "@/lib/ui-tokens";
 
@@ -60,11 +61,12 @@ function DroneIcon() {
 }
 
 export default async function DashboardPage() {
-  const [metrics, parcelsResult, flightsResult, alerts] = await Promise.all([
+  const [metrics, parcelsResult, flightsResult, alerts, upcoming] = await Promise.all([
     getDashboardMetrics(),
     getParcels(),
     getFlights(),
-    getAlerts()
+    getAlerts(),
+    getUpcomingFumigations(8)
   ]);
 
   return (
@@ -113,6 +115,9 @@ export default async function DashboardPage() {
       </div>
       <div className="mt-5">
         <OperationsPanel alerts={alerts} flights={flightsResult.data} metrics={metrics} parcels={parcelsResult.data} />
+      </div>
+      <div className="mt-5">
+        <UpcomingFumigations items={upcoming} />
       </div>
     </AppShell>
   );

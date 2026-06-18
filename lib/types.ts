@@ -83,3 +83,54 @@ export interface DashboardMetrics {
   highAlertParcels: number;
   totalAssets: number;
 }
+
+/**
+ * Schedule de fumigación esperada para una parcela.
+ * Una fila por parcela (1:1 con dji_parcels).
+ */
+export interface DjiFumigationSchedule {
+  parcel_id: number;
+  crop_type: string;
+  recommended_cadence_days: number;
+  last_fumigation_date: string | null;
+  next_due_date: string | null;
+  is_active: boolean;
+  notes: string | null;
+}
+
+/**
+ * Evento de fumigación realizado sobre una parcela.
+ */
+export interface DjiFumigationEvent {
+  id: number;
+  parcel_id: number;
+  fumigation_date: string;
+  product_used: string | null;
+  dose_l_per_ha: number | null;
+  area_fumigated_m2: number | null;
+  drone_code_used: number | null;
+  duration_minutes: number | null;
+  notes: string | null;
+  recorded_by: string | null;
+  recorded_at: string;
+  source: "manual" | "djiscraper" | "import";
+}
+
+/**
+ * Parcela enriquecida con su schedule de fumigación y el evento más reciente.
+ * Lo que devuelve el endpoint /api/fumigations/upcoming.
+ */
+export interface UpcomingFumigation {
+  parcel_id: number;
+  land_name: string | null;
+  external_id: string;
+  field_type: string;
+  is_orchard: boolean;
+  crop_type: string;
+  recommended_cadence_days: number;
+  last_fumigation_date: string | null;
+  next_due_date: string | null;
+  days_until_next_due: number | null;
+  status: "ok" | "due_soon" | "overdue" | "no_history";
+  drone_model_name: string | null;
+}
