@@ -1,0 +1,41 @@
+# Build outputs
+.next
+out
+build
+
+# Node
+node_modules
+npm-debug.log*
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Rogue build artifact (2MB Next.js bundle that leaked to root)
+index.js
+
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+
+# Dev server logs
+.next-dev*.out.log
+.next-dev*.log
+*.next-dev.log
+dev-server.log
+dev-server.err
+next-dev.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Test coverage
+coverage/
+
+# ============================================================
+# DJI AG data — user-specific (NEVER commit client DJI data)
+# ============================================================
+djiag_exports/

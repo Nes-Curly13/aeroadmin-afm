@@ -1,0 +1,12 @@
+project_id = "afm-flight-gis"
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 16
+
+[studio]
+port = 54323
+
+[auth]
+enabled = false

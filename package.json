@@ -1,0 +1,41 @@
+{
+  "name": "aeroadmin-afm",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down",
+    "db:init": "node import_djiag_data.js",
+    "db:bootstrap": "node import_djiag_data.js",
+    "db:init:v2": "node import_djiag_data.js",
+    "scrape:djiag": "node scrape_djiag_records.js",
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "leaflet": "1.9.4",
+    "next": "16.2.4",
+    "pg": "8.20.0",
+    "react": "19.2.5",
+    "react-dom": "19.2.5",
+    "react-leaflet": "5.0.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "4.2.4",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/geojson": "7946.0.16",
+    "@types/leaflet": "1.9.21",
+    "@types/node": "24.9.1",
+    "@types/pg": "8.15.6",
+    "@types/react": "19.2.2",
+    "@types/react-dom": "19.2.2",
+    "jsdom": "^29.1.1",
+    "tailwindcss": "4.2.4",
+    "typescript": "5.9.3",
+    "vitest": "3.2.4"
+  }
+}
