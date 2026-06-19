@@ -2,6 +2,12 @@ const fs = require('fs');
 const path = require('path');
 const { Pool } = require('pg');
 
+const {
+  loadCadenceConfig,
+  resolveCadence,
+  BUILTIN_DEFAULTS
+} = require('./lib/fumigation-cadence-config');
+
 /**
  * Importador DJI AG — Opción B (modelo normalizado)
  *
@@ -160,24 +166,11 @@ function loadAssetFile(rawPath) {
 // Donde externalId es dígitos (account/org id) y uuid es hex con guiones.
 const DJI_FILE_PATTERN = /^(\d+)-flyer-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})_(geometry|parameter|waypoint)\.json$/i;
 
-// Cadencia por defecto por field_type (en días).
-// Justificación: docs/FUMIGATION_CADENCE.md
-//   - Farmland (caña): 14 días (Cenicaña MIPE, conservador)
-//   - Orchards (frutales): 10 días (hongos en temporada de lluvias)
-const DEFAULT_CADENCE_DAYS = {
-  Farmland: 14,
-  Orchards: 10
-};
-
-function getDefaultCadenceDays(fieldType) {
-  if (fieldType === "Orchards") return DEFAULT_CADENCE_DAYS.Orchards;
-  return DEFAULT_CADENCE_DAYS.Farmland;
-}
-
-const DEFAULT_CROP_TYPE = {
-  Farmland: "Caña de azúcar",
-  Orchards: "Frutales"
-};
+// Cadencia por defecto por field_type: ahora vive en
+// lib/fumigation-cadence-config.js (BUILTIN_DEFAULTS). El importer y
+// scripts/seed-cadences.js comparten esa tabla única. La cadencia real
+// usada en Fase 2.5 se resuelve con resolveCadence() leyendo
+// config/fumigation-cadences.json.
 
 /**
  * Extrae el `<Document><name>` de un KML de DJI.
@@ -624,30 +617,73 @@ async function main() {
     const parcelsWritten = await writeDjiParcels(client, batchId, grouped);
 
     // Fase 2.5: schedule de fumigación (1 fila por parcela activa)
-    // Solo crea filas para parcelas que NO tengan ya un schedule.
-    // La cadencia viene del field_type (Orchards → 10d, otros → 14d).
-    const scheduleResult = await client.query(`
-      INSERT INTO dji_fumigation_schedule
-        (parcel_id, crop_type, recommended_cadence_days, is_active)
+    //
+    // La cadencia se resuelve por parcela con resolveCadence() leyendo
+    // config/fumigation-cadences.json (override parcel > drone > crop >
+    // default). Si el archivo no existe, se usan los builtin defaults
+    // (Caña 14d, Frutales 10d) — el importer debe poder correr offline.
+    //
+    // Idempotencia:
+    //   - INSERT si no existe schedule
+    //   - UPDATE solo si last_fumigation_date IS NULL (no pisa fumigaciones reales)
+    //   - Re-correr el importer con un config cambiado actualiza los schedules
+    //     que aún no tienen fumigación, sin tocar los demás.
+    const cadenceConfig = loadCadenceConfig(
+      process.env.FUMIGATION_CADENCES_CONFIG ??
+        path.join(process.cwd(), 'config', 'fumigation-cadences.json')
+    );
+    console.log(`[cadence] source: ${cadenceConfig._source}`);
+
+    const parcelsForSchedule = await client.query(`
       SELECT
-        p.id,
-        CASE WHEN p.is_orchard THEN $1::text ELSE $2::text END AS crop_type,
-        CASE WHEN p.is_orchard THEN $3::int ELSE $4::int END AS cadence,
-        true AS is_active
+        p.id, p.external_id, p.field_type, p.is_orchard, p.drone_model_code,
+        s.crop_type AS current_crop_type,
+        s.recommended_cadence_days AS current_cadence,
+        s.last_fumigation_date
       FROM dji_parcels p
-      WHERE p.batch_id = $5
-        AND NOT EXISTS (
-          SELECT 1 FROM dji_fumigation_schedule s
-          WHERE s.parcel_id = p.id
-        )
-    `, [
-      DEFAULT_CROP_TYPE.Orchards,
-      DEFAULT_CROP_TYPE.Farmland,
-      DEFAULT_CADENCE_DAYS.Orchards,
-      DEFAULT_CADENCE_DAYS.Farmland,
-      batchId
-    ]);
-    const schedulesWritten = scheduleResult.rowCount ?? 0;
+      LEFT JOIN dji_fumigation_schedule s ON s.parcel_id = p.id
+      WHERE p.batch_id = $1
+    `, [batchId]);
+
+    let schedulesInserted = 0;
+    let schedulesUpdated = 0;
+    let schedulesSkipped = 0;
+    for (const row of parcelsForSchedule.rows) {
+      if (row.last_fumigation_date) {
+        schedulesSkipped += 1;
+        continue;
+      }
+      const resolved = resolveCadence(
+        {
+          externalId: row.external_id,
+          droneModelCode: row.drone_model_code,
+          fieldType: row.field_type,
+          currentCropType: row.current_crop_type
+        },
+        cadenceConfig
+      );
+      const r = await client.query(
+        `
+          INSERT INTO dji_fumigation_schedule
+            (parcel_id, crop_type, recommended_cadence_days, is_active)
+          VALUES ($1, $2, $3, true)
+          ON CONFLICT (parcel_id) DO UPDATE
+          SET crop_type = EXCLUDED.crop_type,
+              recommended_cadence_days = EXCLUDED.recommended_cadence_days,
+              updated_at = NOW()
+          WHERE dji_fumigation_schedule.last_fumigation_date IS NULL
+          RETURNING (xmax = 0) AS inserted
+        `,
+        [row.id, resolved.crop_type, resolved.cadence_days]
+      );
+      const wasInsert = r.rows[0]?.inserted === true;
+      if (wasInsert) {
+        schedulesInserted += 1;
+      } else if (r.rowCount > 0) {
+        schedulesUpdated += 1;
+      }
+    }
+    const schedulesWritten = schedulesInserted + schedulesUpdated;
 
     // Intentar enriquecer declared_area_ha desde dji_field_catalog
     // buscando por land_name (join aproximado — si el land_name del catálogo
@@ -673,7 +709,7 @@ async function main() {
 
     await client.query('COMMIT');
     console.log(
-      `Imported batch ${batchId}: ${history.length} daily summaries, ${fields.length} field cards, ${assetIndex.length} asset records, ${parcelsWritten} normalized parcels, ${schedulesWritten} fumigation schedules`
+      `Imported batch ${batchId}: ${history.length} daily summaries, ${fields.length} field cards, ${assetIndex.length} asset records, ${parcelsWritten} normalized parcels, ${schedulesWritten} fumigation schedules (${schedulesInserted} new, ${schedulesUpdated} updated, ${schedulesSkipped} skipped)`
     );
   } catch (error) {
     await client.query('ROLLBACK');
@@ -716,5 +752,8 @@ module.exports = {
   // filesystem fallback
   buildAssetIndexFromFilesystem,
   extractLandNameFromKml,
-  DJI_FILE_PATTERN
+  DJI_FILE_PATTERN,
+  // re-exported from lib/fumigation-cadence-config for tests
+  loadCadenceConfig,
+  resolveCadence
 };

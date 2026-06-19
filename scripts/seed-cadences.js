@@ -1,7 +1,7 @@
 // Seed del schedule de fumigación con cadencias configurables.
 //
 // Lee defaults desde config/fumigation-cadences.json (opcional).
-// Si el archivo no existe, usa los defaults internos.
+// Si el archivo no existe, usa los defaults internos (Caña 14d, Frutales 10d).
 //
 // Estructura del config (todos los campos son opcionales):
 // {
@@ -18,6 +18,17 @@
 //   }
 // }
 //
+// Precedencia (mayor a menor):
+//   1. by_parcel_external_id
+//   2. by_drone
+//   3. by_crop (match normalizado del crop_type actual)
+//   4. defaults (por field_type)
+//   5. builtin defaults
+//
+// La lógica de resolución vive en lib/fumigation-cadence-config.js (compartida
+// con el importer). Este script solo hace el I/O: lee config, pregunta al
+// usuario si --interactive, y hace UPSERT en dji_fumigation_schedule.
+//
 // Uso:
 //   node scripts/seed-cadences.js
 //   node scripts/seed-cadences.js --force-cadence 21
@@ -27,6 +38,12 @@ const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
 const { Pool } = require('pg');
+
+const {
+  loadCadenceConfig,
+  resolveCadence,
+  BUILTIN_DEFAULTS
+} = require('../lib/fumigation-cadence-config');
 
 function loadEnv() {
   const envPath = path.join(process.cwd(), '.env.local');
@@ -42,114 +59,6 @@ function loadEnv() {
   }
 }
 
-const HARDCODED_DEFAULTS = {
-  Farmland: { crop_type: "Caña de azúcar", cadence: 14 },
-  Orchards: { crop_type: "Frutales", cadence: 10 }
-};
-
-/**
- * Normaliza un crop_type para matchear contra el config: lowercase +
- * strip de acentos (NFD → remover combining marks) + trim. Esto hace que
- * "Cana de azucar", "CAÑA DE AZÚCAR" y "  caña de azúcar  " matcheen
- * todos contra la key "cana de azucar" en el config.
- */
-function normalizeCropKey(s) {
-  if (!s) return "";
-  return String(s)
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .trim();
-}
-
-function loadConfig(configPath) {
-  if (!configPath || !fs.existsSync(configPath)) {
-    return { defaults: null, by_crop: {}, by_drone: {}, by_parcel: {} };
-  }
-  try {
-    const raw = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    // Filtrar solo entries con valor numérico (ignora _comment, _source, etc.)
-    // y normalizar las keys de by_crop para matchear variants con/sin tildes.
-    const byCropNormalized = {};
-    for (const [k, v] of Object.entries(raw.by_crop ?? {})) {
-      if (typeof v !== "number") continue;
-      byCropNormalized[normalizeCropKey(k)] = v;
-    }
-    const byDrone = {};
-    for (const [k, v] of Object.entries(raw.by_drone ?? {})) {
-      if (typeof v !== "number") continue;
-      byDrone[String(k)] = v;
-    }
-    const byParcel = {};
-    for (const [k, v] of Object.entries(raw.by_parcel_external_id ?? {})) {
-      if (typeof v !== "number") continue;
-      byParcel[String(k)] = v;
-    }
-    return {
-      defaults: raw.defaults ?? null,
-      by_crop: byCropNormalized,
-      by_drone: byDrone,
-      by_parcel: byParcel
-    };
-  } catch (e) {
-    console.error(`Error parseando ${configPath}: ${e.message}`);
-    process.exit(1);
-  }
-}
-
-/**
- * Resuelve la cadencia para una parcela, respetando precedencia:
- *   1. override por external_id (más específico)
- *   2. override por drone_model_code
- *   3. override por crop_type actual del schedule (si existe)
- *   4. override por field_type (Farmland/Orchards)
- *   5. default del config
- *   6. default hardcoded
- */
-function resolveCadence(parcel, currentSchedule, config) {
-  // 1. Por external_id
-  if (config.by_parcel[parcel.external_id]) {
-    return {
-      cadence: config.by_parcel[parcel.external_id],
-      crop_type: currentSchedule?.crop_type ?? (parcel.is_orchard ? HARDCODED_DEFAULTS.Orchards.crop_type : HARDCODED_DEFAULTS.Farmland.crop_type),
-      reason: `parcel_id override: ${config.by_parcel[parcel.external_id]}d`
-    };
-  }
-  // 2. Por drone
-  if (parcel.drone_model_code && config.by_drone[String(parcel.drone_model_code)]) {
-    return {
-      cadence: config.by_drone[String(parcel.drone_model_code)],
-      crop_type: currentSchedule?.crop_type ?? (parcel.is_orchard ? HARDCODED_DEFAULTS.Orchards.crop_type : HARDCODED_DEFAULTS.Farmland.crop_type),
-      reason: `drone_code ${parcel.drone_model_code} override: ${config.by_drone[String(parcel.drone_model_code)]}d`
-    };
-  }
-  // 3. Por crop_type actual del schedule (match normalizado)
-  if (currentSchedule?.crop_type) {
-    const cropKey = normalizeCropKey(currentSchedule.crop_type);
-    if (config.by_crop[cropKey]) {
-      return {
-        cadence: config.by_crop[cropKey],
-        crop_type: currentSchedule.crop_type,
-        reason: `crop_type "${currentSchedule.crop_type}" override: ${config.by_crop[cropKey]}d`
-      };
-    }
-  }
-  // 4. Defaults del config
-  if (config.defaults) {
-    const fieldType = parcel.is_orchard ? "Orchards" : "Farmland";
-    if (config.defaults[fieldType]) {
-      return {
-        cadence: config.defaults[fieldType],
-        crop_type: parcel.is_orchard ? HARDCODED_DEFAULTS.Orchards.crop_type : HARDCODED_DEFAULTS.Farmland.crop_type,
-        reason: `config defaults[${fieldType}]: ${config.defaults[fieldType]}d`
-      };
-    }
-  }
-  // 5. Hardcoded
-  const def = parcel.is_orchard ? HARDCODED_DEFAULTS.Orchards : HARDCODED_DEFAULTS.Farmland;
-  return { cadence: def.cadence, crop_type: def.crop_type, reason: "hardcoded default" };
-}
-
 async function ask(question) {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   return new Promise((resolve) => rl.question(question, (ans) => {
@@ -162,33 +71,35 @@ async function main() {
   loadEnv();
 
   const args = process.argv.slice(2);
-  const configIdx = args.indexOf("--config");
-  const configPath = configIdx >= 0 ? args[configIdx + 1] : null;
-  const forceIdx = args.indexOf("--force-cadence");
+  const configIdx = args.indexOf('--config');
+  const explicitConfigPath = configIdx >= 0 ? args[configIdx + 1] : null;
+  // Default: config/fumigation-cadences.json. Env var FUMIGATION_CADENCES_CONFIG
+  // permite apuntar a otro archivo (o null para forzar builtin defaults).
+  const configPath =
+    explicitConfigPath ??
+    process.env.FUMIGATION_CADENCES_CONFIG ??
+    path.join(process.cwd(), 'config', 'fumigation-cadences.json');
+  const forceIdx = args.indexOf('--force-cadence');
   const forceCadence = forceIdx >= 0 ? Number(args[forceIdx + 1]) : null;
-  const interactive = args.includes("--interactive");
-  const dryRun = args.includes("--dry-run");
+  const interactive = args.includes('--interactive');
+  const dryRun = args.includes('--dry-run');
 
   if (forceCadence !== null && (!Number.isFinite(forceCadence) || forceCadence < 1)) {
-    console.error("--force-cadence requiere un entero positivo");
+    console.error('--force-cadence requiere un entero positivo');
     process.exit(1);
   }
 
-  const config = loadConfig(configPath);
-  if (configPath) {
-    console.log(`Config cargado: ${configPath}`);
-    console.log(`  defaults: ${JSON.stringify(config.defaults ?? {})}`);
-    console.log(`  by_crop: ${Object.keys(config.by_crop).length} cultivos`);
-    console.log(`  by_drone: ${Object.keys(config.by_drone).length} drones`);
-    console.log(`  by_parcel_external_id: ${Object.keys(config.by_parcel).length} parcelas`);
-  } else {
-    console.log("Sin --config: usando defaults hardcoded (Caña 14d, Frutales 10d)");
-  }
+  const config = loadCadenceConfig(configPath);
+  console.log(`Config source: ${config._source}`);
+  console.log(`  defaults: ${JSON.stringify(config.defaults)}`);
+  console.log(`  by_crop: ${Object.keys(config.by_crop).length} cultivos`);
+  console.log(`  by_drone: ${Object.keys(config.by_drone).length} drones`);
+  console.log(`  by_parcel_external_id: ${Object.keys(config.by_parcel).length} parcelas`);
 
   const p = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
   const c = await p.connect();
   try {
-    await c.query("BEGIN");
+    await c.query('BEGIN');
 
     const result = await c.query(`
       SELECT
@@ -214,28 +125,28 @@ async function main() {
 
       if (forceCadence !== null) {
         cadence = forceCadence;
-        const def = row.is_orchard ? HARDCODED_DEFAULTS.Orchards : HARDCODED_DEFAULTS.Farmland;
-        cropType = row.crop_type ?? def.crop_type;
+        const def = row.is_orchard ? BUILTIN_DEFAULTS.crop_type.Orchards : BUILTIN_DEFAULTS.crop_type.Farmland;
+        cropType = row.crop_type ?? def;
         reason = `--force-cadence override: ${forceCadence}d`;
       } else {
         const resolved = resolveCadence(
           {
-            external_id: row.external_id,
-            is_orchard: row.is_orchard,
-            drone_model_code: row.drone_model_code
+            externalId: row.external_id,
+            droneModelCode: row.drone_model_code,
+            fieldType: row.field_type,
+            currentCropType: row.crop_type
           },
-          { crop_type: row.crop_type },
           config
         );
-        cadence = resolved.cadence;
+        cadence = resolved.cadence_days;
         cropType = resolved.crop_type;
         reason = resolved.reason;
       }
 
       // Modo interactivo: confirma si la cadencia no viene del config
-      if (interactive && reason === "hardcoded default") {
+      if (interactive && reason.startsWith('builtin default')) {
         const ans = await ask(
-          `  ${row.external_id} (${row.field_type}): cadencia actual=${row.recommended_cadence_days ?? "—"}, default=${cadence}d. ¿Custom? (Enter = acepta ${cadence}, o número): `
+          `  ${row.external_id} (${row.field_type}): cadencia actual=${row.recommended_cadence_days ?? '—'}, default=${cadence}d. ¿Custom? (Enter = acepta ${cadence}, o número): `
         );
         if (ans && /^\d+$/.test(ans)) {
           cadence = Number(ans);
@@ -276,10 +187,10 @@ async function main() {
     }
 
     if (dryRun) {
-      await c.query("ROLLBACK");
+      await c.query('ROLLBACK');
       console.log(`\n(Dry-run: rollback aplicado. ${inserted} hubieran sido insertados, ${updated} actualizados, ${skipped} saltados)`);
     } else {
-      await c.query("COMMIT");
+      await c.query('COMMIT');
       console.log(`\nResultado: ${inserted} insertados, ${updated} actualizados, ${skipped} saltados (ya tienen fumigación)`);
       if (updatedEntries.length > 0) {
         console.log(`\nCambios aplicados (cadencia o crop_type distinto al previo):`);
@@ -290,8 +201,8 @@ async function main() {
       }
     }
   } catch (err) {
-    await c.query("ROLLBACK");
-    console.error("ERROR:", err.message);
+    await c.query('ROLLBACK');
+    console.error('ERROR:', err.message);
     process.exit(1);
   } finally {
     c.release();
