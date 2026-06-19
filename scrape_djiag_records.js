@@ -24,15 +24,6 @@ const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
 
-function escapeXml(text) {
-  return String(text)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
-}
-
 function loadEnvFromLocalFile() {
   const envPath = path.join(process.cwd(), '.env.local');
   if (!fs.existsSync(envPath)) return;
@@ -68,23 +59,9 @@ async function withRetry(fn, attempts = 3, baseDelayMs = 1500) {
 // =====================================================================
 // Modo SMOKE: navega y captura todo, sin descargar nada
 // =====================================================================
-async function smokeRun(page, outDir) {
+async function smokeRun(page, outDir, discoveredEndpoints, allResponses) {
   console.log('[SMOKE] Solo navegación. No se descargan assets.');
   fs.mkdirSync(path.join(outDir, 'smoke'), { recursive: true });
-
-  const discoveredEndpoints = new Map(); // url → count
-  const allResponses = [];
-
-  page.on('response', async (res) => {
-    const url = res.url();
-    if (!url.includes('djiag.com') && !url.includes('agro-vg.djiag')) return;
-    const rec = { status: res.status(), url, method: res.request().method() };
-    allResponses.push(rec);
-    if (url.includes('/graphql') || url.includes('api/')) {
-      const key = url.split('?')[0];
-      discoveredEndpoints.set(key, (discoveredEndpoints.get(key) ?? 0) + 1);
-    }
-  });
 
   // Visitar páginas principales y capturar HTML
   const pages = [
@@ -152,7 +129,6 @@ async function smokeRun(page, outDir) {
   for (const [url, count] of endpointSummary) {
     console.log(`    [${count}x] ${url}`);
   }
-  return { endpointSummary, allResponses };
 }
 
 // =====================================================================
@@ -216,20 +192,37 @@ async function main() {
   const context = await browser.newContext({ acceptDownloads: true });
   const page = await context.newPage();
 
+  // Endpoint discovery: corre en AMBOS modos (smoke + normal) para que
+  // djiag_exports/smoke/endpoints.json siempre tenga data de la corrida.
+  const discoveredEndpoints = new Map(); // url → count
+  const allResponses = [];
+  page.on('response', async (res) => {
+    const url = res.url();
+    if (!url.includes('djiag.com')) return; // agro-vg.djiag.com es subset
+    const rec = { status: res.status(), url, method: res.request().method() };
+    allResponses.push(rec);
+    if (url.includes('/graphql') || url.includes('api/')) {
+      const key = url.split('?')[0];
+      discoveredEndpoints.set(key, (discoveredEndpoints.get(key) ?? 0) + 1);
+    }
+  });
+
   try {
-    // Login
+    // Login (con retry: a veces DJI pone CAPTCHA o rate-limit al primer hit)
     console.log('[LOGIN] navegando a /login...');
-    await page.goto('https://www.djiag.com/login', { waitUntil: 'domcontentloaded' });
-    try { await page.getByRole('button', { name: 'Accept All Cookies' }).click({ timeout: 3000 }); } catch {}
-    try { await page.locator('input[type="checkbox"]').first().check({ timeout: 3000 }); } catch {}
-    try { await page.getByRole('button', { name: 'Log in with DJI account' }).click({ timeout: 3000 }); } catch {}
-    await page.waitForLoadState('networkidle');
-    await page.locator('input[name="username"]').fill(email);
-    await page.locator('input[type="password"]').fill(password);
-    await Promise.all([
-      page.waitForURL('**/mission', { timeout: 60000 }),
-      page.getByRole('button', { name: 'Log In' }).click()
-    ]);
+    await withRetry(async () => {
+      await page.goto('https://www.djiag.com/login', { waitUntil: 'domcontentloaded' });
+      try { await page.getByRole('button', { name: 'Accept All Cookies' }).click({ timeout: 3000 }); } catch {}
+      try { await page.locator('input[type="checkbox"]').first().check({ timeout: 3000 }); } catch {}
+      try { await page.getByRole('button', { name: 'Log in with DJI account' }).click({ timeout: 3000 }); } catch {}
+      await page.waitForLoadState('networkidle');
+      await page.locator('input[name="username"]').fill(email);
+      await page.locator('input[type="password"]').fill(password);
+      await Promise.all([
+        page.waitForURL('**/mission', { timeout: 60000 }),
+        page.getByRole('button', { name: 'Log In' }).click()
+      ]);
+    }, 3, 2000);
     console.log('[LOGIN] OK');
 
     const outDir = path.join(process.cwd(), 'djiag_exports');
@@ -237,15 +230,16 @@ async function main() {
 
     if (smoke) {
       // Modo exploración
-      const result = await smokeRun(page, outDir);
-      // Guardar un config sugerido basado en lo descubierto
-      const landEndpoint = result.endpointSummary.find(e => e.url.includes('land'));
-      if (landEndpoint) {
-        console.log(`\n[SMOKE] Endpoint de lands detectado: ${landEndpoint.url}`);
-        console.log(`  → actualiza el filtro en la línea 116 de scrape_djiag_records.js`);
-        console.log(`  → sugerencia: filtro = ${path.basename(landEndpoint.url).split('?')[0]}`);
+      await smokeRun(page, outDir, discoveredEndpoints, allResponses);
+      // Sugerir el endpoint de 'lands' (match específico, no substring 'land')
+      const landsEndpoint = [...discoveredEndpoints.entries()]
+        .map(([url, count]) => ({ url, count }))
+        .find((e) => e.url.includes('graphql?name=lands'));
+      if (landsEndpoint) {
+        console.log(`\n[SMOKE] Endpoint de lands detectado: ${landsEndpoint.url}`);
+        console.log(`  → ${landsEndpoint.count} hits durante la corrida`);
       } else {
-        console.log(`\n[SMOKE] No se detectó endpoint de 'lands' automáticamente.`);
+        console.log(`\n[SMOKE] No se detectó endpoint 'graphql?name=lands' automáticamente.`);
         console.log(`  Revisa djiag_exports/smoke/endpoints.json para ver todos los endpoints.`);
       }
     } else {
@@ -257,9 +251,20 @@ async function main() {
       fs.writeFileSync(path.join(outDir, 'records_page_text.txt'), recordsText, 'utf8');
 
       if (!noDrill) {
-        await drillDownDays(page, outDir, maxDays);
+        await withRetry(() => drillDownDays(page, outDir, maxDays), 2, 2000);
       }
+
+      // Persistir endpoints descubiertos en modo normal también
+      const endpointSummary = [...discoveredEndpoints.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .map(([url, count]) => ({ url, count }));
+      fs.writeFileSync(
+        path.join(outDir, 'endpoints.json'),
+        JSON.stringify({ discovered: endpointSummary, total: allResponses.length }, null, 2),
+        'utf8'
+      );
       console.log(`\n[DONE] Datos en ${outDir}`);
+      console.log(`  ${endpointSummary.length} endpoints únicos (ver endpoints.json)`);
     }
   } catch (err) {
     console.error('[ERROR]', err.message);

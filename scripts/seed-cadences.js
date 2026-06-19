@@ -47,17 +47,49 @@ const HARDCODED_DEFAULTS = {
   Orchards: { crop_type: "Frutales", cadence: 10 }
 };
 
+/**
+ * Normaliza un crop_type para matchear contra el config: lowercase +
+ * strip de acentos (NFD → remover combining marks) + trim. Esto hace que
+ * "Cana de azucar", "CAÑA DE AZÚCAR" y "  caña de azúcar  " matcheen
+ * todos contra la key "cana de azucar" en el config.
+ */
+function normalizeCropKey(s) {
+  if (!s) return "";
+  return String(s)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
 function loadConfig(configPath) {
   if (!configPath || !fs.existsSync(configPath)) {
     return { defaults: null, by_crop: {}, by_drone: {}, by_parcel: {} };
   }
   try {
     const raw = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    // Filtrar solo entries con valor numérico (ignora _comment, _source, etc.)
+    // y normalizar las keys de by_crop para matchear variants con/sin tildes.
+    const byCropNormalized = {};
+    for (const [k, v] of Object.entries(raw.by_crop ?? {})) {
+      if (typeof v !== "number") continue;
+      byCropNormalized[normalizeCropKey(k)] = v;
+    }
+    const byDrone = {};
+    for (const [k, v] of Object.entries(raw.by_drone ?? {})) {
+      if (typeof v !== "number") continue;
+      byDrone[String(k)] = v;
+    }
+    const byParcel = {};
+    for (const [k, v] of Object.entries(raw.by_parcel_external_id ?? {})) {
+      if (typeof v !== "number") continue;
+      byParcel[String(k)] = v;
+    }
     return {
       defaults: raw.defaults ?? null,
-      by_crop: raw.by_crop ?? {},
-      by_drone: raw.by_drone ?? {},
-      by_parcel: raw.by_parcel_external_id ?? {}
+      by_crop: byCropNormalized,
+      by_drone: byDrone,
+      by_parcel: byParcel
     };
   } catch (e) {
     console.error(`Error parseando ${configPath}: ${e.message}`);
@@ -91,13 +123,16 @@ function resolveCadence(parcel, currentSchedule, config) {
       reason: `drone_code ${parcel.drone_model_code} override: ${config.by_drone[String(parcel.drone_model_code)]}d`
     };
   }
-  // 3. Por crop_type actual del schedule
-  if (currentSchedule?.crop_type && config.by_crop[currentSchedule.crop_type]) {
-    return {
-      cadence: config.by_crop[currentSchedule.crop_type],
-      crop_type: currentSchedule.crop_type,
-      reason: `crop_type "${currentSchedule.crop_type}" override: ${config.by_crop[currentSchedule.crop_type]}d`
-    };
+  // 3. Por crop_type actual del schedule (match normalizado)
+  if (currentSchedule?.crop_type) {
+    const cropKey = normalizeCropKey(currentSchedule.crop_type);
+    if (config.by_crop[cropKey]) {
+      return {
+        cadence: config.by_crop[cropKey],
+        crop_type: currentSchedule.crop_type,
+        reason: `crop_type "${currentSchedule.crop_type}" override: ${config.by_crop[cropKey]}d`
+      };
+    }
   }
   // 4. Defaults del config
   if (config.defaults) {
@@ -166,7 +201,11 @@ async function main() {
     console.log(`\nParcelas a procesar: ${result.rowCount}`);
 
     let inserted = 0, updated = 0, skipped = 0;
-    const overrides = [];
+    // updatedEntries: filas cuya cadencia cambió por algo distinto al default
+    // hardcoded (config override, --force-cadence, o --interactive). No-op
+    // updates (mismo valor que ya estaba) NO se incluyen — la idea es que el
+    // admin vea qué se modificó, no qué se reescribió igual.
+    const updatedEntries = [];
 
     for (const row of result.rows) {
       let cadence;
@@ -204,32 +243,36 @@ async function main() {
         }
       }
 
-    // Si ya tiene fumigación registrada, no la tocamos
-    if (row.last_fumigation_date) {
-      skipped += 1;
-      continue;
-    }
+      // Si ya tiene fumigación registrada, no la tocamos
+      if (row.last_fumigation_date) {
+        skipped += 1;
+        continue;
+      }
 
-    const r = await c.query(
-      `
-        INSERT INTO dji_fumigation_schedule
-          (parcel_id, crop_type, recommended_cadence_days, is_active)
-        VALUES ($1, $2, $3, true)
-        ON CONFLICT (parcel_id) DO UPDATE
-        SET crop_type = EXCLUDED.crop_type,
-            recommended_cadence_days = EXCLUDED.recommended_cadence_days,
-            updated_at = NOW()
-        WHERE dji_fumigation_schedule.last_fumigation_date IS NULL
-        RETURNING (xmax = 0) AS inserted
-      `,
-      [row.id, cropType, cadence]
-    );
-    const wasInsert = r.rows[0]?.inserted === true;
-    if (wasInsert) inserted += 1;
-    else if (r.rowCount > 0) {
-      updated += 1;
-      overrides.push({ parcel_id: row.id, land_name: row.external_id, cadence, reason });
-    }
+      const r = await c.query(
+        `
+          INSERT INTO dji_fumigation_schedule
+            (parcel_id, crop_type, recommended_cadence_days, is_active)
+          VALUES ($1, $2, $3, true)
+          ON CONFLICT (parcel_id) DO UPDATE
+          SET crop_type = EXCLUDED.crop_type,
+              recommended_cadence_days = EXCLUDED.recommended_cadence_days,
+              updated_at = NOW()
+          WHERE dji_fumigation_schedule.last_fumigation_date IS NULL
+          RETURNING (xmax = 0) AS inserted
+        `,
+        [row.id, cropType, cadence]
+      );
+      const wasInsert = r.rows[0]?.inserted === true;
+      if (wasInsert) {
+        inserted += 1;
+      } else if (r.rowCount > 0) {
+        updated += 1;
+        // Solo loguear cuando la cadencia realmente cambió vs lo que estaba
+        if (Number(row.recommended_cadence_days) !== cadence || row.crop_type !== cropType) {
+          updatedEntries.push({ parcel_id: row.id, land_name: row.external_id, cadence, reason });
+        }
+      }
     }
 
     if (dryRun) {
@@ -238,12 +281,12 @@ async function main() {
     } else {
       await c.query("COMMIT");
       console.log(`\nResultado: ${inserted} insertados, ${updated} actualizados, ${skipped} saltados (ya tienen fumigación)`);
-      if (overrides.length > 0) {
-        console.log(`\nOverrides aplicados:`);
-        for (const o of overrides.slice(0, 10)) {
+      if (updatedEntries.length > 0) {
+        console.log(`\nCambios aplicados (cadencia o crop_type distinto al previo):`);
+        for (const o of updatedEntries.slice(0, 10)) {
           console.log(`  parcela #${o.parcel_id} (${o.land_name}): ${o.cadence}d — ${o.reason}`);
         }
-        if (overrides.length > 10) console.log(`  ... y ${overrides.length - 10} más`);
+        if (updatedEntries.length > 10) console.log(`  ... y ${updatedEntries.length - 10} más`);
       }
     }
   } catch (err) {
