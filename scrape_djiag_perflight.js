@@ -24,9 +24,21 @@
 //   node scrape_djiag_perflight.js                       # últimos 30 días
 //   node scrape_djiag_perflight.js --days 7             # últimos 7 días
 //   node scrape_djiag_perflight.js --days 90            # últimos 90 días
+//   node scrape_djiag_perflight.js --resume            # continuar desde exports existentes
 //
 // Variables de entorno (.env.local):
 //   DJIAG_EMAIL, DJIAG_PASSWORD — credenciales DJI
+//
+// Resiliencia:
+//   - Cada click de paginación se reintenta hasta 3 veces con backoff exponencial
+//     (1.5s, 3s, 6s). Un fallo aislado (button not found, network blip) no mata
+//     la corrida.
+//   - Después de cada página capturada, reescribimos djiag_exports/perflight_records.json
+//     con el snapshot actual. Si el proceso muere (Ctrl-C, OOM, network drop),
+//     el archivo en disco siempre refleja lo último capturado. Re-correr con
+//     --resume retoma desde las páginas que ya tenemos.
+//   - Click + save se hace dentro de un try/finally para que un crash en el
+//     JSON.stringify no quede en disco corrupto.
 
 const fs = require('fs');
 const path = require('path');
@@ -61,6 +73,110 @@ async function withRetry(fn, attempts = 3, baseDelayMs = 1500) {
   throw lastErr;
 }
 
+/**
+ * Click "Next Page" con retry/backoff. La paginación de DJI es frágil:
+ * el botón puede no estar visible (scroll), o el click puede perder el
+ * race con un re-render de Ant Design. Probamos hasta 3 veces con
+ * backoff antes de reportar fallo al caller.
+ *
+ * Devuelve:
+ *   { status: 'clicked' | 'disabled' | 'exhausted' | 'error', tries, error? }
+ */
+async function clickNextPageWithRetry(page, iter) {
+  const MAX = 3;
+  for (let tries = 1; tries <= MAX; tries++) {
+    try {
+      const btn = page.getByTitle('Next Page').first();
+      if (await btn.count() === 0) throw new Error('Next Page button not found');
+      // Scrollear al botón antes de clickear — Ant Design pagination está
+      // al fondo de la tabla y si quedó fuera del viewport el click falla.
+      await btn.scrollIntoViewIfNeeded({ timeout: 2000 }).catch(() => {});
+      const disabled = await btn.evaluate((el) => el.classList.contains('ant-pagination-disabled'));
+      if (disabled) return { status: 'disabled', tries };
+      await btn.click({ timeout: 5000, force: true });
+      return { status: 'clicked', tries };
+    } catch (err) {
+      const wait = 1500 * Math.pow(2, tries - 1);
+      console.warn(`  [PERFLIGHT] click iter ${iter} intento ${tries}/${MAX} falló: ${err.message.slice(0, 60)} — esperando ${wait}ms`);
+      if (tries < MAX) {
+        await new Promise((r) => setTimeout(r, wait));
+      } else {
+        return { status: 'exhausted', tries, error: err.message };
+      }
+    }
+  }
+  // No deberíamos llegar acá, pero por las dudas.
+  return { status: 'error', tries: MAX };
+}
+
+/**
+ * Save incremental. Escribe al archivo destino vía temp+rename para que
+ * un crash mid-write no deje el JSON corrupto en disco.
+ *
+ * El shape del archivo es estable: { flights, total_count, total_pages,
+ * captured_at, days, pageSize, pages_captured }. --resume lee este mismo
+ * shape.
+ *
+ * Acepta flights directamente (no requiere el Map de captura). Útil para
+ * el save final en main() que ya tiene el array aplanado.
+ */
+function saveProgress(outDir, flights, totalPages, totalCount, days, pageSize, pagesCaptured) {
+  const payload = {
+    flights,
+    total_count: totalCount,
+    total_pages: totalPages,
+    captured_at: new Date().toISOString(),
+    days,
+    pageSize,
+    pages_captured: pagesCaptured ?? totalPages,
+  };
+  fs.mkdirSync(outDir, { recursive: true });
+  const finalPath = path.join(outDir, 'perflight_records.json');
+  const tmpPath = finalPath + '.partial';
+  fs.writeFileSync(tmpPath, JSON.stringify(payload, null, 2), 'utf8');
+  fs.renameSync(tmpPath, finalPath);
+  return { flightsCount: flights.length, file: finalPath };
+}
+
+/**
+ * Carga exports previos para --resume. Devuelve Map<pageNum, body> con las
+ * páginas que ya teníamos, o un Map vacío si el archivo no existe / está
+ * corrupto.
+ *
+ * Solo retomamos si el rango (days) coincide — si alguien cambió --days
+ * entre corridas, mejor empezar de cero para no mezclar páginas.
+ */
+function loadResume(outDir, days) {
+  const file = path.join(outDir, 'perflight_records.json');
+  if (!fs.existsSync(file)) return { captured: new Map(), resumeFrom: 1 };
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (parsed.days !== days) {
+      console.log(`[PERFLIGHT] --resume ignorado: archivo previo es de ${parsed.days} días, actual es ${days}`);
+      return { captured: new Map(), resumeFrom: 1 };
+    }
+    const captured = new Map();
+    // Re-derivar pageNum por posición: flights están en orden de página,
+    // pageSize = parsed.pageSize, así que flight index i → page floor(i/pageSize)+1.
+    const ps = parsed.pageSize || 50;
+    for (let i = 0; i < parsed.flights.length; i++) {
+      const pn = Math.floor(i / ps) + 1;
+      // Solo reconstruimos el marker mínimo (pageNum, data); meta_data puede
+      // venir de la primera página que re-fetcheemos.
+      const flight = parsed.flights[i];
+      if (!captured.has(pn)) {
+        captured.set(pn, { data: [], meta_data: parsed.total_pages ? { total_pages: parsed.total_pages, total_count: parsed.total_count } : undefined });
+      }
+      captured.get(pn).data.push(flight);
+    }
+    console.log(`[PERFLIGHT] --resume: ${captured.size}/${parsed.total_pages} páginas ya en disco`);
+    return { captured, resumeFrom: captured.size + 1 };
+  } catch (err) {
+    console.warn(`[PERFLIGHT] --resume: archivo previo corrupto (${err.message.slice(0, 60)}), empezando de cero`);
+    return { captured: new Map(), resumeFrom: 1 };
+  }
+}
+
 // ---------------------------------------------------------------------
 // Captura de flight_records: navega el list view y junta todas las páginas.
 // ---------------------------------------------------------------------
@@ -70,7 +186,7 @@ async function withRetry(fn, attempts = 3, baseDelayMs = 1500) {
 // clickear "Next 5 Pages" repetidamente (más rápido que "Next Page").
 //
 // Devuelve: { flights: [...], total_count, total_pages, captured_at }
-async function captureAllFlights(page, days, pageSize) {
+async function captureAllFlights(page, days, pageSize, opts = {}) {
   // 1. Calcular rango de timestamps (ms) para los últimos N días.
   //    Importante: el server espera ms epoch (no s). Para alinear con el
   //    rango que ya usa fumigations.json (que usa s epoch), multiplicamos
@@ -103,6 +219,21 @@ async function captureAllFlights(page, days, pageSize) {
     }
   };
   page.on('response', responseHandler);
+
+  // 2b. --resume: si hay exports previos con el mismo days, pre-populamos.
+  //     La estrategia: navegar de todas formas a /records/list (necesitamos
+  //     un browser vivo para fetchear las páginas faltantes), pero dejamos
+  //     la response handler sobreescribir solo las páginas que aún no
+  //     teníamos.
+  const resumeState = opts.resume
+    ? loadResume(opts.outDir, days)
+    : { captured: new Map(), resumeFrom: 1 };
+  if (opts.resume && resumeState.captured.size > 0) {
+    for (const [pn, body] of resumeState.captured.entries()) {
+      captured.set(pn, body);
+    }
+    console.log(`[PERFLIGHT] resuming desde página ${resumeState.resumeFrom} (${captured.size} ya en disco)`);
+  }
 
   // 3. Navegar a /records/list (carga la página 1 automáticamente).
   console.log('[PERFLIGHT] navegando a /records/list...');
@@ -174,52 +305,82 @@ async function captureAllFlights(page, days, pageSize) {
   console.log(`[PERFLIGHT] total_pages=${totalPages}, total_count=${totalCount}`);
 
   let clicked = 0;
+  let hardFailures = 0;
+  const MAX_HARD_FAILURES = 5; // 5 clicks seguidos reventando = algo gordo pasó
   // Iteramos con "Next Page" (single) en vez de "Next 5 Pages" porque
   // saltar 5 omite 4 páginas intermedias. Con ~800ms por click,
   // 235 clicks = ~3 min. Para 7059 flights, vale la pena.
+  // --resume: salteamos las páginas que ya teníamos en disco.
+  const startFromPage = Math.max(resumeState.resumeFrom, 2); // page 1 ya capturada
   const totalClicksNeeded = totalPages - 1; // -1 porque page 1 ya está capturada
-  console.log(`[PERFLIGHT] necesito ${totalClicksNeeded} clicks "Next Page" (1 por página)`);
+  const remainingClicks = Math.max(0, totalPages - (startFromPage - 1));
+  console.log(`[PERFLIGHT] necesito ${remainingClicks} clicks "Next Page" (de página ${startFromPage} a ${totalPages}, totalClicksNeeded=${totalClicksNeeded})`);
 
-  for (let i = 0; i < totalClicksNeeded; i++) {
-    try {
-      const btn = page.getByTitle('Next Page').first();
-      const btnCount = await btn.count();
-      if (btnCount === 0) {
-        console.warn(`  [PERFLIGHT] iter ${i}: "Next Page" no encontrado, rompo loop`);
-        break;
-      }
-      const disabled = await btn.evaluate((el) => el.classList.contains('ant-pagination-disabled'));
-      if (disabled) {
-        console.log(`  [PERFLIGHT] "Next Page" deshabilitado en iter ${i}, fin del paginado`);
-        break;
-      }
-      await btn.click({ timeout: 5000, force: true });
-      clicked++;
-      await page.waitForTimeout(700);
-      if (i < 5 || (i + 1) % 20 === 0 || i === totalClicksNeeded - 1) {
-        console.log(`  [PERFLIGHT] click ${clicked}/${totalClicksNeeded} → capturadas ${captured.size}/${totalPages}`);
-      }
-    } catch (err) {
-      console.warn(`  [PERFLIGHT] click ${clicked} falló: ${err.message.slice(0, 80)}`);
+  for (let i = startFromPage - 2; i < totalClicksNeeded; i++) {
+    const targetPage = i + 2; // 1-based
+    const r = await clickNextPageWithRetry(page, i);
+    if (r.status === 'disabled') {
+      console.log(`  [PERFLIGHT] "Next Page" deshabilitado en iter ${i} (target page ${targetPage}), fin del paginado`);
       break;
+    }
+    if (r.status === 'exhausted') {
+      hardFailures++;
+      console.error(`  [PERFLIGHT] iter ${i} target page ${targetPage}: click agotó ${r.tries} reintentos (${r.error?.slice(0, 60)})`);
+      if (hardFailures >= MAX_HARD_FAILURES) {
+        console.error(`  [PERFLIGHT] ${MAX_HARD_FAILURES} clicks hard-fail seguidos, abortando corrida`);
+        break;
+      }
+      continue; // seguimos intentando con el próximo click
+    }
+    if (r.status === 'clicked') {
+      hardFailures = 0; // reset counter en éxito
+    }
+    clicked++;
+    await page.waitForTimeout(700);
+
+    // Save incremental: si capturamos una página nueva y el outDir está
+    // definido, reescribimos el JSON con el snapshot actual. Si el proceso
+    // muere (Ctrl-C, OOM), el archivo en disco tiene lo último.
+    if (opts.outDir) {
+      try {
+        const flightsSoFar = [];
+        for (let p = 1; p <= totalPages; p++) {
+          const body = captured.get(p);
+          if (body?.data) flightsSoFar.push(...body.data);
+        }
+        const saved = saveProgress(opts.outDir, flightsSoFar, totalPages, totalCount, days, pageSize, captured.size);
+        if (i % 20 === 0 || i < 3) {
+          console.log(`  [SAVE] wrote ${saved.flightsCount} flights (page ${targetPage}/${totalPages})`);
+        }
+      } catch (saveErr) {
+        console.warn(`  [PERFLIGHT] save incremental falló: ${saveErr.message.slice(0, 60)}`);
+      }
+    }
+
+    if (i < 5 || (i + 1) % 20 === 0 || i === totalClicksNeeded - 1) {
+      console.log(`  [PERFLIGHT] click ${clicked}/${remainingClicks} (target page ${targetPage}) → capturadas ${captured.size}/${totalPages}`);
     }
   }
 
-  // 7. (Ya no se necesita — el loop anterior itera single-page)
-  //    Mantenemos este bloque como safety net por si alguna página quedó
-  //    sin capturar (p.ej. respuesta perdida por race condition).
-  while (captured.size < totalPages) {
-    try {
-      const npBtn = page.getByTitle('Next Page').first();
-      if (await npBtn.count() === 0) break;
-      const disabled = await npBtn.evaluate((el) => el.classList.contains('ant-pagination-disabled'));
-      if (disabled) break;
-      await npBtn.click({ timeout: 5000, force: true });
-      clicked++;
-      await page.waitForTimeout(800);
-    } catch (err) {
-      console.warn(`  [PERFLIGHT] Next Page #${clicked} falló: ${err.message.slice(0, 60)}`);
-      break;
+  // 7. Safety net por si alguna página quedó sin capturar (race condition
+  //    entre click y response). Mismo retry helper, pero sin save incremental
+  //    (el loop anterior ya guarda en cada éxito).
+  let safetyClicks = 0;
+  while (captured.size < totalPages && safetyClicks < 10) {
+    const r = await clickNextPageWithRetry(page, `safety-${safetyClicks}`);
+    if (r.status !== 'clicked') break;
+    safetyClicks++;
+    clicked++;
+    await page.waitForTimeout(800);
+    if (opts.outDir) {
+      try {
+        const flightsSoFar = [];
+        for (let p = 1; p <= totalPages; p++) {
+          const body = captured.get(p);
+          if (body?.data) flightsSoFar.push(...body.data);
+        }
+        saveProgress(opts.outDir, flightsSoFar, totalPages, totalCount, days, pageSize, captured.size);
+      } catch (saveErr) { console.warn(`  [PERFLIGHT] save safety falló: ${saveErr.message.slice(0, 60)}`); }
     }
   }
 
@@ -253,6 +414,7 @@ async function main() {
   const psIdx = args.indexOf('--page-size');
   const pageSize = psIdx >= 0 ? Number(args[psIdx + 1]) || 50 : 50;
   const headless = !args.includes('--headless=false');
+  const resume = args.includes('--resume');
 
   const client = new DjiagKoreanClient({ headless });
   try {
@@ -264,12 +426,13 @@ async function main() {
     const outDir = path.join(process.cwd(), 'djiag_exports');
     fs.mkdirSync(outDir, { recursive: true });
 
-    // Capturar
-    const result = await captureAllFlights(page, days, pageSize);
+    // Capturar (con --resume si está seteado y hay exports previos).
+    const result = await captureAllFlights(page, days, pageSize, { resume, outDir });
 
-    // Guardar
-    const outFile = path.join(outDir, 'perflight_records.json');
-    fs.writeFileSync(outFile, JSON.stringify(result, null, 2), 'utf8');
+    // Save final limpio (saveProgress ya escribió durante el loop,
+    // esto garantiza el último snapshot consistente).
+    const finalSave = saveProgress(outDir, result.flights, result.total_pages, result.total_count, days, pageSize, result.pages_captured);
+    const outFile = finalSave.file;
 
     // Stats
     const byDrone = {};
