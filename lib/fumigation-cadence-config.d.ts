@@ -4,11 +4,12 @@
 // de TS en el futuro) pueda importarlo con tipos.
 
 export interface CadenceConfig {
-  defaults: {
-    Farmland: number;
-    Orchards: number;
-    [fieldType: string]: number;
-  };
+  /**
+   * Defaults por field_type. `Farmland` y `Orchards` pueden o no estar
+   * en el JSON — `resolveCadence` hace fallback al builtin si faltan.
+   * Cualquier key extra es válida (forward-compat para nuevos field_types).
+   */
+  defaults: { Farmland?: number; Orchards?: number; [fieldType: string]: number | undefined };
   by_crop: Record<string, number>;
   by_drone: Record<string, number>;
   by_parcel: Record<string, number>;
