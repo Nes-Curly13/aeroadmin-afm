@@ -75,6 +75,21 @@ async function smokeRun(page, outDir, discoveredEndpoints, allResponses) {
       console.log(`  [SMOKE] visitando ${label}: ${url}`);
       await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
       await page.waitForTimeout(3000);
+
+      // (2026-06-19) §2.1 lands: después de /mission, click en el menu item
+      // "Field Management" del sidebar. page.goto a /mission no re-renderiza
+      // cuando ya estamos ahí (React Router cache), entonces la query
+      // ?name=lands no se dispara sin click explícito.
+      if (label === 'mission') {
+        try {
+          await page.locator('aside li[title="Field Management"]').first().click({ timeout: 5000 });
+          await page.waitForTimeout(4000);
+          console.log('  [SMOKE] clickeó "Field Management" en sidebar (debería disparar ?name=lands)');
+        } catch (clickErr) {
+          console.warn(`  [SMOKE] no se pudo clickear Field Management: ${clickErr.message.slice(0, 60)}`);
+        }
+      }
+
       const html = await page.content();
       fs.writeFileSync(path.join(outDir, 'smoke', `${label}.html`), html, 'utf8');
       const text = await page.locator('body').innerText();
@@ -126,8 +141,16 @@ async function smokeRun(page, outDir, discoveredEndpoints, allResponses) {
   console.log(`\n[SMOKE] Resumen:`);
   console.log(`  - ${allResponses.length} responses capturadas`);
   console.log(`  - ${discoveredEndpoints.size} endpoints únicos (ver smoke/endpoints.json)`);
-  for (const [url, count] of endpointSummary) {
-    console.log(`    [${count}x] ${url}`);
+  console.log(`  - ${opCounters.size} operaciones GraphQL únicas capturadas`);
+  for (const [op, n] of opCounters.entries()) {
+    console.log(`    [${n}x] ${op}`);
+  }
+  try {
+    for (const [url, count] of endpointSummary) {
+      console.log(`    [${count}x] ${url}`);
+    }
+  } catch (err) {
+    console.warn(`  [SMOKE] no se pudo iterar endpointSummary: ${err.message}`);
   }
 }
 
@@ -189,13 +212,23 @@ async function main() {
   const maxDays = daysIdx >= 0 ? Number(args[daysIdx + 1]) || 30 : 30;
 
   const browser = await chromium.launch({ headless });
-  const context = await browser.newContext({ acceptDownloads: true });
+  // (2026-06-19) §2.1: locale='zh-CN' y accept-language='zh-CN,zh' hacen que
+  // DJI rutee al backend coreano (kr-ag2-api.dji.com) en vez del regional
+  // (agro-vg.djiag.com). Sin esto, el query ?name=lands viene vacío.
+  const context = await browser.newContext({
+    acceptDownloads: true,
+    locale: 'zh-CN',
+    extraHTTPHeaders: {
+      'accept-language': 'zh-CN,zh'
+    }
+  });
   const page = await context.newPage();
 
   // Endpoint discovery: corre en AMBOS modos (smoke + normal) para que
   // djiag_exports/smoke/endpoints.json siempre tenga data de la corrida.
   const discoveredEndpoints = new Map(); // url → count
   const allResponses = [];
+  const opCounters = new Map(); // operationName → count
   page.on('response', async (res) => {
     const url = res.url();
     if (!url.includes('djiag.com')) return; // agro-vg.djiag.com es subset
@@ -204,6 +237,43 @@ async function main() {
     if (url.includes('/graphql') || url.includes('api/')) {
       const key = url.split('?')[0];
       discoveredEndpoints.set(key, (discoveredEndpoints.get(key) ?? 0) + 1);
+    }
+
+    // Capturar bodies de TODAS las responses a /api/graphql para entender el
+    // schema. (2026-06-19: ampliado para §2.1 — el frontend de DJI tiene dos
+    // code paths:
+    //   - regional: POST /api/graphql con operationName en el body
+    //   - coreano:  POST /ag-plot/api/graphql?name=lands con la operación en URL
+    // Capturamos ambos. operationName sale del request body; si no está, del
+    // ?name=... de la URL; si tampoco, 'unknown'.)
+    try {
+      if (!url.includes('/api/graphql')) return;
+      if (res.status() !== 200) return;
+      const req = res.request();
+      const reqBody = req.postDataJSON();
+      let op = reqBody?.operationName;
+      if (!op) {
+        const nameMatch = url.match(/[?&]name=([\w-]+)/);
+        if (nameMatch) op = nameMatch[1];
+      }
+      op = op || 'unknown';
+      const resBody = await res.json();
+      const n = (opCounters.get(op) || 0) + 1;
+      opCounters.set(op, n);
+      const dir = path.join(process.cwd(), 'djiag_exports', 'smoke');
+      fs.mkdirSync(dir, { recursive: true });
+      const fname = `graphql_${op}_${String(n).padStart(2, '0')}.json`;
+      const file = path.join(dir, fname);
+      fs.writeFileSync(file, JSON.stringify({
+        url: res.url(),
+        method: req.method(),
+        request: reqBody,
+        response: resBody,
+      }, null, 2), 'utf8');
+      console.log(`  [CAPTURE] ${op} → ${fname}`);
+    } catch (err) {
+      // Log con detalle para ver las 2 calls que se estaban perdiendo
+      console.warn(`  [CAPTURE] falló al leer body de ${url}: ${err.message.slice(0, 80)}`);
     }
   });
 
