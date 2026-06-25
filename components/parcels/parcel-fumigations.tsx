@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { toDateString } from "@/lib/format";
 import type { DjiFumigationEvent, DjiFumigationSchedule, DjiParcelRecord } from "@/lib/types";
 
 function statusChip(status: "ok" | "due_soon" | "overdue" | "no_history", days: number | null) {
@@ -98,12 +99,14 @@ export function ParcelFumigations({
           </div>
           <div className="rounded-lg bg-[#f4f7f4] p-3">
             <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#587064]">Última</p>
-            <p className="text-base font-semibold text-[#121815]">{schedule.last_fumigation_date ?? "—"}</p>
+            <p className="text-base font-semibold text-[#121815]">
+              {schedule.last_fumigation_date ? toDateString(schedule.last_fumigation_date) ?? "—" : "—"}
+            </p>
           </div>
           <div className="rounded-lg bg-[#f4f7f4] p-3">
             <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#587064]">Próxima</p>
             <p className="text-base font-semibold text-[#121815]">
-              {schedule.next_due_date ?? "—"}
+              {schedule.next_due_date ? toDateString(schedule.next_due_date) ?? "—" : "—"}
               <span className="ml-2 text-[10px] font-normal text-[#4a5b50]">
                 {daysLabel(daysUntilNextDue)}
               </span>
@@ -221,32 +224,35 @@ export function ParcelFumigations({
         </p>
       ) : (
         <ol className="space-y-2">
-          {events.map((e) => (
-            <li
-              className="flex items-start gap-3 rounded-lg border border-[#eef2ee] bg-white p-3"
-              key={e.id}
-            >
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#0b5f2d]/10 text-[10px] font-bold text-[#0b5f2d]">
-                {e.fumigation_date.slice(5)}
-              </div>
-              <div className="flex-1 text-sm">
-                <div className="flex flex-wrap items-baseline gap-2">
-                  <strong className="text-[#121815]">{e.fumigation_date}</strong>
-                  {e.product_used && (
-                    <span className="text-[#4a5b50]">— {e.product_used}</span>
+          {events.map((e) => {
+            const dateStr = toDateString(e.fumigation_date) ?? "";
+            return (
+              <li
+                className="flex items-start gap-3 rounded-lg border border-[#eef2ee] bg-white p-3"
+                key={e.id}
+              >
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#0b5f2d]/10 text-[10px] font-bold text-[#0b5f2d]">
+                  {dateStr.slice(5)}
+                </div>
+                <div className="flex-1 text-sm">
+                  <div className="flex flex-wrap items-baseline gap-2">
+                    <strong className="text-[#121815]">{dateStr}</strong>
+                    {e.product_used && (
+                      <span className="text-[#4a5b50]">— {e.product_used}</span>
+                    )}
+                  </div>
+                  <div className="mt-1 flex flex-wrap gap-3 text-[11px] text-[#4a5b50]">
+                    {e.dose_l_per_ha && <span>Dosis: {e.dose_l_per_ha} L/ha</span>}
+                    {e.duration_minutes && <span>{e.duration_minutes} min</span>}
+                    {e.recorded_by && <span>Por: {e.recorded_by}</span>}
+                  </div>
+                  {e.notes && (
+                    <p className="mt-1 text-[11px] italic text-[#4a5b50]">{e.notes}</p>
                   )}
                 </div>
-                <div className="mt-1 flex flex-wrap gap-3 text-[11px] text-[#4a5b50]">
-                  {e.dose_l_per_ha && <span>Dosis: {e.dose_l_per_ha} L/ha</span>}
-                  {e.duration_minutes && <span>{e.duration_minutes} min</span>}
-                  {e.recorded_by && <span>Por: {e.recorded_by}</span>}
-                </div>
-                {e.notes && (
-                  <p className="mt-1 text-[11px] italic text-[#4a5b50]">{e.notes}</p>
-                )}
-              </div>
-            </li>
-          ))}
+              </li>
+            );
+          })}
         </ol>
       )}
     </section>

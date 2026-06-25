@@ -23,9 +23,11 @@ function ha(m2: number | null | undefined) {
   return `${(m2 / 10_000).toFixed(3)} ha`;
 }
 
-function numOrDash(v: number | null | undefined, suffix = "", digits = 2) {
-  if (v === null || v === undefined) return "—";
-  return `${v.toFixed(digits)}${suffix}`;
+function numOrDash(v: number | string | null | undefined, suffix = "", digits = 2) {
+  if (v === null || v === undefined || v === "") return "—";
+  const n = typeof v === "string" ? Number(v) : v;
+  if (Number.isNaN(n)) return "—";
+  return `${n.toFixed(digits)}${suffix}`;
 }
 
 function dateOrDash(iso: string | null | undefined) {

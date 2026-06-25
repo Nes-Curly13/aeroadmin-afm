@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 
+import { toDateString } from "@/lib/format";
 import type { UpcomingFumigation } from "@/lib/types";
 
 function statusStyle(status: UpcomingFumigation["status"]) {
@@ -101,7 +102,7 @@ export function UpcomingFumigations({ items }: { items: UpcomingFumigation[] }) 
                       <span>Dron: <strong className="text-[#121815]">{item.drone_model_name}</strong></span>
                     )}
                     {item.last_fumigation_date && (
-                      <span>Última: {item.last_fumigation_date}</span>
+                      <span>Última: {toDateString(item.last_fumigation_date) ?? "—"}</span>
                     )}
                   </div>
                 </div>
