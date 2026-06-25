@@ -25,6 +25,8 @@
     "upsert:djiag:lands": "node scripts/upsert-lands-from-djiag.js",
     "db:import:lands": "node scripts/import-lands-pipeline.js",
     "seed:cadences": "node scripts/seed-cadences.js",
+    "pipeline:djiag": "node scripts/run-pipeline.js",
+    "pipeline:djiag:dry": "node scripts/run-pipeline.js --dry-run",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
