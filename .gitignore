@@ -39,3 +39,14 @@ coverage/
 # DJI AG data — user-specific (NEVER commit client DJI data)
 # ============================================================
 djiag_exports/
+
+# ============================================================
+# Scratch / debug output at repo root
+# (manual page captures, API response samples, console logs)
+# ============================================================
+/_dashboard.html
+/_parcel.html
+/_fumigations.json
+/_test_out.txt
+/aggr_by_day.json
+/log.txt
