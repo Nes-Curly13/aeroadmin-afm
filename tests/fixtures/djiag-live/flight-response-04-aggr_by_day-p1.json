@@ -1,0 +1,763 @@
+{
+  "url": "https://kr-ag2-api.dji.com/api/web/v1/flight_records/aggr_by_day?filters%5Btimestamp_gteq%5D=1767243600000&filters%5Btimestamp_lteq%5D=1781931599999&page=1&page_size=30",
+  "body": {
+    "status": 200,
+    "data": {
+      "aggr_info": [
+        {
+          "create_timestamp": 1781884800,
+          "work_area": 4668,
+          "work_times": 4,
+          "work_time": 1180800,
+          "spray_usage": 54571,
+          "sow_usage": 0,
+          "ag": {
+            "sortie_count": 4,
+            "sum_work_time": 1180800,
+            "sum_area": 4668,
+            "spray_usage": 54571,
+            "sow_usage": 0
+          },
+          "delivery": {
+            "sortie_count": 0,
+            "sum_work_time": 0,
+            "sum_work_lap": 0,
+            "sum_weight": 0,
+            "sum_net_weight": 0,
+            "sum_group_weight": 0,
+            "sum_group_net_weight": 0,
+            "sum_group_laps": 0
+          }
+        },
+        {
+          "create_timestamp": 1781798400,
+          "work_area": 83759,
+          "work_times": 86,
+          "work_time": 22221791,
+          "spray_usage": 1029010,
+          "sow_usage": 0,
+          "ag": {
+            "sortie_count": 86,
+            "sum_work_time": 22221791,
+            "sum_area": 83759,
+            "spray_usage": 1029010,
+            "sow_usage": 0
+          },
+          "delivery": {
+            "sortie_count": 0,
+            "sum_work_time": 0,
+            "sum_work_lap": 0,
+            "sum_weight": 0,
+            "sum_net_weight": 0,
+            "sum_group_weight": 0,
+            "sum_group_net_weight": 0,
+            "sum_group_laps": 0
+          }
+        },
+        {
+          "create_timestamp": 1781712000,
+          "work_area": 52120,
+          "work_times": 58,
+          "work_time": 16217897,
+          "spray_usage": 740142,
+          "sow_usage": 0,
+          "ag": {
+            "sortie_count": 58,
+            "sum_work_time": 16217897,
+            "sum_area": 52120,
+            "spray_usage": 740142,
+            "sow_usage": 0
+          },
+          "delivery": {
+            "sortie_count": 0,
+            "sum_work_time": 0,
+            "sum_work_lap": 0,
+            "sum_weight": 0,
+            "sum_net_weight": 0,
+            "sum_group_weight": 0,
+            "sum_group_net_weight": 0,
+            "sum_group_laps": 0
+          }
+        },
+        {
+          "create_timestamp": 1781625600,
+          "work_area": 68515,
+          "work_times": 75,
+          "work_time": 17375590,
+          "spray_usage": 775484,
+          "sow_usage": 0,
+          "ag": {
+            "sortie_count": 75,
+            "sum_work_time": 17375590,
+            "sum_area": 68515,
+            "spray_usage": 775484,
+            "sow_usage": 0
+          },
+          "delivery": {
+            "sortie_count": 0,
+            "sum_work_time": 0,
+            "sum_work_lap": 0,
+            "sum_weight": 0,
+            "sum_net_weight": 0,
+            "sum_group_weight": 0,
+            "sum_group_net_weight": 0,
+            "sum_group_laps": 0
+          }
+        },
+        {
+          "create_timestamp": 1781539200,
+          "work_area": 47526,
+          "work_times": 44,
+          "work_time": 11321094,
+          "spray_usage": 524086,
+          "sow_usage": 0,
+          "ag": {
+            "sortie_count": 44,
+            "sum_work_time": 11321094,
+            "sum_area": 47526,
+            "spray_usage": 524086,
+            "sow_usage": 0
+          },
+          "delivery": {
+            "sortie_count": 0,
+            "sum_work_time": 0,
+            "sum_work_lap": 0,
+            "sum_weight": 0,
+            "sum_net_weight": 0,
+            "sum_group_weight": 0,
+            "sum_group_net_weight": 0,
+            "sum_group_laps": 0
+          }
+        },
+        {
+          "create_timestamp": 1781366400,
+          "work_area": 1956,
+          "work_times": 2,
+          "work_time": 583300,
+          "spray_usage": 28208,
+          "sow_usage": 0,
+          "ag": {
+            "sortie_count": 2,
+            "sum_work_time": 583300,
+            "sum_area": 1956,
+            "spray_usage": 28208,
+            "sow_usage": 0
+          },
+          "delivery": {
+            "sortie_count": 0,
+            "sum_work_time": 0,
+            "sum_work_lap": 0,
+            "sum_weight": 0,
+            "sum_net_weight": 0,
+            "sum_group_weight": 0,
+            "sum_group_net_weight": 0,
+            "sum_group_laps": 0
+          }
+        },
+        {
+          "create_timestamp": 1781280000,
+          "work_area": 111339,
+          "work_times": 101,
+          "work_time": 26311392,
+          "spray_usage": 1495973,
+          "sow_usage": 0,
+          "ag": {
+            "sortie_count": 101,
+            "sum_work_time": 26311392,
+            "sum_area": 111339,
+            "spray_usage": 1495973,
+            "sow_usage": 0
+          },
+          "delivery": {
+            "sortie_count": 0,
+            "sum_work_time": 0,
+            "sum_work_lap": 0,
+            "sum_weight": 0,
+            "sum_net_weight": 0,
+            "sum_group_weight": 0,
+            "sum_group_net_weight": 0,
+            "sum_group_laps": 0
+          }
+        },
+        {
+          "create_timestamp": 1781193600,
+          "work_area": 89332,
+          "work_times": 75,
+          "work_time": 23974993,
+          "spray_usage": 1023510,
+          "sow_usage": 0,
+          "ag": {
+            "sortie_count": 75,
+            "sum_work_time": 23974993,
+            "sum_area": 89332,
+            "spray_usage": 1023510,
+            "sow_usage": 0
+          },
+          "delivery": {
+            "sortie_count": 0,
+            "sum_work_time": 0,
+            "sum_work_lap": 0,
+            "sum_weight": 0,
+            "sum_net_weight": 0,
+            "sum_group_weight": 0,
+            "sum_group_net_weight": 0,
+            "sum_group_laps": 0
+          }
+        },
+        {
+          "create_timestamp": 1781107200,
+          "work_area": 110335,
+          "work_times": 88,
+          "work_time": 26860387,
+          "spray_usage": 1075701,
+          "sow_usage": 0,
+          "ag": {
+            "sortie_count": 88,
+            "sum_work_time": 26860387,
+            "sum_area": 110335,
+            "spray_usage": 1075701,
+            "sow_usage": 0
+          },
+          "delivery": {
+            "sortie_count": 0,
+            "sum_work_time": 0,
+            "sum_work_lap": 0,
+            "sum_weight": 0,
+            "sum_net_weight": 0,
+            "sum_group_weight": 0,
+            "sum_group_net_weight": 0,
+            "sum_group_laps": 0
+          }
+        },
+        {
+          "create_timestamp": 1781020800,
+          "work_area": 53439,
+          "work_times": 77,
+          "work_time": 19479488,
+          "spray_usage": 558560,
+          "sow_usage": 0,
+          "ag": {
+            "sortie_count": 77,
+            "sum_work_time": 19479488,
+            "sum_area": 53439,
+            "spray_usage": 558560,
+            "sow_usage": 0
+          },
+          "delivery": {
+            "sortie_count": 0,
+            "sum_work_time": 0,
+            "sum_work_lap": 0,
+            "sum_weight": 0,
+            "sum_net_weight": 0,
+            "sum_group_weight": 0,
+            "sum_group_net_weight": 0,
+            "sum_group_laps": 0
+          }
+        },
+        {
+          "create_timestamp": 1780934400,
+          "work_area": 40898,
+          "work_times": 35,
+          "work_time": 11880895,
+          "spray_usage": 411018,
+          "sow_usage": 0,
+          "ag": {
+            "sortie_count": 35,
+            "sum_work_time": 11880895,
+            "sum_area": 40898,
+            "spray_usage": 411018,
+            "sow_usage": 0
+          },
+          "delivery": {
+            "sortie_count": 0,
+            "sum_work_time": 0,
+            "sum_work_lap": 0,
+            "sum_weight": 0,
+            "sum_net_weight": 0,
+            "sum_group_weight": 0,
+            "sum_group_net_weight": 0,
+            "sum_group_laps": 0
+          }
+        },
+        {
+          "create_timestamp": 1780761600,
+          "work_area": 40479,
+          "work_times": 40,
+          "work_time": 11124797,
+          "spray_usage": 433115,
+          "sow_usage": 0,
+          "ag": {
+            "sortie_count": 40,
+            "sum_work_time": 11124797,
+            "sum_area": 40479,
+            "spray_usage": 433115,
+            "sow_usage": 0
+          },
+          "delivery": {
+            "sortie_count": 0,
+            "sum_work_time": 0,
+            "sum_work_lap": 0,
+            "sum_weight": 0,
+            "sum_net_weight": 0,
+            "sum_group_weight": 0,
+            "sum_group_net_weight": 0,
+            "sum_group_laps": 0
+          }
+        },
+        {
+          "create_timestamp": 1780675200,
+          "work_area": 71313,
+          "work_times": 60,
+          "work_time": 18892591,
+          "spray_usage": 782843,
+          "sow_usage": 0,
+          "ag": {
+            "sortie_count": 60,
+            "sum_work_time": 18892591,
+            "sum_area": 71313,
+            "spray_usage": 782843,
+            "sow_usage": 0
+          },
+          "delivery": {
+            "sortie_count": 0,
+            "sum_work_time": 0,
+            "sum_work_lap": 0,
+            "sum_weight": 0,
+            "sum_net_weight": 0,
+            "sum_group_weight": 0,
+            "sum_group_net_weight": 0,
+            "sum_group_laps": 0
+          }
+        },
+        {
+          "create_timestamp": 1780588800,
+          "work_area": 48940,
+          "work_times": 66,
+          "work_time": 14821094,
+          "spray_usage": 685408,
+          "sow_usage": 0,
+          "ag": {
+            "sortie_count": 66,
+            "sum_work_time": 14821094,
+            "sum_area": 48940,
+            "spray_usage": 685408,
+            "sow_usage": 0
+          },
+          "delivery": {
+            "sortie_count": 0,
+            "sum_work_time": 0,
+            "sum_work_lap": 0,
+            "sum_weight": 0,
+            "sum_net_weight": 0,
+            "sum_group_weight": 0,
+            "sum_group_net_weight": 0,
+            "sum_group_laps": 0
+          }
+        },
+        {
+          "create_timestamp": 1780502400,
+          "work_area": 32327,
+          "work_times": 30,
+          "work_time": 7765400,
+          "spray_usage": 377933,
+          "sow_usage": 0,
+          "ag": {
+            "sortie_count": 30,
+            "sum_work_time": 7765400,
+            "sum_area": 32327,
+            "spray_usage": 377933,
+            "sow_usage": 0
+          },
+          "delivery": {
+            "sortie_count": 0,
+            "sum_work_time": 0,
+            "sum_work_lap": 0,
+            "sum_weight": 0,
+            "sum_net_weight": 0,
+            "sum_group_weight": 0,
+            "sum_group_net_weight": 0,
+            "sum_group_laps": 0
+          }
+        },
+        {
+          "create_timestamp": 1780416000,
+          "work_area": 41648,
+          "work_times": 38,
+          "work_time": 13095401,
+          "spray_usage": 439591,
+          "sow_usage": 0,
+          "ag": {
+            "sortie_count": 38,
+            "sum_work_time": 13095401,
+            "sum_area": 41648,
+            "spray_usage": 439591,
+            "sow_usage": 0
+          },
+          "delivery": {
+            "sortie_count": 0,
+            "sum_work_time": 0,
+            "sum_work_lap": 0,
+            "sum_weight": 0,
+            "sum_net_weight": 0,
+            "sum_group_weight": 0,
+            "sum_group_net_weight": 0,
+            "sum_group_laps": 0
+          }
+        },
+        {
+          "create_timestamp": 1780329600,
+          "work_area": 93540,
+          "work_times": 94,
+          "work_time": 26091089,
+          "spray_usage": 983596,
+          "sow_usage": 0,
+          "ag": {
+            "sortie_count": 94,
+            "sum_work_time": 26091089,
+            "sum_area": 93540,
+            "spray_usage": 983596,
+            "sow_usage": 0
+          },
+          "delivery": {
+            "sortie_count": 0,
+            "sum_work_time": 0,
+            "sum_work_lap": 0,
+            "sum_weight": 0,
+            "sum_net_weight": 0,
+            "sum_group_weight": 0,
+            "sum_group_net_weight": 0,
+            "sum_group_laps": 0
+          }
+        },
+        {
+          "create_timestamp": 1780243200,
+          "work_area": 44823,
+          "work_times": 58,
+          "work_time": 14595497,
+          "spray_usage": 499693,
+          "sow_usage": 0,
+          "ag": {
+            "sortie_count": 58,
+            "sum_work_time": 14595497,
+            "sum_area": 44823,
+            "spray_usage": 499693,
+            "sow_usage": 0
+          },
+          "delivery": {
+            "sortie_count": 0,
+            "sum_work_time": 0,
+            "sum_work_lap": 0,
+            "sum_weight": 0,
+            "sum_net_weight": 0,
+            "sum_group_weight": 0,
+            "sum_group_net_weight": 0,
+            "sum_group_laps": 0
+          }
+        },
+        {
+          "create_timestamp": 1780156800,
+          "work_area": 44046,
+          "work_times": 44,
+          "work_time": 13484495,
+          "spray_usage": 500576,
+          "sow_usage": 0,
+          "ag": {
+            "sortie_count": 44,
+            "sum_work_time": 13484495,
+            "sum_area": 44046,
+            "spray_usage": 500576,
+            "sow_usage": 0
+          },
+          "delivery": {
+            "sortie_count": 0,
+            "sum_work_time": 0,
+            "sum_work_lap": 0,
+            "sum_weight": 0,
+            "sum_net_weight": 0,
+            "sum_group_weight": 0,
+            "sum_group_net_weight": 0,
+            "sum_group_laps": 0
+          }
+        },
+        {
+          "create_timestamp": 1780070400,
+          "work_area": 64396,
+          "work_times": 92,
+          "work_time": 18906691,
+          "spray_usage": 705126,
+          "sow_usage": 0,
+          "ag": {
+            "sortie_count": 92,
+            "sum_work_time": 18906691,
+            "sum_area": 64396,
+            "spray_usage": 705126,
+            "sow_usage": 0
+          },
+          "delivery": {
+            "sortie_count": 0,
+            "sum_work_time": 0,
+            "sum_work_lap": 0,
+            "sum_weight": 0,
+            "sum_net_weight": 0,
+            "sum_group_weight": 0,
+            "sum_group_net_weight": 0,
+            "sum_group_laps": 0
+          }
+        },
+        {
+          "create_timestamp": 1779984000,
+          "work_area": 101929,
+          "work_times": 82,
+          "work_time": 23220196,
+          "spray_usage": 840271,
+          "sow_usage": 0,
+          "ag": {
+            "sortie_count": 82,
+            "sum_work_time": 23220196,
+            "sum_area": 101929,
+            "spray_usage": 840271,
+            "sow_usage": 0
+          },
+          "delivery": {
+            "sortie_count": 0,
+            "sum_work_time": 0,
+            "sum_work_lap": 0,
+            "sum_weight": 0,
+            "sum_net_weight": 0,
+            "sum_group_weight": 0,
+            "sum_group_net_weight": 0,
+            "sum_group_laps": 0
+          }
+        },
+        {
+          "create_timestamp": 1779897600,
+          "work_area": 62662,
+          "work_times": 54,
+          "work_time": 17767985,
+          "spray_usage": 507161,
+          "sow_usage": 0,
+          "ag": {
+            "sortie_count": 54,
+            "sum_work_time": 17767985,
+            "sum_area": 62662,
+            "spray_usage": 507161,
+            "sow_usage": 0
+          },
+          "delivery": {
+            "sortie_count": 0,
+            "sum_work_time": 0,
+            "sum_work_lap": 0,
+            "sum_weight": 0,
+            "sum_net_weight": 0,
+            "sum_group_weight": 0,
+            "sum_group_net_weight": 0,
+            "sum_group_laps": 0
+          }
+        },
+        {
+          "create_timestamp": 1779811200,
+          "work_area": 66670,
+          "work_times": 53,
+          "work_time": 18710198,
+          "spray_usage": 603358,
+          "sow_usage": 0,
+          "ag": {
+            "sortie_count": 53,
+            "sum_work_time": 18710198,
+            "sum_area": 66670,
+            "spray_usage": 603358,
+            "sow_usage": 0
+          },
+          "delivery": {
+            "sortie_count": 0,
+            "sum_work_time": 0,
+            "sum_work_lap": 0,
+            "sum_weight": 0,
+            "sum_net_weight": 0,
+            "sum_group_weight": 0,
+            "sum_group_net_weight": 0,
+            "sum_group_laps": 0
+          }
+        },
+        {
+          "create_timestamp": 1779724800,
+          "work_area": 74993,
+          "work_times": 51,
+          "work_time": 16861396,
+          "spray_usage": 657542,
+          "sow_usage": 0,
+          "ag": {
+            "sortie_count": 51,
+            "sum_work_time": 16861396,
+            "sum_area": 74993,
+            "spray_usage": 657542,
+            "sow_usage": 0
+          },
+          "delivery": {
+            "sortie_count": 0,
+            "sum_work_time": 0,
+            "sum_work_lap": 0,
+            "sum_weight": 0,
+            "sum_net_weight": 0,
+            "sum_group_weight": 0,
+            "sum_group_net_weight": 0,
+            "sum_group_laps": 0
+          }
+        },
+        {
+          "create_timestamp": 1779638400,
+          "work_area": 39760,
+          "work_times": 29,
+          "work_time": 9092599,
+          "spray_usage": 312860,
+          "sow_usage": 0,
+          "ag": {
+            "sortie_count": 29,
+            "sum_work_time": 9092599,
+            "sum_area": 39760,
+            "spray_usage": 312860,
+            "sow_usage": 0
+          },
+          "delivery": {
+            "sortie_count": 0,
+            "sum_work_time": 0,
+            "sum_work_lap": 0,
+            "sum_weight": 0,
+            "sum_net_weight": 0,
+            "sum_group_weight": 0,
+            "sum_group_net_weight": 0,
+            "sum_group_laps": 0
+          }
+        },
+        {
+          "create_timestamp": 1779552000,
+          "work_area": 56545,
+          "work_times": 42,
+          "work_time": 13675496,
+          "spray_usage": 831200,
+          "sow_usage": 0,
+          "ag": {
+            "sortie_count": 42,
+            "sum_work_time": 13675496,
+            "sum_area": 56545,
+            "spray_usage": 831200,
+            "sow_usage": 0
+          },
+          "delivery": {
+            "sortie_count": 0,
+            "sum_work_time": 0,
+            "sum_work_lap": 0,
+            "sum_weight": 0,
+            "sum_net_weight": 0,
+            "sum_group_weight": 0,
+            "sum_group_net_weight": 0,
+            "sum_group_laps": 0
+          }
+        },
+        {
+          "create_timestamp": 1779465600,
+          "work_area": 77832,
+          "work_times": 61,
+          "work_time": 17784496,
+          "spray_usage": 833274,
+          "sow_usage": 0,
+          "ag": {
+            "sortie_count": 61,
+            "sum_work_time": 17784496,
+            "sum_area": 77832,
+            "spray_usage": 833274,
+            "sow_usage": 0
+          },
+          "delivery": {
+            "sortie_count": 0,
+            "sum_work_time": 0,
+            "sum_work_lap": 0,
+            "sum_weight": 0,
+            "sum_net_weight": 0,
+            "sum_group_weight": 0,
+            "sum_group_net_weight": 0,
+            "sum_group_laps": 0
+          }
+        },
+        {
+          "create_timestamp": 1779379200,
+          "work_area": 54000,
+          "work_times": 39,
+          "work_time": 12689902,
+          "spray_usage": 503254,
+          "sow_usage": 0,
+          "ag": {
+            "sortie_count": 39,
+            "sum_work_time": 12689902,
+            "sum_area": 54000,
+            "spray_usage": 503254,
+            "sow_usage": 0
+          },
+          "delivery": {
+            "sortie_count": 0,
+            "sum_work_time": 0,
+            "sum_work_lap": 0,
+            "sum_weight": 0,
+            "sum_net_weight": 0,
+            "sum_group_weight": 0,
+            "sum_group_net_weight": 0,
+            "sum_group_laps": 0
+          }
+        },
+        {
+          "create_timestamp": 1779292800,
+          "work_area": 78485,
+          "work_times": 87,
+          "work_time": 21623692,
+          "spray_usage": 1174500,
+          "sow_usage": 0,
+          "ag": {
+            "sortie_count": 87,
+            "sum_work_time": 21623692,
+            "sum_area": 78485,
+            "spray_usage": 1174500,
+            "sow_usage": 0
+          },
+          "delivery": {
+            "sortie_count": 0,
+            "sum_work_time": 0,
+            "sum_work_lap": 0,
+            "sum_weight": 0,
+            "sum_net_weight": 0,
+            "sum_group_weight": 0,
+            "sum_group_net_weight": 0,
+            "sum_group_laps": 0
+          }
+        },
+        {
+          "create_timestamp": 1779206400,
+          "work_area": 53815,
+          "work_times": 51,
+          "work_time": 14769395,
+          "spray_usage": 706802,
+          "sow_usage": 0,
+          "ag": {
+            "sortie_count": 51,
+            "sum_work_time": 14769395,
+            "sum_area": 53815,
+            "spray_usage": 706802,
+            "sow_usage": 0
+          },
+          "delivery": {
+            "sortie_count": 0,
+            "sum_work_time": 0,
+            "sum_work_lap": 0,
+            "sum_weight": 0,
+            "sum_net_weight": 0,
+            "sum_group_weight": 0,
+            "sum_group_net_weight": 0,
+            "sum_group_laps": 0
+          }
+        }
+      ]
+    },
+    "code": 0,
+    "message": "OK",
+    "request_id": "95d72b9f-b6dd-49d8-80e7-ed88dbbb41dc"
+  }
+}

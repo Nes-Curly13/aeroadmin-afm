@@ -1,0 +1,74 @@
+{
+  "data": {
+    "lands": {
+      "totalCount": 1063,
+      "pageInfo": {
+        "hasNextPage": false,
+        "endCursor": null
+      },
+      "edges": [
+        {
+          "cursor": "4",
+          "node": {
+            "uuid": "af4d7eb1-6c5d-4043-e9f4-d4e5f6a7b8c9",
+            "externalId": "1268692918907510784-flyer-0047243d-4567-89ab-cdef-012345678901",
+            "name": "Santa Mónica STE 1",
+            "address": "Buga, Centro, Valle del Cauca, Colombia",
+            "updatedAt": "2025-10-15T12:00:00.000Z",
+            "createdAt": "2024-06-10T08:00:00.000Z",
+            "totalArea": 44.55,
+            "workArea": 42.0,
+            "totalObstacleArea": 2.55,
+            "sourceType": "MANUAL",
+            "landType": "Farmland",
+            "precision": null,
+            "precisionType": null,
+            "maxGeometryParameterOffset": null,
+            "position": {
+              "lng": null,
+              "lat": null
+            },
+            "geometry": {
+              "storage": null
+            },
+            "waypoint": {
+              "storage": null
+            },
+            "parameter": {
+              "storage": null
+            },
+            "serialNumber": null,
+            "bbox": null,
+            "tags": []
+          }
+        },
+        {
+          "cursor": "5",
+          "node": {
+            "uuid": "b05e8fc2-7d6e-4154-fa05-e5f6a7b8c9d0",
+            "externalId": "1268692918907510784-flyer-0047243d-5678-9abc-def0-123456789012",
+            "name": "prueba 1",
+            "address": null,
+            "updatedAt": "2025-09-01T09:00:00.000Z",
+            "createdAt": "2025-08-20T10:00:00.000Z",
+            "totalArea": 22.05,
+            "workArea": 0,
+            "totalObstacleArea": 0,
+            "sourceType": "PHOTOGRAPHY",
+            "landType": "Farmland",
+            "precision": 0.5,
+            "precisionType": "GPS",
+            "maxGeometryParameterOffset": 0.2,
+            "position": null,
+            "geometry": null,
+            "waypoint": null,
+            "parameter": null,
+            "serialNumber": null,
+            "bbox": null,
+            "tags": ["test"]
+          }
+        }
+      ]
+    }
+  }
+}

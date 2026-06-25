@@ -1,0 +1,33 @@
+{
+  "url": "https://kr-ag2-api.dji.com/api/web/v1/flight_records/aggr?filters%5Btimestamp_gteq%5D=1767243600000&filters%5Btimestamp_lteq%5D=1781931599999",
+  "body": {
+    "status": 200,
+    "msg": "success",
+    "data": {
+      "count": 6804,
+      "sum_area": 45988493.33563276,
+      "sum_time": 1929396465,
+      "sum_days": 150,
+      "spray_usage": 86926556,
+      "sow_usage": 0,
+      "ag": {
+        "sortie_count": 6804,
+        "sum_work_time": 1929396465,
+        "sum_work_day": 150,
+        "sum_area": 45988493.33563276,
+        "spray_usage": 86926556,
+        "sow_usage": 0
+      },
+      "delivery": {
+        "sortie_count": 0,
+        "sum_work_time": 0,
+        "sum_work_day": 0,
+        "sum_work_lap": 0,
+        "sum_weight": 0
+      }
+    },
+    "code": 0,
+    "message": "OK",
+    "request_id": "b20aa4ec-2577-4633-8341-47b967aec5fe"
+  }
+}

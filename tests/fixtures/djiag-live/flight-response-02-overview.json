@@ -1,0 +1,30 @@
+{
+  "url": "https://kr-ag2-api.dji.com/api/web/v1/flight_records/overview?filters%5Btimestamp_gteq%5D=1767243600000&filters%5Btimestamp_lteq%5D=1781931599999&top_left%5Blat%5D=90&top_left%5Blon%5D=-180&bottom_right%5Blat%5D=-90&bottom_right%5Blon%5D=180&precision=1",
+  "body": {
+    "status": 200,
+    "buckets": [
+      {
+        "key": "d2",
+        "count": 6804,
+        "work_area": 45988493.33563276,
+        "centroid": {
+          "lat": 3.6242706,
+          "lon": -76.3283633
+        },
+        "viewport": {
+          "top_left": {
+            "lat": 4.7006063,
+            "lon": -76.5055403
+          },
+          "bottom_right": {
+            "lat": 3.2732196,
+            "lon": -75.925341
+          }
+        }
+      }
+    ],
+    "code": 0,
+    "message": "OK",
+    "request_id": "e5af5b7f-9b46-4b07-9ff2-c0b9c75a5018"
+  }
+}

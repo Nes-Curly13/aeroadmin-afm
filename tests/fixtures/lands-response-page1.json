@@ -1,0 +1,163 @@
+{
+  "data": {
+    "lands": {
+      "totalCount": 1063,
+      "pageInfo": {
+        "hasNextPage": true,
+        "endCursor": "200"
+      },
+      "edges": [
+        {
+          "cursor": "1",
+          "node": {
+            "uuid": "7c1a4b8e-3f29-4d10-b6c1-a1b2c3d4e5f6",
+            "externalId": "1268692918907510784-flyer-0047243d-1234-5678-9abc-def012345678",
+            "name": "linares 2 ste4A",
+            "address": "Palmira, Sur, Valle del Cauca, Colombia",
+            "updatedAt": "2025-12-15T10:23:00.000Z",
+            "createdAt": "2024-08-12T14:01:33.000Z",
+            "totalArea": 91.95,
+            "workArea": 85.5,
+            "totalObstacleArea": 6.45,
+            "sourceType": "MANUAL",
+            "landType": "Farmland",
+            "precision": 0.5,
+            "precisionType": "RTK",
+            "maxGeometryParameterOffset": 0.3,
+            "position": {
+              "lng": -76.328195,
+              "lat": 3.624620
+            },
+            "geometry": {
+              "storage": {
+                "signedURL": "https://dji-storage.example.com/geom/abc123?signature=xyz",
+                "uuid": "geom-uuid-001",
+                "contentMd5": "abc123md5=="
+              }
+            },
+            "waypoint": {
+              "storage": {
+                "signedURL": "https://dji-storage.example.com/wp/abc123?signature=xyz"
+              }
+            },
+            "parameter": {
+              "storage": {
+                "signedURL": "https://dji-storage.example.com/param/abc123?signature=xyz"
+              }
+            },
+            "serialNumber": "T40-001",
+            "bbox": {
+              "upperRight": {
+                "lat": 3.62470,
+                "lng": -76.32813
+              },
+              "downLeft": {
+                "lat": 3.62455,
+                "lng": -76.32826
+              }
+            },
+            "tags": ["caña", "q1-2026"]
+          }
+        },
+        {
+          "cursor": "2",
+          "node": {
+            "uuid": "8d2b5c9f-4a3b-4e21-c7d2-b2c3d4e5f6a7",
+            "externalId": "1268692918907510784-flyer-0047243d-2345-6789-abcd-ef0123456789",
+            "name": "porvenir MB ste10",
+            "address": "Palmira, Sur, Valle del Cauca, Colombia",
+            "updatedAt": "2025-11-30T08:45:00.000Z",
+            "createdAt": "2024-09-05T09:15:00.000Z",
+            "totalArea": 28.35,
+            "workArea": 27.0,
+            "totalObstacleArea": 1.35,
+            "sourceType": "MANUAL",
+            "landType": "Farmland",
+            "precision": 0.5,
+            "precisionType": "RTK",
+            "maxGeometryParameterOffset": 0.3,
+            "position": {
+              "lng": -76.327800,
+              "lat": 3.625100
+            },
+            "geometry": {
+              "storage": {
+                "signedURL": "https://dji-storage.example.com/geom/def456?signature=abc",
+                "uuid": "geom-uuid-002",
+                "contentMd5": "def456md5=="
+              }
+            },
+            "waypoint": {
+              "storage": {
+                "signedURL": "https://dji-storage.example.com/wp/def456?signature=abc"
+              }
+            },
+            "parameter": {
+              "storage": {
+                "signedURL": "https://dji-storage.example.com/param/def456?signature=abc"
+              }
+            },
+            "serialNumber": "T40-002",
+            "bbox": {
+              "upperRight": {
+                "lat": 3.62520,
+                "lng": -76.32770
+              },
+              "downLeft": {
+                "lat": 3.62500,
+                "lng": -76.32790
+              }
+            },
+            "tags": []
+          }
+        },
+        {
+          "cursor": "3",
+          "node": {
+            "uuid": "9e3c6da0-5b4c-4f32-d8e3-c3d4e5f6a7b8",
+            "externalId": "1268692918907510784-flyer-0047243d-3456-789a-bcde-f01234567890",
+            "name": "malibu ste 65",
+            "address": "25VL14, Palmira, Sur, Valle del Cauca, 763531, Colombia",
+            "updatedAt": "2025-12-01T16:00:00.000Z",
+            "createdAt": "2024-07-22T11:30:00.000Z",
+            "totalArea": 327.15,
+            "workArea": 320.0,
+            "totalObstacleArea": 7.15,
+            "sourceType": "PHOTOGRAPHY",
+            "landType": "Orchards",
+            "precision": 1.0,
+            "precisionType": "GPS",
+            "maxGeometryParameterOffset": 0.5,
+            "position": {
+              "lng": -76.330000,
+              "lat": 3.620000
+            },
+            "geometry": {
+              "storage": null
+            },
+            "waypoint": {
+              "storage": null
+            },
+            "parameter": {
+              "storage": {
+                "signedURL": "https://dji-storage.example.com/param/ghi789?signature=def"
+              }
+            },
+            "serialNumber": "T30-001",
+            "bbox": {
+              "upperRight": {
+                "lat": 3.62100,
+                "lng": -76.32900
+              },
+              "downLeft": {
+                "lat": 3.61900,
+                "lng": -76.33100
+              }
+            },
+            "tags": ["frutales", "experimental"]
+          }
+        }
+      ]
+    }
+  }
+}

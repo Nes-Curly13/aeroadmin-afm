@@ -1,0 +1,10 @@
+{
+  "url": "https://kr-ag2-api.dji.com/api/web/v1/flight_records/overview?filters%5Btimestamp_gteq%5D=1767243600000&filters%5Btimestamp_lteq%5D=1781931599999&top_left%5Blat%5D=57.70414723434193&top_left%5Blon%5D=72.94921875000001&bottom_right%5Blat%5D=13.239945499286312&bottom_right%5Blon%5D=136.58203125000003&precision=4",
+  "body": {
+    "status": 200,
+    "buckets": [],
+    "code": 0,
+    "message": "OK",
+    "request_id": "588ab04b-d16e-4eb0-9846-8fdb6787b192"
+  }
+}
