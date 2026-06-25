@@ -7,6 +7,7 @@ import {
   daysUntilNextDue,
   getFumigationStatus
 } from "@/lib/fumigation-cadence";
+import { toDateString } from "@/lib/format";
 import type {
   DashboardMetrics,
   DjiAssetRecord,
@@ -322,6 +323,10 @@ const fumigationEventsByParcelQuery = `
 
 /**
  * Devuelve el schedule de una parcela (o null si no existe).
+ *
+ * `pg` devuelve columnas `DATE` como objetos `Date` de JS; los normalizamos
+ * a `YYYY-MM-DD` en el boundary para evitar "Objects are not valid as a
+ * React child" cuando se renderizan.
  */
 export async function getFumigationSchedule(parcelId: number): Promise<DjiFumigationSchedule | null> {
   const db = getDb();
@@ -331,7 +336,13 @@ export async function getFumigationSchedule(parcelId: number): Promise<DjiFumiga
         `${fumigationScheduleByParcelQuery} WHERE parcel_id = $1`,
         [parcelId]
       );
-      return result.rows[0] ?? null;
+      const row = result.rows[0];
+      if (!row) return null;
+      return {
+        ...row,
+        last_fumigation_date: toDateString(row.last_fumigation_date),
+        next_due_date: toDateString(row.next_due_date)
+      };
     },
     async () => null
   );
@@ -339,13 +350,18 @@ export async function getFumigationSchedule(parcelId: number): Promise<DjiFumiga
 
 /**
  * Lista de eventos de fumigación de una parcela, ordenados por fecha desc.
+ *
+ * Normaliza `fumigation_date` de `Date` (devuelto por `pg`) a `YYYY-MM-DD`.
  */
 export async function getFumigationEventsByParcel(parcelId: number): Promise<DjiFumigationEvent[]> {
   const db = getDb();
   return withLocalFallback(
     async () => {
       const result = await db.query<DjiFumigationEvent>(fumigationEventsByParcelQuery, [parcelId]);
-      return result.rows;
+      return result.rows.map((row) => ({
+        ...row,
+        fumigation_date: toDateString(row.fumigation_date) ?? ""
+      }));
     },
     async () => []
   );
@@ -503,11 +519,15 @@ export async function getUpcomingFumigations(limit = 10): Promise<UpcomingFumiga
       `);
       const now = new Date();
       const enriched: UpcomingFumigation[] = result.rows.map((row) => {
-        const status = getFumigationStatus(row.last_fumigation_date, row.recommended_cadence_days, now);
-        const days = daysUntilNextDue(row.last_fumigation_date, row.recommended_cadence_days, now);
+        // Normalizar fecha cruda (pg devuelve Date) ANTES de pasar a las funciones
+        // de cadencia y al componente, para evitar [object Date] en el render.
+        const lastDate = toDateString(row.last_fumigation_date);
+        const status = getFumigationStatus(lastDate, row.recommended_cadence_days, now);
+        const days = daysUntilNextDue(lastDate, row.recommended_cadence_days, now);
         return {
           ...row,
-          next_due_date: computeNextDueDate(row.last_fumigation_date, row.recommended_cadence_days)?.toISOString().slice(0, 10) ?? null,
+          last_fumigation_date: lastDate,
+          next_due_date: computeNextDueDate(lastDate, row.recommended_cadence_days)?.toISOString().slice(0, 10) ?? null,
           days_until_next_due: days,
           status
         };
