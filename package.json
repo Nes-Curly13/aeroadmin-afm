@@ -2,6 +2,9 @@
   "name": "aeroadmin-afm",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "scripts": {
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",

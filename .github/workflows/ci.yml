@@ -1,0 +1,111 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+# Cancela runs previos en el mismo PR cuando hay push nuevo
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: lint + types + tests + build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    # Service de PostGIS — necesario para los tests E2E (tests/user-story-dashboard-e2e)
+    # y para tests que tocan la BD. Misma imagen que docker-compose.yml local.
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_DB: afm_flights_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d afm_flights_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # Conexión al service de PostGIS de arriba (localhost:5432 desde el runner)
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/afm_flights_test
+      DATABASE_SSL: "false"
+      # DJI scraper no se ejecuta en CI (requiere credenciales reales + browser),
+      # pero seteamos placeholders vacíos para que cualquier import incidental
+      # no falle por variables undefined.
+      DJIAG_EMAIL: ""
+      DJIAG_PASSWORD: ""
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
+      - name: Apply pending migrations
+        run: node scripts/apply-pending-migrations.js
+        # Si falla (ej. conexión), continuar — el smoke test dirá si las tablas están.
+        continue-on-error: false
+
+      - name: Run tests
+        run: npm test
+        # Algunos tests unitarios son flaky en concurrencia alta — vitest ya
+        # tiene timeouts configurados (15s). Si fallan, re-correr con
+        # --bail=1 para aislar.
+
+      - name: Build
+        run: npm run build
+
+      - name: Upload build artifacts
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: .next-build
+          path: .next/
+          retention-days: 3
+          if-no-files-found: ignore
+
+  # Job independiente: solo corre en PRs que tocan docs o bitácora
+  docs-lint:
+    name: docs consistency
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check no stale refs in docs
+        run: |
+          # Falla si algún .md referencia tablas que ya no existen (dji_daily_summaries,
+          # dji_land_assets, dji_field_catalog) o funciones eliminadas.
+          set -e
+          STALE=$(grep -rEn 'dji_daily_summaries|dji_land_assets|dji_field_catalog|parseHistoryRecord|parseFieldCard' \
+            --include='*.md' --include='*.ts' --include='*.tsx' \
+            --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git \
+            --exclude='SCRAPER_DEFECTS.md' --exclude='docs/audit/BITACORA.md' \
+            --exclude='ARCHITECTURE.md' --exclude='README.md' \
+            . || true)
+          if [ -n "$STALE" ]; then
+            echo "::error::Stale refs found (excluyendo docs históricos):"
+            echo "$STALE"
+            exit 1
+          fi
