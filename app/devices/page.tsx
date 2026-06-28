@@ -12,9 +12,32 @@ export default function DevicesPage() {
       }
       activeSection="devices"
       eyebrow="Configuración"
-      subtitle="Inventario de la flota y dispositivos auxiliares (sensores, RTK). La gestión CRUD se habilitará en una iteración posterior."
+      subtitle="Vista previa del inventario de la flota. El CRUD real se habilitará cuando esté la auth (S3 del roadmap)."
       title="Dispositivos"
     >
+      <div
+        className="mb-6 rounded-2xl border border-[#d4b23c] bg-[#fff8e3] p-5 shadow-[0px_18px_40px_rgba(15,23,42,0.08)]"
+        role="status"
+      >
+        <div className="flex items-start gap-3">
+          <span
+            aria-hidden="true"
+            className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#d4b23c] text-sm font-bold text-[#7a5f0d]"
+          >
+            i
+          </span>
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#7a5f0d]">
+              Próximamente
+            </p>
+            <p className="mt-1 text-sm text-[#121815]">
+              La lista de dispositivos es ilustrativa (datos hardcodeados). El inventario
+              real y el alta/edición/baja de dispositivos se habilitarán cuando se implemente
+              autenticación (S3 del roadmap de auditoría, sesión 2026-06-28).
+            </p>
+          </div>
+        </div>
+      </div>
       <DeviceGrid devices={DEFAULT_DEVICES} showAddPlaceholder />
     </AppShell>
   );

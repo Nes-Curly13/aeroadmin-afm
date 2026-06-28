@@ -827,6 +827,49 @@ Es la base para el sistema de notificaciones que el cliente quiere ("cuándo deb
 
 - `tests/api-routes.test.ts:44` y `:64` — los tests pasan `new NextRequest(...)` a handlers que no aceptan argumentos. Vitest es permisivo pero `tsc` se queja. Pasa en runtime, no bloquea.
 
+---
+
+## 11. S1 — Resolución de defectos §2.2 / §2.3 / §2.5 (2026-06-28)
+
+> Bitácora del primer sprint del roadmap de auditoría. Sesión `mvs_f5f495aa35184a8293ecddd1a93d4d36`.
+
+### 11.1 Lo que se hizo
+
+| Defecto | Estado | Implementación |
+|---|---|---|
+| **§2.2** — Solo 16% de parcelas scrapeadas (sin scroll en `/mission`) | ✅ Resuelto (código listo, falta validar contra cuenta real) | Helper genérico `lib/playwright-scroll.js` + integración en `DjiagKoreanClient.ensureOnFieldManagement()`. Selector heurístico `[data-field-uuid], [class*="fieldCard"], [class*="fieldItem"]` con override por env `DJIAG_FIELD_SELECTOR`. |
+| **§2.3** — Solo 30 días de historial (sin scroll en `/records`) | ✅ Resuelto (código listo) | Mismo `scrollUntilStagnant` aplicado en `scrape_djiag_records.js` antes del drill-down, con selector `[id^="day_item_"]` (el original del v1). |
+| **§2.4** — Parser de history roto | ✅ Ya mitigado (refactor previo, 2026-06-19) | `import_djiag_data.js:79-103` ya tiene regex robusto que escapa `parseHistoryRecord` del importer. El scraper v2 solo guarda `raw_text`, no parsea. |
+| **§2.5** — Auth frágil (cross-subdomain redirects) | ✅ Resuelto | 1) Storage state cache (`lib/djiag-storage.js` + integración en `DjiagKoreanClient.launch/login/saveStorageState/close`). 2) Wait explícito a GraphQL 200 post-login (`_waitForAuthenticatedGraphql`). 3) Tests: `tests/djiag-storage.test.ts` (6 tests). |
+| **§2.1** — `land_file_urls.json` vacío | ⚠️ Parcialmente mitigado (scraper v2 con endpoint discovery) | El scraper ya no asume `?name=lands` — captura todas las URLs GraphQL y sus bodies en `djiag_exports/smoke/`. La identificación del endpoint correcto depende del frontend de DJI en el momento de la corrida. **Acción manual**: correr `node scrape_djiag_records.js --smoke` contra la cuenta del operador, revisar `endpoints.json`, ajustar el filtro si hace falta. |
+
+### 11.2 Archivos nuevos / modificados
+
+| Archivo | Cambio |
+|---|---|
+| `lib/playwright-scroll.js` | NUEVO. Helper `scrollUntilStagnant(page, opts)` puro-browser. |
+| `lib/djiag-storage.js` + `.d.ts` | NUEVO. Función pura `isStorageStateFresh` testeable sin browser. |
+| `lib/djiag-korean-client.d.ts` | NUEVO. Shim de tipos para que vite no parsee el `.js` (evita el conflicto con `**` en JSDoc al importarlo desde tests). |
+| `lib/djiag-korean-client.js` | MODIFICADO. Storage state + wait explícito + scroll en `ensureOnFieldManagement`. |
+| `scrape_djiag_records.js` | MODIFICADO. Scroll antes del drill-down en `/records`. |
+| `tests/djiag-storage.test.ts` | NUEVO. 6 tests para `isStorageStateFresh`. |
+| `vitest.config.ts` | MODIFICADO. `testTimeout` y `hookTimeout` subidos a 15s (fix flaky tests bajo concurrencia). |
+
+### 11.3 Tests
+
+- Antes: 363 tests pasando (1 suite E2E falla por BD apagada — pre-existente)
+- Después: **369 tests pasando** (6 nuevos de storage state). E2E también pasa porque la BD está corriendo.
+
+### 11.4 Lo que falta validar contra la cuenta real de DJI
+
+1. Correr `node scrape_djiag_records.js --smoke` → revisar `djiag_exports/smoke/endpoints.json` para confirmar que el endpoint discovery encuentra `?name=lands` o el equivalente actual.
+2. Si el selector heurístico de field cards no funciona, override con env `DJIAG_FIELD_SELECTOR='[data-otro]'`.
+3. Re-correr el pipeline completo con la sesión cacheada: `npm run pipeline:djiag` debería demorar ~1 min en vez de ~5 min (login cacheado + sin repetir redirects).
+
+### 11.5 Próximo paso (S2)
+
+Continuar con S2 del roadmap: drop de las tablas restantes del modelo legacy (`dji_land_assets`, `dji_daily_summaries`) + unificación de fumigaciones (`dji_fumigations.kind` agregado vs parcel_id).
+
 ## 11. Scraper v2 + seed-cadences config (jun 2026)
 
 ### 11.1 Scraper — endpoint discovery + drill-down

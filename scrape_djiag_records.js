@@ -23,6 +23,7 @@
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
+const { scrollUntilStagnant } = require('./lib/playwright-scroll');
 
 function loadEnvFromLocalFile() {
   const envPath = path.join(process.cwd(), '.env.local');
@@ -319,6 +320,19 @@ async function main() {
       await page.waitForTimeout(3000);
       const recordsText = await page.locator('body').innerText();
       fs.writeFileSync(path.join(outDir, 'records_page_text.txt'), recordsText, 'utf8');
+
+      // (S1 §2.3) DJI usa scroll virtualizado en /records — solo ~30 días
+      // están en el DOM al inicio. Scrollear hasta que el contador de
+      // day_items no crezca más para que drillDownDays vea TODOS los días,
+      // no solo los primeros 30.
+      console.log('[RECORDS] scroll virtualizado — cargando todos los day_items...');
+      const recordsScroll = await scrollUntilStagnant(page, {
+        countSelector: '[id^="day_item_"]',
+        maxCycles: 80,        // 80 ciclos × 600ms = ~48s tope
+        settleMs: 2000,
+        waitBetweenScrollsMs: 600
+      });
+      console.log(`  scroll: ${recordsScroll.totalCount} day_items cargados en ${recordsScroll.cycles} ciclos`);
 
       if (!noDrill) {
         await withRetry(() => drillDownDays(page, outDir, maxDays), 2, 2000);
