@@ -1,6 +1,6 @@
 import { AppShell } from "@/components/app-shell";
 import { MapView } from "@/components/map-view";
-import { getAlerts, getFlights, getParcelsNormalized, getParcelsSummary } from "@/api/repositories";
+import { getAlerts, getFlightPoints, getFlights, getParcelsNormalized, getParcelsSummary } from "@/api/repositories";
 
 // (Sprint 7) Antes `force-dynamic` — ahora `auto`: el cache de
 // `unstable_cache` con TTL 60s se aplica al listado de parcelas + summary.
@@ -10,11 +10,14 @@ export default async function MapPage() {
   // Opción B: usamos la tabla normalizada dji_parcels (1 fila por campo con
   // columnas planas). Mantenemos getAlerts y getFlights (legacy) por ahora
   // hasta migrar la lógica de alertas a dji_fumigations.
-  const [parcelsResult, summary, flightsResult, alerts] = await Promise.all([
+  // M6: getFlightPoints() agrega circulos en el mapa con la posición
+  // (lng, lat) de los 300 sorties mas recientes.
+  const [parcelsResult, summary, flightsResult, alerts, flightPoints] = await Promise.all([
     getParcelsNormalized(1, 200),
     getParcelsSummary(),
     getFlights(),
-    getAlerts()
+    getAlerts(),
+    getFlightPoints(300)
   ]);
 
   // Aggregate por drone
@@ -103,6 +106,7 @@ export default async function MapPage() {
 
       <MapView
         alerts={alerts}
+        flightPoints={flightPoints}
         flights={flightsResult.data}
         parcels={parcelsResult.data}
       />

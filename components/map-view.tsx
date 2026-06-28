@@ -4,7 +4,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
-import type { DjiAlertRecord, DjiAssetRecord, DjiDailySummaryRecord, DjiParcelRecord } from "@/lib/types";
+import type { DjiAlertRecord, DjiAssetRecord, DjiDailySummaryRecord, DjiParcelRecord, FlightPointRecord } from "@/lib/types";
 
 const MapClient = dynamic(() => import("@/components/map-client").then((module) => module.MapClient), {
   ssr: false,
@@ -37,7 +37,8 @@ function mOrNull(v: number | null, suffix = "") {
 export function MapView({
   parcels,
   flights,
-  alerts
+  alerts,
+  flightPoints
 }: {
   // Aceptamos ambos tipos: DjiParcelRecord (nuevo, normalizado) o DjiAssetRecord (legacy).
   // El runtime hoy pasa DjiParcelRecord desde app/map/page.tsx, pero el componente
@@ -45,8 +46,15 @@ export function MapView({
   parcels: DjiParcelRecord[] | DjiAssetRecord[];
   flights: DjiDailySummaryRecord[];
   alerts: DjiAlertRecord[];
+  // M6: footprints minimos de sorties. Plot se hace en MapClient.
+  flightPoints?: FlightPointRecord[];
 }) {
-  const [layers, setLayers] = useState({ parcels: true, waypoints: true, alerts: true });
+  const [layers, setLayers] = useState({
+    parcels: true,
+    waypoints: true,
+    alerts: true,
+    flights: true
+  });
   const [selectedParcelId, setSelectedParcelId] = useState<number | null>(
     (parcels as DjiParcelRecord[])[0]?.id ?? null
   );
@@ -81,6 +89,7 @@ export function MapView({
       <div className="absolute inset-0">
         <MapClient
           alerts={alerts}
+          flightPoints={flightPoints}
           flights={flights}
           layers={layers}
           parcels={parcelsList as unknown as DjiAssetRecord[]}
@@ -106,6 +115,12 @@ export function MapView({
             <div className="h-2 w-2 rounded-full bg-[#c7a43a]" />
             <span className="text-[10px] font-bold uppercase text-[#4a5b50]">Waypoint</span>
           </div>
+          {flightPoints && flightPoints.length > 0 && (
+            <div className="flex items-center gap-2">
+              <div className="h-2 w-2 rounded-full bg-[#22c55e] border border-[#0b5f2d]" />
+              <span className="text-[10px] font-bold uppercase text-[#4a5b50]">Vuelo</span>
+            </div>
+          )}
         </section>
       </div>
 
@@ -206,9 +221,11 @@ export function MapView({
         <div className="rounded-xl border border-[#d2ddd6] bg-white p-4">
           <h4 className="mb-3 text-[11px] font-bold uppercase tracking-[0.18em] text-[#587064]">Capas del mapa</h4>
           <div className="space-y-2">
-            {(["parcels", "waypoints", "alerts"] as const).map((key) => (
+            {(["parcels", "waypoints", "alerts", "flights"] as const).map((key) => (
               <label key={key} className="flex items-center justify-between rounded-lg border border-[#eef2ee] p-3">
-                <span className="text-sm font-semibold capitalize text-[#121815]">{key}</span>
+                <span className="text-sm font-semibold capitalize text-[#121815]">
+                  {key === "flights" ? "Vuelos (DJI AG)" : key}
+                </span>
                 <input
                   checked={layers[key]}
                   className="rounded text-[#0b5f2d] focus:ring-[#0b5f2d]"

@@ -46,7 +46,8 @@ import type {
   DjiAlertRecord,
   DjiDailySummaryRecord,
   DjiParcelRecord,
-  UpcomingFumigation
+  UpcomingFumigation,
+  FlightPointRecord
 } from "@/lib/types";
 
 export const CACHE_TAGS = {
@@ -330,6 +331,69 @@ export const fetchUpcomingFumigationsCached = unstable_cache(
   async (limit: number) => fetchUpcomingFumigationsRaw(limit),
   ["upcoming-fumigations"],
   { revalidate: CACHE_TTL.upcoming, tags: [CACHE_TAGS.upcoming] }
+);
+
+// ============================================================
+// M6 — flight points (footprint minimo por sortie)
+// ============================================================
+
+/**
+ * Devuelve los N vuelos mas recientes con su (lng, lat) centroide.
+ * Cacheada con tag `afm:flights` + TTL 60s. Solo se invalida cuando se
+ * re-importan vuelos (ver `invalidateAfterFlightMutation`).
+ *
+ * Decisiones:
+ *   - LIMIT default 300 (suficiente para ver actividad reciente sin saturar
+ *     el mapa). El caller puede pedir mas si quiere densidad historica,
+ *     pero recomiendo paginar de a 500 max para evitar listas enormes.
+ *   - No pedimos el `point` geometry en el SELECT — solo lng/lat numeric
+ *     porque queremos coordenadas planas para react-leaflet. ST_X/ST_Y
+ *     agrega overhead innecesario para este caso.
+ *   - Filtramos `lng IS NOT NULL AND lat IS NOT NULL` — ~10% de los 7050
+ *     flights no tienen coord (vuelos de prueba / fuera de zona). No las
+ *     mostramos para no tener nulls en el mapa.
+ */
+async function fetchFlightPointsRaw(limit: number): Promise<FlightPointRecord[]> {
+  const db = getDb();
+  const result = await db.query<{
+    flight_id: number;
+    start_at: Date;
+    lng: number;
+    lat: number;
+    drone_nickname: string | null;
+    pilot_name: string | null;
+    parcel_id: number | null;
+    area_m2: number | null;
+    spray_usage_ml: number | null;
+  }>(
+    `SELECT flight_id, start_at, lng, lat, drone_nickname, pilot_name,
+            parcel_id, area_m2, spray_usage_ml
+       FROM dji_flights
+      WHERE lng IS NOT NULL
+        AND lat IS NOT NULL
+        AND lng BETWEEN -180 AND 180
+        AND lat BETWEEN -90 AND 90
+      ORDER BY start_at DESC
+      LIMIT $1`,
+    [limit]
+  );
+  return result.rows.map((r) => ({
+    flight_id: r.flight_id,
+    start_at: r.start_at.toISOString(),
+    lng: Number(r.lng),
+    lat: Number(r.lat),
+    drone_nickname: r.drone_nickname,
+    pilot_name: r.pilot_name,
+    parcel_id: r.parcel_id,
+    area_m2: r.area_m2 === null ? null : Number(r.area_m2),
+    spray_usage_ml: r.spray_usage_ml
+  }));
+}
+
+export const fetchFlightPointsCached = unstable_cache(
+  async (limit: number) => fetchFlightPointsRaw(limit),
+  ["flight-points"],
+  { revalidate: CACHE_TTL.flights, tags: [CACHE_TAGS.flights] }
 );
 
 // ============================================================

@@ -68,6 +68,28 @@ export interface DjiFlightRecord {
   footprint: GeoJSON.Geometry | null;
 }
 
+/**
+ * Footprint minimo de una sortie individual de dji_flights.
+ * Es solo el (lng, lat) del centroide en WGS84 — no incluye geometria
+ * (el protobuf detallado de DJI sigue opaco hasta nuevo aviso).
+ *
+ * Sprint M6 (2026-06-28): se plotea como CircleMarker en /map dentro de
+ * una capa toggleable "Vuelos (DJI AG)". El GIST index sobre `point` (oid
+ * 4326) introducido en migracion `20260628100000_add_dji_flights_point_index.sql`
+ * hace que esta query escale a >100k filas sin degradacion.
+ */
+export interface FlightPointRecord {
+  flight_id: number;
+  start_at: string;       // ISO 8601 (timestamptz -> string en boundary)
+  lng: number;
+  lat: number;
+  drone_nickname: string | null;
+  pilot_name: string | null;
+  parcel_id: number | null;
+  area_m2: number | null;
+  spray_usage_ml: number | null;
+}
+
 export interface DjiAlertRecord {
   parcel_id: number;
   parcel_name: string;

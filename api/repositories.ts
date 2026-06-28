@@ -14,6 +14,7 @@ import {
 import {
   fetchAlertsCached,
   fetchDashboardMetricsCached,
+  fetchFlightPointsCached,
   fetchParcelsNormalizedCached,
   fetchParcelsSummaryCached,
   fetchUpcomingFumigationsCached,
@@ -28,7 +29,8 @@ import type {
   DjiFumigationEvent,
   DjiFumigationSchedule,
   DjiParcelRecord,
-  UpcomingFumigation
+  UpcomingFumigation,
+  FlightPointRecord
 } from "@/lib/types";
 
 // Re-exports para callers que precisen invalidar la cache desde otro lugar
@@ -663,4 +665,18 @@ export async function getAlerts(): Promise<DjiAlertRecord[]> {
  */
 export async function getDashboardMetrics(): Promise<DashboardMetrics> {
   return fetchDashboardMetricsCached();
+}
+
+/**
+ * Devuelve los N vuelos mas recientes con su centroide (lng, lat) para
+ * plot en /map. M6 (2026-06-28) — footprint minimo hasta que se pueda
+ * decodear el protobuf detallado de DJI.
+ *
+ * El cache es por `limit` — dos requests con limit=300 y limit=500 caen
+ * en keys distintas. Si el caller quiere siempre el "ultimo vuelo" sin
+ * importar el limit, una paginacion client-side tiene mas sentido.
+ */
+export async function getFlightPoints(limit = 300): Promise<FlightPointRecord[]> {
+  const safeLimit = Math.max(1, Math.min(limit, 2000));
+  return fetchFlightPointsCached(safeLimit);
 }

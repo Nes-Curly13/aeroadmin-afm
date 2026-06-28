@@ -5,9 +5,9 @@ import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import type { Feature, FeatureCollection, GeoJsonProperties } from "geojson";
 import { useEffect } from "react";
-import { GeoJSON, LayersControl, MapContainer, TileLayer, useMap } from "react-leaflet";
+import { CircleMarker, GeoJSON, LayersControl, MapContainer, Popup, TileLayer, useMap } from "react-leaflet";
 
-import type { DjiAlertRecord, DjiAssetRecord, DjiDailySummaryRecord } from "@/lib/types";
+import type { DjiAlertRecord, DjiAssetRecord, DjiDailySummaryRecord, FlightPointRecord } from "@/lib/types";
 
 const center: [number, number] = [3.4516, -76.532];
 
@@ -87,12 +87,16 @@ export function MapClient({
   parcels,
   flights,
   alerts,
-  layers = { parcels: true, waypoints: true, alerts: true }
+  flightPoints,
+  layers = { parcels: true, waypoints: true, alerts: true, flights: true }
 }: {
   parcels: NormalizedParcel[];
   flights: DjiDailySummaryRecord[];
   alerts: DjiAlertRecord[];
-  layers?: { parcels: boolean; waypoints: boolean; alerts: boolean };
+  // M6: footprint minimo por sortie individual. Si viene undefined la capa
+  // se considera deshabilitada (no falla).
+  flightPoints?: FlightPointRecord[];
+  layers?: { parcels: boolean; waypoints: boolean; alerts: boolean; flights: boolean };
 }) {
   const parcelCollection: FeatureCollection = {
     type: "FeatureCollection",
@@ -237,6 +241,46 @@ export function MapClient({
                 }}
                 style={(feature) => alertStyle((feature?.properties?.level as DjiAlertRecord["level"]) ?? "LOW")}
               />
+            </LayersControl.Overlay>
+          )}
+          {layers.flights && flightPoints && flightPoints.length > 0 && (
+            <LayersControl.Overlay checked name={`Vuelos (${flightPoints.length})`}>
+              {flightPoints.map((pt) => {
+                const areaHa = pt.area_m2 !== null ? (pt.area_m2 / 10000).toFixed(2) : "?";
+                const liters = pt.spray_usage_ml !== null ? (pt.spray_usage_ml / 1000).toFixed(1) : "?";
+                const date = new Date(pt.start_at).toLocaleString("es-CO", {
+                  dateStyle: "short",
+                  timeStyle: "short"
+                });
+                return (
+                  <CircleMarker
+                    center={[pt.lat, pt.lng]}
+                    key={pt.flight_id}
+                    radius={3}
+                    pathOptions={{
+                      color: "#0b5f2d",
+                      weight: 1,
+                      fillColor: "#22c55e",
+                      fillOpacity: 0.7,
+                      opacity: 0.8
+                    }}
+                  >
+                    <Popup>
+                      <strong>Vuelo #{pt.flight_id}</strong>
+                      <br />
+                      {date}
+                      <br />
+                      Drone: {pt.drone_nickname ?? "—"}
+                      <br />
+                      Piloto: {pt.pilot_name ?? "—"}
+                      <br />
+                      Parcela: {pt.parcel_id ?? "—"}
+                      <br />
+                      Área: {areaHa} ha · Litros: {liters} L
+                    </Popup>
+                  </CircleMarker>
+                );
+              })}
             </LayersControl.Overlay>
           )}
         </LayersControl>
