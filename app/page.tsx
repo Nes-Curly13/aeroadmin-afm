@@ -6,7 +6,10 @@ import { getAlerts, getDashboardMetrics, getFlights, getParcels, getUpcomingFumi
 import { formatArea, formatNumber } from "@/lib/format";
 import { getDashboardKpiTone } from "@/lib/ui-tokens";
 
-export const dynamic = "force-dynamic";
+// (Sprint 7) Antes `force-dynamic` — eso deshabilitaba el data cache de Next
+// y nuestras `unstable_cache` no se podían usar. Ahora la página usa `auto`:
+// si los tags de `afm:metrics`, `afm:alerts`, `afm:upcoming` están frescos,
+// Next sirve la versión cacheada y gana ~3 queries pesadas por render.
 
 function CompassIcon() {
   return (

@@ -3,9 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   CADENCE_DEFAULTS,
-  computeNextDueDate,
-  daysUntilNextDue,
-  getFumigationStatus
+  computeNextDueDate
 } from "@/lib/fumigation-cadence";
 import { toDateString } from "@/lib/format";
 import {
@@ -13,6 +11,14 @@ import {
   type DailySummaryLike,
   type FlightRow
 } from "@/lib/dji-flights-aggregate";
+import {
+  fetchAlertsCached,
+  fetchDashboardMetricsCached,
+  fetchParcelsNormalizedCached,
+  fetchParcelsSummaryCached,
+  fetchUpcomingFumigationsCached,
+  invalidateAfterFumigationMutation
+} from "@/lib/cache";
 import type {
   DashboardMetrics,
   DjiAssetRecord,
@@ -24,6 +30,16 @@ import type {
   DjiParcelRecord,
   UpcomingFumigation
 } from "@/lib/types";
+
+// Re-exports para callers que precisen invalidar la cache desde otro lugar
+// (scripts CLI, jobs, etc.).
+export {
+  CACHE_TAGS,
+  invalidateAfterFlightMutation,
+  invalidateAfterFumigationMutation,
+  invalidateAfterParcelMutation,
+  invalidateAll
+} from "@/lib/cache";
 
 interface MetricsRow {
   total_flights: string;
@@ -172,11 +188,36 @@ export interface DjiParcelsFilter {
 /**
  * Devuelve la lista normalizada de parcelas (Opción B).
  * Usa la tabla dji_parcels, con columnas planas y geometrías PostGIS como GeoJSON.
+ *
+ * Sprint 7 (2026-06-28): cacheado con `unstable_cache` (TTL 60s, tag
+ * `afm:parcels`). El dashboard y /map pegaban este query en cada
+ * navegación; ahora es prácticamente gratis entre revalidaciones.
  */
 export async function getParcelsNormalized(page = 1, limit = 20, filter: DjiParcelsFilter = {}) {
+  // El filter actual no lo soporta el wrapper cacheado (sería un keyParts
+  // enorme); la mayoría de callers pasa filter={} en el dashboard. Mantenemos
+  // la versión dinámica como escape hatch — si filter tiene algo, vamos a la
+  // BD directo (sin cache).
+  const hasFilter =
+    filter.isOrchard !== undefined ||
+    filter.droneModelCode !== undefined ||
+    filter.minSprayAreaM2 !== undefined ||
+    filter.fieldType !== undefined;
+
+  if (hasFilter) {
+    return getParcelsNormalizedUncached(page, limit, filter);
+  }
+  return fetchParcelsNormalizedCached(page, limit);
+}
+
+/**
+ * Variante sin cache para cuando hay filters. La lógica es idéntica a la
+ * implementación previa a S7 — separada en función propia para no envenenar
+ * el wrapper de cache.
+ */
+async function getParcelsNormalizedUncached(page: number, limit: number, filter: DjiParcelsFilter) {
   const db = getDb();
   const offset = (page - 1) * limit;
-
   const where: string[] = [];
   const params: unknown[] = [];
   let p = 1;
@@ -230,38 +271,11 @@ export async function getParcelsNormalized(page = 1, limit = 20, filter: DjiParc
 /**
  * Resumen agregado por tipo de dron y tipo de campo.
  * Útil para el dashboard ejecutivo.
+ *
+ * Sprint 7: cacheado (TTL 60s, tag `afm:parcels-summary` + `afm:parcels`).
  */
 export async function getParcelsSummary() {
-  const db = getDb();
-  return withLocalFallback(
-    async () => {
-      const result = await db.query<{
-        total_parcels: string;
-        total_orchards: string;
-        total_farmlands: string;
-        total_spray_area_m2: string | null;
-        avg_spray_area_m2: string | null;
-        drone_model_code: number | null;
-        drone_model_name: string | null;
-        count_by_drone: string;
-      }>(`
-        SELECT
-          COUNT(*)::text AS total_parcels,
-          COUNT(*) FILTER (WHERE is_orchard)::text AS total_orchards,
-          COUNT(*) FILTER (WHERE NOT is_orchard)::text AS total_farmlands,
-          SUM(spray_area_m2)::text AS total_spray_area_m2,
-          AVG(spray_area_m2)::text AS avg_spray_area_m2,
-          drone_model_code,
-          drone_model_name,
-          COUNT(*)::text AS count_by_drone
-        FROM dji_parcels
-        GROUP BY drone_model_code, drone_model_name
-        ORDER BY count_by_drone DESC
-      `);
-      return result.rows;
-    },
-    async () => []
-  );
+  return fetchParcelsSummaryCached();
 }
 
 /**
@@ -425,6 +439,10 @@ export async function createFumigationEvent(event: {
           [event.parcel_id, event.fumigation_date, next]
         );
         await client.query("COMMIT");
+        // Invalidar cache (dashboard + upcoming + alertas) tras COMMIT exitoso.
+        // Si falló el COMMIT ya hicimos ROLLBACK; invalidar afuera del try
+        // mantiene el invariante "datos en BD == cache".
+        invalidateAfterFumigationMutation();
         return created;
       } catch (e) {
         await client.query("ROLLBACK");
@@ -472,6 +490,9 @@ export async function setFumigationCadence(parcelId: number, cadenceDays: number
         `,
         [parcelId, cropType, cadenceDays, lastDate, next]
       );
+      // Invalidar upcoming — el `next_due_date` cambió y `recommended_cadence_days`
+      // también afecta el cálculo de "overdue/due_soon".
+      invalidateAfterFumigationMutation();
     },
     async () => {
       throw new Error("DB no disponible");
@@ -483,63 +504,13 @@ export async function setFumigationCadence(parcelId: number, cadenceDays: number
  * Devuelve las próximas fumigaciones (overdue + due_soon) ordenadas por
  * urgencia. Calcula el estado en aplicación, no en la BD, para que siempre
  * esté fresco al consultar.
+ *
+ * Sprint 7: cacheado (TTL 1min, tag `afm:upcoming`).
+ * El cálculo de `now` está dentro de la función cacheada, así que el "overdue"
+ * depende del momento en que se cacheó. Por eso el TTL es agresivo (60s).
  */
 export async function getUpcomingFumigations(limit = 10): Promise<UpcomingFumigation[]> {
-  const db = getDb();
-  return withLocalFallback(
-    async () => {
-      const result = await db.query<{
-        parcel_id: number;
-        land_name: string | null;
-        external_id: string;
-        field_type: string;
-        is_orchard: boolean;
-        drone_model_name: string | null;
-        crop_type: string;
-        recommended_cadence_days: number;
-        last_fumigation_date: string | null;
-      }>(`
-        SELECT
-          p.id            AS parcel_id,
-          p.land_name,
-          p.external_id,
-          p.field_type,
-          p.is_orchard,
-          p.drone_model_name,
-          s.crop_type,
-          s.recommended_cadence_days,
-          s.last_fumigation_date
-        FROM dji_fumigation_schedule s
-        JOIN dji_parcels p ON p.id = s.parcel_id
-        WHERE s.is_active = true
-      `);
-      const now = new Date();
-      const enriched: UpcomingFumigation[] = result.rows.map((row) => {
-        // Normalizar fecha cruda (pg devuelve Date) ANTES de pasar a las funciones
-        // de cadencia y al componente, para evitar [object Date] en el render.
-        const lastDate = toDateString(row.last_fumigation_date);
-        const status = getFumigationStatus(lastDate, row.recommended_cadence_days, now);
-        const days = daysUntilNextDue(lastDate, row.recommended_cadence_days, now);
-        return {
-          ...row,
-          last_fumigation_date: lastDate,
-          next_due_date: computeNextDueDate(lastDate, row.recommended_cadence_days)?.toISOString().slice(0, 10) ?? null,
-          days_until_next_due: days,
-          status
-        };
-      });
-      // Ordenar: overdue primero (más viejo primero), luego due_soon
-      enriched.sort((a, b) => {
-        const order = { overdue: 0, due_soon: 1, ok: 2, no_history: 3 };
-        if (order[a.status] !== order[b.status]) return order[a.status] - order[b.status];
-        const aDays = a.days_until_next_due ?? 0;
-        const bDays = b.days_until_next_due ?? 0;
-        return aDays - bDays; // más negativo (más vencido) primero
-      });
-      return enriched.slice(0, limit);
-    },
-    async () => []
-  );
+  return fetchUpcomingFumigationsCached(limit);
 }
 
 /**
@@ -680,107 +651,16 @@ export async function getFlights(page = 1, limit = 20) {
   );
 }
 
-export async function getAlerts() {
-  const db = getDb();
-  return withLocalFallback(
-    async () => {
-      const result = await db.query<DjiFlightDbRow>(flightsRawQuery);
-      const aggregated = aggregateFlightsByDay(
-        result.rows.map((r): FlightRow => ({
-          id: r.id,
-          flight_id: r.flight_id,
-          start_at: r.start_at,
-          duration_seconds: r.duration_seconds,
-          area_m2: r.area_m2,
-          spray_usage_ml: r.spray_usage_ml
-        }))
-      );
-      return aggregated.map((row): DjiAlertRecord => {
-        const areaMu = Number(row.area_mu);
-        const usageLiters = Number(row.usage_liters);
-        const timesCount = Number(row.times_count);
-        const ageDays = Math.max(0, Math.round(areaMu / 2));
-        const level: DjiAlertRecord["level"] = areaMu >= 60 || timesCount >= 80
-          ? "HIGH"
-          : areaMu >= 30
-            ? "MEDIUM"
-            : "LOW";
-        return {
-          parcel_id: row.id,
-          parcel_name: `${row.record_date} ${row.category}`,
-          level,
-          age_days: ageDays,
-          message: `${row.category} en ${row.record_date}: ${timesCount} salidas, ${areaMu.toFixed(2)} mu, ${usageLiters.toFixed(1)} L.`,
-          geometry: null
-        };
-      });
-    },
-    async () => loadLocalSummaryRecords().map((row): DjiAlertRecord => {
-      const areaMu = Number(row.area_mu);
-      const usageLiters = Number(row.usage_liters);
-      const timesCount = Number(row.times_count);
-      const ageDays = Math.max(0, Math.round(areaMu / 2));
-      const level: DjiAlertRecord["level"] = areaMu >= 60 || timesCount >= 80
-        ? "HIGH"
-        : areaMu >= 30
-          ? "MEDIUM"
-          : "LOW";
-      return {
-        parcel_id: row.id,
-        parcel_name: `${row.record_date} ${row.category}`,
-        level,
-        age_days: ageDays,
-        message: `${row.category} en ${row.record_date}: ${timesCount} salidas, ${areaMu.toFixed(2)} mu, ${usageLiters.toFixed(1)} L.`,
-        geometry: null
-      };
-    })
-  );
+/**
+ * Sprint 7: ahora cacheado (TTL 5min, tag `afm:alerts`).
+ */
+export async function getAlerts(): Promise<DjiAlertRecord[]> {
+  return fetchAlertsCached();
 }
 
+/**
+ * Sprint 7: ahora cacheado (TTL 5min, tag `afm:metrics`).
+ */
 export async function getDashboardMetrics(): Promise<DashboardMetrics> {
-  const db = getDb();
-  return withLocalFallback(
-    async () => {
-      // (Sprint 2 — antes leía dji_daily_summaries). Ahora agregamos en SQL
-      // para no traer 7050 filas al dashboard. total_area_covered_m2 / 10000
-      // = ha, que es lo que muestra el KPI.
-      const result = await db.query<MetricsRow>(`
-        SELECT
-          COUNT(*)::text AS total_flights,
-          COALESCE(SUM(area_m2), 0)::text AS total_area_covered_m2,
-          (
-            SELECT COUNT(DISTINCT DATE(start_at AT TIME ZONE 'America/Bogota'))::text
-            FROM dji_flights
-            WHERE area_m2 >= 40000 OR duration_seconds >= 28800
-          ) AS high_alert_days,
-          (SELECT COUNT(*)::text FROM dji_parcels) AS total_parcels
-        FROM dji_flights
-      `);
-      const row = result.rows[0];
-      const totalAreaCoveredMu = Number(row?.total_area_covered_m2 ?? 0) / (10_000 / 15);
-      // high_alert_days se calcula a nivel día: un día es "high alert" si la
-      // suma de m² fumigados ese día >= 6 ha (60 MU) O el tiempo total >= 8h
-      // (28800s). Thresholds copiados de lib/alerts.ts (que operan por día).
-      return {
-        totalFlights: Number(row?.total_flights ?? 0),
-        totalAreaCovered: totalAreaCoveredMu,
-        highAlertParcels: Number(row?.high_alert_days ?? 0),
-        // Tras drop de dji_field_catalog (QW4) y migración a dji_flights,
-        // la única fuente de "fincas del operador" es dji_parcels.
-        totalAssets: Number(row?.total_parcels ?? 0)
-      };
-    },
-    async () => {
-      const flights = loadLocalSummaryRecords();
-      const highAlertParcels = flights.filter(
-        (flight) => Number(flight.area_mu) >= 60 || Number(flight.times_count) >= 80
-      ).length;
-      return {
-        totalFlights: flights.length,
-        totalAreaCovered: flights.reduce((sum, flight) => sum + Number(flight.area_mu), 0),
-        highAlertParcels,
-        totalAssets: loadLocalFieldCount()
-      };
-    }
-  );
+  return fetchDashboardMetricsCached();
 }

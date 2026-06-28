@@ -3,7 +3,9 @@ import { HistoryTable } from "@/components/history/history-table";
 import { getFlights } from "@/api/repositories";
 import { formatArea } from "@/lib/format";
 
-export const dynamic = "force-dynamic";
+// (Sprint 7) Antes `force-dynamic`. getFlights() devuelve 7050 sorties
+// agregadas a 127 días — sigue siendo dinámico (alto churn), pero el resto
+// del dashboard deja de pegarle a la BD en cada navegación.
 
 export default async function HistoryPage() {
   const flightsResult = await getFlights(1, 200);

@@ -2,7 +2,9 @@ import { AppShell } from "@/components/app-shell";
 import { MapView } from "@/components/map-view";
 import { getAlerts, getFlights, getParcelsNormalized, getParcelsSummary } from "@/api/repositories";
 
-export const dynamic = "force-dynamic";
+// (Sprint 7) Antes `force-dynamic` — ahora `auto`: el cache de
+// `unstable_cache` con TTL 60s se aplica al listado de parcelas + summary.
+// El mapa siempre lee data fresca al primer click del usuario (CSR).
 
 export default async function MapPage() {
   // Opción B: usamos la tabla normalizada dji_parcels (1 fila por campo con
