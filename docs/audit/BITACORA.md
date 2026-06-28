@@ -88,7 +88,50 @@
 - **Próximo paso**: S2 (drop legacy tables restantes: `dji_land_assets`,
   `dji_daily_summaries`). Esto requiere tocar la lógica del importer dual-write.
 
-### 2026-06-28 — Decisión sobre S2 + cierre de turno
+### 2026-06-28 — Sprint 2 (S2 + S4) — drop legacy tables + CI/CD
+- **Sesión**: mvs_f5f495aa35184a8293ecddd1a93d4d36 (continuación)
+- **Objetivo**: cerrar dos deudas técnicas del roadmap de auditoría.
+  S2 (drop tablas legacy) y S4 (CI/CD GitHub Actions).
+- **Acciones S2 — drop dji_land_assets + dji_daily_summaries**:
+  - **Pre-requisito (sprint previo)**: migración del dashboard de
+    `dji_daily_summaries` → `dji_flights` con `lib/dji-flights-aggregate.ts`.
+  - Migration `20260628120000_drop_dji_land_assets_and_daily_summaries.sql`:
+    snapshot a `dji_legacy_snapshot` (30 daily_summaries + 196 land_assets
+    preservados para rollback) + DROP TABLE CASCADE + índices.
+  - `api/repositories.ts`: `summariesQuery` y `assetsQuery` eliminadas
+    (código muerto desde la migración). `getParcels` legacy ahora lee de
+    `dji_parcels` con shape compat (`asset_kind='parcel'`).
+  - `import_djiag_data.js`: loop de history + INSERT en dji_daily_summaries
+    eliminado. Funciones parser (`parseMu`, `parseCount`, `parseUsage`,
+    `parseHistoryRecord`, `parseFieldCard`, `toIsoDate`) eliminadas.
+  - `db/schema.sql`, `scripts/db-check.js`, `components/parcels/parcel-detail.tsx`:
+    refs actualizadas.
+- **Acciones S4 — CI/CD GitHub Actions**:
+  - `.github/workflows/ci.yml`: pipeline lint+tsc+migrations+vitest+build.
+  - Service PostGIS (postgis/postgis:16-3.4) para tests E2E.
+  - Job `docs-lint` adicional para PRs (detecta refs stale a tablas/
+    funciones eliminadas en este sprint).
+  - `package.json`: `engines.node >=22`.
+- **Commits**:
+  - `86a22de` feat(sprint-2): dashboard lee de dji_flights
+  - `861ead2` feat(sprint-2/S2): drop dji_land_assets + dji_daily_summaries
+  - `21a8cac` ci(sprint-2/S4): GitHub Actions workflow con PostGIS service
+- **Estado**: ✅ hecho
+- **Tests**: 396/396 passing (verificado pre y post commits)
+- **Build**: verde
+- **BD final**: 8 tablas dji_* restantes (drone_models, flights,
+  fumigation_schedule, fumigations, import_batches, legacy_snapshot,
+  migrations, parcels). Conteos: flights=7050, parcels=1147,
+  fumigations=393, schedule=80, legacy_snapshot=388.
+- **Próximo paso (siguiente sesión)**:
+  1. **S3 auth** — bloqueante para SaaS. Requiere decisión de producto
+     (multi-tenant vs single-tenant) que solo el usuario puede tomar.
+  2. **M6 — geometría de vuelos** — decodear Protobuf DJI o aceptar
+     que no se puede y mostrar el punto (lng,lat) como footprint.
+  3. **M1 — E2E tests con Playwright para el producto** (no el scraper).
+  4. **S7 — cache selectiva** con `unstable_cache` en páginas server.
+
+### 2026-06-28 — Decisión sobre S2 + cierre de turno anterior
 - **Sesión**: mvs_f5f495aa35184a8293ecddd1a93d4d36 (cierre)
 - **Objetivo**: evaluar S2 (drop `dji_land_assets` + `dji_daily_summaries`)
   antes de seguir con el loop.
