@@ -8,6 +8,11 @@ import {
   getFumigationStatus
 } from "@/lib/fumigation-cadence";
 import { toDateString } from "@/lib/format";
+import {
+  aggregateFlightsByDay,
+  type DailySummaryLike,
+  type FlightRow
+} from "@/lib/dji-flights-aggregate";
 import type {
   DashboardMetrics,
   DjiAssetRecord,
@@ -22,10 +27,26 @@ import type {
 
 interface MetricsRow {
   total_flights: string;
-  total_area_covered: string | null;
+  total_area_covered_m2: string | null;
   high_alert_days: string;
-  total_assets: string;
-  total_fields: string;
+  total_parcels: string;
+}
+
+/**
+ * Row cruda de dji_flights que devuelve pg.query (snake_case tal cual la tabla).
+ * El cast numérico de pg ya está hecho en lib/db.ts (NUMERIC/BIGINT → number).
+ */
+interface DjiFlightDbRow {
+  id: number;
+  flight_id: number;
+  start_at: Date;
+  end_at: Date;
+  duration_seconds: number;
+  area_m2: number;
+  spray_usage_ml: number;
+  drone_nickname: string | null;
+  pilot_name: string | null;
+  parcel_id: number | null;
 }
 
 const localExportsRoot = path.join(process.cwd(), "djiag_exports");
@@ -583,23 +604,50 @@ export async function getParcels(page = 1, limit = 20) {
   );
 }
 
+/**
+ * Query a dji_flights sin agregación. Traemos todas las columnas que
+ * necesita `aggregateFlightsByDay` + algunas extra (drone_nickname, parcel_id)
+ * para futuras extensiones del dashboard.
+ *
+ * (Sprint 2 del roadmap) Antes leíamos dji_daily_summaries (rollup por día).
+ * Ahora agregamos 7050 sorties individuales en JS — preserva el shape
+ * DjiDailySummaryRecord sin cambiar la UI.
+ */
+const flightsRawQuery = `
+  SELECT
+    id,
+    flight_id,
+    start_at,
+    end_at,
+    duration_seconds,
+    area_m2,
+    spray_usage_ml,
+    drone_nickname,
+    pilot_name,
+    parcel_id
+  FROM dji_flights
+  ORDER BY start_at DESC
+`;
+
 export async function getFlights(page = 1, limit = 20) {
   const db = getDb();
   const offset = (page - 1) * limit;
   return withLocalFallback(
     async () => {
-      const result = await db.query<DjiDailySummaryRecord>(
-        `
-          ${summariesQuery}
-          ORDER BY record_date DESC, id DESC
-          LIMIT $1 OFFSET $2
-        `,
-        [limit, offset]
+      const result = await db.query<DjiFlightDbRow>(flightsRawQuery);
+      const aggregated = aggregateFlightsByDay(
+        result.rows.map((r): FlightRow => ({
+          id: r.id,
+          flight_id: r.flight_id,
+          start_at: r.start_at,
+          duration_seconds: r.duration_seconds,
+          area_m2: r.area_m2,
+          spray_usage_ml: r.spray_usage_ml
+        }))
       );
-      const countResult = await db.query<{ total: string }>("SELECT COUNT(*)::int AS total FROM dji_daily_summaries");
-      const total = Number(countResult.rows[0]?.total ?? 0);
+      const total = aggregated.length;
       return {
-        data: result.rows,
+        data: aggregated.slice(offset, offset + limit) as DjiDailySummaryRecord[],
         total,
         page,
         limit,
@@ -624,38 +672,53 @@ export async function getAlerts() {
   const db = getDb();
   return withLocalFallback(
     async () => {
-      const result = await db.query<DjiDailySummaryRecord>(`
-        ${summariesQuery}
-        ORDER BY record_date DESC, id DESC
-      `);
-      return result.rows.map((row) => {
+      const result = await db.query<DjiFlightDbRow>(flightsRawQuery);
+      const aggregated = aggregateFlightsByDay(
+        result.rows.map((r): FlightRow => ({
+          id: r.id,
+          flight_id: r.flight_id,
+          start_at: r.start_at,
+          duration_seconds: r.duration_seconds,
+          area_m2: r.area_m2,
+          spray_usage_ml: r.spray_usage_ml
+        }))
+      );
+      return aggregated.map((row): DjiAlertRecord => {
         const areaMu = Number(row.area_mu);
         const usageLiters = Number(row.usage_liters);
         const timesCount = Number(row.times_count);
         const ageDays = Math.max(0, Math.round(areaMu / 2));
-        const level: DjiAlertRecord["level"] = areaMu >= 60 || timesCount >= 80 ? "HIGH" : areaMu >= 30 ? "MEDIUM" : "LOW";
+        const level: DjiAlertRecord["level"] = areaMu >= 60 || timesCount >= 80
+          ? "HIGH"
+          : areaMu >= 30
+            ? "MEDIUM"
+            : "LOW";
         return {
           parcel_id: row.id,
           parcel_name: `${row.record_date} ${row.category}`,
           level,
           age_days: ageDays,
-          message: `${row.category} en ${row.record_date}: ${timesCount} salidas, ${areaMu.toFixed(2)} mu y ${usageLiters.toFixed(1)} L.`,
+          message: `${row.category} en ${row.record_date}: ${timesCount} salidas, ${areaMu.toFixed(2)} mu, ${usageLiters.toFixed(1)} L.`,
           geometry: null
         };
       });
     },
-    async () => loadLocalSummaryRecords().map((row) => {
+    async () => loadLocalSummaryRecords().map((row): DjiAlertRecord => {
       const areaMu = Number(row.area_mu);
       const usageLiters = Number(row.usage_liters);
       const timesCount = Number(row.times_count);
       const ageDays = Math.max(0, Math.round(areaMu / 2));
-      const level: DjiAlertRecord["level"] = areaMu >= 60 || timesCount >= 80 ? "HIGH" : areaMu >= 30 ? "MEDIUM" : "LOW";
+      const level: DjiAlertRecord["level"] = areaMu >= 60 || timesCount >= 80
+        ? "HIGH"
+        : areaMu >= 30
+          ? "MEDIUM"
+          : "LOW";
       return {
         parcel_id: row.id,
         parcel_name: `${row.record_date} ${row.category}`,
         level,
         age_days: ageDays,
-        message: `${row.category} en ${row.record_date}: ${timesCount} salidas, ${areaMu.toFixed(2)} mu y ${usageLiters.toFixed(1)} L.`,
+        message: `${row.category} en ${row.record_date}: ${timesCount} salidas, ${areaMu.toFixed(2)} mu, ${usageLiters.toFixed(1)} L.`,
         geometry: null
       };
     })
@@ -666,33 +729,45 @@ export async function getDashboardMetrics(): Promise<DashboardMetrics> {
   const db = getDb();
   return withLocalFallback(
     async () => {
+      // (Sprint 2 — antes leía dji_daily_summaries). Ahora agregamos en SQL
+      // para no traer 7050 filas al dashboard. total_area_covered_m2 / 10000
+      // = ha, que es lo que muestra el KPI.
       const result = await db.query<MetricsRow>(`
         SELECT
           COUNT(*)::text AS total_flights,
-          COALESCE(SUM(area_mu), 0)::text AS total_area_covered,
-          COUNT(*) FILTER (WHERE area_mu >= 60 OR times_count >= 80)::text AS high_alert_days,
-          (SELECT COUNT(*)::text FROM dji_land_assets) AS total_assets,
-          (SELECT COUNT(*)::text FROM dji_field_catalog) AS total_fields
-        FROM dji_daily_summaries
+          COALESCE(SUM(area_m2), 0)::text AS total_area_covered_m2,
+          (
+            SELECT COUNT(DISTINCT DATE(start_at AT TIME ZONE 'America/Bogota'))::text
+            FROM dji_flights
+            WHERE area_m2 >= 40000 OR duration_seconds >= 28800
+          ) AS high_alert_days,
+          (SELECT COUNT(*)::text FROM dji_parcels) AS total_parcels
+        FROM dji_flights
       `);
       const row = result.rows[0];
+      const totalAreaCoveredMu = Number(row?.total_area_covered_m2 ?? 0) / (10_000 / 15);
+      // high_alert_days se calcula a nivel día: un día es "high alert" si la
+      // suma de m² fumigados ese día >= 6 ha (60 MU) O el tiempo total >= 8h
+      // (28800s). Thresholds copiados de lib/alerts.ts (que operan por día).
       return {
         totalFlights: Number(row?.total_flights ?? 0),
-        totalAreaCovered: Number(row?.total_area_covered ?? 0),
+        totalAreaCovered: totalAreaCoveredMu,
         highAlertParcels: Number(row?.high_alert_days ?? 0),
-        totalAssets: Number(row?.total_assets ?? 0) + Number(row?.total_fields ?? 0)
+        // Tras drop de dji_field_catalog (QW4) y migración a dji_flights,
+        // la única fuente de "fincas del operador" es dji_parcels.
+        totalAssets: Number(row?.total_parcels ?? 0)
       };
     },
     async () => {
       const flights = loadLocalSummaryRecords();
-      const assets = loadLocalAssetRecords();
-      const fields = loadLocalFieldCount();
-      const highAlertParcels = flights.filter((flight) => Number(flight.area_mu) >= 60 || Number(flight.times_count) >= 80).length;
+      const highAlertParcels = flights.filter(
+        (flight) => Number(flight.area_mu) >= 60 || Number(flight.times_count) >= 80
+      ).length;
       return {
         totalFlights: flights.length,
         totalAreaCovered: flights.reduce((sum, flight) => sum + Number(flight.area_mu), 0),
         highAlertParcels,
-        totalAssets: assets.length + fields
+        totalAssets: loadLocalFieldCount()
       };
     }
   );
