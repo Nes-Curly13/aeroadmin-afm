@@ -11,16 +11,15 @@ const {
 /**
  * Importador DJI AG — Opción B (modelo normalizado)
  *
- * Fase 1: mantiene el comportamiento legacy (escribe dji_daily_summaries,
- *         dji_field_catalog, dji_land_assets) — el dashboard actual sigue
- *         funcionando sin cambios.
+ * (Sprint 2) Las tablas legacy `dji_daily_summaries` y `dji_land_assets`
+ * se dropearon el 2026-06-28 (migration 20260628120000). Este importer
+ * ahora solo escribe `dji_parcels` (1 fila por campo, columnas planas).
  *
- * Fase 2: nueva — agrega los 3 assets por externalId, normaliza los campos
- *         del parameter.json, convierte geometría a MultiPolygon y waypoints
- *         a MultiPoint, y escribe 1 fila por campo a dji_parcels.
+ * Fase 2: agrega los 3 assets por externalId, normaliza los campos del
+ * parameter.json, convierte geometría a MultiPolygon y waypoints a
+ * MultiPoint, y escribe 1 fila por campo a dji_parcels.
  *
- * El proceso corre dentro de la misma transacción, así que si la nueva
- * fase falla se hace rollback de ambas escrituras.
+ * El proceso corre dentro de una transacción — si la fase falla, rollback.
  */
 
 function loadLocalEnv() {
@@ -53,69 +52,11 @@ function createPool() {
   });
 }
 
-function parseMu(value) {
-  const n = Number(String(value).replace(/[^0-9.]+/g, ''));
-  return Number.isFinite(n) ? n : 0;
-}
-
-function parseCount(value) {
-  const n = Number(String(value).replace(/[^0-9]+/g, ''));
-  return Number.isFinite(n) ? n : 0;
-}
-
-function parseUsage(value) {
-  return parseMu(value);
-}
-
-function toIsoDate(dateStr) {
-  const match = String(dateStr ?? '').match(/^(\d{4})[/-](\d{2})[/-](\d{2})/);
-  if (!match) {
-    throw new Error(`Unable to parse date from "${dateStr}"`);
-  }
-  return `${match[1]}-${match[2]}-${match[3]}`;
-}
-
-function parseHistoryRecord(item) {
-  const raw = String(item.raw ?? '');
-  const dateMatch = raw.match(/^(\d{4}\/\d{2}\/\d{2})/);
-  const date = item.date || (dateMatch ? dateMatch[1] : null);
-  if (!date) {
-    throw new Error(`Missing record date for history row: ${raw}`);
-  }
-
-  const weekdayMatch = raw.match(/^\d{4}\/\d{2}\/\d{2}([A-Za-z]+)Agriculture/);
-  const areaMatch = raw.match(/Agriculture([\d.]+)mu/);
-  const timesMatch = raw.match(/mu(\d+)times/);
-  const usageMatch = raw.match(/times([\d.]+)L-/);
-  const workTimeMatch = raw.match(/L-(.+)$/);
-
-  return {
-    date,
-    weekday: item.weekday || weekdayMatch?.[1] || null,
-    category: item.category || 'Agriculture',
-    area: item.area || areaMatch?.[1] || '0',
-    times: item.times || timesMatch?.[1] || '0',
-    usage: item.usage || usageMatch?.[1] || '0',
-    workTime: item.workTime || workTimeMatch?.[1] || '',
-    raw
-  };
-}
-
-function parseFieldCard(item) {
-  const text = String(item.raw ?? item.raw_text ?? "");
-  const lines = text
-    .split(/\n+/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  return {
-    field_type: String(item.typeLabel ?? lines[0] ?? "Farmland"),
-    field_name: String(item.name ?? lines[1] ?? ""),
-    area_text: String(item.area ?? lines[2] ?? ""),
-    location_text: String(item.location ?? lines[3] ?? ""),
-    record_date: String(item.date ?? lines[4] ?? ""),
-    raw_text: text
-  };
-}
+// (Sprint 2) parseMu, parseCount, parseUsage, parseHistoryRecord,
+// parseFieldCard, toIsoDate — todas eliminadas. Eran parsers del rollup
+// diario legacy (records_history.json + mission_fields.json). Las tablas
+// dji_daily_summaries y dji_field_catalog se dropearon; los rollups ahora
+// se derivan en runtime desde dji_flights vía lib/dji-flights-aggregate.ts.
 
 function geoJsonToGeometrySql(geojson) {
   if (!geojson) return null;
@@ -478,7 +419,7 @@ async function writeDjiParcels(client, batchId, grouped) {
       entry.externalId,
       entry.landName || null,
       norm.is_orchard,
-      parseAreaHa(null), // declared_area_ha se llenará en un join posterior con dji_field_catalog
+      parseAreaHa(null), // declared_area_ha queda NULL: DJI no expone área declarada por catálogo, se carga vía input del operador (ver dji_fumigation_schedule + UI de edición)
       norm.inner_area_m2,
       norm.drone_model_code,
       null, // drone_model_name — se puede resolver con un lookup JOIN en queries
@@ -511,9 +452,11 @@ async function main() {
   loadLocalEnv();
   const root = path.join(process.cwd(), 'djiag_exports');
   const schemaSql = fs.readFileSync(path.join(process.cwd(), 'db', 'schema.sql'), 'utf8');
-  const history = JSON.parse(fs.readFileSync(path.join(root, 'records_history.json'), 'utf8'));
-  const fields = JSON.parse(fs.readFileSync(path.join(root, 'mission_fields.json'), 'utf8'));
   const filesDir = path.join(root, 'land_files');
+
+  // (Sprint 2) records_history.json y mission_fields.json ya no se leen —
+  // las tablas dji_daily_summaries y dji_field_catalog se dropearon.
+  // Los rollups se derivan en runtime desde dji_flights vía el agregador.
 
   // assetIndex puede venir vacío si el scraper no completó la captura de
   // URLs (bug conocido §2.1 — filtra un endpoint que DJI no usa).
@@ -551,7 +494,6 @@ async function main() {
     await client.query('DELETE FROM dji_parcels');
     await client.query('DELETE FROM dji_land_assets');
     await client.query('DELETE FROM dji_daily_summaries');
-    await client.query('DELETE FROM dji_field_catalog');
     await client.query('DELETE FROM dji_import_batches');
 
     const batchResult = await client.query(
@@ -559,39 +501,8 @@ async function main() {
     );
     const batchId = batchResult.rows[0].id;
 
-    for (const item of history) {
-      const record = parseHistoryRecord(item);
-      const date = toIsoDate(record.date);
-      const insertSql = `
-        INSERT INTO dji_daily_summaries
-          (batch_id, record_date, weekday, category, area_mu, times_count, usage_liters, work_time_text, raw_text)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-      `;
-      await client.query(insertSql, [
-        batchId,
-        date,
-        record.weekday,
-        record.category,
-        parseMu(record.area),
-        parseCount(record.times),
-        parseUsage(record.usage),
-        record.workTime,
-        record.raw
-      ]);
-    }
-
-    for (const [index, item] of fields.entries()) {
-      const field = parseFieldCard(item);
-      await client.query(
-        `
-          INSERT INTO dji_field_catalog
-            (batch_id, field_type, field_name, area_text, location_text, record_date, raw_text)
-          VALUES
-            ($1, $2, $3, $4, $5, $6, $7)
-        `,
-        [batchId, field.field_type, field.field_name, field.area_text, field.location_text, field.record_date, field.raw_text]
-      );
-    }
+    // (Sprint 2) Loop de history eliminado — dji_daily_summaries ya no existe.
+    // Los rollups diarios ahora se derivan en runtime desde dji_flights.
 
     for (const item of assetIndex) {
       const fileBase = `${item.externalId}_${item.kind}`.replace(/[^a-zA-Z0-9._-]/g, '_');
@@ -685,19 +596,6 @@ async function main() {
     }
     const schedulesWritten = schedulesInserted + schedulesUpdated;
 
-    // Intentar enriquecer declared_area_ha desde dji_field_catalog
-    // buscando por land_name (join aproximado — si el land_name del catálogo
-    // matchea el del asset, copiamos el área declarada).
-    await client.query(`
-      UPDATE dji_parcels p
-      SET declared_area_ha = NULLIF(regexp_replace(f.area_text, '[^0-9.]+', '', 'g'), '')::numeric
-      FROM dji_field_catalog f
-      WHERE p.batch_id = f.batch_id
-        AND p.land_name IS NOT NULL
-        AND LOWER(TRIM(p.land_name)) = LOWER(TRIM(f.field_name))
-        AND p.declared_area_ha IS NULL
-    `);
-
     // Enriquecer drone_model_name desde la tabla lookup
     await client.query(`
       UPDATE dji_parcels p
@@ -709,7 +607,7 @@ async function main() {
 
     await client.query('COMMIT');
     console.log(
-      `Imported batch ${batchId}: ${history.length} daily summaries, ${fields.length} field cards, ${assetIndex.length} asset records, ${parcelsWritten} normalized parcels, ${schedulesWritten} fumigation schedules (${schedulesInserted} new, ${schedulesUpdated} updated, ${schedulesSkipped} skipped)`
+      `Imported batch ${batchId}: ${assetIndex.length} asset records, ${parcelsWritten} normalized parcels, ${schedulesWritten} fumigation schedules (${schedulesInserted} new, ${schedulesUpdated} updated, ${schedulesSkipped} skipped)`
     );
   } catch (error) {
     await client.query('ROLLBACK');
@@ -733,11 +631,6 @@ if (require.main === module) {
 module.exports = {
   main,
   // parsers
-  parseMu,
-  parseCount,
-  parseUsage,
-  parseHistoryRecord,
-  parseFieldCard,
   parseAreaHa,
   parseEmbeddedJson,
   // geometry helpers

@@ -30,51 +30,12 @@ CREATE TABLE IF NOT EXISTS dji_import_batches (
   imported_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS dji_land_assets (
-  id SERIAL PRIMARY KEY,
-  batch_id INTEGER NOT NULL REFERENCES dji_import_batches(id) ON DELETE CASCADE,
-  external_id TEXT NOT NULL,
-  land_name TEXT NOT NULL,
-  asset_kind TEXT NOT NULL,
-  source_url TEXT NOT NULL,
-  raw_json JSONB NOT NULL,
-  geom geometry(Geometry, 4326)
-);
-
-CREATE TABLE IF NOT EXISTS dji_daily_summaries (
-  id SERIAL PRIMARY KEY,
-  batch_id INTEGER NOT NULL REFERENCES dji_import_batches(id) ON DELETE CASCADE,
-  record_date DATE NOT NULL,
-  weekday TEXT,
-  category TEXT NOT NULL,
-  area_mu NUMERIC(12, 2) NOT NULL CHECK (area_mu >= 0),
-  times_count INTEGER NOT NULL CHECK (times_count >= 0),
-  usage_liters NUMERIC(12, 2) NOT NULL CHECK (usage_liters >= 0),
-  work_time_text TEXT NOT NULL,
-  raw_text TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS dji_field_catalog (
-  id SERIAL PRIMARY KEY,
-  batch_id INTEGER NOT NULL REFERENCES dji_import_batches(id) ON DELETE CASCADE,
-  field_type TEXT NOT NULL,
-  field_name TEXT NOT NULL,
-  area_text TEXT NOT NULL,
-  location_text TEXT NOT NULL,
-  record_date DATE NOT NULL,
-  raw_text TEXT NOT NULL
-);
-
 CREATE INDEX IF NOT EXISTS idx_parcels_client_id ON parcels(client_id);
 CREATE INDEX IF NOT EXISTS idx_flights_parcel_id ON flights(parcel_id);
 CREATE INDEX IF NOT EXISTS idx_parcels_geom ON parcels USING GIST (geom);
 CREATE INDEX IF NOT EXISTS idx_flights_footprint ON flights USING GIST (footprint);
-CREATE INDEX IF NOT EXISTS idx_dji_land_assets_batch_id ON dji_land_assets(batch_id);
-CREATE INDEX IF NOT EXISTS idx_dji_daily_summaries_batch_id ON dji_daily_summaries(batch_id);
-CREATE INDEX IF NOT EXISTS idx_dji_daily_summaries_date ON dji_daily_summaries(record_date);
-CREATE INDEX IF NOT EXISTS idx_dji_land_assets_geom ON dji_land_assets USING GIST (geom);
-CREATE INDEX IF NOT EXISTS idx_dji_field_catalog_batch_id ON dji_field_catalog(batch_id);
-CREATE INDEX IF NOT EXISTS idx_dji_field_catalog_date ON dji_field_catalog(record_date);
+-- (Sprint 2) índices de dji_land_assets y dji_daily_summaries eliminados
+-- — las tablas se dropearon en la migración 20260628120000.
 
 -- ============================================================
 -- DJI DRONE MODELS (lookup)

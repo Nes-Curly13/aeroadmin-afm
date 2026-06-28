@@ -113,34 +113,9 @@ async function withLocalFallback<T>(queryFn: () => Promise<T>, fallbackFn: () =>
   }
 }
 
-const assetsQuery = `
-  SELECT
-    id,
-    external_id,
-    land_name,
-    asset_kind,
-    source_url,
-    raw_json,
-    CASE
-      WHEN geom IS NULL THEN NULL
-      ELSE ST_AsGeoJSON(geom)::json
-    END AS geometry
-  FROM dji_land_assets
-`;
-
-const summariesQuery = `
-  SELECT
-    id,
-    record_date,
-    weekday,
-    category,
-    area_mu,
-    times_count,
-    usage_liters,
-    work_time_text,
-    raw_text
-  FROM dji_daily_summaries
-`;
+// (Sprint 2) `assetsQuery` y `summariesQuery` eliminadas. Las tablas
+// dji_land_assets y dji_daily_summaries se dropearon en la migración
+// 20260628120000. El dashboard ahora lee de dji_flights vía el agregador.
 
 export interface PaginatedResult<T> {
   data: T[];
@@ -567,23 +542,60 @@ export async function getUpcomingFumigations(limit = 10): Promise<UpcomingFumiga
   );
 }
 
+/**
+ * @deprecated Desde Sprint 2 del roadmap (2026-06-28) esta función lee de
+ * `dji_parcels` y mapea al shape legacy `DjiAssetRecord` con `asset_kind='parcel'`.
+ * Prefiere `getParcelsNormalized` para callers nuevos — devuelve columnas planas
+ * y geometrías PostGIS como GeoJSON, sin el shape de 3-rows-per-field.
+ *
+ * La función se mantiene por compatibilidad con `/api/parcels` y callers que aún
+ * esperan el shape `DjiAssetRecord`. Cuando todos los callers hayan migrado a
+ * `getParcelsNormalized`, esta función se puede borrar.
+ */
 export async function getParcels(page = 1, limit = 20) {
   const db = getDb();
   const offset = (page - 1) * limit;
   return withLocalFallback(
     async () => {
-      const result = await db.query<DjiAssetRecord>(
+      // Mapeamos dji_parcels (1 fila por campo) a DjiAssetRecord legacy.
+      // Como el shape original tenía 3 filas por campo (geometry/parameter/waypoint),
+      // emitimos 1 fila sintética por parcela con asset_kind='parcel'. Los callers
+      // que filtraban por asset_kind específico deben migrar a getParcelsNormalized.
+      const result = await db.query<{
+        id: number;
+        external_id: string;
+        land_name: string | null;
+        source_url: string | null;
+        raw_json: unknown;
+        geometry: GeoJSON.Geometry | null;
+      }>(
         `
-          ${assetsQuery}
-          ORDER BY land_name ASC, asset_kind ASC, id ASC
+          SELECT
+            id,
+            external_id,
+            land_name,
+            source_url_geometry AS source_url,
+            raw_geometry AS raw_json,
+            CASE WHEN spray_geom IS NULL THEN NULL ELSE ST_AsGeoJSON(spray_geom)::json END AS geometry
+          FROM dji_parcels
+          ORDER BY land_name ASC, id ASC
           LIMIT $1 OFFSET $2
         `,
         [limit, offset]
       );
-      const countResult = await db.query<{ total: string }>("SELECT COUNT(*)::int AS total FROM dji_land_assets");
+      const countResult = await db.query<{ total: string }>("SELECT COUNT(*)::int AS total FROM dji_parcels");
       const total = Number(countResult.rows[0]?.total ?? 0);
+      const data: DjiAssetRecord[] = result.rows.map((r) => ({
+        id: r.id,
+        external_id: r.external_id,
+        land_name: r.land_name ?? "",
+        asset_kind: "parcel",
+        source_url: r.source_url ?? "",
+        raw_json: r.raw_json,
+        geometry: r.geometry
+      }));
       return {
-        data: result.rows,
+        data,
         total,
         page,
         limit,

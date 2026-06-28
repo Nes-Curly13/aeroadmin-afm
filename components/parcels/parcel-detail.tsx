@@ -282,11 +282,12 @@ export function ParcelDetail({ parcel }: { parcel: DjiParcelRecord }) {
             <div className="rounded-lg border border-dashed border-[#cfd8d3] bg-[#f7f9fb] p-4 text-sm text-[#4a5b50]">
               <p className="font-semibold text-[#121815]">Última fumigación</p>
               <p className="mt-1">
-                <span className="font-bold text-[#a93232]">No disponible.</span> El modelo
-                <code className="mx-1 rounded bg-white px-1.5 py-0.5 text-[10px]">dji_daily_summaries</code>
-                es un rollup por día de TODAS las parcelas, no por parcela. Para tener
-                trazabilidad real se necesita clickear cada día en DJI y desglosar, o arreglar
-                el scraper (issue #1 del MD).
+                <span className="font-bold text-[#a93232]">No disponible.</span> La fumigación
+                por parcela requiere que el operador la registre manualmente en DJI con un
+                identificador de finca, o que el scraper DJI exponga el desglose
+                por parcela (issue #1 de <code className="mx-1 rounded bg-white px-1.5 py-0.5 text-[10px]">SCRAPER_DEFECTS.md</code>).
+                Ver <code className="mx-1 rounded bg-white px-1.5 py-0.5 text-[10px]">dji_fumigations.parcel_id</code> que se llena vía
+                spatial join con dji_flights.
               </p>
             </div>
             <div className="rounded-lg border border-dashed border-[#cfd8d3] bg-[#f7f9fb] p-4 text-sm text-[#4a5b50]">

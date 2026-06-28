@@ -59,9 +59,9 @@ async function main() {
         SELECT
           (SELECT count(*) FROM dji_drone_models)        AS drone_models,
           (SELECT count(*) FROM dji_import_batches)      AS import_batches,
-          (SELECT count(*) FROM dji_daily_summaries)     AS daily_summaries,
-          (SELECT count(*) FROM dji_field_catalog)       AS field_catalog,
-          (SELECT count(*) FROM dji_land_assets)         AS land_assets,
+          (SELECT count(*) FROM dji_flights)             AS flights,
+          (SELECT count(*) FROM dji_fumigations)         AS fumigations,
+          (SELECT count(*) FROM dji_fumigation_schedule) AS fumigation_schedule,
           (SELECT count(*) FROM dji_parcels)             AS parcels
       `);
       console.log('\n=== Conteos actuales ===');
