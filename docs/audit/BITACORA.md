@@ -88,6 +88,32 @@
 - **Próximo paso**: S2 (drop legacy tables restantes: `dji_land_assets`,
   `dji_daily_summaries`). Esto requiere tocar la lógica del importer dual-write.
 
+### 2026-06-28 — Decisión sobre S2 + cierre de turno
+- **Sesión**: mvs_f5f495aa35184a8293ecddd1a93d4d36 (cierre)
+- **Objetivo**: evaluar S2 (drop `dji_land_assets` + `dji_daily_summaries`)
+  antes de seguir con el loop.
+- **Acciones**:
+  - Grep de refs a `dji_land_assets` → sigue siendo leída por
+    `api/repositories.ts:getParcels` (queries en líneas 113, 568).
+  - `dji_daily_summaries` similar: `getAlerts` + `getDashboardMetrics`
+    dependen de columnas `area_mu`/`times_count` que no existen en
+    `dji_flights` directamente.
+  - Documentado en `SCRAPER_DEFECTS.md` §11.5 el bloqueo.
+  - Commit atómico: QW1-QW7 + S1 (incluye storage state, scroll helper,
+    djiag-storage, djiag-korean-client refactor).
+- **Archivos tocados**:
+  - modificados: `SCRAPER_DEFECTS.md`, `docs/audit/BITACORA.md`
+- **Estado**: ⏸ S2 pospuesto a sprint dedicado (migración dashboard → dji_flights)
+- **Próximo paso (siguiente sesión)**:
+  1. **Migrar dashboard a `dji_flights`** (queries sobre sorties individuales,
+     no rollups por día). Esto desbloquea S2.
+  2. Una vez migrado, drop `dji_land_assets` + `dji_daily_summaries`
+     con snapshot.
+  3. **S4 CI/CD** (GitHub Actions `lint+tsc+vitest+build`) — bajo riesgo,
+     alto valor, no requiere decisión de producto.
+  4. **S3 auth** — bloqueante para SaaS. Requiere decisión de producto
+     (multi-tenant vs single-tenant) que solo el usuario puede tomar.
+
 ### 2026-06-28 — Quick Wins QW1-QW7 (cierre completo del primer lote)
 - **Sesión**: mvs_f5f495aa35184a8293ecddd1a93d4d36
 - **Objetivo**: ejecutar todos los Quick Wins del roadmap para tener un baseline

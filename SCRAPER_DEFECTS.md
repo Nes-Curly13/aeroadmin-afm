@@ -870,6 +870,25 @@ Es la base para el sistema de notificaciones que el cliente quiere ("cuándo deb
 
 Continuar con S2 del roadmap: drop de las tablas restantes del modelo legacy (`dji_land_assets`, `dji_daily_summaries`) + unificación de fumigaciones (`dji_fumigations.kind` agregado vs parcel_id).
 
+> **Bloqueo identificado 2026-06-28**: `dji_land_assets` sigue siendo leída por
+> `api/repositories.ts:getParcels` (queries en líneas 113 y 568). Antes de
+> poder dropearla hay que migrar el dashboard a `getParcelsNormalized()` y
+> deprecar la función legacy. Tarea que requiere un sprint dedicado (ver
+> roadmap M6 — "migrar dashboard a dji_flights"). Posponer S2 a una iteración
+> posterior. `dji_daily_summaries` es caso similar: la usa `getAlerts` y
+> `getDashboardMetrics` con queries sobre `area_mu`/`times_count` que no
+> existen en `dji_flights` directamente.
+
+### 11.6 Resumen ejecutivo del sprint
+
+- ✅ **Defectos §2.2, §2.3, §2.5 resueltos** (código listo, pendiente validar contra cuenta real DJI).
+- ⚠️ **§2.1 parcial** — endpoint discovery funciona, falta smoke contra la cuenta del operador.
+- ✅ **§2.4 ya estaba mitigado** (regex robusto en `import_djiag_data.js:79-103`).
+- ✅ **DB schema limpio**: drop `dji_field_catalog` con snapshot reversible.
+- ✅ **DB performance**: GIST index sobre `dji_flights.point` para spatial joins.
+- ✅ **Tests**: 369/369 passing (de 363, +6 nuevos).
+- ⏸ **S2 pospuesto** por acoplamiento con queries legacy del dashboard.
+
 ## 11. Scraper v2 + seed-cadences config (jun 2026)
 
 ### 11.1 Scraper — endpoint discovery + drill-down
