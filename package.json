@@ -29,6 +29,10 @@
     "db:import:lands": "node scripts/import-lands-pipeline.js",
     "seed:cadences": "node scripts/seed-cadences.js",
     "auth:seed": "node scripts/seed-admin-user.js",
+    "e2e": "playwright test",
+    "e2e:auth": "playwright test auth-and-dashboard",
+    "e2e:map": "playwright test map-and-history",
+    "e2e:install": "playwright install chromium firefox",
     "pipeline:djiag": "node scripts/run-pipeline.js",
     "pipeline:djiag:dry": "node scripts/run-pipeline.js --dry-run",
     "dev": "next dev",
@@ -48,6 +52,7 @@
     "react-leaflet": "5.0.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@tailwindcss/postcss": "4.2.4",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
