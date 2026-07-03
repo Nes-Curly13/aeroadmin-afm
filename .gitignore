@@ -50,3 +50,19 @@ djiag_exports/
 /_test_out.txt
 /aggr_by_day.json
 /log.txt
+
+# ============================================================
+# Playwright artifacts
+# ============================================================
+djiag_session.json
+test-results/
+playwright-report/
+.playwright/
+
+# ============================================================
+# Sprint one-off diagnostic / debug scripts (kept on disk,
+# not part of MVP — recreated on demand if needed)
+# ============================================================
+/scripts/diag-*.js
+/scripts/debug-*.js
+/scripts/capture-aggr-from-records.js

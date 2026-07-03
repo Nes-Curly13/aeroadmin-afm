@@ -34,8 +34,6 @@ CREATE INDEX IF NOT EXISTS idx_parcels_client_id ON parcels(client_id);
 CREATE INDEX IF NOT EXISTS idx_flights_parcel_id ON flights(parcel_id);
 CREATE INDEX IF NOT EXISTS idx_parcels_geom ON parcels USING GIST (geom);
 CREATE INDEX IF NOT EXISTS idx_flights_footprint ON flights USING GIST (footprint);
--- (Sprint 2) índices de dji_land_assets y dji_daily_summaries eliminados
--- — las tablas se dropearon en la migración 20260628120000.
 
 -- ============================================================
 -- DJI DRONE MODELS (lookup)

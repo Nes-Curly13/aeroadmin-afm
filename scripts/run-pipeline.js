@@ -9,7 +9,8 @@
 //   6. Backfill per-parcel fumigations from flights           → dji_fumigations (source='import')
 //   7. Update fumigation schedule (last_fumigation_date / next_due_date)
 //   8. Fetch lands from DJI (GraphQL)                         → djiag_exports/lands.json
-//   9. Upsert lands into dji_parcels                          → dji_parcels (API columns)
+//   9. Download land assets (signed S3, ~12h TTL)            → djiag_exports/land_files/
+//  10. Upsert lands into dji_parcels                          → dji_parcels (API columns)
 //
 // Cada step es idempotente (UPSERT / DELETE WHERE source='import' antes de
 // re-insertar). Re-correr la pipeline completa N veces no duplica filas.
@@ -18,9 +19,10 @@
 //   --days N            días a fetchear (default 30)
 //   --skip-scrape       no re-scrapear; usa archivos en djiag_exports/
 //   --skip-fetch-lands  no fetchear lands (solo fumigations + flights)
+//   --skip-download-assets  no descargar land_files (usar los que ya estén)
 //   --tolerance M       metros para spatial join (default 500)
-//   --start-from STEP   arranca desde un step (1-9, nombre también)
-//   --stop-at STEP      para después de un step (1-9, nombre también)
+//   --start-from STEP   arranca desde un step (1-10, nombre también)
+//   --stop-at STEP      para después de un step (1-10, nombre también)
 //   --dry-run           loguea los comandos sin ejecutarlos
 //   --no-color          desactiva colores ANSI
 //
@@ -52,13 +54,14 @@ const c = {
 };
 
 function parseArgs(argv) {
-  const out = { days: 30, tolerance: 500, skipScrape: false, skipFetchLands: false, dryRun: false, startFrom: null, stopAt: null };
+  const out = { days: 30, tolerance: 500, skipScrape: false, skipFetchLands: false, skipDownloadAssets: false, dryRun: false, startFrom: null, stopAt: null };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--days') out.days = Number(argv[++i]) || out.days;
     else if (a === '--tolerance') out.tolerance = Number(argv[++i]) || out.tolerance;
     else if (a === '--skip-scrape') out.skipScrape = true;
     else if (a === '--skip-fetch-lands') out.skipFetchLands = true;
+    else if (a === '--skip-download-assets') out.skipDownloadAssets = true;
     else if (a === '--dry-run') out.dryRun = true;
     else if (a === '--no-color') {} // ya consumido arriba
     else if (a === '--start-from') out.startFrom = argv[++i];
@@ -74,6 +77,7 @@ function parseArgs(argv) {
 // Steps. order = 1-based, name = human label, cmd = [script, ...args], optional = skip condition.
 //   optional(skipScrape) = true → step se skipea si --skip-scrape.
 //   optional(skipFetchLands) = true → step se skipea si --skip-fetch-lands.
+//   optional(skipDownloadAssets) = true → step se skipea si --skip-download-assets.
 function buildSteps(opts) {
   return [
     {
@@ -129,6 +133,13 @@ function buildSteps(opts) {
     },
     {
       order: 9,
+      name: 'download land assets',
+      cmd: ['scripts/download-land-assets.js'],
+      skip: () => opts.skipDownloadAssets,
+      skipReason: () => '--skip-download-assets',
+    },
+    {
+      order: 10,
       name: 'upsert lands',
       cmd: ['scripts/upsert-lands-from-djiag.js'],
       skip: () => opts.skipFetchLands,
@@ -176,7 +187,7 @@ function fmtDuration(ms) {
 }
 
 function runStep(step, opts) {
-  const tag = `${c.cyan}[${step.order}/9]${c.reset} ${c.bold}${step.name}${c.reset}`;
+  const tag = `${c.cyan}[${step.order}/10]${c.reset} ${c.bold}${step.name}${c.reset}`;
   if (step.skip && step.skip()) {
     console.log(`${tag} ${c.gray}— skip (${step.skipReason ? step.skipReason() : 'flag'})${c.reset}`);
     return { ok: true, skipped: true };

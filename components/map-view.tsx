@@ -4,7 +4,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
-import type { DjiAlertRecord, DjiAssetRecord, DjiDailySummaryRecord, DjiParcelRecord, FlightPointRecord } from "@/lib/types";
+import type { DjiAlertRecord, DjiDailySummaryRecord, DjiParcelRecord, FlightPointRecord } from "@/lib/types";
 
 const MapClient = dynamic(() => import("@/components/map-client").then((module) => module.MapClient), {
   ssr: false,
@@ -40,10 +40,10 @@ export function MapView({
   alerts,
   flightPoints
 }: {
-  // Aceptamos ambos tipos: DjiParcelRecord (nuevo, normalizado) o DjiAssetRecord (legacy).
-  // El runtime hoy pasa DjiParcelRecord desde app/map/page.tsx, pero el componente
-  // puede recibir cualquier shape compatible (cobertura para tests / fallback).
-  parcels: DjiParcelRecord[] | DjiAssetRecord[];
+  // (S2 / 2026-07-01) Solo DjiParcelRecord. El legacy DjiAssetRecord (3-rows-per-field)
+  // se eliminó junto con getParcels() y el endpoint /api/parcels. La tabla
+  // dji_land_assets se dropeó en la migración 20260628120000.
+  parcels: DjiParcelRecord[];
   flights: DjiDailySummaryRecord[];
   alerts: DjiAlertRecord[];
   // M6: footprints minimos de sorties. Plot se hace en MapClient.
@@ -56,19 +56,16 @@ export function MapView({
     flights: true
   });
   const [selectedParcelId, setSelectedParcelId] = useState<number | null>(
-    (parcels as DjiParcelRecord[])[0]?.id ?? null
+    parcels[0]?.id ?? null
   );
 
   const selectedParcel = useMemo(() => {
-    const list = parcels as DjiParcelRecord[];
-    return list.find((p) => p.id === selectedParcelId) ?? list[0];
+    return parcels.find((p) => p.id === selectedParcelId) ?? parcels[0];
   }, [parcels, selectedParcelId]);
 
   const selectedAlert = alerts[0];
   const toggleLayer = (layer: keyof typeof layers) =>
     setLayers((prev) => ({ ...prev, [layer]: !prev[layer] }));
-
-  const parcelsList = parcels as DjiParcelRecord[];
 
   if (!parcels || parcels.length === 0) {
     return (
@@ -92,7 +89,7 @@ export function MapView({
           flightPoints={flightPoints}
           flights={flights}
           layers={layers}
-          parcels={parcelsList as unknown as DjiAssetRecord[]}
+          parcels={parcels}
         />
       </div>
 
@@ -146,7 +143,7 @@ export function MapView({
             onChange={(e) => setSelectedParcelId(Number(e.target.value))}
             value={selectedParcelId ?? ""}
           >
-            {parcelsList.map((parcel) => (
+            {parcels.map((parcel) => (
               <option key={parcel.id} value={parcel.id}>
                 {parcel.land_name || parcel.external_id}
               </option>

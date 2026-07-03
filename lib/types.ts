@@ -1,19 +1,13 @@
 export type AlertLevel = "LOW" | "MEDIUM" | "HIGH";
 
-export interface DjiAssetRecord {
-  id: number;
-  external_id: string;
-  land_name: string;
-  asset_kind: string;
-  source_url: string;
-  raw_json: unknown;
-  geometry: GeoJSON.Geometry | null;
-}
-
 /**
  * DjiParcelRecord — modelo normalizado (Opción B).
  * Una fila por campo/parcela, con columnas planas en lugar de JSONB.
  * Pensado para queries tipo "todos los orchards" sin escarbar raw_json.
+ *
+ * (S2 / 2026-07-01) El shape legacy `DjiAssetRecord` (3-rows-per-field) se eliminó.
+ * El único caller del shape legacy era `getParcels()` que también se eliminó.
+ * Si necesitas data de parcelas, usá `getParcelsNormalized()` que devuelve este type.
  */
 export interface DjiParcelRecord {
   id: number;

@@ -2,7 +2,7 @@ import { AppShell } from "@/components/app-shell";
 import { OperationsPanel } from "@/components/dashboard/operations-panel";
 import { UpcomingFumigations } from "@/components/dashboard/upcoming-fumigations";
 import { MetricCard } from "@/components/ui/metric-card";
-import { getAlerts, getDashboardMetrics, getFlights, getParcels, getUpcomingFumigations } from "@/api/repositories";
+import { getAlerts, getDashboardMetrics, getFlights, getParcelsNormalized, getUpcomingFumigations } from "@/api/repositories";
 import { formatArea, formatNumber } from "@/lib/format";
 import { getDashboardKpiTone } from "@/lib/ui-tokens";
 
@@ -66,7 +66,10 @@ function DroneIcon() {
 export default async function DashboardPage() {
   const [metrics, parcelsResult, flightsResult, alerts, upcoming] = await Promise.all([
     getDashboardMetrics(),
-    getParcels(),
+    // (S1.7 / 2026-07-01) Migrado de getParcels() (legacy, lee dji_land_assets shape)
+    // a getParcelsNormalized() — tabla dji_parcels, 1 fila por campo, columnas planas.
+    // Mismo origen de datos que /map, garantiza coherencia entre dashboard y mapa.
+    getParcelsNormalized(1, 200),
     getFlights(),
     getAlerts(),
     getUpcomingFumigations(8)

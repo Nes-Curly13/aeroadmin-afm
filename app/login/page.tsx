@@ -28,18 +28,13 @@ export default function LoginPage() {
   return (
     <main className="flex min-h-screen items-center justify-center bg-[#f0f4f1] p-4">
       <div className="w-full max-w-sm rounded-2xl border border-[#d2ddd6] bg-white p-8 shadow-[0px_18px_40px_rgba(15,23,42,0.08)]">
-        <header className="mb-6 flex flex-col items-center gap-2">
-          <div className="rounded-full bg-[#0b5f2d] p-3 text-white">
-            <svg fill="none" height="24" viewBox="0 0 24 24" width="24">
-              <path
-                d="M3 8h4M17 8h4M3 16h4M17 16h4M7 12h10M12 5v3M12 16v3"
-                stroke="currentColor"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="1.6"
-              />
-            </svg>
-          </div>
+        <header className="mb-6 flex flex-col items-center gap-3">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            alt="AeroAdmin AFM"
+            className="h-14 w-auto"
+            src="/logo.svg"
+          />
           <h1 className="text-xl font-black text-[#121815]">AeroAdmin AFM</h1>
           <p className="text-sm text-[#4a5b50]">Panel admin — Iniciar sesion</p>
         </header>

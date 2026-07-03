@@ -12,15 +12,19 @@ import type {
   AlertLevel,
   DashboardMetrics,
   DjiAlertRecord,
-  DjiAssetRecord,
-  DjiDailySummaryRecord
+  DjiDailySummaryRecord,
+  DjiParcelRecord
 } from "@/lib/types";
 
 export interface OperationsPanelProps {
   metrics: DashboardMetrics;
   alerts: DjiAlertRecord[];
   flights: DjiDailySummaryRecord[];
-  parcels: DjiAssetRecord[];
+  // (S1.7 / 2026-07-01) Migrado de DjiAssetRecord[] a DjiParcelRecord[].
+  // El dashboard ahora lee del modelo normalizado (dji_parcels) con columnas
+  // planas: is_orchard, spray_area_m2, field_type, waypoint_count, etc.
+  // El legacy DjiAssetRecord tenía 3 filas por campo + JSONB opaco.
+  parcels: DjiParcelRecord[];
 }
 
 /**
@@ -62,7 +66,7 @@ export function OperationsPanel({ metrics, alerts, flights, parcels }: Operation
 
   const lastSyncFlight = flights[0];
   const maxAlertDays = alerts.length > 0 ? Math.max(...alerts.map((alert) => alert.age_days)) : 0;
-  const renderableParcels = parcels.filter((parcel) => parcel.geometry).length;
+  const renderableParcels = parcels.filter((parcel) => parcel.spray_geometry).length;
 
   return (
     <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.35fr_0.95fr]">

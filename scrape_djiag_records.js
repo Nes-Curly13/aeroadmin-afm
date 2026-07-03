@@ -60,7 +60,7 @@ async function withRetry(fn, attempts = 3, baseDelayMs = 1500) {
 // =====================================================================
 // Modo SMOKE: navega y captura todo, sin descargar nada
 // =====================================================================
-async function smokeRun(page, outDir, discoveredEndpoints, allResponses) {
+async function smokeRun(page, outDir, discoveredEndpoints, allResponses, opCounters) {
   console.log('[SMOKE] Solo navegación. No se descargan assets.');
   fs.mkdirSync(path.join(outDir, 'smoke'), { recursive: true });
 
@@ -230,12 +230,26 @@ async function main() {
   const discoveredEndpoints = new Map(); // url → count
   const allResponses = [];
   const opCounters = new Map(); // operationName → count
+  // Log de TODAS las responses djiag.com (incluyendo no-200) para encontrar
+  // endpoints que no son /api/graphql. §2.1 fix: el frontend de DJI puede
+  // haber cambiado y los fields ahora vienen de un REST endpoint.
+  const allResponsesLog = path.join(process.cwd(), 'djiag_exports', 'smoke', 'all-responses.log');
+  fs.mkdirSync(path.dirname(allResponsesLog), { recursive: true });
+  fs.writeFileSync(allResponsesLog, ''); // limpiar al inicio
   page.on('response', async (res) => {
     const url = res.url();
-    if (!url.includes('djiag.com')) return; // agro-vg.djiag.com es subset
+    // §2.1 fix: el frontend de DJI puede llamar a campos/lands desde dominios
+    // distintos (kr-ag2-api.dji.com, terra-cloud.dji.com, account.dji.com).
+    // Filtramos solo lo que NO es estático (assets .js/.css/.png/.svg/.woff).
+    if (/\.(js|css|png|svg|woff2?|ico|gif|map|jpg|jpeg|webp|ttf)(\?|$)/i.test(url)) return;
+    if (url.startsWith('data:') || url.startsWith('blob:')) return;
     const rec = { status: res.status(), url, method: res.request().method() };
     allResponses.push(rec);
-    if (url.includes('/graphql') || url.includes('api/')) {
+    // Append a log persistente — incluye status != 200
+    try {
+      fs.appendFileSync(allResponsesLog, `${rec.status} ${rec.method} ${url}\n`);
+    } catch {}
+    if (url.includes('/graphql') || url.includes('api/') || url.includes('terra')) {
       const key = url.split('?')[0];
       discoveredEndpoints.set(key, (discoveredEndpoints.get(key) ?? 0) + 1);
     }
@@ -301,14 +315,16 @@ async function main() {
 
     if (smoke) {
       // Modo exploración
-      await smokeRun(page, outDir, discoveredEndpoints, allResponses);
-      // Sugerir el endpoint de 'lands' (match específico, no substring 'land')
-      const landsEndpoint = [...discoveredEndpoints.entries()]
-        .map(([url, count]) => ({ url, count }))
-        .find((e) => e.url.includes('graphql?name=lands'));
-      if (landsEndpoint) {
-        console.log(`\n[SMOKE] Endpoint de lands detectado: ${landsEndpoint.url}`);
-        console.log(`  → ${landsEndpoint.count} hits durante la corrida`);
+      await smokeRun(page, outDir, discoveredEndpoints, allResponses, opCounters);
+      // Sugerir el endpoint de 'lands' (match específico, no substring 'land').
+      // El query-string se pierde cuando spliteamos por '?' para discoveredEndpoints,
+      // asi que chequeamos en opCounters que SI preserva el operationName.
+      const landsFound = opCounters.has('lands') || opCounters.has('landsCluster');
+      if (landsFound) {
+        const landsCount = opCounters.get('lands') || 0;
+        const clusterCount = opCounters.get('landsCluster') || 0;
+        console.log(`\n[SMOKE] Endpoint de lands detectado: graphql?name=lands (${landsCount}x) + landsCluster (${clusterCount}x)`);
+        console.log(`  Confirmado: el frontend SÍ está disparando la query de fincas.`);
       } else {
         console.log(`\n[SMOKE] No se detectó endpoint 'graphql?name=lands' automáticamente.`);
         console.log(`  Revisa djiag_exports/smoke/endpoints.json para ver todos los endpoints.`);

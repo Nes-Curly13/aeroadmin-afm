@@ -72,31 +72,18 @@ async function main() {
     `);
     console.log(JSON.stringify(r3.rows[0], null, 2));
 
-    console.log('\n=== 4. Join: parcels con field_catalog matcheado por nombre ===');
+    console.log('\n=== 4. Join: parcels con drone_model_name resuelto ===');
     const r4 = await client.query(`
-      SELECT
-        count(*) AS total_parcels,
-        count(fc.id) AS matched_field_catalog,
-        count(*) - count(fc.id) AS unmatched
-      FROM dji_parcels p
-      LEFT JOIN dji_field_catalog fc
-        ON p.batch_id = fc.batch_id
-        AND LOWER(TRIM(COALESCE(p.land_name, ''))) = LOWER(TRIM(COALESCE(fc.field_name, '')))
-    `);
-    console.log(JSON.stringify(r4.rows[0], null, 2));
-
-    console.log('\n=== 5. Join: parcels con drone_model_name resuelto ===');
-    const r5 = await client.query(`
       SELECT
         count(*) AS total,
         count(drone_model_name) AS resolved,
         count(*) - count(drone_model_name) AS unresolved
       FROM dji_parcels
     `);
-    console.log(JSON.stringify(r5.rows[0], null, 2));
+    console.log(JSON.stringify(r4.rows[0], null, 2));
 
-    console.log('\n=== 6. Top 5 parcelas por spray_area ===');
-    const r6 = await client.query(`
+    console.log('\n=== 5. Top 5 parcelas por spray_area ===');
+    const r5 = await client.query(`
       SELECT
         external_id,
         land_name,
@@ -110,12 +97,12 @@ async function main() {
       ORDER BY spray_area_m2 DESC
       LIMIT 5
     `);
-    for (const row of r6.rows) {
+    for (const row of r5.rows) {
       console.log(`  ${row.land_name || row.external_id} | ${row.field_type} | ${row.drone_model_name || '?'} | spray=${row.spray_m2}m² | declared=${row.declared_ha || 'null'}ha | waypoints=${row.waypoint_count ?? 0}`);
     }
 
-    console.log('\n=== 7. Parcelas con NULL en campos críticos ===');
-    const r7 = await client.query(`
+    console.log('\n=== 6. Parcelas con NULL en campos críticos ===');
+    const r6 = await client.query(`
       SELECT
         count(CASE WHEN spray_width_m IS NULL THEN 1 END)         AS null_spray_width,
         count(CASE WHEN work_speed_mps IS NULL THEN 1 END)        AS null_work_speed,
@@ -124,28 +111,28 @@ async function main() {
         count(CASE WHEN field_type NOT IN ('Farmland','Orchards') THEN 1 END) AS unknown_field_type
       FROM dji_parcels
     `);
-    console.log(JSON.stringify(r7.rows[0], null, 2));
+    console.log(JSON.stringify(r6.rows[0], null, 2));
 
-    console.log('\n=== 8. Muestra de geometrías (1 polígono + 1 waypoint) ===');
-    const r8a = await client.query(`
+    console.log('\n=== 7. Muestra de geometrías (1 polígono + 1 waypoint) ===');
+    const r7a = await client.query(`
       SELECT land_name, ST_AsGeoJSON(spray_geom)::json AS geom
       FROM dji_parcels
       WHERE spray_geom IS NOT NULL
       LIMIT 1
     `);
-    if (r8a.rows[0]) {
-      console.log(`  spray_geom sample (${r8a.rows[0].land_name}):`);
-      console.log(`  type=${r8a.rows[0].geom.type}, ${r8a.rows[0].geom.coordinates[0].length} vértices`);
+    if (r7a.rows[0]) {
+      console.log(`  spray_geom sample (${r7a.rows[0].land_name}):`);
+      console.log(`  type=${r7a.rows[0].geom.type}, ${r7a.rows[0].geom.coordinates[0].length} vértices`);
     }
-    const r8b = await client.query(`
+    const r7b = await client.query(`
       SELECT land_name, ST_AsGeoJSON(waypoints)::json AS wp, waypoint_count
       FROM dji_parcels
       WHERE waypoints IS NOT NULL
       ORDER BY waypoint_count DESC
       LIMIT 1
     `);
-    if (r8b.rows[0]) {
-      console.log(`  waypoints sample (${r8b.rows[0].land_name}): ${r8b.rows[0].waypoint_count} puntos, type=${r8b.rows[0].wp.type}`);
+    if (r7b.rows[0]) {
+      console.log(`  waypoints sample (${r7b.rows[0].land_name}): ${r7b.rows[0].waypoint_count} puntos, type=${r7b.rows[0].wp.type}`);
     }
   } catch (err) {
     console.error('ERROR:', err.message);

@@ -11,9 +11,9 @@ const {
 /**
  * Importador DJI AG — Opción B (modelo normalizado)
  *
- * (Sprint 2) Las tablas legacy `dji_daily_summaries` y `dji_land_assets`
- * se dropearon el 2026-06-28 (migration 20260628120000). Este importer
- * ahora solo escribe `dji_parcels` (1 fila por campo, columnas planas).
+ * (S2 / 2026-07-01) Las tablas legacy `dji_daily_summaries` y `dji_land_assets`
+ * se dropearon en la migration 20260628120000 (Sprint 2, 2026-06-28). Este
+ * importer ahora solo escribe `dji_parcels` (1 fila por campo, columnas planas).
  *
  * Fase 2: agrega los 3 assets por externalId, normaliza los campos del
  * parameter.json, convierte geometría a MultiPolygon y waypoints a
@@ -490,11 +490,34 @@ async function main() {
   try {
     await client.query('BEGIN');
     await client.query(schemaSql);
-    // Fase 1: limpieza y carga legacy
-    await client.query('DELETE FROM dji_parcels');
-    await client.query('DELETE FROM dji_land_assets');
-    await client.query('DELETE FROM dji_daily_summaries');
-    await client.query('DELETE FROM dji_import_batches');
+    // Fase 1: limpieza. (S2 / 2026-07-01) Las tablas dji_land_assets y
+    // dji_daily_summaries se dropearon en la migration 20260628120000.
+    // Solo limpiamos las tablas que SÍ existen en el modelo normalizado.
+    //
+    // (S4 / 2026-07-03) BUGFIX: el TRUNCATE ... CASCADE anterior borraba
+    // también `dji_flights` y `dji_fumigations` (las 7710 flights y 714
+    // fumigations se perdían en cada corrida). El comentario antiguo
+    // afirmaba que fumigations NO se truncaban, pero TRUNCATE CASCADE
+    // borra TODAS las tablas con FK sin importar el ON DELETE rule.
+    //
+    // Solución: en vez de TRUNCATE CASCADE, usamos DELETE FROM con un
+    // subset explícito de tablas donde CASCADE es SEGURO. Esto:
+    //   - Borra dji_parcels (la idea del importer)
+    //   - Borra dji_fumigation_schedule (tiene FK ON DELETE CASCADE a
+    //     dji_parcels — se reconstruye en Fase 2.5)
+    //   - Borra dji_fumigations PER-PARCEL (tiene FK ON DELETE CASCADE
+    //     a dji_parcels — se reconstruye via backfill-fumigations-from-flights)
+    //   - PRESERVA dji_fumigations AGGREGATE (parcel_id IS NULL — no tiene FK)
+    //   - PRESERVA dji_flights.parcel_id (FK ON DELETE SET NULL — los flights
+    //     quedan con parcel_id=NULL y se re-spajoinean después)
+    //   - NO resetea sequences (SERIAL/IDENTITY), así que las IDs son estables.
+    //     Si se quiere resetear, agregar RESTART IDENTITY explícito por tabla.
+    await client.query(`
+      DELETE FROM dji_fumigation_schedule;
+      DELETE FROM dji_fumigations WHERE parcel_id IS NOT NULL;
+      DELETE FROM dji_parcels;
+      DELETE FROM dji_import_batches;
+    `);
 
     const batchResult = await client.query(
       "INSERT INTO dji_import_batches (source) VALUES ('djiag') RETURNING id"
@@ -503,24 +526,9 @@ async function main() {
 
     // (Sprint 2) Loop de history eliminado — dji_daily_summaries ya no existe.
     // Los rollups diarios ahora se derivan en runtime desde dji_flights.
-
-    for (const item of assetIndex) {
-      const fileBase = `${item.externalId}_${item.kind}`.replace(/[^a-zA-Z0-9._-]/g, '_');
-      const rawPath = path.join(filesDir, `${fileBase}.json`);
-      if (!fs.existsSync(rawPath)) continue;
-      const assetFile = loadAssetFile(rawPath);
-      const geomSql = item.kind === 'geometry' && assetFile.isJson ? geoJsonToGeometrySql(assetFile.rawJson) : null;
-
-      await client.query(
-        `
-          INSERT INTO dji_land_assets
-            (batch_id, external_id, land_name, asset_kind, source_url, raw_json, geom)
-          VALUES
-            ($1, $2, $3, $4, $5, $6::jsonb, ${geomSql ?? 'NULL'})
-        `,
-        [batchId, item.externalId, item.landName, item.kind, item.url, JSON.stringify(assetFile.rawJson)]
-      );
-    }
+    // (S2 / 2026-07-01) Loop de assets a dji_land_assets eliminado — la tabla
+    // ya no existe. La data cruda de cada asset se preserva en dji_parcels
+    // (raw_geometry, raw_parameter, raw_waypoint como JSONB).
 
     // Fase 2: Opción B — agrupar assets por externalId y escribir dji_parcels
     const grouped = groupAssetsByExternalId(assetIndex);

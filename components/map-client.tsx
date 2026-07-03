@@ -7,7 +7,7 @@ import type { Feature, FeatureCollection, GeoJsonProperties } from "geojson";
 import { useEffect } from "react";
 import { CircleMarker, GeoJSON, LayersControl, MapContainer, Popup, TileLayer, useMap } from "react-leaflet";
 
-import type { DjiAlertRecord, DjiAssetRecord, DjiDailySummaryRecord, FlightPointRecord } from "@/lib/types";
+import type { DjiAlertRecord, DjiDailySummaryRecord, DjiParcelRecord, FlightPointRecord } from "@/lib/types";
 
 const center: [number, number] = [3.4516, -76.532];
 
@@ -20,16 +20,6 @@ function ZoomControls() {
     </div>
   );
 }
-
-type NormalizedParcel = DjiAssetRecord & {
-  // Campos del modelo Opción B (pueden estar presentes cuando MapView pasa DjiParcelRecord)
-  spray_geometry?: GeoJSON.Geometry | null;
-  waypoints_geometry?: GeoJSON.Geometry | null;
-  waypoint_count?: number | null;
-  is_orchard?: boolean;
-  spray_area_m2?: number | null;
-  field_type?: string;
-};
 
 function parcelStyle(feature?: { properties?: { is_orchard?: boolean } | null }) {
   const isOrchard = feature?.properties?.is_orchard === true;
@@ -47,14 +37,14 @@ function alertStyle(level: DjiAlertRecord["level"]) {
   return { color: "#228B22", weight: 2, fillColor: "#90EE90", fillOpacity: 0.25 };
 }
 
-function FitBounds({ parcels }: { parcels: NormalizedParcel[] }) {
+function FitBounds({ parcels }: { parcels: DjiParcelRecord[] }) {
   const map = useMap();
   useEffect(() => {
     if (!parcels || parcels.length === 0) return;
     // Intentar ajustar el mapa al bounding box de las parcelas
     const bounds: [number, number][] = [];
     for (const p of parcels) {
-      const geom = p.spray_geometry ?? p.geometry;
+      const geom = p.spray_geometry;
       if (!geom) continue;
       if (geom.type === "Polygon") {
         for (const ring of geom.coordinates) {
@@ -90,7 +80,9 @@ export function MapClient({
   flightPoints,
   layers = { parcels: true, waypoints: true, alerts: true, flights: true }
 }: {
-  parcels: NormalizedParcel[];
+  // (S2 / 2026-07-01) Solo DjiParcelRecord. El legacy DjiAssetRecord (3-rows-per-field)
+  // se eliminó junto con getParcels() y el endpoint /api/parcels.
+  parcels: DjiParcelRecord[];
   flights: DjiDailySummaryRecord[];
   alerts: DjiAlertRecord[];
   // M6: footprint minimo por sortie individual. Si viene undefined la capa
@@ -101,7 +93,7 @@ export function MapClient({
   const parcelCollection: FeatureCollection = {
     type: "FeatureCollection",
     features: parcels
-      .filter((parcel) => parcel.spray_geometry || parcel.geometry)
+      .filter((parcel) => parcel.spray_geometry)
       .map(
         (parcel): Feature => ({
           type: "Feature",
@@ -114,7 +106,7 @@ export function MapClient({
             spray_area_m2: parcel.spray_area_m2 ?? null,
             waypoint_count: parcel.waypoint_count ?? 0
           } satisfies GeoJsonProperties,
-          geometry: (parcel.spray_geometry ?? parcel.geometry)!
+          geometry: parcel.spray_geometry!
         })
       )
   };

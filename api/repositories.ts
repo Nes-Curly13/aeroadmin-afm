@@ -22,7 +22,6 @@ import {
 } from "@/lib/cache";
 import type {
   DashboardMetrics,
-  DjiAssetRecord,
   DjiDailySummaryRecord,
   DjiFlightRecord,
   DjiAlertRecord,
@@ -105,24 +104,6 @@ function loadLocalSummaryRecords(): DjiDailySummaryRecord[] {
   return raw.map((item, index) => parseSummaryRecord(item, index)).sort((a, b) => b.record_date.localeCompare(a.record_date));
 }
 
-function loadLocalAssetRecords(): DjiAssetRecord[] {
-  const assetList = readJsonFile<Array<Record<string, unknown>>>(path.join(localExportsRoot, "land_file_urls.json"), []);
-  return assetList.map((item, index) => ({
-    id: index + 1,
-    external_id: String(item.externalId ?? ""),
-    land_name: String(item.landName ?? ""),
-    asset_kind: String(item.kind ?? ""),
-    source_url: String(item.url ?? ""),
-    raw_json: null,
-    geometry: null
-  }));
-}
-
-function loadLocalFieldCount() {
-  const fields = readJsonFile<Array<Record<string, unknown>>>(path.join(localExportsRoot, "mission_fields.json"), []);
-  return fields.length;
-}
-
 async function withLocalFallback<T>(queryFn: () => Promise<T>, fallbackFn: () => Promise<T>) {
   try {
     return await queryFn();
@@ -131,9 +112,11 @@ async function withLocalFallback<T>(queryFn: () => Promise<T>, fallbackFn: () =>
   }
 }
 
-// (Sprint 2) `assetsQuery` y `summariesQuery` eliminadas. Las tablas
-// dji_land_assets y dji_daily_summaries se dropearon en la migración
-// 20260628120000. El dashboard ahora lee de dji_flights vía el agregador.
+// (S2 / 2026-07-01) `loadLocalAssetRecords()` y `getParcels()` legacy eliminados.
+// (S3 / 2026-07-01) `loadLocalFieldCount()` (código muerto) eliminado.
+// Las tablas dji_land_assets y dji_daily_summaries se dropearon en la migración
+// 20260628120000, y S1.7 ya migró el último caller (app/page.tsx) a
+// getParcelsNormalized(). El dashboard ahora solo lee de dji_parcels y dji_flights.
 
 export interface PaginatedResult<T> {
   data: T[];
@@ -516,87 +499,13 @@ export async function getUpcomingFumigations(limit = 10): Promise<UpcomingFumiga
 }
 
 /**
- * @deprecated Desde Sprint 2 del roadmap (2026-06-28) esta función lee de
- * `dji_parcels` y mapea al shape legacy `DjiAssetRecord` con `asset_kind='parcel'`.
- * Prefiere `getParcelsNormalized` para callers nuevos — devuelve columnas planas
- * y geometrías PostGIS como GeoJSON, sin el shape de 3-rows-per-field.
- *
- * La función se mantiene por compatibilidad con `/api/parcels` y callers que aún
- * esperan el shape `DjiAssetRecord`. Cuando todos los callers hayan migrado a
- * `getParcelsNormalized`, esta función se puede borrar.
- */
-export async function getParcels(page = 1, limit = 20) {
-  const db = getDb();
-  const offset = (page - 1) * limit;
-  return withLocalFallback(
-    async () => {
-      // Mapeamos dji_parcels (1 fila por campo) a DjiAssetRecord legacy.
-      // Como el shape original tenía 3 filas por campo (geometry/parameter/waypoint),
-      // emitimos 1 fila sintética por parcela con asset_kind='parcel'. Los callers
-      // que filtraban por asset_kind específico deben migrar a getParcelsNormalized.
-      const result = await db.query<{
-        id: number;
-        external_id: string;
-        land_name: string | null;
-        source_url: string | null;
-        raw_json: unknown;
-        geometry: GeoJSON.Geometry | null;
-      }>(
-        `
-          SELECT
-            id,
-            external_id,
-            land_name,
-            source_url_geometry AS source_url,
-            raw_geometry AS raw_json,
-            CASE WHEN spray_geom IS NULL THEN NULL ELSE ST_AsGeoJSON(spray_geom)::json END AS geometry
-          FROM dji_parcels
-          ORDER BY land_name ASC, id ASC
-          LIMIT $1 OFFSET $2
-        `,
-        [limit, offset]
-      );
-      const countResult = await db.query<{ total: string }>("SELECT COUNT(*)::int AS total FROM dji_parcels");
-      const total = Number(countResult.rows[0]?.total ?? 0);
-      const data: DjiAssetRecord[] = result.rows.map((r) => ({
-        id: r.id,
-        external_id: r.external_id,
-        land_name: r.land_name ?? "",
-        asset_kind: "parcel",
-        source_url: r.source_url ?? "",
-        raw_json: r.raw_json,
-        geometry: r.geometry
-      }));
-      return {
-        data,
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit)
-      };
-    },
-    async () => {
-      const data = loadLocalAssetRecords();
-      const total = data.length;
-      return {
-        data: data.slice(offset, offset + limit),
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit)
-      };
-    }
-  );
-}
-
-/**
  * Query a dji_flights sin agregación. Traemos todas las columnas que
  * necesita `aggregateFlightsByDay` + algunas extra (drone_nickname, parcel_id)
  * para futuras extensiones del dashboard.
  *
- * (Sprint 2 del roadmap) Antes leíamos dji_daily_summaries (rollup por día).
- * Ahora agregamos 7050 sorties individuales en JS — preserva el shape
- * DjiDailySummaryRecord sin cambiar la UI.
+ * (S2 / 2026-07-01) `getParcels()` legacy eliminada — usaba el shape
+ * DjiAssetRecord (3-rows-per-field) que tampoco existe. Para listar parcelas
+ * con shape normalizado usá `getParcelsNormalized()`.
  */
 const flightsRawQuery = `
   SELECT

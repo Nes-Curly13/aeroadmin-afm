@@ -3,29 +3,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const repositoryMocks = vi.hoisted(() => ({
   getAlerts: vi.fn(),
-  getFlights: vi.fn(),
-  getParcels: vi.fn()
+  getFlights: vi.fn()
 }));
 
 vi.mock("@/api/repositories", () => repositoryMocks);
 
 import { GET as getAlertsRoute } from "@/app/api/alerts/route";
 import { GET as getFlightsRoute } from "@/app/api/flights/route";
-import { GET as getParcelsRoute } from "@/app/api/parcels/route";
 
 describe("API routes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-  });
-
-  it("returns DJI assets and paginates parcels", async () => {
-    repositoryMocks.getParcels.mockResolvedValueOnce({ data: [{ id: 1 }], total: 1, page: 1, limit: 20, totalPages: 1 });
-
-    const response = await getParcelsRoute(new NextRequest("http://localhost:3000/api/parcels?page=1&limit=20"));
-
-    expect(response.status).toBe(200);
-    expect(repositoryMocks.getParcels).toHaveBeenCalledWith(1, 20);
-    await expect(response.json()).resolves.toEqual({ data: [{ id: 1 }], total: 1, page: 1, limit: 20, totalPages: 1 });
   });
 
   it("returns DJI summaries and paginates flights", async () => {

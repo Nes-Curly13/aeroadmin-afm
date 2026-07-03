@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 
 import { OperationsPanel } from "@/components/dashboard/operations-panel";
-import type { DashboardMetrics, DjiAlertRecord, DjiAssetRecord, DjiDailySummaryRecord } from "@/lib/types";
+import type {
+  DashboardMetrics,
+  DjiAlertRecord,
+  DjiDailySummaryRecord,
+  DjiParcelRecord
+} from "@/lib/types";
 
 const METRICS: DashboardMetrics = {
   totalFlights: 30,
@@ -39,14 +44,35 @@ const ALERT: DjiAlertRecord = {
   geometry: null
 };
 
-const PARCEL: DjiAssetRecord = {
+const PARCEL: DjiParcelRecord = {
   id: 1,
   external_id: "ext-1",
   land_name: "Mi parcela",
-  asset_kind: "geometry",
-  source_url: "",
-  raw_json: null,
-  geometry: null
+  field_type: "Farmland",
+  declared_area_ha: null,
+  spray_area_m2: 12_500,
+  drone_model_code: 201,
+  drone_model_name: "Agras T40",
+  spray_width_m: 5.5,
+  work_speed_mps: 6.0,
+  optimal_heading_deg: 115,
+  radar_height_m: 3.0,
+  edge_offset_m: 1.5,
+  obstacle_offset_m: 1.5,
+  climb_height_m: 2.0,
+  no_spray_zone_m2: 0,
+  droplet_size: 320,
+  sweep_direction: 1,
+  is_orchard: false,
+  uses_side_spray: false,
+  spray_geometry: null,
+  reference_point: null,
+  waypoints_geometry: null,
+  waypoint_count: 24,
+  source_url_geometry: null,
+  source_url_parameter: null,
+  source_url_waypoint: null,
+  fetched_at: "2026-07-01T00:00:00Z"
 };
 
 describe("OperationsPanel", () => {

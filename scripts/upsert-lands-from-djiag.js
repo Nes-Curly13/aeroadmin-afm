@@ -3,8 +3,10 @@
 // Idempotente: corre N veces = mismo resultado. Crea un batch nuevo cada
 // corrida para mantener trazabilidad de cuándo se fetcheó la data.
 //
-// NO toca las tablas del importer legacy (dji_daily_summaries,
-// dji_field_catalog, dji_land_assets). Solo escribe a dji_parcels.
+// (S2 / 2026-07-01) Las tablas legacy `dji_daily_summaries` y
+// `dji_land_assets` se dropearon en la migration 20260628120000. Este
+// script solo escribe a `dji_parcels` (modelo normalizado).
+// `dji_field_catalog` se dropeó el 2026-06-28 (migration 20260628100001).
 // Las columnas de parameter.json que ya estén en la fila se preservan
 // (el ON CONFLICT solo actualiza las columnas API).
 //

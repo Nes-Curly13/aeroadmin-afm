@@ -1,17 +1,41 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 
-import type { DjiAssetRecord } from "@/lib/types";
+import type { DjiParcelRecord } from "@/lib/types";
 
-function makeParcel(over: Partial<DjiAssetRecord>): DjiAssetRecord {
+// (S2 / 2026-07-01) Mock migrado de DjiAssetRecord (3-rows-per-field) a
+// DjiParcelRecord (1-row-per-field, columnas planas). El shape legacy
+// ya no existe — la tabla dji_land_assets se dropeó y getParcels() se eliminó.
+function makeParcel(over: Partial<DjiParcelRecord>): DjiParcelRecord {
   return {
     id: 1,
     external_id: "ext-1",
     land_name: "Parcela",
-    asset_kind: "geometry",
-    source_url: "",
-    raw_json: null,
-    geometry: { type: "Point", coordinates: [-76.4, 3.5] },
+    field_type: "Farmland",
+    declared_area_ha: null,
+    spray_area_m2: 12_500,
+    drone_model_code: 201,
+    drone_model_name: "Agras T40",
+    spray_width_m: 5.5,
+    work_speed_mps: 6.0,
+    optimal_heading_deg: 115,
+    radar_height_m: 3.0,
+    edge_offset_m: 1.5,
+    obstacle_offset_m: 1.5,
+    climb_height_m: 2.0,
+    no_spray_zone_m2: 0,
+    droplet_size: 320,
+    sweep_direction: 1,
+    is_orchard: false,
+    uses_side_spray: false,
+    spray_geometry: { type: "Point", coordinates: [-76.4, 3.5] },
+    reference_point: null,
+    waypoints_geometry: null,
+    waypoint_count: 0,
+    source_url_geometry: null,
+    source_url_parameter: null,
+    source_url_waypoint: null,
+    fetched_at: "2026-07-01T00:00:00Z",
     ...over
   };
 }
