@@ -6,6 +6,8 @@ import { useState } from "react";
 import { toDateString } from "@/lib/format";
 import type { DjiFumigationEvent, DjiFumigationSchedule, DjiParcelRecord } from "@/lib/types";
 
+import { CadenceEditor } from "@/components/parcels/cadence-editor";
+
 function statusChip(status: "ok" | "due_soon" | "overdue" | "no_history", days: number | null) {
   if (status === "overdue") return { label: "Vencida", className: "bg-[#a93232]/15 text-[#a93232]" };
   if (status === "due_soon") return { label: "Vence pronto", className: "bg-[#d4b23c]/20 text-[#7a5f0d]" };
@@ -118,6 +120,8 @@ export function ParcelFumigations({
           Esta parcela no tiene schedule de fumigación.
         </p>
       )}
+
+      {schedule ? <CadenceEditor currentCadence={schedule.recommended_cadence_days} parcelId={parcel.id} /> : null}
 
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#587064]">Historial ({events.length})</h3>

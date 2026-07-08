@@ -6,6 +6,8 @@ import { useMemo } from "react";
 
 import type { DjiParcelRecord } from "@/lib/types";
 
+import { ParcelEditPanel } from "@/components/parcels/parcel-edit-panel";
+
 const ParcelMiniMap = dynamic(
   () => import("@/components/parcels/parcel-mini-map").then((m) => m.ParcelMiniMap),
   {
@@ -120,6 +122,9 @@ export function ParcelDetail({ parcel }: { parcel: DjiParcelRecord }) {
             DJI ID: <code className="rounded bg-[#f4f7f4] px-1.5 py-0.5 text-[10px]">{parcel.external_id}</code>
           </p>
         </header>
+
+        {/* Panel de edicion de metadata editable */}
+        <ParcelEditPanel parcel={parcel} />
 
         {/* Mini mapa de la parcela */}
         {hasGeometry ? (

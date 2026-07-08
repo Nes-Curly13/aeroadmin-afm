@@ -42,6 +42,23 @@ vi.mock("@/components/parcels/parcel-mini-map", () => ({
   ParcelMiniMap: () => <div data-testid="parcel-mini-map-stub" />
 }));
 
+// Mock fetch global para que ParcelEditPanel y CadenceEditor no hagan
+// requests reales durante el render en jsdom.
+const fetchMock = vi.fn(() => Promise.resolve(new Response("{}", { status: 200 })));
+vi.stubGlobal("fetch", fetchMock);
+
+// Mock next/navigation para que useRouter() funcione en jsdom (sin App Router real).
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    refresh: vi.fn(),
+    push: vi.fn(),
+    replace: vi.fn(),
+    back: vi.fn(),
+    forward: vi.fn(),
+    prefetch: vi.fn()
+  })
+}));
+
 import { ParcelDetail } from "@/components/parcels/parcel-detail";
 
 describe("ParcelDetail", () => {
