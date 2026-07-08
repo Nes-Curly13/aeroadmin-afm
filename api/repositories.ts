@@ -18,7 +18,8 @@ import {
   fetchParcelsNormalizedCached,
   fetchParcelsSummaryCached,
   fetchUpcomingFumigationsCached,
-  invalidateAfterFumigationMutation
+  invalidateAfterFumigationMutation,
+  invalidateAfterParcelMutation
 } from "@/lib/cache";
 import type {
   DashboardMetrics,
@@ -261,6 +262,86 @@ async function getParcelsNormalizedUncached(page: number, limit: number, filter:
  */
 export async function getParcelsSummary() {
   return fetchParcelsSummaryCached();
+}
+
+/**
+ * Campos editables de una parcela desde la UI. NO incluye geometrías ni datos
+ * de DJI scrapeados — esos vienen del importer. Solo metadata que el operador
+ * puede querer ajustar manualmente (nombre visible, tipo declarado, areas).
+ */
+export type ParcelMetadataUpdate = {
+  land_name?: string | null;
+  field_type?: "Farmland" | "Orchards" | string | null;
+  declared_area_ha?: number | null;
+  spray_area_m2?: number | null;
+};
+
+/**
+ * Actualiza metadata editable de una parcela. Devuelve `null` si no existe.
+ * Las columnas técnicas (external_id, batch_id, geometrías, drone_model_code)
+ * NO se tocan — vienen del importer DJI.
+ *
+ * Si ningun campo editable fue enviado, no hace UPDATE (evita un roundtrip
+ * innecesario a la BD). Devuelve el registro actual.
+ */
+export async function updateParcelMetadata(
+  id: number,
+  patch: ParcelMetadataUpdate
+): Promise<DjiParcelRecord | null> {
+  // Whitelist de columnas + valores saneados.
+  const sets: string[] = [];
+  const params: unknown[] = [];
+  let idx = 1;
+  if (patch.land_name !== undefined) {
+    sets.push(`land_name = $${idx++}`);
+    params.push(patch.land_name ?? null);
+  }
+  if (patch.field_type !== undefined) {
+    sets.push(`field_type = $${idx++}`);
+    params.push(patch.field_type ?? null);
+  }
+  if (patch.declared_area_ha !== undefined) {
+    if (patch.declared_area_ha !== null && (patch.declared_area_ha < 0 || patch.declared_area_ha > 100000)) {
+      throw new Error("declared_area_ha debe estar entre 0 y 100000 (hectareas)");
+    }
+    sets.push(`declared_area_ha = $${idx++}`);
+    params.push(patch.declared_area_ha ?? null);
+  }
+  if (patch.spray_area_m2 !== undefined) {
+    if (patch.spray_area_m2 !== null && (patch.spray_area_m2 < 0 || patch.spray_area_m2 > 1e9)) {
+      throw new Error("spray_area_m2 debe estar entre 0 y 1e9 (m^2)");
+    }
+    sets.push(`spray_area_m2 = $${idx++}`);
+    params.push(patch.spray_area_m2 ?? null);
+  }
+
+  if (sets.length === 0) {
+    // Nada que cambiar — devolvemos el registro actual sin tocar BD.
+    return getParcelById(id);
+  }
+
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      // Verificar existencia primero (devolvemos null vs throw).
+      const existing = await db.query<{ id: number }>(`SELECT id FROM dji_parcels WHERE id = $1`, [id]);
+      if (existing.rows.length === 0) return null;
+
+      params.push(id);
+      await db.query(
+        `UPDATE dji_parcels SET ${sets.join(", ")} WHERE id = $${idx}`,
+        params
+      );
+      // El parcel puede estar en cache de parcels + parcels-summary + upcoming.
+      // Lo mas simple es invalidar todo lo que invalida parcel mutation.
+      invalidateAfterParcelMutation();
+      // Devolver el row actualizado via getParcelById (que tambien cachea).
+      return getParcelById(id);
+    },
+    async () => {
+      throw new Error("DB no disponible");
+    }
+  );
 }
 
 /**
