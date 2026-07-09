@@ -15,12 +15,12 @@ Screenshot: `make/figma-frame-field-management.png`
 
 | # | Campo UI (label) | Tipo | Valor ejemplo | Columna BD | Cobertura | Gap |
 |---|---|---|---|---|---|---|
-| 1 | `name` (título card) | string | `Gertrudis STE 116C` | `dji_parcels.land_name` (text) | 1205/1205 | — |
-| 2 | `area` (número) | number + `ha` suffix | `7.75 ha` | `dji_parcels.declared_area_ha` (numeric(10,4)) | **0/1205** | **GAP** — columna NULL en todas las filas |
-| 3 | `address` (string libre) | string | `Amaime, Palmira, Sur, Valle del Cauca, Colombia` | (no existe) | — | **GAP** — no hay columna |
-| 4 | `date` (YYYY/MM/DD) | date | `2026/07/03` | `dji_parcels.fetched_at` (timestamptz) | 1205/1205 | ⚠️ semántica distinta: UI muestra fecha DJI, BD muestra fecha de scrape |
-| 5 | `type` (chip) | enum | `Farmland` / `Orchards` | `dji_parcels.field_type` (text) + `dji_parcels.is_orchard` (boolean) | 1205/1205 | — |
-| 6 | `count` (header) | integer | `1205` | `count(*) FROM dji_parcels` | 1205/1205 | — |
+| 1 | `name` (título card) | string | `Gertrudis STE 116C` | `dji_parcels.land_name` (text) | 1207/1207 | — |
+| 2 | `area` (número) | number + `ha` suffix | `7.75 ha` | `dji_parcels.declared_area_ha` (numeric(10,4)) | 1205/1207 | PostGIS calc; los 2 nuevos del re-scrape no tienen geom aún |
+| 3 | `address` (string libre) | string | `Amaime, Palmira, Sur, Valle del Cauca, Colombia` | `dji_parcels.location_label` (text) | 1207/1207 | — |
+| 4 | `date` (YYYY/MM/DD) | date | `2026/07/03` | `dji_parcels.fetched_at` (timestamptz) | 1207/1207 | ⚠️ semántica distinta: UI muestra fecha DJI, BD muestra fecha de scrape |
+| 5 | `type` (chip) | enum | `Farmland` / `Orchards` | `dji_parcels.field_type` (text) + `dji_parcels.is_orchard` (boolean) | 1207/1207 | — |
+| 6 | `count` (header) | integer | `1205` | `count(*) FROM dji_parcels` | 1207/1207 | UI tiene 1205, BD 1207 (+2 nuevas del re-scrape) |
 
 #### Sidebar
 ```
@@ -75,14 +75,15 @@ DJI muestra `mu` (亩), unidad china:
 
 ## Gaps priorizados (sprint derivado)
 
-| # | Gap | Severidad | Acción |
-|---|---|---|---|
-| 1 | `declared_area_ha` NULL en 1205/1205 | 🔴 Crítico | Investigar endpoint `land-detail` o subcampo de `lands` GraphQL que no estamos scrapeando |
-| 2 | `address` (location_label) no existe | 🟠 Alto | Agregar columna `dji_parcels.location_label text` + poblar desde raw data |
-| 3 | `dji_daily_summaries` no existe | 🟡 Medio | Crear `scripts/aggregate-daily-summaries.mjs` que materializa rollups |
-| 4 | `waypoints` solo 391/1205 (32%) | 🟡 Medio | Re-scrapear lands que fallaron (investigar causa) |
-| 5 | `reference_point` solo 247/1205 (20%) | 🟡 Medio | Re-scrapear (probablemente ligado a #4) |
-| 6 | Frames Figma faltantes (Cloud, Data, Devices) | 🟢 Bajo | Pedir al usuario los frames restantes cuando los necesite |
+| # | Gap | Severidad | Acción | Status |
+|---|---|---|---|---|
+| 1 | `declared_area_ha` NULL en 1205/1205 | 🔴 Crítico | Backfill PostGIS desde `spray_geom` | ✅ Cerrado (migration `20260709000000`) |
+| 2 | `address` (location_label) no existe | 🟠 Alto | Agregar columna + re-scrape con DJI GraphQL | ✅ Cerrado (migration `20260709000000` + re-scrape 2026-07-09) |
+| 3 | `dji_daily_summaries` no existe | 🟡 Medio | Crear `scripts/aggregate-daily-summaries.mjs` | ✅ Cerrado (135 días, 7710 flights) |
+| 4 | `total_area_mu` / `work_area_mu` / `obstacle_area_mu` NULL | 🟡 Medio | Re-scrape con DJI GraphQL | ✅ Cerrado (1207/1207 con datos, 31 NULL en obstacle) |
+| 5 | `waypoints` solo 391/1205 (32%) | 🟡 Medio | Re-scrapear lands que fallaron | ⏳ Pendiente — `download:djiag:assets` separado |
+| 6 | `reference_point` solo 247/1205 (20%) | ⏳ Pendiente | ⏳ Mismo script de #5 | ⏳ |
+| 7 | Frames Figma faltantes (Cloud, Data, Devices) | 🟢 Bajo | Pedir al usuario los frames restantes | ⏳ |
 
 ## Cómo se cierra esto (plan A)
 

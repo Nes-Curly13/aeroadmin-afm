@@ -170,10 +170,10 @@ describe("djiag-lands-to-parcels — landToParcelParams", () => {
 });
 
 describe("djiag-lands-to-parcels — UPSERT_SQL", () => {
-  it("tiene 19 placeholders ($1..$19)", () => {
+  it("tiene 20 placeholders ($1..$20) — incluye location_label (Figma audit 2026-07-09)", () => {
     const matches = UPSERT_SQL.match(/\$\d+/g) ?? [];
-    expect(matches.length).toBe(19);
-    for (let i = 1; i <= 19; i++) {
+    expect(matches.length).toBe(20);
+    for (let i = 1; i <= 20; i++) {
       expect(matches).toContain(`$${i}`);
     }
   });
@@ -202,7 +202,7 @@ describe("djiag-lands-to-parcels — UPSERT_SQL", () => {
 });
 
 describe("djiag-lands-to-parcels — paramsToPgArray", () => {
-  it("orden exacto de 19 valores: batchId primero, sourceUrlWaypoint último", () => {
+  it("orden exacto de 20 valores: batchId primero, sourceUrlWaypoint último", () => {
     const fakeLand: NormalizedLand = {
       externalId: "ext", uuid: "u", name: "n", address: null, landType: "Farmland",
       sourceType: null, totalAreaMu: 91.95, workAreaMu: 85.5, obstacleAreaMu: 6.45,
@@ -219,7 +219,7 @@ describe("djiag-lands-to-parcels — paramsToPgArray", () => {
     const p = landToParcelParams(fakeLand);
     const arr = paramsToPgArray(42, p);
 
-    expect(arr).toHaveLength(19);
+    expect(arr).toHaveLength(20);
     expect(arr[0]).toBe(42);              // $1 batch_id
     expect(arr[1]).toBe("ext");           // $2 external_id
     expect(arr[2]).toBe("n");             // $3 land_name
@@ -236,9 +236,10 @@ describe("djiag-lands-to-parcels — paramsToPgArray", () => {
     expect(arr[13]).toBe(85.5);           // $14 work_area_mu
     expect(arr[14]).toBe(6.45);           // $15 obstacle_area_mu
     expect(arr[15]).toBe("Farmland");     // $16 land_type_raw
-    expect(arr[16]).toBe("https://geom"); // $17 source_url_geometry
-    expect(arr[17]).toBe("https://param");// $18 source_url_parameter
-    expect(arr[18]).toBe("https://wp");   // $19 source_url_waypoint
+    expect(arr[16]).toBeNull();           // $17 location_label (address was null in fixture)
+    expect(arr[17]).toBe("https://geom"); // $18 source_url_geometry
+    expect(arr[18]).toBe("https://param");// $19 source_url_parameter
+    expect(arr[19]).toBe("https://wp");   // $20 source_url_waypoint
   });
 });
 
