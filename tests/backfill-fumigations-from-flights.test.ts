@@ -10,17 +10,20 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-import { backfillFumigationsFromFlights } from "@/scripts/backfill-fumigations-from-flights";
+import {
+  backfillFumigationsFromFlights,
+  type QueryRunner
+} from "@/scripts/backfill-fumigations-from-flights";
 
 function makeMockClient(opts: {
   deleteRowCount?: number;
   insertRowCount?: number;
-} = {}) {
+} = {}): { client: QueryRunner; calls: Array<{ sql: string; params: unknown[] }> } {
   const calls: Array<{ sql: string; params: unknown[] }> = [];
   const deleteRowCount = opts.deleteRowCount ?? 0;
   const insertRowCount = opts.insertRowCount ?? 0;
-  const client = {
-    query: vi.fn(async (sql: string, params: unknown[]) => {
+  const client: QueryRunner = {
+    query: vi.fn(async (sql: string, params: unknown[] = []) => {
       calls.push({ sql, params });
       if (sql.trim().toUpperCase().startsWith("DELETE")) {
         return { rowCount: deleteRowCount, rows: [] };
@@ -31,7 +34,7 @@ function makeMockClient(opts: {
       return { rowCount: 0, rows: [] };
     })
   };
-  return { client: client as unknown as import("pg").PoolClient, calls };
+  return { client, calls };
 }
 
 describe("backfill-fumigations-from-flights — backfillFumigationsFromFlights", () => {
