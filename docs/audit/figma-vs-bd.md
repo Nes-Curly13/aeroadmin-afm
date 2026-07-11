@@ -77,7 +77,7 @@ DJI muestra `mu` (亩), unidad china:
 
 | # | Gap | Severidad | Acción | Status |
 |---|---|---|---|---|
-| 1 | `declared_area_ha` NULL en 1205/1205 | 🔴 Crítico | Backfill PostGIS desde `spray_geom` | ✅ Cerrado (migration `20260709000000`) |
+| 1 | `declared_area_ha` NULL en 1205/1205 | 🔴 Crítico | Backfill PostGIS desde `spray_geom` | ✅ Cerrado (migration `20260709000000` + backfill 2026-07-11 → **1207/1207**) |
 | 2 | `address` (location_label) no existe | 🟠 Alto | Agregar columna + re-scrape con DJI GraphQL | ✅ Cerrado (migration `20260709000000` + re-scrape 2026-07-09) |
 | 3 | `dji_daily_summaries` no existe | 🟡 Medio | Crear `scripts/aggregate-daily-summaries.mjs` | ✅ Cerrado (135 días, 7710 flights) |
 | 4 | `total_area_mu` / `work_area_mu` / `obstacle_area_mu` NULL | 🟡 Medio | Re-scrape con DJI GraphQL | ✅ Cerrado (1207/1207 con datos, 31 NULL en obstacle) |
