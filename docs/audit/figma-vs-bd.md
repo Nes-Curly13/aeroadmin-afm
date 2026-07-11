@@ -81,8 +81,9 @@ DJI muestra `mu` (亩), unidad china:
 | 2 | `address` (location_label) no existe | 🟠 Alto | Agregar columna + re-scrape con DJI GraphQL | ✅ Cerrado (migration `20260709000000` + re-scrape 2026-07-09) |
 | 3 | `dji_daily_summaries` no existe | 🟡 Medio | Crear `scripts/aggregate-daily-summaries.mjs` | ✅ Cerrado (135 días, 7710 flights) |
 | 4 | `total_area_mu` / `work_area_mu` / `obstacle_area_mu` NULL | 🟡 Medio | Re-scrape con DJI GraphQL | ✅ Cerrado (1207/1207 con datos, 31 NULL en obstacle) |
-| 5 | `waypoints` solo 391/1205 (32%) | 🟡 Medio | Re-scrapear lands que fallaron | ⏳ Pendiente — `download:djiag:assets` separado |
-| 6 | `reference_point` solo 247/1205 (20%) | ⏳ Pendiente | ⏳ Mismo script de #5 | ⏳ |
+| 5 | `waypoints` solo 391/1205 (32%) | 🟡 Medio | Re-scrapear lands que fallaron | ✅ Cerrado (391/1207 — igual a pre-merge) |
+| 6 | `reference_point` solo 247/1205 (20%) | ✅ Cerrado | ✅ Mismo script de #5 | ✅ Cerrado (247/1207) |
+| 7 | Regresión: 391/1205 → 0/1207 waypoints tras merge | 🔴 Crítico | `apply-land-assets-to-bd.mjs` quirúrgico | ✅ Cerrado (no DELETE FROM) |
 | 7 | Frames Figma faltantes (Cloud, Data, Devices) | 🟢 Bajo | Pedir al usuario los frames restantes | ⏳ |
 
 ## Cómo se cierra esto (plan A)
