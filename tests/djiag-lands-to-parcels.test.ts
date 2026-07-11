@@ -178,8 +178,40 @@ describe("djiag-lands-to-parcels — UPSERT_SQL", () => {
     }
   });
 
-  it("usa ON CONFLICT (batch_id, external_id)", () => {
-    expect(UPSERT_SQL).toMatch(/ON CONFLICT \(batch_id, external_id\)/);
+  it("usa ON CONFLICT (external_id) — fix dup-rescrape 2026-07-11", () => {
+    // Cambio desde (batch_id, external_id): el bug era que cada re-scrape
+    // generaba duplicados porque el batch_id cambiaba. Ahora la unicidad
+    // se evalúa solo por external_id (asociado a UNIQUE constraint en BD).
+    expect(UPSERT_SQL).toMatch(/ON CONFLICT \(external_id\)/);
+    // Anti-regresión: la forma vieja NO debe volver.
+    expect(UPSERT_SQL).not.toMatch(/ON CONFLICT \(batch_id,\s*external_id\)/);
+    expect(UPSERT_SQL).not.toMatch(/ON CONFLICT \(batch_id, external_id\)/);
+  });
+
+  it("ON CONFLICT solo sobre external_id, no batch_id — preserva batch_id más antiguo en re-scrape", () => {
+    // Cuando hay match por external_id, la fila existente debe mantener
+    // su batch_id original (el del import inicial con parameter.json +
+    // assets). batch_id NO puede estar en el DO UPDATE SET.
+    //
+    // Extraemos el bloque DO UPDATE SET ... (todo hasta el cierre del
+    // statement o un comentario SQL "--") para inspeccionarlo aislado.
+    const setBlockMatch = UPSERT_SQL.match(
+      /ON CONFLICT \(external_id\) DO UPDATE SET\s+([\s\S]+?)(?:--[^\n]*\n|$)/
+    );
+    expect(setBlockMatch).not.toBeNull();
+    const setBlock = setBlockMatch![1];
+
+    // batch_id NO debe aparecer como asignación (= EXCLUDED.batch_id
+    // o cualquier variante) en el SET block. Si aparece, un re-scrape
+    // pisaría el batch_id del import original y perderíamos la
+    // trazabilidad de "qué batch creó esta fila".
+    expect(setBlock).not.toMatch(/batch_id\s*=\s*EXCLUDED/);
+    expect(setBlock).not.toMatch(/batch_id\s*=\s*\d/);
+    expect(setBlock).not.toMatch(/batch_id\s*=\s*\$/);
+
+    // Anti-regresión: la constraint vieja tampoco debe filtrar al
+    // SET block (defensa en profundidad).
+    expect(setBlock).not.toMatch(/ON CONFLICT \(batch_id/);
   });
 
   it("el DO UPDATE solo toca columnas API, no las de parameter.json", () => {
