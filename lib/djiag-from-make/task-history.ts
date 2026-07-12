@@ -38,6 +38,7 @@
 //        L (litros) igual en ambos lados.
 
 import { type NormalizedFumigationDay } from "@/lib/djiag-fumigations-fetcher";
+import { toLocalDateString } from "@/lib/dji-flights-aggregate";
 
 /** Duración formateada al estilo DJI: "1Hour44min53s" o "631Hour11min23s". */
 export interface FormattedDuration {
@@ -151,4 +152,100 @@ export function buildTaskHistorySnapshot(
     days: cards,
     totals: computeTotals(cards)
   };
+}
+
+/** Shape mínima de fila de `dji_flights` que necesita el agregador.
+ *  Igual a `FlightRow` en `lib/dji-flights-aggregate.ts` pero copiada
+ *  acá para no acoplar el wrapper del Figma al agregador del dashboard
+ *  (cambios en uno no deben propagar al otro). */
+export interface FlightLikeRow {
+  id: number;
+  flight_id: number | string;
+  start_at: Date | string;
+  duration_seconds: number;
+  area_m2: number;
+  spray_usage_ml: number;
+}
+
+const M2_PER_MU = 666.67;
+const ML_PER_L = 1000;
+const MS_PER_SEC = 1000;
+
+/**
+ * Convierte una fecha YYYY-MM-DD (Bogota-local) a seconds-since-epoch
+ * (UTC midnight). Lo que `djiag-fumigations-fetcher.js` llama
+ * `createTimestamp` en `NormalizedFumigationDay`.
+ *
+ * Usamos `new Date('YYYY-MM-DD')` que JS interpreta como UTC midnight
+ * (no local). Luego `.getTime() / 1000` da el epoch en segundos.
+ */
+function dateStringToEpochSec(yyyyMmDd: string): number | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(yyyyMmDd)) return null;
+  const t = new Date(yyyyMmDd).getTime();
+  if (Number.isNaN(t)) return null;
+  return Math.floor(t / MS_PER_SEC);
+}
+
+/**
+ * Agrega una lista de filas de `dji_flights` por día local (Bogota) y
+ * devuelve un array de `NormalizedFumigationDay` listo para pasar a
+ * `buildTaskHistorySnapshot`.
+ *
+ * Decisiones:
+ *   - Días sin vuelos se omiten (el caller no quiere gaps en el UI).
+ *   - area se reporta en m² (lo que `dayToCard` luego pasa a mu).
+ *     NOTA: `dji_flights.area_m2` representa el área fumigable del CAMPO,
+ *     no la fracción fumigada por ese vuelo. Promediamos por día para no
+ *     multiplicar el área por N vuelos (ver `scripts/aggregate-daily-summaries.mjs`
+ *     para la justificación de AVG vs SUM).
+ *   - Hora local: America/Bogota. Misma TZ que el agregador del dashboard
+ *     para que dos consumidores del mismo `dji_flights` no se contradigan.
+ *   - `hasAgriculture: true` siempre (DJI AG solo hace fumigación agrícola;
+ *     si en el futuro hay otra categoría, leer de `dji_flights.mode_name`).
+ */
+export function aggregateNormalizedDays(rows: FlightLikeRow[]): NormalizedFumigationDay[] {
+  // Agrupa por fecha local (Bogota)
+  const buckets = new Map<string, FlightLikeRow[]>();
+  for (const row of rows) {
+    const startAt = row.start_at instanceof Date ? row.start_at : new Date(row.start_at);
+    const dateStr = toLocalDateString(startAt, "America/Bogota");
+    const bucket = buckets.get(dateStr) ?? [];
+    bucket.push(row);
+    buckets.set(dateStr, bucket);
+  }
+
+  // Ordena fechas DESC (más reciente primero, igual que el UI de DJI)
+  const sortedDates = [...buckets.keys()].sort((a, b) => b.localeCompare(a));
+
+  return sortedDates.map((dateStr) => {
+    const rowsForDay = buckets.get(dateStr)!;
+    const flightCount = rowsForDay.length;
+    const totalAreaM2 = rowsForDay.reduce((sum, r) => sum + (r.area_m2 ?? 0), 0);
+    const totalSprayMl = rowsForDay.reduce((sum, r) => sum + (r.spray_usage_ml ?? 0), 0);
+    const totalDurationSec = rowsForDay.reduce((sum, r) => sum + (r.duration_seconds ?? 0), 0);
+
+    // AVG de area_m2 por día (ver nota arriba)
+    const avgAreaM2 = flightCount > 0 ? totalAreaM2 / flightCount : 0;
+    const sprayL = totalSprayMl / ML_PER_L;
+
+    return {
+      createTimestamp: dateStringToEpochSec(dateStr),
+      date: dateStr,
+      workAreaM2: round2(avgAreaM2),
+      workTimeSec: totalDurationSec,
+      workTimeMin: Math.round(totalDurationSec / 60),
+      sortieCount: flightCount,
+      sprayUsageMl: totalSprayMl,
+      sprayUsageL: round2(sprayL),
+      // doseLPerHa = sprayL / (areaHa). areaHa = m² / 10000.
+      // Si area es 0 evitamos NaN devolviendo 0.
+      doseLPerHa:
+        avgAreaM2 > 0 ? round2(sprayL / (avgAreaM2 / 10000)) : 0,
+      hasAgriculture: true
+    };
+  });
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
 }
