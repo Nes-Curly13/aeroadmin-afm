@@ -8,7 +8,7 @@ describe("AppShell", () => {
     render(<AppShell activeSection="dashboard" eyebrow="x" title="t" />);
     expect(screen.getByRole("link", { name: /panel/i })).toHaveAttribute("href", "/");
     expect(screen.getByRole("link", { name: /mapa/i })).toHaveAttribute("href", "/map");
-    expect(screen.getByRole("link", { name: /historial/i })).toHaveAttribute("href", "/history");
+    expect(screen.getByRole("link", { name: /historial/i })).toHaveAttribute("href", "/task-history");
     expect(screen.getByRole("link", { name: /dispositivos/i })).toHaveAttribute("href", "/devices");
   });
 

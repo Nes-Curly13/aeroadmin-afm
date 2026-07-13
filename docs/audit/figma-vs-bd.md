@@ -87,15 +87,36 @@ DJI muestra `mu` (亩), unidad china:
 | 8 | Re-scrape atómico (login + fetch + download < 12h) | 🟠 Alto | Plan atómico end-to-end | ✅ Cerrado (2026-07-11) |
 | 9 | ON CONFLICT (batch_id, external_id) crea duplicados | 🟠 Alto | Cambiar a UNIQUE (external_id) | ✅ Cerrado (commit a2e1a7f, 3 adversarial probes) |
 | 10 | middleware.ts deprecation Next.js 16 | 🟢 Bajo | Rename → proxy.ts | ✅ Cerrado (commit e1c1117) |
+| 11 | Task History UI (frame B) no implementado | 🔴 Crítico | Routes `/task-history` + 8 components + API | ✅ Cerrado (commits 0b32e71, 3b307f3) |
+| 12 | Sidebar link a /task-history | 🟢 Bajo | AppShell nav update | ✅ Cerrado (commit post-3b307f3) |
 | 7 | Frames Figma faltantes (Cloud, Data, Devices) | 🟢 Bajo | Pedir al usuario los frames restantes | ⏳ |
 
 ## Cómo se cierra esto (plan A)
 
 1. ✅ Audit doc (este archivo).
-2. ⏳ Investigar `declared_area_ha` — buscar en el raw JSON de `lands` y en `land-detail` subquery.
-3. ⏳ Migración SQL: `20260709000000_add_location_label_to_parcels.sql`.
-4. ⏳ `lib/djiag-from-make/field-management.ts` — wrapper tipado sobre `DjiagKoreanClient` + GraphQL lands, con JSDoc que mapea cada campo a su screen counterpart.
-5. ⏳ `lib/djiag-from-make/task-history.ts` — wrapper para flights aggregation, mismo approach.
-6. ⏳ `scripts/aggregate-daily-summaries.mjs` — materializa `dji_daily_summaries` desde flights+ fumigations.
-7. ⏳ Tests de paridad: counts, totales, unit conversion.
-8. ⏳ Commit + push.
+2. ✅ Investigar `declared_area_ha` — buscar en el raw JSON de `lands` y en `land-detail` subquery.
+3. ✅ Migración SQL: `20260709000000_add_location_label_to_parcels.sql`.
+4. ✅ `lib/djiag-from-make/field-management.ts` — wrapper tipado sobre `DjiagKoreanClient` + GraphQL lands, con JSDoc que mapea cada campo a su screen counterpart.
+5. ✅ `lib/djiag-from-make/task-history.ts` — wrapper para flights aggregation, mismo approach.
+6. ✅ `scripts/aggregate-daily-summaries.mjs` — materializa `dji_daily_summaries` desde flights+ fumigations.
+7. ✅ Tests de paridad: counts, totales, unit conversion.
+8. ✅ Commit + push.
+
+## Task History UI — track breakdown (commit 3b307f3)
+
+| Track | Componente | Commit | Estado |
+|---|---|---|---|
+| F1 | `app/api/task-history/route.ts` (3 strategies) + `lib/djiag-spatial-aggregator.ts` | `0b32e71` | ✅ |
+| F2 | `HeaderCard`, `DayCard`, `DayList`, `MetricsGrid`, `TabSwitcher` (static) | `0b32e71` | ✅ |
+| F3 | `MapView` (react-leaflet, CircleMarker, mismo color) | `3b307f3` | ✅ |
+| F4 | `DateRangePicker`, `FilterButton`, `ScreenshotButton` (HTML5 + `<details>` + SVG, sin deps nuevas) | `3b307f3` | ✅ |
+| F5 | `app/task-history/page.tsx` (server) + `TaskHistoryClient.tsx` (client) | `3b307f3` | ✅ |
+| F6 | AppShell sidebar link `/task-history` | post-3b307f3 | ✅ |
+
+### Decisiones de implementación (con razón)
+
+- **`/task-history` es ruta nueva, no refactor de `/history`** (decisión 1). El sidebar ahora apunta a `/task-history`; `/history` queda accesible por URL directa.
+- **Polígonos todos del mismo color** (decisión 5): verde teal `#0b5f2d`, click → URL `?parcelId=X` → banner verde en DayList. NO drill-down.
+- **Sin deps externas nuevas en F4**: `react-day-picker` y `html2canvas` rechazados por incompatibilidad con React 19/Next 16. Reemplazos: HTML5 `<input type="date">` + `<details>` popover + `<svg><foreignObject>+Image+canvas+toBlob`.
+- **MapView usa `CircleMarker`** (no `Polygon`) para perf con 1207 markers. `extractCenter()` handles Point/Polygon/MultiPolygon.
+- **API 3-strategy**: filtros→`dji_flights` directo; sin filtros→`dji_daily_summaries` (rápido); fallback→flights. `onlyFumigated:true` en polygons para no renderizar 1207 markers vacíos.

@@ -1,4 +1,4 @@
-# Build outputs
+﻿# Build outputs
 .next
 out
 build
@@ -36,7 +36,7 @@ Thumbs.db
 coverage/
 
 # ============================================================
-# DJI AG data — user-specific (NEVER commit client DJI data)
+# DJI AG data â€” user-specific (NEVER commit client DJI data)
 # ============================================================
 djiag_exports/
 
@@ -61,8 +61,16 @@ playwright-report/
 
 # ============================================================
 # Sprint one-off diagnostic / debug scripts (kept on disk,
-# not part of MVP — recreated on demand if needed)
+# not part of MVP â€” recreated on demand if needed)
 # ============================================================
 /scripts/diag-*.js
 /scripts/debug-*.js
 /scripts/capture-aggr-from-records.js
+
+# ============================================================
+# Local-only artifacts (dev server logs / pidfile / plan state)
+# ============================================================
+/tmp-dev.log
+/tmp-dev-err.log
+/tmp-dev.pid
+/.mavis/

@@ -2,12 +2,12 @@ import Image from "next/image";
 import Link from "next/link";
 import { ReactNode } from "react";
 
-type ActiveSection = "dashboard" | "history" | "map" | "devices";
+type ActiveSection = "dashboard" | "history" | "map" | "devices" | "task-history";
 
 const sidebarNav: Array<{ href: string; label: string; icon: string; key: ActiveSection }> = [
   { href: "/", label: "Panel", icon: "dashboard", key: "dashboard" },
   { href: "/map", label: "Mapa", icon: "map", key: "map" },
-  { href: "/history", label: "Historial", icon: "history", key: "history" },
+  { href: "/task-history", label: "Historial", icon: "history", key: "task-history" },
   { href: "/devices", label: "Dispositivos", icon: "devices", key: "devices" }
 ];
 
