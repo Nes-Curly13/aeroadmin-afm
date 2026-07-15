@@ -314,3 +314,122 @@
 - **PrÃ³ximo paso**: aplicar las migrations cuando levantes Docker. DespuÃ©s
   arrancar S1 (scraper defects Â§2.1-2.5) â€” sigue siendo el bloqueante mÃ¡s
   crÃ­tico del roadmap.
+### 2026-07-15 — M7 (timeline de fumigaciones por parcela)
+- **Sesión**: mvs_
+- **Objetivo**: cerrar M7 del roadmap mediano plazo. Vista
+  server-rendered con el historial de fumigaciones de una parcela:
+  eventos ordenados asc, métricas (área, duración, cadencia), gaps
+  > 60 días, y toggle de modo (resumen / detalle).
+- **Acciones** (4 commits atómicos, TDD rojo ? verde):
+  1. 7529bb7 feat(lib): fumigation-timeline pure function + tests
+     - lib/fumigation-timeline.ts (buildFumigationTimeline) +
+       tipos en lib/types.ts + helpers en lib/format.ts
+       (m2ToHa, formatDjiDuration, daysBetween, formatDateWithWeekday).
+     - 13 tests cubriendo checklist §4.3.
+  2. c44e4d7 feat(api): /api/fumigations/[parcelId]/timeline route + tests
+     - pi/repositories.ts: getFumigationTimelineForParcel con JOIN
+       a dji_flights para resolver drone_nickname + pilot_name
+       dominantes del día.
+     - pp/api/fumigations/[parcelId]/timeline/route.ts: GET con
+       requireAuth, validación 400, 404 si no existe la parcela,
+       500 con error.message. No cachea (datos operativos frescos).
+     - 10 tests cubriendo checklist §4.2.
+  3. 5c5afdb feat(ui): parcel-timeline component + tests
+     - components/fumigations/parcel-timeline.tsx (server
+       component, 3 modos detail/summary/compact, a11y completo).
+     - 10 tests cubriendo checklist §4.1.
+  4. 3bf87cc feat(page): /parcels/[id]/timeline page + link
+     - pp/parcels/[id]/timeline/page.tsx (server component,
+       URL-driven) + components/fumigations/parcel-timeline-controls.tsx
+       (client island con useTransition + router.push).
+     - Link 'Ver timeline' agregado a pp/parcels/[id]/page.tsx
+       en AppShell actions.
+- **Archivos tocados**:
+  - nuevos: lib/fumigation-timeline.ts,
+    pp/api/fumigations/[parcelId]/timeline/route.ts,
+    components/fumigations/parcel-timeline.tsx,
+    components/fumigations/parcel-timeline-controls.tsx,
+    pp/parcels/[id]/timeline/page.tsx,
+    	ests/lib/fumigation-timeline.test.ts,
+    	ests/api-fumigation-timeline.test.ts,
+    	ests/components/fumigations/parcel-timeline.test.tsx
+  - modificados: lib/types.ts, lib/format.ts, pi/repositories.ts,
+    pp/parcels/[id]/page.tsx
+- **Estado**: ? hecho
+- **Tests**: 
+pm test ? 653 passed (baseline 604, +33 de M7 + 16 de
+  tareas paralelas que también corrieron durante la sesión).
+  	sc --noEmit ? 0 errores.
+- **Decisión arquitectónica** (documentada en el commit 3):
+  La page /parcels/[id]/timeline llama al repository directo, NO
+  al endpoint /api/fumigations/[parcelId]/timeline. Razón: server-only,
+  no necesita round-trip HTTP. El endpoint queda para clientes externos
+  (CSV export futuro, widget de dashboard, scripts CLI).
+- **Decisión auth** (documentada en el commit 2):
+  El endpoint usa equireAuth() (a diferencia de /api/task-history
+  que no lo usa). Razón: scope per-parcela es operativo, no agregado
+  del operador. La page no lo necesita porque el middleware Edge ya
+  la protege a nivel de routing.
+- **Próximo paso**: M7 cerrado. Siguiente del roadmap mediano: M2
+  (notificaciones), M3-M5 (geometría vuelos refinada), o cerrar
+  los S5-S7 cortos que quedaron pendientes.
+
+### 2026-07-15 — M7 (timeline de fumigaciones por parcela)
+- **Sesión**: branch session M7
+- **Objetivo**: cerrar M7 del roadmap mediano plazo. Vista
+  server-rendered con el historial de fumigaciones de una parcela:
+  eventos ordenados asc, métricas (área, duración, cadencia), gaps
+  > 60 días, y toggle de modo (resumen / detalle).
+- **Acciones** (4 commits atómicos, TDD rojo ? verde):
+  1. 7529bb7 feat(lib): fumigation-timeline pure function + tests
+     - lib/fumigation-timeline.ts (buildFumigationTimeline) +
+       tipos en lib/types.ts + helpers en lib/format.ts
+       (m2ToHa, formatDjiDuration, daysBetween, formatDateWithWeekday).
+     - 13 tests cubriendo checklist §4.3.
+  2. c44e4d7 feat(api): /api/fumigations/[parcelId]/timeline route + tests
+     - pi/repositories.ts: getFumigationTimelineForParcel con JOIN
+       a dji_flights para resolver drone_nickname + pilot_name
+       dominantes del día.
+     - pp/api/fumigations/[parcelId]/timeline/route.ts: GET con
+       requireAuth, validación 400, 404 si no existe la parcela,
+       500 con error.message. No cachea (datos operativos frescos).
+     - 10 tests cubriendo checklist §4.2.
+  3. 5c5afdb feat(ui): parcel-timeline component + tests
+     - components/fumigations/parcel-timeline.tsx (server
+       component, 3 modos detail/summary/compact, a11y completo).
+     - 10 tests cubriendo checklist §4.1.
+  4. 3bf87cc feat(page): /parcels/[id]/timeline page + link
+     - pp/parcels/[id]/timeline/page.tsx (server component,
+       URL-driven) + components/fumigations/parcel-timeline-controls.tsx
+       (client island con useTransition + router.push).
+     - Link 'Ver timeline' agregado a pp/parcels/[id]/page.tsx
+       en AppShell actions.
+- **Archivos tocados**:
+  - nuevos: lib/fumigation-timeline.ts,
+    pp/api/fumigations/[parcelId]/timeline/route.ts,
+    components/fumigations/parcel-timeline.tsx,
+    components/fumigations/parcel-timeline-controls.tsx,
+    pp/parcels/[id]/timeline/page.tsx,
+    	ests/lib/fumigation-timeline.test.ts,
+    	ests/api-fumigation-timeline.test.ts,
+    	ests/components/fumigations/parcel-timeline.test.tsx
+  - modificados: lib/types.ts, lib/format.ts, pi/repositories.ts,
+    pp/parcels/[id]/page.tsx
+- **Estado**: ? hecho
+- **Tests**: 
+pm test ? 653 passed (baseline 604, +33 de M7 + 16 de
+  tareas paralelas que también corrieron durante la sesión).
+  	sc --noEmit ? 0 errores.
+- **Decisión arquitectónica** (documentada en el commit 3):
+  La page /parcels/[id]/timeline llama al repository directo, NO
+  al endpoint /api/fumigations/[parcelId]/timeline. Razón: server-only,
+  no necesita round-trip HTTP. El endpoint queda para clientes externos
+  (CSV export futuro, widget de dashboard, scripts CLI).
+- **Decisión auth** (documentada en el commit 2):
+  El endpoint usa equireAuth() (a diferencia de /api/task-history
+  que no lo usa). Razón: scope per-parcela es operativo, no agregado
+  del operador. La page no lo necesita porque el middleware Edge ya
+  la protege a nivel de routing.
+- **Próximo paso**: M7 cerrado. Siguiente del roadmap mediano: M2
+  (notificaciones), M3-M5 (geometría vuelos refinada), o cerrar
+  los S5-S7 cortos que quedaron pendientes.
