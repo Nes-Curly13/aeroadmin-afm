@@ -46,6 +46,11 @@ jobs:
       # no falle por variables undefined.
       DJIAG_EMAIL: ""
       DJIAG_PASSWORD: ""
+      # NextAuth v5 exige AUTH_SECRET en producción (incluido `next build` durante
+      # page data collection de rutas /api/auth/*). El valor es dummy: el build
+      # no autentica, solo instancia el módulo para detectar rutas. Para secrets
+      # reales usar GitHub Actions secrets + variable expandida.
+      AUTH_SECRET: "ci-build-only-dummy-secret-not-used-for-real-auth"
 
     steps:
       - name: Checkout
