@@ -85,6 +85,12 @@ async function main() {
     let appliedCount = 0;
     let skippedCount = 0;
     let errorCount = 0;
+    // Fail-fast: si una migration falla, no seguimos. Antes esto logueaba
+    // y seguía, lo que dejó roto CI durante semanas (2026-07-09) cuando
+    // dji_import_batches faltaba: las migrations subsiguientes que la
+    // referenciaban fallaban en silencio, dejaban la BD sin tablas, y los
+    // tests e2e/smoke explotaban sin indication clara del root cause.
+    let aborted = false;
     for (const file of files) {
       const name = path.basename(file);
       if (applied.has(name) && !onlyFile) {
@@ -99,9 +105,21 @@ async function main() {
         console.log(`    OK`);
         appliedCount += 1;
       } else {
-        console.error(`    ERROR: ${result.error.slice(0, 200)}`);
+        console.error(`    ERROR: ${result.error.slice(0, 400)}`);
         errorCount += 1;
+        aborted = true;
+        break;
       }
+    }
+
+    if (aborted) {
+      console.error(
+        `\n[apply-migrations] ABORT: ${errorCount} error. `
+        + `No se aplicaron las migrations restantes. `
+        + `Revisá el SQL de la migration que falló antes de re-correr.`
+      );
+      process.exitCode = 1;
+      return;
     }
 
     console.log(`\n[apply-migrations] done: ${appliedCount} aplicadas, ${skippedCount} skipped, ${errorCount} errors`);
