@@ -67,6 +67,13 @@ export default async function ParcelPage({
               {next.land_name ?? "Siguiente"} →
             </Link>
           ) : null}
+          <Link
+            className="rounded-full bg-[#0b5f2d] px-3 py-1.5 text-xs font-semibold text-white"
+            data-testid="parcel-detail-timeline-link"
+            href={`/parcels/${id}/timeline`}
+          >
+            Ver timeline
+          </Link>
         </div>
       }
       activeSection="map"
