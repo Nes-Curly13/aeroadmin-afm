@@ -59,9 +59,11 @@ function parseIsoDateOrNull(value: string | null | undefined): string | null {
 }
 
 function parseMode(value: string | null | undefined): ParcelTimelineMode {
-  if (value === "summary") return "summary";
-  // "compact" y "detail" se incluyen también; "detail" es el default.
-  return "detail";
+  // Solo aceptamos "detail" o "summary". "compact" fue un spec original que
+  // nunca se implementó — el toggle del UI tampoco lo ofrece (ver
+  // components/fumigations/parcel-timeline-controls.tsx). Cualquier otro
+  // valor cae al default "detail".
+  return value === "summary" ? "summary" : "detail";
 }
 
 export default async function ParcelTimelinePage({

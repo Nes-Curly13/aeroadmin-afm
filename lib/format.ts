@@ -103,3 +103,31 @@ export function daysBetween(from: string, to: string): number | null {
   if (Number.isNaN(a) || Number.isNaN(b)) return null;
   return Math.round((b - a) / 86_400_000);
 }
+
+/**
+ * Detecta si un string parece un blob JSON de provenance (backfill de DJI scraper).
+ *
+ * El scraper mete metadata del backfill en `dji_fumigations.notes` como JSON:
+ *   {"drones":[...], "pilots":[...], "flights_count":N, "spray_usage_ml":N,
+ *    "backfilled_from":"dji_flights", "primary_drone_nickname":"AFM T50-1"}
+ * Esos datos NO son notas del operador — son trazabilidad de la ingesta.
+ * Renderizarlos en el UI los confunde con notas humanas. Esta función
+ * los identifica por el shape (empieza con `{`, contiene `backfilled_from`
+ * o `spray_usage_ml`).
+ *
+ * Usar en los componentes que muestran `event.notes` para decidir si
+ * renderizar el campo o no. Si retorna `true`, NO renderizar — los datos
+ * ya están expuestos en otros campos del row (drone nickname, pilot name).
+ */
+export function isProvenanceNotes(value: string | null | undefined): boolean {
+  if (!value) return false;
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return false;
+  // Heurística barata: buscar una key conocida del backfill. Evita falsos
+  // positivos si alguna nota humana real es JSON-shape.
+  return (
+    trimmed.includes("backfilled_from") ||
+    trimmed.includes("spray_usage_ml") ||
+    trimmed.includes("primary_drone_nickname")
+  );
+}

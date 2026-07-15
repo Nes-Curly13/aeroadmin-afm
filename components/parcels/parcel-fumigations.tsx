@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-import { toDateString } from "@/lib/format";
+import { isProvenanceNotes, toDateString } from "@/lib/format";
 import type { DjiFumigationEvent, DjiFumigationSchedule, DjiParcelRecord } from "@/lib/types";
 
 import { CadenceEditor } from "@/components/parcels/cadence-editor";
@@ -250,7 +250,7 @@ export function ParcelFumigations({
                     {e.duration_minutes && <span>{e.duration_minutes} min</span>}
                     {e.recorded_by && <span>Por: {e.recorded_by}</span>}
                   </div>
-                  {e.notes && (
+                  {e.notes && !isProvenanceNotes(e.notes) && (
                     <p className="mt-1 text-[11px] italic text-[#4a5b50]">{e.notes}</p>
                   )}
                 </div>

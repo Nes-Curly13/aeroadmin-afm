@@ -246,4 +246,36 @@ describe("<ParcelTimeline>", () => {
 
     expect(container.textContent).toMatch(/no definida/i);
   });
+
+  // ============================================================
+  // Provenance JSON en notes (backfill de DJI scraper)
+  // ============================================================
+  it("oculta notes cuando es un blob JSON de provenance (no se renderiza literal)", () => {
+    // El backfill de DJI scraper mete metadata en dji_fumigations.notes
+    // como JSON. Esos datos NO son notas del operador — son trazabilidad
+    // de la ingesta que ya está expuesta en otros campos del row
+    // (drone_nickname, pilot_name). El UI debe ocultarlos.
+    const provenanceNotes =
+      '{"drones":["AFM T50-1"], "pilots":["breiner pelaez"], "flights_count":19, "spray_usage_ml":353745, "backfilled_from":"dji_flights", "primary_drone_nickname":"AFM T50-1"}';
+    const t = timelineFixture({
+      events: [ev({ id: 1, date: "2026-03-15", month: "2026-03", notes: provenanceNotes })]
+    });
+    const { container } = render(<ParcelTimeline parcelName="Parcela Test" timeline={t} />);
+
+    // El blob JSON NO debe aparecer en el render.
+    expect(container.textContent).not.toContain("backfilled_from");
+    expect(container.textContent).not.toContain("spray_usage_ml");
+    expect(container.textContent).not.toContain("flights_count");
+  });
+
+  it("renderiza notes humanas normalmente (no filtra texto libre)", () => {
+    const t = timelineFixture({
+      events: [
+        ev({ id: 1, date: "2026-03-15", month: "2026-03", notes: "Llovizna leve, revisar mañana" })
+      ]
+    });
+    const { container } = render(<ParcelTimeline parcelName="Parcela Test" timeline={t} />);
+
+    expect(container.textContent).toContain("Llovizna leve");
+  });
 });

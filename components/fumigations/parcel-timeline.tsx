@@ -24,10 +24,10 @@
 
 import type { ReactNode } from "react";
 
-import { formatDateWithWeekday, formatNumber } from "@/lib/format";
+import { formatDateWithWeekday, formatNumber, isProvenanceNotes } from "@/lib/format";
 import type { FumigationTimelineResult } from "@/lib/types";
 
-export type ParcelTimelineMode = "detail" | "summary" | "compact";
+export type ParcelTimelineMode = "detail" | "summary";
 
 export interface ParcelTimelineProps {
   /** Nombre visible de la parcela (para aria-label y mensajes). */
@@ -64,9 +64,7 @@ export function ParcelTimeline({
         <GapsSection gaps={summary.gaps} />
       ) : null}
 
-      {mode !== "summary" ? (
-        <ByMonthSection byMonth={summary.byMonth} />
-      ) : null}
+      <ByMonthSection byMonth={summary.byMonth} />
 
       {mode === "detail" ? (
         <EventsListSection
@@ -339,7 +337,7 @@ function EventsListSection({
                 ) : null}
                 {e.recordedBy ? <span>Por: {e.recordedBy}</span> : null}
               </div>
-              {e.notes ? (
+              {e.notes && !isProvenanceNotes(e.notes) ? (
                 <p className="mt-1 text-[11px] italic text-[#4a5b50]">{e.notes}</p>
               ) : null}
             </div>
