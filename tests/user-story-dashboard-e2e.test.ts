@@ -8,9 +8,14 @@
 //   3. "Operador identifica parcelas atrasadas (overdue)"
 //   4. "Operador abre el detalle de un vuelo específico"
 //
-// Skip si no hay DATABASE_URL — estos tests son opcionales (no corren en CI
-// sin DB). Para correrlos localmente: `npm test -- user-story-dashboard-e2e`
-// (con .env.local presente).
+// Skip si no hay conectividad real a Postgres — estos tests son opcionales
+// (no corren en CI sin DB). El check es un `SELECT 1` con timeout corto
+// (2s) para distinguir "Docker apagado" de "Docker encendido" sin demorar
+// la suite cuando el entorno no tiene DB. Antes (2026-07-13) el skip se
+// basaba solo en presencia de `.env.local`, lo que hacía que la suite
+// reventara con ECONNREFUSED cuando Docker estaba apagado en la máquina
+// del dev. Para correrlos localmente: `npm test -- user-story-dashboard-e2e`
+// (con .env.local presente Y Docker/Postgres alcanzable en localhost:5432).
 //
 // Estado esperado de la DB al 2026-06-23 (post-pipeline del día):
 //   dji_parcels:                 ~1,067
@@ -23,7 +28,8 @@ import { readFileSync, existsSync } from "fs";
 import { join } from "path";
 import { Pool } from "pg";
 
-const HAS_DB = !!process.env.DATABASE_URL || existsSync(join(process.cwd(), ".env.local"));
+const HAS_DB_CONFIG =
+  !!process.env.DATABASE_URL || existsSync(join(process.cwd(), ".env.local"));
 
 // Carga .env.local si no hay DATABASE_URL en env (los scripts hacen esto
 // inline; en vitest lo hacemos aquí para no duplicar el loader).
@@ -40,6 +46,65 @@ if (!process.env.DATABASE_URL) {
     }
   }
 }
+
+/**
+ * Verifica conectividad real a Postgres con un `SELECT 1` y un timeout
+ * corto. Devuelve `false` ante cualquier error (ECONNREFUSED con Docker
+ * apagado, ETIMEDOUT con red caída, auth, etc.) — el caller decide si
+ * skipear el suite o reportar un fallo de configuración.
+ *
+ * Por qué este check existe: la presencia de `.env.local` no implica
+ * que Postgres esté corriendo. Antes (2026-07-13) `HAS_DB` se evaluaba
+ * solo por presencia del archivo, y con Docker apagado el `beforeAll`
+ * reventaba con ECONNREFUSED, marcando el file entero como "Failed"
+ * en vez de "Skipped".
+ *
+ * @param timeoutMs budget total para connect + SELECT 1 (default 2000ms)
+ */
+async function checkDbReachable(timeoutMs: number): Promise<boolean> {
+  const url = process.env.DATABASE_URL ?? process.env.DATABASE_URL_DIRECT;
+  if (!url) return false;
+  const pingPool = new Pool({
+    connectionString: url,
+    max: 1,
+    connectionTimeoutMillis: timeoutMs,
+    idleTimeoutMillis: 5_000,
+    ssl:
+      process.env.DATABASE_SSL === "true" ? { rejectUnauthorized: false } : undefined
+  });
+  try {
+    const client = await Promise.race([
+      pingPool.connect(),
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error(`checkDbReachable: connect >${timeoutMs}ms`)),
+          timeoutMs
+        )
+      )
+    ]);
+    try {
+      await client.query("SELECT 1");
+    } finally {
+      client.release();
+    }
+    return true;
+  } catch {
+    return false;
+  } finally {
+    try {
+      await pingPool.end();
+    } catch {
+      // swallow: si .end() falla porque connect() nunca se completó,
+      // no tenemos nada que limpiar — el check ya devolvió su veredicto.
+    }
+  }
+}
+
+// Top-level await: vitest espera a que esta promesa se resuelva antes
+// de colectar los `describe`. Si la DB no responde, `HAS_DB` queda en
+// `false` y `describe.skipIf(true)` skipea toda la suite sin intentar
+// conectar (sin error en `beforeAll`, sin "Failed Suites").
+const HAS_DB = HAS_DB_CONFIG && (await checkDbReachable(2000));
 
 const pool = HAS_DB
   ? new Pool({
