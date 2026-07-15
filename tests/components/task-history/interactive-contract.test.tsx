@@ -88,17 +88,22 @@ describe("FilterButton — Figma contract", () => {
 });
 
 describe("ScreenshotButton — Figma contract", () => {
-  it("renderiza un <button> con aria-label y SVG icon", () => {
+  it("renderiza un <button> con aria-label en español y SVG icon", () => {
+    // S2 (2026-07-13): los strings del botón pasaron a español
+    // (convención §2 del proyecto) y el aria-label describe la
+    // intención ("Descargar reporte") en vez del mecanismo
+    // ("screenshot"). El icono SVG sigue presente.
     const ref = { current: null };
     const { container } = render(
       <ScreenshotButton targetRef={ref as React.RefObject<HTMLElement | null>} />
     );
     const btn = screen.getByRole("button");
-    expect(btn.getAttribute("aria-label")).toMatch(/screenshot/i);
+    const ariaLabel = btn.getAttribute("aria-label") ?? "";
+    expect(ariaLabel.toLowerCase()).toContain("descargar");
     // Icono SVG presente
     expect(container.querySelector("svg")).toBeTruthy();
-    // Texto visible contiene 'Screenshot'
-    expect(btn.textContent).toMatch(/screenshot/i);
+    // Texto visible contiene 'Descargar reporte' (label idle por default)
+    expect(btn.textContent).toMatch(/descargar reporte/i);
   });
 
   it("el botón es type='button' (no submit accidental)", () => {

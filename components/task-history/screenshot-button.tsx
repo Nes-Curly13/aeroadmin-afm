@@ -25,6 +25,20 @@
  *
  * Si el usuario quiere la versión completa con html2canvas, se reemplaza
  * el `captureWithHtmlToImage` por una llamada a `html2canvas(target).then(...)`.
+ *
+ * Accesibilidad (S2 / 2026-07-13):
+ *   - `aria-label` descriptivo en español, no en jerga técnica.
+ *   - `type="button"` explícito (no submit).
+ *   - `aria-busy` durante la generación del PNG para que screen readers
+ *     anuncien el cambio de estado (no solo `disabled`).
+ *   - `disabled` también cuando no hay polígonos en el rango filtrado
+ *     (el operador no puede descargar un mapa vacío sin sentido).
+ *
+ * Filename (S2 / 2026-07-13):
+ *   - Incluye el rango filtrado (`task-history-2026-07-01_2026-07-15.png`)
+ *     para que el operador distinga múltiples descargas del mismo día.
+ *   - Si no se pasa `dateRange`, cae al comportamiento anterior
+ *     (filename con fecha de hoy).
  */
 
 import { useCallback, useState, type RefObject } from "react";
@@ -40,13 +54,50 @@ export interface ScreenshotButtonProps {
   ariaLabel?: string;
   /** Opcional: selector CSS a excluir del screenshot. */
   excludeSelector?: string;
+  /**
+   * Cantidad de polígonos en el rango filtrado. Cuando es 0, el botón
+   * se deshabilita — no tiene sentido capturar un mapa sin polígonos.
+   * Si es `undefined`, se asume que el caller gestiona el estado
+   * `disabled` externamente (compat con usos legacy).
+   */
+  polygonCount?: number;
+  /**
+   * Rango de fechas filtrado, usado para componer el filename del
+   * download. Si se omite, el filename usa la fecha de hoy.
+   */
+  dateRange?: { from: string; to: string };
 }
 
 const DEFAULT_FILENAME_PREFIX = "task-history";
-const DEFAULT_ARIA_LABEL = "Capturar screenshot del Task History";
+const DEFAULT_ARIA_LABEL = "Descargar reporte de historial de fumigaciones";
+const DEFAULT_VISIBLE_LABEL_BUSY = "Capturando…";
+const DEFAULT_VISIBLE_LABEL_IDLE = "Descargar reporte";
+
+/** Sanea un string YYYY-MM-DD: reemplaza no-`[0-9-]` por `-`. */
+function sanitizeDatePart(s: string): string {
+  return s.replace(/[^0-9-]/g, "-");
+}
 
 function todayForFilename(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+/**
+ * Construye el filename del download. Pure function (exportada para
+ * testing). Formato:
+ *   - Con dateRange: `${prefix}-${fromISO}_${toISO}.png`
+ *   - Sin dateRange: `${prefix}-${todayISO}.png` (back-compat)
+ */
+export function buildFilename(
+  prefix: string,
+  dateRange?: { from: string; to: string }
+): string {
+  if (dateRange) {
+    const from = sanitizeDatePart(dateRange.from);
+    const to = sanitizeDatePart(dateRange.to);
+    return `${prefix}-${from}_${to}.png`;
+  }
+  return `${prefix}-${todayForFilename()}.png`;
 }
 
 export function ScreenshotButton({
@@ -54,10 +105,17 @@ export function ScreenshotButton({
   filenamePrefix = DEFAULT_FILENAME_PREFIX,
   omitMap = true,
   ariaLabel = DEFAULT_ARIA_LABEL,
-  excludeSelector = ".leaflet-container"
+  excludeSelector = ".leaflet-container",
+  polygonCount,
+  dateRange
 }: ScreenshotButtonProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // disabled cuando: (a) está generando el PNG, O (b) el caller
+  // reportó 0 polígonos en el rango filtrado. polygonCount === undefined
+  // no bloquea — es back-compat con callers que no quieren esta lógica.
+  const isDisabled = busy || polygonCount === 0;
 
   const onClick = useCallback(async () => {
     const target = targetRef.current;
@@ -123,7 +181,10 @@ export function ScreenshotButton({
       ctx.fillRect(0, 0, width, height);
       ctx.drawImage(img, 0, 0, width, height);
       URL.revokeObjectURL(url);
-      // Export PNG
+      // Export PNG — filename incluye el rango filtrado si se pasó
+      // dateRange, sino cae a la fecha de hoy (back-compat con usos
+      // donde el caller no gestiona rango, ej. tests legacy).
+      const downloadName = buildFilename(filenamePrefix, dateRange);
       canvas.toBlob((blob) => {
         if (!blob) {
           setError("toBlob returned null");
@@ -133,7 +194,7 @@ export function ScreenshotButton({
         const pngUrl = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = pngUrl;
-        a.download = `${filenamePrefix}-${todayForFilename()}.png`;
+        a.download = downloadName;
         document.body.appendChild(a);
         a.click();
         a.remove();
@@ -144,14 +205,15 @@ export function ScreenshotButton({
       setError(e instanceof Error ? e.message : "Screenshot failed.");
       setBusy(false);
     }
-  }, [targetRef, filenamePrefix, omitMap, excludeSelector]);
+  }, [targetRef, filenamePrefix, omitMap, excludeSelector, dateRange]);
 
   return (
     <button
+      aria-busy={busy}
       aria-label={ariaLabel}
       className="flex items-center gap-2 rounded-md border border-[#d2ddd6] bg-white px-3 py-1.5 text-sm font-semibold text-[#121815] hover:bg-[#f4f7f4] disabled:cursor-not-allowed disabled:opacity-60"
       data-testid="task-history-screenshot-button"
-      disabled={busy}
+      disabled={isDisabled}
       onClick={onClick}
       type="button"
     >
@@ -168,7 +230,7 @@ export function ScreenshotButton({
         <path d="M1 5h3l1-2h6l1 2h3v9H1V5Z" />
         <circle cx="8" cy="9" r="3" />
       </svg>
-      {busy ? "Capturando..." : "Screenshot"}
+      {busy ? DEFAULT_VISIBLE_LABEL_BUSY : DEFAULT_VISIBLE_LABEL_IDLE}
       {error ? <span className="sr-only">{`Error: ${error}`}</span> : null}
     </button>
   );

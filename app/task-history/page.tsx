@@ -304,8 +304,10 @@ export default async function TaskHistoryPage({ searchParams }: PageProps) {
   return (
     <TaskHistoryClient
       days={days}
+      from={from}
       polygons={polygons}
       selectedParcelId={parcelId ?? null}
+      to={to}
       totals={totals}
     />
   );

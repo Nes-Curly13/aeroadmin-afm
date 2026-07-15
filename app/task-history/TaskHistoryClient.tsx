@@ -37,13 +37,24 @@ export interface TaskHistoryClientProps {
   days: DayCardData[];
   polygons: MapPolygon[];
   selectedParcelId: number | null;
+  /**
+   * Rango de fechas activo (YYYY-MM-DD). Necesario para componer el
+   * filename del download del ScreenshotButton con el rango visible,
+   * así el operador distingue múltiples descargas del mismo día.
+   * Computado en el server component desde `searchParams` (ver
+   * `app/task-history/page.tsx`).
+   */
+  from: string;
+  to: string;
 }
 
 export function TaskHistoryClient({
   totals,
   days,
   polygons,
-  selectedParcelId
+  selectedParcelId,
+  from,
+  to
 }: TaskHistoryClientProps) {
   const contentRef = useRef<HTMLElement | null>(null);
 
@@ -59,8 +70,10 @@ export function TaskHistoryClient({
           <div className="flex items-center gap-2">
             <FilterButton />
             <ScreenshotButton
+              dateRange={{ from, to }}
               filenamePrefix="task-history"
               omitMap
+              polygonCount={polygons.length}
               targetRef={contentRef as React.RefObject<HTMLElement | null>}
             />
           </div>
