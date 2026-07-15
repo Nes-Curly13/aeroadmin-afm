@@ -38,6 +38,29 @@ export function formatDate(value: string) {
 }
 
 /**
+ * Formato de fecha con día de semana para el operador fumigador.
+ * Devuelve "lun 15 mar 2026" en español (locale es-CO).
+ *
+ * Por qué existe: el operador fumigador piensa "lunes a las 14:30", no
+ * "2026-07-15". El formato de DJI AG también muestra día de semana
+ * prominentemente — lo mantenemos consistente.
+ *
+ * Usa UTC midnight para evitar drift de TZ (mismo patrón que daysBetween).
+ * Si el input no es YYYY-MM-DD válido, devuelve el string tal cual.
+ */
+export function formatDateWithWeekday(value: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const d = new Date(`${value}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return value;
+  return new Intl.DateTimeFormat("es-CO", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    year: "numeric"
+  }).format(d);
+}
+
+/**
  * Convierte m² → ha. Factor 1 ha = 10_000 m² (definido en docs/DJI_AREA_UNITS.md).
  * Devuelve `null` para que el caller decida cómo renderizar (UI: "—").
  * Para conversiones de MU usá los helpers en lib/djiag-*-fetcher.js — esto
