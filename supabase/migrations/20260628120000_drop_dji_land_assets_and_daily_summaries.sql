@@ -31,16 +31,37 @@
 -- ============================================================
 -- 1) Snapshot de dji_daily_summaries
 -- ============================================================
-INSERT INTO public.dji_legacy_snapshot (legacy_table, payload)
-SELECT 'dji_daily_summaries', to_jsonb(ds)
-FROM public.dji_daily_summaries ds;
+-- INSERTs condicionales: en una BD fresca (CI) las tablas nunca
+-- existieron (las creaban los scripts de import locales, no las
+-- migrations). Sin el IF EXISTS, la migration fallaba con
+-- "relation does not exist" y abortaba el runner.
+-- Ver CI run 29428375190 y el gap del audit.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'dji_daily_summaries'
+  ) THEN
+    INSERT INTO public.dji_legacy_snapshot (legacy_table, payload)
+    SELECT 'dji_daily_summaries', to_jsonb(ds)
+    FROM public.dji_daily_summaries ds;
+  END IF;
+END $$;
 
 -- ============================================================
 -- 2) Snapshot de dji_land_assets
 -- ============================================================
-INSERT INTO public.dji_legacy_snapshot (legacy_table, payload)
-SELECT 'dji_land_assets', to_jsonb(la)
-FROM public.dji_land_assets la;
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'dji_land_assets'
+  ) THEN
+    INSERT INTO public.dji_legacy_snapshot (legacy_table, payload)
+    SELECT 'dji_land_assets', to_jsonb(la)
+    FROM public.dji_land_assets la;
+  END IF;
+END $$;
 
 -- ============================================================
 -- 3) Drop indices + tablas

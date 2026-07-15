@@ -49,11 +49,21 @@ CREATE INDEX IF NOT EXISTS idx_dji_legacy_snapshot_table
 -- ============================================================
 -- 2) Snapshot de dji_field_catalog antes del drop
 -- ============================================================
-INSERT INTO public.dji_legacy_snapshot (legacy_table, payload)
-SELECT
-  'dji_field_catalog',
-  to_jsonb(fc)
-FROM public.dji_field_catalog fc;
+-- El INSERT es condicional: en una BD fresca (CI) la tabla nunca
+-- existió (se creaba por scripts de import locales, no por migrations).
+-- Sin el IF EXISTS, la migration fallaba con "relation does not exist"
+-- y abortaba el runner (CI run 29428375190). Ver gap del audit.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'dji_field_catalog'
+  ) THEN
+    INSERT INTO public.dji_legacy_snapshot (legacy_table, payload)
+    SELECT 'dji_field_catalog', to_jsonb(fc)
+    FROM public.dji_field_catalog fc;
+  END IF;
+END $$;
 
 -- ============================================================
 -- 3) Drop dji_field_catalog + sus índices
