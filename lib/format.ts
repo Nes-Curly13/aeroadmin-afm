@@ -36,3 +36,47 @@ export function formatDate(value: string) {
     year: "numeric"
   }).format(new Date(value));
 }
+
+/**
+ * Convierte m² → ha. Factor 1 ha = 10_000 m² (definido en docs/DJI_AREA_UNITS.md).
+ * Devuelve `null` para que el caller decida cómo renderizar (UI: "—").
+ * Para conversiones de MU usá los helpers en lib/djiag-*-fetcher.js — esto
+ * es solo para el shape de la BD que ya está en m².
+ */
+export function m2ToHa(value: number | null | undefined): number | null {
+  if (value === null || value === undefined) return null;
+  if (!Number.isFinite(value)) return null;
+  return value / 10_000;
+}
+
+/**
+ * Formatea segundos a un string estilo DJI: "1Hour24min05s" / "0Hour05min30s".
+ * Coincide con `duration.djiFormat` que produce `lib/djiag-from-make/task-history`
+ * (mismo formato que ve el operador en DJI AG). Si `seconds` es null, devuelve "—".
+ */
+export function formatDjiDuration(seconds: number | null | undefined): string {
+  if (seconds === null || seconds === undefined) return "—";
+  if (!Number.isFinite(seconds) || seconds < 0) return "—";
+  const total = Math.floor(seconds);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const hh = String(h);
+  const mm = String(m).padStart(2, "0");
+  const ss = String(s).padStart(2, "0");
+  return `${hh}Hour${mm}min${ss}s`;
+}
+
+/**
+ * Diferencia en días enteros entre dos fechas YYYY-MM-DD.
+ * Devuelve `null` si alguna fecha es null o no matchea el formato.
+ * Usa UTC midnight para evitar drift de TZ — Bogota local de dos fechas DATE
+ * se interpreta consistentemente como UTC midnight en el boundary del repository.
+ */
+export function daysBetween(from: string, to: string): number | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) return null;
+  const a = new Date(`${from}T00:00:00Z`).getTime();
+  const b = new Date(`${to}T00:00:00Z`).getTime();
+  if (Number.isNaN(a) || Number.isNaN(b)) return null;
+  return Math.round((b - a) / 86_400_000);
+}

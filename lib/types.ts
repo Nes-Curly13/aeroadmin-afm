@@ -150,3 +150,87 @@ export interface UpcomingFumigation {
   status: "ok" | "due_soon" | "overdue" | "no_history";
   drone_model_name: string | null;
 }
+
+/**
+ * Input row para la función pura de timeline (lib/fumigation-timeline.ts).
+ * No depende de `pg` — el repository normaliza el row crudo a este shape.
+ *
+ * Por qué NO usar directamente `DjiFumigationEvent`:
+ *   - `DjiFumigationEvent` representa 1 fila de `dji_fumigations`. La
+ *     timeline necesita además el `drone_nickname` y `pilot_name`
+ *     dominantes del día (que viven en `dji_flights` y se resuelven con
+ *     un JOIN en el repository).
+ *   - `duration_minutes` (columna) se convierte a `duration_seconds`
+ *     para mantener consistencia con el resto de la app (Task History).
+ */
+export interface FumigationTimelineInput {
+  id: number;
+  /** YYYY-MM-DD (Bogota-local, ya normalizado en el boundary del repository). */
+  fumigation_date: string;
+  product_used: string | null;
+  dose_l_per_ha: number | null;
+  area_fumigated_m2: number | null;
+  /** Convertido por el repository: `duration_minutes * 60`. */
+  duration_seconds: number | null;
+  drone_code_used: number | null;
+  /** Drone nickname dominante del día (resuelto via JOIN con dji_flights). */
+  drone_nickname: string | null;
+  /** Piloto dominante del día (resuelto via JOIN con dji_flights). */
+  pilot_name: string | null;
+  recorded_by: string | null;
+  notes: string | null;
+  source: "manual" | "djiscraper" | "import";
+}
+
+/**
+ * Evento de fumigación enriquecido para la vista de timeline.
+ * Es el shape que consume el componente `ParcelTimeline` (UI).
+ */
+export interface FumigationEvent {
+  id: number;
+  date: string;             // YYYY-MM-DD
+  month: string;            // YYYY-MM (para agrupación visual)
+  productUsed: string | null;
+  doseLPerHa: number | null;
+  areaHa: number | null;    // m² → ha via lib/format.ts (consistente con Task History)
+  durationSeconds: number | null;
+  durationDjiFormat: string;
+  droneCode: number | null;
+  droneNickname: string | null;
+  pilotName: string | null;
+  recordedBy: string | null;
+  notes: string | null;
+  source: "manual" | "djiscraper" | "import";
+}
+
+/**
+ * Output completo de la función pura de timeline.
+ * Es lo que devuelve `lib/fumigation-timeline.ts` y consume el UI.
+ */
+export interface FumigationTimelineResult {
+  events: FumigationEvent[];
+  summary: {
+    count: number;
+    totalAreaHa: number;
+    totalDurationSeconds: number;
+    byMonth: Array<{
+      yyyymm: string;
+      count: number;
+      areaHa: number;
+      durationSeconds: number;
+    }>;
+    /** null si count < 2 (cadencia no es computable con < 2 puntos). */
+    observedCadenceDays: number | null;
+    /** null si no hay cadencia definida en el schedule del input. */
+    expectedCadenceDays: number | null;
+    /** Gaps > 60 días entre fumigaciones consecutivas (rango pedido). */
+    gaps: Array<{
+      from: string;     // YYYY-MM-DD
+      to: string;       // YYYY-MM-DD
+      days: number;
+    }>;
+  };
+}
+
+/** Constante compartida (también exportada desde lib/format.ts si la querés usar). */
+export const FUMIGATION_GAP_THRESHOLD_DAYS = 60;
