@@ -29,6 +29,7 @@ import type {
   DjiFumigationEvent,
   DjiFumigationSchedule,
   DjiParcelRecord,
+  FumigationTimelineInput,
   UpcomingFumigation,
   FlightPointRecord
 } from "@/lib/types";
@@ -438,6 +439,105 @@ export async function getFumigationEventsByParcel(parcelId: number): Promise<Dji
         ...row,
         fumigation_date: toDateString(row.fumigation_date) ?? ""
       }));
+    },
+    async () => []
+  );
+}
+
+/**
+ * M7 — Inputs del timeline de fumigaciones de una parcela, listos para
+ * pasarse a `buildFumigationTimeline()` (lib/fumigation-timeline.ts).
+ *
+ * Hace un JOIN con `dji_flights` para resolver el `drone_nickname` y
+ * `pilot_name` DOMINANTE del día — no de cada sortie individual. Misma
+ * estrategia que ya usa `lib/djiag-spatial-aggregator.ts` para el mapa
+ * de Task History: el join es por `(parcel_id, fecha Bogota-local)`.
+ *
+ * Devuelve `[]` si no hay eventos en el rango. NO cachea (M7: datos
+ * operativos frescos, como Task History).
+ */
+interface FumigationTimelineDbRow {
+  id: number;
+  fumigation_date: Date | string;
+  product_used: string | null;
+  dose_l_per_ha: number | string | null;
+  area_fumigated_m2: number | string | null;
+  duration_minutes: number | null;
+  drone_code_used: number | null;
+  drone_nickname: string | null;
+  pilot_name: string | null;
+  recorded_by: string | null;
+  notes: string | null;
+  source: "manual" | "djiscraper" | "import";
+}
+
+export async function getFumigationTimelineForParcel(
+  parcelId: number,
+  from: string,
+  to: string
+): Promise<FumigationTimelineInput[]> {
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      const result = await db.query<FumigationTimelineDbRow>(
+        `
+          SELECT
+            f.id,
+            f.fumigation_date,
+            f.product_used,
+            f.dose_l_per_ha,
+            f.area_fumigated_m2,
+            f.duration_minutes,
+            f.drone_code_used,
+            f.recorded_by,
+            f.notes,
+            f.source,
+            (
+              SELECT fl.drone_nickname
+                FROM dji_flights fl
+               WHERE fl.parcel_id = f.parcel_id
+                 AND (fl.start_at AT TIME ZONE 'America/Bogota')::date = f.fumigation_date
+                 AND fl.drone_nickname IS NOT NULL
+               GROUP BY fl.drone_nickname
+               ORDER BY COUNT(*) DESC
+               LIMIT 1
+            ) AS drone_nickname,
+            (
+              SELECT fl.pilot_name
+                FROM dji_flights fl
+               WHERE fl.parcel_id = f.parcel_id
+                 AND (fl.start_at AT TIME ZONE 'America/Bogota')::date = f.fumigation_date
+                 AND fl.pilot_name IS NOT NULL
+               GROUP BY fl.pilot_name
+               ORDER BY COUNT(*) DESC
+               LIMIT 1
+            ) AS pilot_name
+          FROM dji_fumigations f
+          WHERE f.parcel_id = $1
+            AND f.fumigation_date >= $2::date
+            AND f.fumigation_date <= $3::date
+          ORDER BY f.fumigation_date ASC
+        `,
+        [parcelId, from, to]
+      );
+      return result.rows.map((row): FumigationTimelineInput => {
+        const dateStr = toDateString(row.fumigation_date) ?? "";
+        const minutes = row.duration_minutes;
+        return {
+          id: row.id,
+          fumigation_date: dateStr,
+          product_used: row.product_used,
+          dose_l_per_ha: row.dose_l_per_ha === null ? null : Number(row.dose_l_per_ha),
+          area_fumigated_m2: row.area_fumigated_m2 === null ? null : Number(row.area_fumigated_m2),
+          duration_seconds: minutes === null ? null : minutes * 60,
+          drone_code_used: row.drone_code_used,
+          drone_nickname: row.drone_nickname,
+          pilot_name: row.pilot_name,
+          recorded_by: row.recorded_by,
+          notes: row.notes,
+          source: row.source
+        };
+      });
     },
     async () => []
   );
