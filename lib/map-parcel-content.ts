@@ -27,8 +27,11 @@
 //     (e.g. forzar dashArray: null), lo hacemos en el call site de
 //     MapClient.tsx, NO en lib/.
 
+import type { PathOptions } from "leaflet";
+
 import { formatDateWithWeekday } from "@/lib/format";
-import type { AlertLevel } from "@/lib/types";
+import { getParcelPolygonStyle } from "@/lib/map-styles";
+import type { AlertLevel, DjiParcelRecord } from "@/lib/types";
 
 // ============================================================
 // Tipos públicos
@@ -72,11 +75,18 @@ export interface ParcelInteractionOptions {
 /**
  * Subset de `L.Layer` con los métodos que necesitamos.
  * Duck-typed para mantener la función libre de imports de Leaflet.
+ *
+ * NOTA sobre los tipos de opciones: usamos `any` en los `options` y returns
+ * para evitar acoplar esta interfaz a las sobrecargas específicas de
+ * `L.Layer.bindTooltip` / `L.Layer.bindPopup` (que cambian entre
+ * versiones de Leaflet y de @types/leaflet). El contenido sigue
+ * siendo `string` (lo que leaflet espera para `bindTooltip(string, opts)`).
+ * Tests usan un mock trivial que satisface esta forma.
  */
 export interface ParcelLayerLike {
-  bindTooltip: (content: string, options?: unknown) => unknown;
-  bindPopup: (content: string, options?: unknown) => unknown;
-  on: (event: string, handler: (...args: unknown[]) => void) => unknown;
+  bindTooltip: (content: string, options?: any) => any;
+  bindPopup: (content: string, options?: any) => any;
+  on: (event: string, handler: (...args: any[]) => any) => any;
 }
 
 // ============================================================
@@ -239,4 +249,78 @@ export function bindParcelLayerInteractions(
   if (options?.onMouseOut) {
     layer.on("mouseout", options.onMouseOut);
   }
+}
+
+// ============================================================
+// Style dispatch (Track C: integración de selección sobre Track A)
+// ============================================================
+
+/**
+ * Resuelve el `PathOptions` de un feature del GeoJSON de parcelas.
+ *
+   Es el adaptador que el `style` callback de `<GeoJSON>` usa. Hace tres cosas:
+ *   1. Resuelve la `DjiParcelRecord` original a partir del `id` en
+ *      `feature.properties.id` (el GeoJSON es plano — sin referencia al row).
+ *   2. Delega en `getParcelPolygonStyle` (lib/map-styles.ts, Track A) para
+ *      los flags `isSelected` y `hasFumigation`.
+ *   3. Aplica el override de Track C: si la parcela está seleccionada,
+ *      fuerza `dashArray: null` para garantizar línea sólida. La selección
+ *      es feedback inmediato del UI — el ojo del operador debe identificar
+ *      la parcela activa al instante, sin ambigüedad de patrón. Este override
+ *      gana sobre el dashed que Track A aplicaría a no-fumigadas.
+ *
+ * Decisión de diseño: NO tocar `lib/map-styles.ts` (regla del prompt:
+ * "Do NOT modify polygon style fn in lib/map-styles.ts (Track A)"). El
+ * override vive en este adaptador, no en la lib de estilos.
+ *
+ * @param feature            Feature de GeoJSON del polígono (de `parcelCollection`).
+ * @param parcelById         Mapa `id → DjiParcelRecord` que MapClient construye.
+ * @param selectedParcelId   ID de la parcela actualmente seleccionada (o null).
+ * @param fumigatedParcelIds Set<number> de parcelas fumigadas en últimos 6m.
+ *                           Si undefined → backwards compat: todas fumigadas.
+ */
+export function resolveFeatureStyle(
+  feature: { properties?: { id?: number } | null } | null | undefined,
+  parcelById: Map<number, DjiParcelRecord>,
+  selectedParcelId: number | null,
+  fumigatedParcelIds?: Set<number>
+): PathOptions {
+  const id = feature?.properties?.id;
+  const parcel = id !== undefined ? parcelById.get(id) : undefined;
+
+  if (!parcel) {
+    // Fallback defensivo: feature sin parcela matcheada. Pasamos un parcel
+    // vacío a Track A (la función solo inspecciona is_orchard y field_type
+    // → ambos falsy por default = estilo Farmland sólido).
+    return getParcelPolygonStyle({} as DjiParcelRecord);
+  }
+
+  const isSelected = id === selectedParcelId;
+  // Si `id` es undefined ya retornamos arriba (fallback). Pero TS no puede
+  // inferirlo a través del control flow — `id` se mantiene como
+  // `number | undefined` en este punto. El guard de tipo le dice al
+  // compilador "acá id es number" y nos protege de regresiones si alguien
+  // reordena las guards.
+  const hasFumigation =
+    fumigatedParcelIds === undefined || id === undefined
+      ? true
+      : fumigatedParcelIds.has(id);
+
+  const baseStyle = getParcelPolygonStyle(parcel, { isSelected, hasFumigation });
+
+  // Override Track C: la parcela seleccionada siempre es línea sólida,
+  // independientemente del flag hasFumigation de Track A. La selección
+  // es feedback inmediato del UI — el operador fumigador no debería
+  // dudar si el contorno de la parcela activa es sólido o dashed.
+  //
+  // Implementación: removemos `dashArray` del spread (no asignamos null
+  // porque el tipo `PathOptions` de Leaflet es `string | number[]`, no
+  // acepta null). Leaflet trata `dashArray: undefined` como "sin patrón
+  // = línea sólida", que es lo que queremos.
+  if (isSelected) {
+    const { dashArray: _ignored, ...solidStyle } = baseStyle;
+    return solidStyle;
+  }
+
+  return baseStyle;
 }

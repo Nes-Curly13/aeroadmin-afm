@@ -25,8 +25,10 @@ import {
   getParcelA11yLabel,
   getParcelHoverContent,
   getParcelPopupContent,
+  resolveFeatureStyle,
   type ParcelContentInput
 } from "@/lib/map-parcel-content";
+import type { DjiParcelRecord } from "@/lib/types";
 
 function makeParcel(over: Partial<ParcelContentInput> = {}): ParcelContentInput {
   return {
@@ -36,6 +38,46 @@ function makeParcel(over: Partial<ParcelContentInput> = {}): ParcelContentInput 
     totalFlights: 12,
     alertLevel: null,
     alertMessage: null,
+    ...over
+  };
+}
+
+/**
+ * Fixture mínima de DjiParcelRecord para los tests de resolveFeatureStyle.
+ * Solo necesitamos los campos que la style function inspecciona
+ * (is_orchard, field_type, id). El resto se rellena con defaults razonables
+ * para que el record sea válido.
+ */
+function makeDjiParcel(over: Partial<DjiParcelRecord> = {}): DjiParcelRecord {
+  return {
+    id: 1,
+    external_id: "ext-1",
+    land_name: "Porvenir STE 3",
+    field_type: "Farmland",
+    declared_area_ha: 5.32,
+    spray_area_m2: 53_200,
+    drone_model_code: 201,
+    drone_model_name: "Agras T40",
+    spray_width_m: 5.5,
+    work_speed_mps: 6,
+    optimal_heading_deg: 100,
+    radar_height_m: 3,
+    edge_offset_m: 1.5,
+    obstacle_offset_m: 1.5,
+    climb_height_m: 2,
+    no_spray_zone_m2: 0,
+    droplet_size: 320,
+    sweep_direction: 1,
+    is_orchard: false,
+    uses_side_spray: false,
+    spray_geometry: null,
+    reference_point: null,
+    waypoints_geometry: null,
+    waypoint_count: 42,
+    source_url_geometry: null,
+    source_url_parameter: null,
+    source_url_waypoint: null,
+    fetched_at: null,
     ...over
   };
 }
@@ -268,5 +310,130 @@ describe("bindParcelLayerInteractions", () => {
     });
     bindParcelLayerInteractions(layer, makeParcel(), { onMouseOver: vi.fn(), onMouseOut: vi.fn() });
     expect(order).toEqual(["tooltip", "popup", "on:mouseover", "on:mouseout"]);
+  });
+});
+
+describe("resolveFeatureStyle", () => {
+  it("feature sin parcel matcheada: devuelve fallback default (no rompe el render)", () => {
+    const parcelById = new Map<number, DjiParcelRecord>();
+    const style = resolveFeatureStyle(
+      { properties: { id: 999 } },
+      parcelById,
+      null
+    );
+    // weight y fillOpacity presentes; color y fillColor truthy.
+    expect(style.weight).toBeGreaterThan(0);
+    expect(style.fillOpacity).toBeGreaterThan(0);
+  });
+
+  it("feature null: devuelve fallback default", () => {
+    const parcelById = new Map<number, DjiParcelRecord>();
+    const style = resolveFeatureStyle(null, parcelById, null);
+    expect(style.weight).toBeGreaterThan(0);
+  });
+
+  it("feature sin properties: devuelve fallback default", () => {
+    const parcelById = new Map<number, DjiParcelRecord>();
+    const style = resolveFeatureStyle({ properties: null }, parcelById, null);
+    expect(style.weight).toBeGreaterThan(0);
+  });
+
+  it("feature con id no matcheado: devuelve fallback default", () => {
+    const parcel = makeDjiParcel({ id: 1 });
+    const parcelById = new Map([[1, parcel]]);
+    const style = resolveFeatureStyle(
+      { properties: { id: 999 } },
+      parcelById,
+      null
+    );
+    expect(style.weight).toBeGreaterThan(0);
+  });
+
+  it("feature NO seleccionado: weight=2 (default de Track A)", () => {
+    const parcel = makeDjiParcel({ id: 1, is_orchard: false, field_type: "Farmland" });
+    const parcelById = new Map([[1, parcel]]);
+    const style = resolveFeatureStyle(
+      { properties: { id: 1 } },
+      parcelById,
+      null // no seleccionado
+    );
+    expect(style.weight).toBe(2);
+  });
+
+  it("feature SELECCIONADO: weight=4 (Track A) + dashArray=undefined (override Track C)", () => {
+    const parcel = makeDjiParcel({ id: 1 });
+    const parcelById = new Map([[1, parcel]]);
+    const style = resolveFeatureStyle(
+      { properties: { id: 1 } },
+      parcelById,
+      1 // seleccionado
+    );
+    expect(style.weight).toBe(4);
+    // Override Track C: seleccionada siempre es línea sólida.
+    // La impl borra dashArray del spread (no asigna null porque el
+    // tipo Leaflet PathOptions es `string | number[]`, no `null`).
+    // Leaflet trata `dashArray: undefined` como "sin patrón = sólido".
+    expect(style.dashArray).toBeUndefined();
+  });
+
+  it("feature SELECCIONADO (orchard): weight=4 + dashArray=undefined + color warning", () => {
+    const parcel = makeDjiParcel({ id: 1, is_orchard: true, field_type: "Orchards" });
+    const parcelById = new Map([[1, parcel]]);
+    const style = resolveFeatureStyle(
+      { properties: { id: 1 } },
+      parcelById,
+      1
+    );
+    expect(style.weight).toBe(4);
+    expect(style.dashArray).toBeUndefined();
+  });
+
+  it("feature SELECCIONADO preserva fillColor de Track A (no override accidental)", () => {
+    // El override solo toca dashArray, no toca colores. Esto es importante
+    // para que la parcela seleccionada siga mostrando su tipo (farmland verde
+    // vs orchard amarillo) además del grosor.
+    const parcel = makeDjiParcel({ id: 1, is_orchard: true, field_type: "Orchards" });
+    const parcelById = new Map([[1, parcel]]);
+    const style = resolveFeatureStyle(
+      { properties: { id: 1 } },
+      parcelById,
+      1
+    );
+    // El color y fillColor deben venir de Track A (COLORS.warning para orchard).
+    expect(style.color).toBeTruthy();
+    expect(style.fillColor).toBeTruthy();
+  });
+
+  it("varias parcelas, solo una seleccionada: cada style refleja su estado", () => {
+    const parcel1 = makeDjiParcel({ id: 1, land_name: "Parcela 1" });
+    const parcel2 = makeDjiParcel({ id: 2, land_name: "Parcela 2" });
+    const parcel3 = makeDjiParcel({ id: 3, land_name: "Parcela 3" });
+    const parcelById = new Map([
+      [1, parcel1],
+      [2, parcel2],
+      [3, parcel3]
+    ]);
+    // Solo parcel 2 está seleccionada.
+    const s1 = resolveFeatureStyle({ properties: { id: 1 } }, parcelById, 2);
+    const s2 = resolveFeatureStyle({ properties: { id: 2 } }, parcelById, 2);
+    const s3 = resolveFeatureStyle({ properties: { id: 3 } }, parcelById, 2);
+    // Parcel 2: weight=4 + dashArray undefined (override Track C = línea sólida)
+    expect(s2.weight).toBe(4);
+    expect(s2.dashArray).toBeUndefined();
+    // Las otras: weight=2, sin override
+    expect(s1.weight).toBe(2);
+    expect(s3.weight).toBe(2);
+  });
+
+  it("selectedParcelId null: ninguna parcela tiene override (todas weight=2)", () => {
+    const parcel = makeDjiParcel({ id: 1 });
+    const parcelById = new Map([[1, parcel]]);
+    const style = resolveFeatureStyle(
+      { properties: { id: 1 } },
+      parcelById,
+      null
+    );
+    expect(style.weight).toBe(2);
+    expect(style.dashArray).toBeUndefined();
   });
 });
