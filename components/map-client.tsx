@@ -4,9 +4,12 @@ import "leaflet/dist/leaflet.css";
 
 import L from "leaflet";
 import type { Feature, FeatureCollection, GeoJsonProperties } from "geojson";
-import { useEffect } from "react";
-import { CircleMarker, GeoJSON, LayersControl, MapContainer, Popup, TileLayer, useMap } from "react-leaflet";
+import { useEffect, useRef } from "react";
+import { CircleMarker, GeoJSON, LayersControl, MapContainer, Polyline, Popup, TileLayer, useMap } from "react-leaflet";
 
+import { waypointsToFlightPlan } from "@/lib/flight-plan";
+import { getFlightPlanStyle } from "@/lib/flight-plan-styles";
+import { bindParcelLayerInteractions, resolveFeatureStyle, type ParcelContentInput } from "@/lib/map-parcel-content";
 import { getAlertPolygonStyle, getParcelPolygonStyle } from "@/lib/map-styles";
 import type { DjiAlertRecord, DjiDailySummaryRecord, DjiParcelRecord, FlightPointRecord } from "@/lib/types";
 
@@ -64,7 +67,8 @@ export function MapClient({
   alerts,
   flightPoints,
   fumigatedParcelIds,
-  layers = { parcels: true, waypoints: true, alerts: true, flights: true }
+  selectedParcelId,
+  layers = { parcels: true, waypoints: true, alerts: true, flights: true, flightPlans: false }
 }: {
   // (S2 / 2026-07-01) Solo DjiParcelRecord. El legacy DjiAssetRecord (3-rows-per-field)
   // se eliminó junto con getParcels() y el endpoint /api/parcels.
@@ -77,13 +81,46 @@ export function MapClient({
   // M3-M5 Track A: parcel_ids fumigados en los últimos 6m. Si undefined
   // o parcel no presente en el set, se renderiza como fumigada (compat).
   fumigatedParcelIds?: Set<number>;
-  layers?: { parcels: boolean; waypoints: boolean; alerts: boolean; flights: boolean };
+  // M3-M5 Track C: id de la parcela actualmente seleccionada en el panel
+  // derecho. Se usa para diferenciar visualmente (weight=4 + dashArray
+  // removido) y para centrar el mapa vía MapFocusOn (commit 3).
+  selectedParcelId?: number | null;
+  // M3-M5 Track B: opt-in (default false). Renderiza la geometría del
+  // plan DJI como polilínea dashed. Independiente de `waypoints` (que
+  // muestra los dots sueltos) — decisión: dos capas independientes
+  // para que el operador pueda elegir ver "plan completo" o
+  // "waypoints sueltos" según el caso de uso.
+  layers?: {
+    parcels: boolean;
+    waypoints: boolean;
+    alerts: boolean;
+    flights: boolean;
+    flightPlans: boolean;
+  };
 }) {
   // Construimos un Map id -> DjiParcelRecord para que el `style` callback
   // del GeoJSON pueda resolver la parcela original y delegar a
   // `getParcelPolygonStyle` (lib/map-styles.ts — single source of truth).
   const parcelById = new Map<number, DjiParcelRecord>();
   for (const p of parcels) parcelById.set(p.id, p);
+
+  // Track C: Mapa id -> DjiAlertRecord para inyectar el nivel de alerta
+  // en el popup de cada parcela. Una misma parcela puede tener varias
+  // alertas (HIGH por área, MEDIUM por cadencia) — agarramos la primera
+  // para el popup, priorizando HIGH (orden natural del array alerts
+  // viene de la query en repositories).
+  const alertByParcelId = new Map<number, DjiAlertRecord>();
+  for (const a of alerts) {
+    if (!alertByParcelId.has(a.parcel_id)) {
+      alertByParcelId.set(a.parcel_id, a);
+    }
+  }
+
+  // Track C: ref al MapContainer para acceder al map instance desde
+  // handlers de mouseover/mouseout (cambio de cursor). useMap() no
+  // funciona acá porque MapClient renderiza <MapContainer> (no es
+  // hijo de él). Usar ref de MapContainer es el patrón estándar.
+  const mapRef = useRef<L.Map | null>(null);
 
   const parcelCollection: FeatureCollection = {
     type: "FeatureCollection",
@@ -99,6 +136,7 @@ export function MapClient({
             field_type: parcel.field_type ?? "Farmland",
             is_orchard: parcel.is_orchard === true,
             spray_area_m2: parcel.spray_area_m2 ?? null,
+            declared_area_ha: parcel.declared_area_ha ?? null,
             waypoint_count: parcel.waypoint_count ?? 0
           } satisfies GeoJsonProperties,
           geometry: parcel.spray_geometry!
@@ -169,7 +207,13 @@ export function MapClient({
 
   return (
     <div className="relative h-[72vh] overflow-hidden rounded-[24px]">
-      <MapContainer center={center} className="h-full w-full" scrollWheelZoom zoom={14}>
+      <MapContainer
+        center={center}
+        className="h-full w-full"
+        ref={mapRef}
+        scrollWheelZoom
+        zoom={14}
+      >
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -180,28 +224,50 @@ export function MapClient({
               <GeoJSON
                 data={parcelCollection}
                 onEachFeature={(feature, layer) => {
-                  const p = feature.properties ?? {};
-                  const popup = `
-                    <strong>${p.name ?? "Sin nombre"}</strong><br/>
-                    Tipo: ${p.field_type ?? "?"} ${p.is_orchard ? "(Orchard)" : "(Farmland)"}<br/>
-                    Área fumigable: ${p.spray_area_m2 ? (p.spray_area_m2 / 10000).toFixed(3) + " ha" : "?"}<br/>
-                    Waypoints: ${p.waypoint_count ?? 0}<br/>
-                    <small>${p.external_id ?? ""}</small>
-                  `;
-                  layer.bindPopup(popup);
+                  // M3-M5 Track C: bindTooltip (hover preview) + bindPopup
+                  // (click expanded) + cursor change. Todo el contenido se
+                  // delega a los helpers puros de lib/map-parcel-content
+                  // para mantener la lógica testeable sin Leaflet.
+                  const props = (feature.properties ?? {}) as {
+                    id: number;
+                    name: string | null;
+                    declared_area_ha: number | null;
+                  };
+                  const alert = alertByParcelId.get(props.id) ?? null;
+                  const parcelInput: ParcelContentInput = {
+                    name: props.name,
+                    areaHa: props.declared_area_ha ?? null,
+                    // TODO (commit futuro): joinear con dji_fumigation_schedule
+                    // para traer la última fecha de fumigación por parcela.
+                    lastFumigationDate: null,
+                    // TODO (commit futuro): agregación desde dji_flights
+                    // (parcel_id -> COUNT(*)) para el total de sorties.
+                    totalFlights: undefined,
+                    alertLevel: alert?.level ?? null,
+                    alertMessage: alert?.message ?? null
+                  };
+                  bindParcelLayerInteractions(layer, parcelInput, {
+                    onMouseOver: () => {
+                      const map = mapRef.current;
+                      if (map) map.getContainer().style.cursor = "pointer";
+                    },
+                    onMouseOut: () => {
+                      const map = mapRef.current;
+                      if (map) map.getContainer().style.cursor = "";
+                    }
+                  });
                 }}
                 style={(feature) => {
-                  // Resolvemos la parcela original a partir del id y delegamos
-                  // a lib/map-styles.ts. Si no se encuentra, fallback defensivo
-                  // a un estilo neutral (primary) sin romper el render.
-                  const id = (feature?.properties as { id?: number } | null)?.id;
-                  const parcel = id !== undefined ? parcelById.get(id) : undefined;
-                  if (!parcel) {
-                    return getParcelPolygonStyle({} as DjiParcelRecord);
-                  }
-                  const hasFumigation =
-                    fumigatedParcelIds === undefined ? true : fumigatedParcelIds.has(parcel.id);
-                  return getParcelPolygonStyle(parcel, { hasFumigation });
+                  // M3-M5 Track C: dispatch centralizado. Delega en
+                  // lib/map-styles.ts (Track A) para isSelected+hasFumigation
+                  // y aplica el override "seleccionada = línea sólida"
+                  // removiendo dashArray del spread.
+                  return resolveFeatureStyle(
+                    feature,
+                    parcelById,
+                    selectedParcelId ?? null,
+                    fumigatedParcelIds
+                  );
                 }}
               />
             </LayersControl.Overlay>
@@ -229,6 +295,41 @@ export function MapClient({
               />
             </LayersControl.Overlay>
           )}
+          {layers.flightPlans &&
+            parcels
+              .filter((parcel) => parcel.waypoints_geometry)
+              .map((parcel) => {
+                // Convertir waypoints_geometry → plan lineal (LineString
+                // o MultiLineString) usando la heurística nearest-neighbor
+                // de lib/flight-plan.ts.
+                const planGeom = waypointsToFlightPlan(parcel.waypoints_geometry);
+                if (!planGeom) return null;
+                // Leaflet <Polyline> acepta positions: LatLngExpression[][]
+                // para MultiLineString o LatLngExpression[] para LineString.
+                const positions: Array<[number, number]> | Array<Array<[number, number]>> =
+                  planGeom.type === "LineString"
+                    ? (planGeom.coordinates as Array<[number, number]>)
+                    : (planGeom.coordinates as Array<Array<[number, number]>>);
+                // isSelected queda false por ahora — MapView no nos pasa
+                // la selección (vive en su state). Si en el futuro se
+                // quiere highlighting del plan de la parcela activa, agregar
+                // prop `selectedParcelId?: number` y pasarlo desde MapView.
+                return (
+                  <Polyline
+                    key={`flightplan-${parcel.id}`}
+                    pathOptions={getFlightPlanStyle()}
+                    positions={positions}
+                  >
+                    <Popup>
+                      <strong>Plan de vuelo</strong>
+                      <br />
+                      Parcela: {parcel.land_name ?? "?"}
+                      <br />
+                      {parcel.waypoint_count ?? "?"} waypoints
+                    </Popup>
+                  </Polyline>
+                );
+              })}
           {layers.alerts && (
             <LayersControl.Overlay checked name="Alertas">
               <GeoJSON

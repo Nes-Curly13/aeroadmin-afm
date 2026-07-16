@@ -92,7 +92,7 @@ describe("MapView — flightPoints (M6)", () => {
     expect(screen.getByText("Vuelos (DJI AG)")).toBeInTheDocument();
   });
 
-  it("los 4 toggles de capas (parcels, waypoints, alerts, flights) estan", () => {
+  it("los 5 toggles de capas (parcels, waypoints, alerts, flights, flightPlans) estan", () => {
     render(
       <MapView
         alerts={[]}
@@ -103,8 +103,41 @@ describe("MapView — flightPoints (M6)", () => {
     // Sin flightPoints la leyenda toggle 'flights' existe igual; solo el legend
     // item 'Vuelo' es condicional.
     const checkboxes = screen.getAllByRole("checkbox");
-    // 4 toggle de capas + ~0 de alerts (no hay alerts)
-    expect(checkboxes.length).toBeGreaterThanOrEqual(4);
+    // 5 toggles de capas (parcels, waypoints, alerts, flights, flightPlans).
+    // M3-M5 Track B agregó 'flightPlans' (Planes de vuelo) como opt-in.
+    expect(checkboxes.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it("toggle 'Planes de vuelo' (M3-M5 Track B) aparece en el panel de capas", () => {
+    render(
+      <MapView
+        alerts={[]}
+        flights={[]}
+        parcels={sampleParcels}
+      />
+    );
+    // El label del checkbox para la nueva capa 'flightPlans' (M3-M5 Track B).
+    expect(screen.getByText("Planes de vuelo")).toBeInTheDocument();
+  });
+
+  it("toggle 'Planes de vuelo' está opt-in por default (unchecked)", () => {
+    // Decisión de producto (M3-M5 Track B): flightPlans default false
+    // para no saturar el mapa al cargar. El operador lo activa si
+    // quiere ver la geometría del plan.
+    render(
+      <MapView
+        alerts={[]}
+        flights={[]}
+        parcels={sampleParcels}
+      />
+    );
+    const planesDeVueloLabel = screen.getByText("Planes de vuelo");
+    // El label contiene el checkbox hermano.
+    const checkbox = planesDeVueloLabel.parentElement?.querySelector(
+      'input[type="checkbox"]'
+    ) as HTMLInputElement | null;
+    expect(checkbox).toBeTruthy();
+    expect(checkbox?.checked).toBe(false);
   });
 
   it("flightPoints vacios (undefined) — componente OK y sin legend 'Vuelo'", () => {
