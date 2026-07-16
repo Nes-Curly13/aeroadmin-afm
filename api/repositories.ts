@@ -445,6 +445,42 @@ export async function getFumigationEventsByParcel(parcelId: number): Promise<Dji
 }
 
 /**
+ * M3-M5 Track A (commit 2): devuelve el Set<number> de `parcel_id` con
+ * al menos un evento de fumigación >= `since` (YYYY-MM-DD). Sirve a
+ * `app/map/page.tsx` para derivar el flag `hasFumigation` por parcela y
+ * diferenciar visualmente fumigadas (solido) vs no fumigadas (dashed +
+ * fill atenuado) en el mapa.
+ *
+ * Notas de implementación:
+ *   - DISTINCT en la SQL para no traer N filas si la parcela tuvo
+ *     varios eventos en el rango; el caller quiere un Set, no un multiset.
+ *   - `parcel_id IS NOT NULL` para excluir eventos agregados del importer
+ *     que quedaron sin asignar (ver `backfill-fumigations-from-flights`).
+ *   - Fallback a Set vacio si la BD no esta disponible (modo offline de
+ *     tests sin Docker): el mapa no rompe, solo pierde la distinción
+ *     fumigado/no-fumigado (todas se ven como fumigadas = backwards
+ *     compatible).
+ */
+export async function getFumigatedParcelIdsSince(since: string): Promise<Set<number>> {
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      const result = await db.query<{ parcel_id: number }>(
+        `SELECT DISTINCT parcel_id
+           FROM dji_fumigations
+          WHERE parcel_id IS NOT NULL
+            AND fumigation_date >= $1::date`,
+        [since]
+      );
+      const out = new Set<number>();
+      for (const row of result.rows) out.add(row.parcel_id);
+      return out;
+    },
+    async () => new Set<number>()
+  );
+}
+
+/**
  * M7 — Inputs del timeline de fumigaciones de una parcela, listos para
  * pasarse a `buildFumigationTimeline()` (lib/fumigation-timeline.ts).
  *

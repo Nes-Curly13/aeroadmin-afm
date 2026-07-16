@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 import type { PathOptions } from "leaflet";
 
 import { COLORS } from "@/lib/ui-tokens";
-import { getAlertPolygonStyle, getParcelPolygonStyle } from "@/lib/map-styles";
+import {
+  buildFumigatedParcelSet,
+  getAlertPolygonStyle,
+  getParcelPolygonStyle
+} from "@/lib/map-styles";
 import type { DjiAlertRecord, DjiParcelRecord } from "@/lib/types";
 
 /**
@@ -127,5 +131,90 @@ describe("getAlertPolygonStyle", () => {
     const style: PathOptions = getAlertPolygonStyle("HIGH" satisfies DjiAlertRecord["level"]);
     expect(style.weight).toBeGreaterThan(0);
     expect(style.fillOpacity).toBeGreaterThan(0);
+  });
+});
+
+describe("getParcelPolygonStyle — fumigación (commit 2)", () => {
+  it("parcela fumigada (hasFumigation=true): estilo solido (sin dashArray)", () => {
+    const style = getParcelPolygonStyle(makeParcel(), { hasFumigation: true });
+    // Sin dashArray o dashArray vacio => borde solido.
+    expect(style.dashArray === undefined || style.dashArray === "" || style.dashArray === "0").toBe(true);
+    expect(style.fillOpacity).toBeGreaterThan(0.2);
+  });
+
+  it("parcela NO fumigada (hasFumigation=false): borde dashed + fillOpacity bajo", () => {
+    const fumigated = getParcelPolygonStyle(makeParcel(), { hasFumigation: true });
+    const notFumigated = getParcelPolygonStyle(makeParcel(), { hasFumigation: false });
+    // dashArray presente en no fumigado
+    expect(notFumigated.dashArray).toBeDefined();
+    expect(String(notFumigated.dashArray)).toMatch(/\d+\s+\d+/);
+    // fillOpacity menor que el fumigado
+    expect(notFumigated.fillOpacity).toBeLessThan(fumigated.fillOpacity!);
+  });
+
+  it("parcela NO fumigada: opacity del stroke presente y < 1 (menos visible)", () => {
+    const notFumigated = getParcelPolygonStyle(makeParcel(), { hasFumigation: false });
+    expect(notFumigated.opacity).toBeDefined();
+    expect(notFumigated.opacity!).toBeLessThan(1);
+  });
+
+  it("parcela fumigada: NO aplica opacity reducida (se ve al 100%)", () => {
+    const fumigated = getParcelPolygonStyle(makeParcel(), { hasFumigation: true });
+    // Sin opacity definida, o >= 1: borde solido al 100% de visibilidad.
+    expect(fumigated.opacity === undefined || fumigated.opacity! >= 1).toBe(true);
+  });
+
+  it("default sin hasFumigation explicito: se asume fumigada (no rompe backwards compat)", () => {
+    const style = getParcelPolygonStyle(makeParcel());
+    // Sin hasFumigation, no debe aplicar dashed.
+    expect(style.dashArray === undefined || style.dashArray === "" || style.dashArray === "0").toBe(true);
+  });
+
+  it("isSelected y hasFumigation=false son compatibles (dashed + weight=4)", () => {
+    const style = getParcelPolygonStyle(makeParcel(), {
+      hasFumigation: false,
+      isSelected: true
+    });
+    expect(style.weight).toBe(4);
+    expect(String(style.dashArray)).toMatch(/\d+\s+\d+/);
+  });
+
+  it("orchard NO fumigada: tambien dashed (la distincion se aplica a todo tipo)", () => {
+    const orchard = getParcelPolygonStyle(
+      makeParcel({ is_orchard: true, field_type: "Orchards" }),
+      { hasFumigation: false }
+    );
+    expect(String(orchard.dashArray)).toMatch(/\d+\s+\d+/);
+  });
+});
+
+describe("buildFumigatedParcelSet", () => {
+  it("devuelve un Set con los parcel_ids que tienen fumigacion >= since", () => {
+    const events = [
+      { id: 1, parcel_id: 10, fumigation_date: "2026-05-15" },
+      { id: 2, parcel_id: 20, fumigation_date: "2026-04-01" },
+      { id: 3, parcel_id: 10, fumigation_date: "2026-06-01" }, // dup parcel
+      { id: 4, parcel_id: 30, fumigation_date: "2025-01-01" }  // antes del since
+    ];
+    const set = buildFumigatedParcelSet(events, "2026-01-01");
+    expect(set.size).toBe(2);
+    expect(set.has(10)).toBe(true);
+    expect(set.has(20)).toBe(true);
+    expect(set.has(30)).toBe(false);
+  });
+
+  it("eventos con fumigation_date null se ignoran", () => {
+    const events = [
+      { id: 1, parcel_id: 10, fumigation_date: null as unknown as string },
+      { id: 2, parcel_id: 20, fumigation_date: "2026-05-15" }
+    ];
+    const set = buildFumigatedParcelSet(events, "2026-01-01");
+    expect(set.size).toBe(1);
+    expect(set.has(20)).toBe(true);
+  });
+
+  it("lista vacia devuelve Set vacio", () => {
+    const set = buildFumigatedParcelSet([], "2026-01-01");
+    expect(set.size).toBe(0);
   });
 });

@@ -38,7 +38,8 @@ export function MapView({
   parcels,
   flights,
   alerts,
-  flightPoints
+  flightPoints,
+  fumigatedParcelIds
 }: {
   // (S2 / 2026-07-01) Solo DjiParcelRecord. El legacy DjiAssetRecord (3-rows-per-field)
   // se eliminó junto con getParcels() y el endpoint /api/parcels. La tabla
@@ -48,12 +49,20 @@ export function MapView({
   alerts: DjiAlertRecord[];
   // M6: footprints minimos de sorties. Plot se hace en MapClient.
   flightPoints?: FlightPointRecord[];
+  // M3-M5 Track A: Set<number> de parcel_ids fumigados en los últimos 6m.
+  // Si undefined o vacío, todas se ven como fumigadas (backwards compat).
+  fumigatedParcelIds?: Set<number>;
 }) {
   const [layers, setLayers] = useState({
     parcels: true,
     waypoints: true,
     alerts: true,
-    flights: true
+    flights: true,
+    // M3-M5 Track B: opt-in (default false) — renderiza la geometría
+    // del plan DJI como polilínea dashed. Decisión: dos capas
+    // independientes (waypoints = dots sueltos, flightPlans = plan
+    // conectado), porque sirven casos de uso distintos.
+    flightPlans: false
   });
   const [selectedParcelId, setSelectedParcelId] = useState<number | null>(
     parcels[0]?.id ?? null
@@ -88,6 +97,7 @@ export function MapView({
           alerts={alerts}
           flightPoints={flightPoints}
           flights={flights}
+          fumigatedParcelIds={fumigatedParcelIds}
           layers={layers}
           parcels={parcels}
         />
@@ -218,10 +228,14 @@ export function MapView({
         <div className="rounded-xl border border-[#d2ddd6] bg-white p-4">
           <h4 className="mb-3 text-[11px] font-bold uppercase tracking-[0.18em] text-[#587064]">Capas del mapa</h4>
           <div className="space-y-2">
-            {(["parcels", "waypoints", "alerts", "flights"] as const).map((key) => (
+            {(["parcels", "waypoints", "alerts", "flights", "flightPlans"] as const).map((key) => (
               <label key={key} className="flex items-center justify-between rounded-lg border border-[#eef2ee] p-3">
                 <span className="text-sm font-semibold capitalize text-[#121815]">
-                  {key === "flights" ? "Vuelos (DJI AG)" : key}
+                  {key === "flights"
+                    ? "Vuelos (DJI AG)"
+                    : key === "flightPlans"
+                    ? "Planes de vuelo"
+                    : key}
                 </span>
                 <input
                   checked={layers[key]}

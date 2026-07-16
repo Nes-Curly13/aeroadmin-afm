@@ -1,6 +1,7 @@
 import { AppShell } from "@/components/app-shell";
 import { MapView } from "@/components/map-view";
-import { getAlerts, getFlightPoints, getFlights, getParcelsNormalized, getParcelsSummary } from "@/api/repositories";
+import { getAlerts, getFlightPoints, getFlights, getFumigatedParcelIdsSince, getParcelsNormalized, getParcelsSummary } from "@/api/repositories";
+import { toDateString } from "@/lib/format";
 
 // (Sprint 7) Antes `force-dynamic` — ahora `auto`: el cache de
 // `unstable_cache` con TTL 60s se aplica al listado de parcelas + summary.
@@ -12,12 +13,18 @@ export default async function MapPage() {
   // hasta migrar la lógica de alertas a dji_fumigations.
   // M6: getFlightPoints() agrega circulos en el mapa con la posición
   // (lng, lat) de los 300 sorties mas recientes.
-  const [parcelsResult, summary, flightsResult, alerts, flightPoints] = await Promise.all([
+  // M3-M5 Track A: getFumigatedParcelIdsSince(6m) alimenta el flag
+  // `hasFumigation` por parcela — fumigadas se ven solidas, no fumigadas
+  // dashed con fill atenuado.
+  const sixMonthsAgo = toDateString(new Date(Date.now() - 1000 * 60 * 60 * 24 * 30 * 6)) ?? "1970-01-01";
+
+  const [parcelsResult, summary, flightsResult, alerts, flightPoints, fumigatedIds] = await Promise.all([
     getParcelsNormalized(1, 200),
     getParcelsSummary(),
     getFlights(),
     getAlerts(),
-    getFlightPoints(300)
+    getFlightPoints(300),
+    getFumigatedParcelIdsSince(sixMonthsAgo)
   ]);
 
   // Aggregate por drone
@@ -31,6 +38,7 @@ export default async function MapPage() {
   const withWaypoints = parcelsResult.data.filter((p) => p.waypoint_count && p.waypoint_count > 0).length;
   const totalSprayM2 = parcelsResult.data.reduce((s, p) => s + (p.spray_area_m2 ?? 0), 0);
   const totalSprayHa = totalSprayM2 / 10_000;
+  const fumigatedCount = parcelsResult.data.filter((p) => fumigatedIds.has(p.id)).length;
 
   return (
     <AppShell
@@ -46,7 +54,7 @@ export default async function MapPage() {
       subtitle="Mapa operativo de parcelas DJI con geometría, plan de vuelo y configuración. Toggle de capas, selector de parcela activa y detalle al costado."
       title="Mapa de Parcelas"
     >
-      <div className="mb-4 grid gap-4 md:grid-cols-4">
+      <div className="mb-4 grid gap-4 md:grid-cols-5">
         <div className="rounded-2xl border border-[#d2ddd6] bg-white p-5 shadow-[0px_18px_40px_rgba(15,23,42,0.08)]">
           <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#587064]">Parcelas</p>
           <p className="mt-2 text-3xl font-black text-[#121815]">{parcelsResult.data.length}</p>
@@ -66,6 +74,11 @@ export default async function MapPage() {
           <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#587064]">Drones en flota</p>
           <p className="mt-2 text-3xl font-black text-[#121815]">{droneCounts.size}</p>
           <p className="mt-1 text-xs text-[#4a5b50]">{[...droneCounts.entries()].map(([k, v]) => `${v} ${k.split(" ")[0]}`).join(" · ")}</p>
+        </div>
+        <div className="rounded-2xl border border-[#d2ddd6] bg-white p-5 shadow-[0px_18px_40px_rgba(15,23,42,0.08)]">
+          <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#587064]">Fumigadas (6m)</p>
+          <p className="mt-2 text-3xl font-black text-[#121815]">{fumigatedCount}</p>
+          <p className="mt-1 text-xs text-[#4a5b50]">{parcelsResult.data.length - fumigatedCount} sin fumigación reciente</p>
         </div>
       </div>
 
@@ -108,6 +121,7 @@ export default async function MapPage() {
         alerts={alerts}
         flightPoints={flightPoints}
         flights={flightsResult.data}
+        fumigatedParcelIds={fumigatedIds}
         parcels={parcelsResult.data}
       />
     </AppShell>

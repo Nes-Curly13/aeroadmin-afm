@@ -63,6 +63,7 @@ export function MapClient({
   flights,
   alerts,
   flightPoints,
+  fumigatedParcelIds,
   layers = { parcels: true, waypoints: true, alerts: true, flights: true }
 }: {
   // (S2 / 2026-07-01) Solo DjiParcelRecord. El legacy DjiAssetRecord (3-rows-per-field)
@@ -73,6 +74,9 @@ export function MapClient({
   // M6: footprint minimo por sortie individual. Si viene undefined la capa
   // se considera deshabilitada (no falla).
   flightPoints?: FlightPointRecord[];
+  // M3-M5 Track A: parcel_ids fumigados en los últimos 6m. Si undefined
+  // o parcel no presente en el set, se renderiza como fumigada (compat).
+  fumigatedParcelIds?: Set<number>;
   layers?: { parcels: boolean; waypoints: boolean; alerts: boolean; flights: boolean };
 }) {
   // Construimos un Map id -> DjiParcelRecord para que el `style` callback
@@ -195,7 +199,9 @@ export function MapClient({
                   if (!parcel) {
                     return getParcelPolygonStyle({} as DjiParcelRecord);
                   }
-                  return getParcelPolygonStyle(parcel);
+                  const hasFumigation =
+                    fumigatedParcelIds === undefined ? true : fumigatedParcelIds.has(parcel.id);
+                  return getParcelPolygonStyle(parcel, { hasFumigation });
                 }}
               />
             </LayersControl.Overlay>
