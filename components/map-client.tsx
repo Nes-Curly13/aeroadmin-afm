@@ -7,6 +7,7 @@ import type { Feature, FeatureCollection, GeoJsonProperties } from "geojson";
 import { useEffect } from "react";
 import { CircleMarker, GeoJSON, LayersControl, MapContainer, Popup, TileLayer, useMap } from "react-leaflet";
 
+import { getAlertPolygonStyle, getParcelPolygonStyle } from "@/lib/map-styles";
 import type { DjiAlertRecord, DjiDailySummaryRecord, DjiParcelRecord, FlightPointRecord } from "@/lib/types";
 
 const center: [number, number] = [3.4516, -76.532];
@@ -19,22 +20,6 @@ function ZoomControls() {
       <button className="px-3 py-2 text-slate-700 transition hover:bg-slate-50" onClick={() => map.zoomOut()} type="button">-</button>
     </div>
   );
-}
-
-function parcelStyle(feature?: { properties?: { is_orchard?: boolean } | null }) {
-  const isOrchard = feature?.properties?.is_orchard === true;
-  return {
-    color: isOrchard ? "#7b3f00" : "#0b5f2d",
-    weight: 2,
-    fillColor: isOrchard ? "#f4a460" : "#90EE90",
-    fillOpacity: 0.35
-  };
-}
-
-function alertStyle(level: DjiAlertRecord["level"]) {
-  if (level === "HIGH") return { color: "#ba1a1a", weight: 2, fillColor: "#ff6b6b", fillOpacity: 0.35 };
-  if (level === "MEDIUM") return { color: "#FFD700", weight: 2, fillColor: "#FFD700", fillOpacity: 0.3 };
-  return { color: "#228B22", weight: 2, fillColor: "#90EE90", fillOpacity: 0.25 };
 }
 
 function FitBounds({ parcels }: { parcels: DjiParcelRecord[] }) {
@@ -90,6 +75,12 @@ export function MapClient({
   flightPoints?: FlightPointRecord[];
   layers?: { parcels: boolean; waypoints: boolean; alerts: boolean; flights: boolean };
 }) {
+  // Construimos un Map id -> DjiParcelRecord para que el `style` callback
+  // del GeoJSON pueda resolver la parcela original y delegar a
+  // `getParcelPolygonStyle` (lib/map-styles.ts — single source of truth).
+  const parcelById = new Map<number, DjiParcelRecord>();
+  for (const p of parcels) parcelById.set(p.id, p);
+
   const parcelCollection: FeatureCollection = {
     type: "FeatureCollection",
     features: parcels
@@ -195,7 +186,17 @@ export function MapClient({
                   `;
                   layer.bindPopup(popup);
                 }}
-                style={parcelStyle}
+                style={(feature) => {
+                  // Resolvemos la parcela original a partir del id y delegamos
+                  // a lib/map-styles.ts. Si no se encuentra, fallback defensivo
+                  // a un estilo neutral (primary) sin romper el render.
+                  const id = (feature?.properties as { id?: number } | null)?.id;
+                  const parcel = id !== undefined ? parcelById.get(id) : undefined;
+                  if (!parcel) {
+                    return getParcelPolygonStyle({} as DjiParcelRecord);
+                  }
+                  return getParcelPolygonStyle(parcel);
+                }}
               />
             </LayersControl.Overlay>
           )}
@@ -231,7 +232,10 @@ export function MapClient({
                     `<strong>${feature.properties?.parcel_name}</strong><br/>Nivel: ${feature.properties?.level}<br/>Mensaje: ${feature.properties?.message}`
                   );
                 }}
-                style={(feature) => alertStyle((feature?.properties?.level as DjiAlertRecord["level"]) ?? "LOW")}
+                style={(feature) => {
+                  const level = (feature?.properties as { level?: DjiAlertRecord["level"] } | null)?.level ?? "LOW";
+                  return getAlertPolygonStyle(level);
+                }}
               />
             </LayersControl.Overlay>
           )}
