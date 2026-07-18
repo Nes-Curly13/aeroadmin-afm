@@ -150,6 +150,10 @@ DroneFlightAFM/
 │   ├── ui-tokens.ts              # Colores, spacing, surfaces
 │   ├── fumigation-cadence.ts     # Lógica de cadencia y next_due_date
 │   ├── fumigation-cadence-config # .js + .d.ts, generado desde JSON
+│   ├── map-styles.ts             # Polygon/alert PathOptions puros (M3-M5)
+│   ├── flight-plan.ts            # waypointsToFlightPlan (MultiPoint → LineString)
+│   ├── flight-plan-styles.ts     # Polyline pathOptions dashed cyan (M3-M5)
+│   └── map-parcel-content.ts     # hover/popup/a11y helpers + bindParcelLayerInteractions
 │   ├── dji-flights-aggregate.ts  # Rollup dji_flights → dji_daily_summaries shape
 │   ├── djiag-from-make/          # field-management.ts, task-history.ts,
 │   │                             # index.ts (capa de normalización)
@@ -321,10 +325,33 @@ Server component que renderiza:
 ### 5.2 Mapa (`/map`)
 
 Server component con `MapView` (Leaflet) + panel de detalle.
-- Lista selectora de **parcelas normalizadas** (`land_name` + `field_type` + `declared_area_ha` + `drone_model_name`).
-- `MapLegend` reutilizable.
-- `ParcelDetailPanel` (compact max-w-xs) con: nombre, área, dron, cadencia, próximo vuelo, fumigaciones recientes.
+- Lista selectora de **parcelas normalizadas** (`land_name` + `field_type` + `declared_area_ha` +
+  `drone_model_name`).
+- `MapLegend` reutilizable con 3 grupos semánticos (`role="group"` + `aria-label`):
+  Parcelas / Vuelos / Alertas. Los indicadores visuales (fumigadas, sin fumigar, orchards,
+  alta/media/baja) NO son toggles — son reference visual de color/patrón.
+- 5 capas toggleables (todas `true` excepto `flightPlans` opt-in):
+  - `parcels` — polígonos fumigados (sólido si fumigadas, dashed si no — M3-M5).
+  - `waypoints` — puntos del plan DJI (geometría cruda).
+  - `alerts` — polígonos con severidad (rojo/amarillo/verde).
+  - `flights` — CircleMarker de cada sortie georreferenciado (M6 footprint).
+  - `flightPlans` — polilínea dashed del plan DJI, contraste con fumigación real
+    (intención vs ejecución, M3-M5).
+- `MapClient` consume helpers puros de estilo (sin hex inline):
+  - `lib/map-styles.ts` — `getParcelPolygonStyle(parcel, {hasFumigation, isSelected})` +
+    `getAlertPolygonStyle(level)`. Usa `lib/ui-tokens.ts` siempre.
+  - `lib/flight-plan.ts` — `waypointsToFlightPlan(geom)` heurística nearest-neighbor
+    (MultiPoint → LineString, >500m gap → MultiLineString).
+  - `lib/flight-plan-styles.ts` — `getFlightPlanStyle(isSelected?)` color info dashed.
+  - `lib/map-parcel-content.ts` — `getParcelHoverContent`, `getParcelPopupContent`,
+    `getParcelA11yLabel`, `bindParcelLayerInteractions`, `resolveFeatureStyle`
+    (adaptador GeoJSON → `getParcelPolygonStyle` con override de selección).
+- `ParcelDetailPanel` (compact max-w-xs) con: nombre, área, dron, cadencia, próximo vuelo,
+  fumigaciones recientes.
 - **Sin iframe de DJI** (decisión explícita, ver `docs/SPEC.md` §2.4).
+- Fumigadas vs no fumigadas se calcula server-side en `app/map/page.tsx` vía
+  `getFumigatedParcelIdsSince(sixMonthsAgo)` (`api/repositories.ts`) y se pasa al
+  client como `Set<number>` (serializable, no más de 1207 ids en 6 meses).
 
 ### 5.3 Historial plano (`/history`)
 
