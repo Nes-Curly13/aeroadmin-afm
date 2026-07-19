@@ -234,3 +234,37 @@ export interface FumigationTimelineResult {
 
 /** Constante compartida (también exportada desde lib/format.ts si la querés usar). */
 export const FUMIGATION_GAP_THRESHOLD_DAYS = 60;
+
+/**
+ * Parcela con su schedule de fumigación y métricas de cadencia,
+ * enriquecida con el flag `severity` (overdue | due_soon | ok | no_history)
+ * para ordenamiento en la vista "Faltan por fumigar".
+ *
+ * Similar a `UpcomingFumigation` pero extendido con:
+ *   - `severity` (semántica de overdue/due_soon/ok/no_history)
+ *   - `area_fumigable_m2` y `waypoint_count` (de `dji_parcels`, para UI)
+ *   - `area_fumigable_ha` derivado (m2 / 10000, helper precomputado)
+ *
+ * Lo que devuelve `getOverdueParcels()` en `api/repositories.ts`.
+ */
+export interface OverdueParcel {
+  parcel_id: number;
+  land_name: string | null;
+  external_id: string;
+  field_type: string;
+  is_orchard: boolean;
+  drone_model_name: string | null;
+  crop_type: string;
+  recommended_cadence_days: number;
+  last_fumigation_date: string | null;
+  next_due_date: string | null;
+  /** Negativo = vencida. null = sin historial de fumigación. */
+  days_until_next_due: number | null;
+  severity: "overdue" | "due_soon" | "ok" | "no_history";
+  /** null si la parcela no tiene spray_geometry calculada. */
+  area_fumigable_m2: number | null;
+  /** null si la parcela no tiene waypoints cargados. */
+  waypoint_count: number | null;
+  /** Precomputado: area_fumigable_m2 / 10000. null si m2 es null. */
+  area_fumigable_ha: number | null;
+}

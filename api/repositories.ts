@@ -15,6 +15,7 @@ import {
   fetchAlertsCached,
   fetchDashboardMetricsCached,
   fetchFlightPointsCached,
+  fetchOverdueParcelsCached,
   fetchParcelsNormalizedCached,
   fetchParcelsSummaryCached,
   fetchUpcomingFumigationsCached,
@@ -30,9 +31,11 @@ import type {
   DjiFumigationSchedule,
   DjiParcelRecord,
   FumigationTimelineInput,
+  OverdueParcel,
   UpcomingFumigation,
   FlightPointRecord
 } from "@/lib/types";
+import type { OverdueParcelsArgs } from "@/lib/cache";
 
 // Re-exports para callers que precisen invalidar la cache desde otro lugar
 // (scripts CLI, jobs, etc.).
@@ -713,6 +716,27 @@ export async function setFumigationCadence(parcelId: number, cadenceDays: number
  */
 export async function getUpcomingFumigations(limit = 10): Promise<UpcomingFumigation[]> {
   return fetchUpcomingFumigationsCached(limit);
+}
+
+/**
+ * M3-M5 Q2 — Lista de parcelas "Faltan por fumigar", ordenadas por
+ * prioridad (overdue > due_soon > ok > no_history; dentro de cada
+ * severity, días más negativos primero).
+ *
+ * Args:
+ *   - `maxDaysAhead` (default 14): incluye parcelas cuya cadencia
+ *     vence en los próximos N días. 0 = solo las ya vencidas.
+ *   - `limit` (default 200): cap defensivo.
+ *   - `cropType`: filtra por tipo de cultivo.
+ *   - `isOrchard`: filtra por tipo de parcela.
+ *
+ * Sprint Q2: cacheado (TTL 1min, tags `afm:overdue` + `afm:parcels`).
+ * Se invalida en `invalidateAfterFumigationMutation()` porque al
+ * registrar una fumigación, la cadencia de la parcela afectada se
+ * recalcula.
+ */
+export async function getOverdueParcels(args: OverdueParcelsArgs = {}): Promise<OverdueParcel[]> {
+  return fetchOverdueParcelsCached(args);
 }
 
 /**

@@ -41,11 +41,16 @@ import {
   daysUntilNextDue,
   getFumigationStatus
 } from "@/lib/fumigation-cadence";
+import {
+  computeSeverity,
+  sortOverdueByPriority
+} from "@/lib/overdue-parcels";
 import type {
   DashboardMetrics,
   DjiAlertRecord,
   DjiDailySummaryRecord,
   DjiParcelRecord,
+  OverdueParcel,
   UpcomingFumigation,
   FlightPointRecord
 } from "@/lib/types";
@@ -56,7 +61,10 @@ export const CACHE_TAGS = {
   parcels: "afm:parcels",
   parcelsSummary: "afm:parcels-summary",
   upcoming: "afm:upcoming",
-  flights: "afm:flights"
+  flights: "afm:flights",
+  // M3-M5 Q2: lista de parcelas "Faltan por fumigar" (overdue + due_soon).
+  // Invalida junto con `upcoming` cuando se registra una fumigación.
+  overdue: "afm:overdue"
 } as const;
 
 export const CACHE_TAGS_ALL = Object.values(CACHE_TAGS);
@@ -67,7 +75,10 @@ export const CACHE_TTL = {
   parcels: 60,
   parcelsSummary: 60,
   upcoming: 60,
-  flights: 30
+  flights: 30,
+  // Q2: misma TTL que upcoming porque la cadencia cambia con cada
+  // fumigación registrada. Invalidación por tag al mutar.
+  overdue: 60
 } as const;
 
 // ============================================================
@@ -334,6 +345,130 @@ export const fetchUpcomingFumigationsCached = unstable_cache(
 );
 
 // ============================================================
+// M3-M5 Q2 — Overdue parcels (lista "Faltan por fumigar")
+// ============================================================
+
+/**
+ * Args para `fetchOverdueParcelsCached`.
+ * - `maxDaysAhead` (default 14): incluye parcelas que vencen en los
+ *   próximos N días, además de las ya vencidas. Default 14 = "esta
+ *   semana + la siguiente". El caller (UI) puede ajustar.
+ * - `limit` (default 200): cap defensivo. La lista puede ser larga
+ *   en operadores grandes; el caller pagina si necesita más.
+ * - `cropType` (opcional): filtra por tipo de cultivo (sugar cane,
+ *   etc.). Útil para que el operador vea solo lo que aplica a su
+ *   operación del día.
+ * - `isOrchard` (opcional): filtra por tipo de parcela.
+ */
+export interface FetchOverdueArgs {
+  maxDaysAhead?: number;
+  limit?: number;
+  cropType?: string;
+  isOrchard?: boolean;
+}
+
+async function fetchOverdueParcelsRaw(args: FetchOverdueArgs): Promise<OverdueParcel[]> {
+  const db = getDb();
+  const { maxDaysAhead = 14, limit = 200, cropType, isOrchard } = args;
+  const conditions: string[] = ["s.is_active = true", "p.spray_geometry IS NOT NULL"];
+  const params: unknown[] = [];
+  // Filtro de fecha: next_due_date <= today + maxDaysAhead.
+  // El cálculo de "today" lo hace el caller (computed today) para que
+  // el raw query sea testable con fechas fijas en integration.
+  if (maxDaysAhead > 0) {
+    params.push(maxDaysAhead);
+    conditions.push(`s.next_due_date <= (CURRENT_DATE + $${params.length} * INTERVAL '1 day')`);
+  }
+  if (cropType) {
+    params.push(cropType);
+    conditions.push(`s.crop_type = $${params.length}`);
+  }
+  if (isOrchard !== undefined) {
+    params.push(isOrchard);
+    conditions.push(`p.is_orchard = $${params.length}`);
+  }
+  params.push(limit);
+  const limitParam = `$${params.length}`;
+
+  const result = await db.query<{
+    parcel_id: number;
+    land_name: string | null;
+    external_id: string;
+    field_type: string;
+    is_orchard: boolean;
+    drone_model_name: string | null;
+    crop_type: string;
+    recommended_cadence_days: number;
+    last_fumigation_date: string | null;
+    next_due_date: string | null;
+    days_until_next_due: number | null;
+    area_fumigable_m2: number | null;
+    waypoint_count: number | null;
+  }>(`
+    SELECT
+      p.id              AS parcel_id,
+      p.land_name,
+      p.external_id,
+      p.field_type,
+      p.is_orchard,
+      p.drone_model_name,
+      p.spray_area_m2   AS area_fumigable_m2,
+      p.waypoint_count,
+      s.crop_type,
+      s.recommended_cadence_days,
+      s.last_fumigation_date,
+      s.next_due_date
+    FROM dji_fumigation_schedule s
+    JOIN dji_parcels p ON p.id = s.parcel_id
+    WHERE ${conditions.join(" AND ")}
+    ORDER BY s.next_due_date ASC NULLS LAST
+    LIMIT ${limitParam}
+  `, params);
+
+  const now = new Date();
+  const enriched: OverdueParcel[] = result.rows.map((row) => {
+    const lastDate = toDateString(row.last_fumigation_date);
+    const nextDue = toDateString(row.next_due_date);
+    const days = daysUntilNextDue(lastDate, row.recommended_cadence_days, now);
+    const severity = computeSeverity(days);
+    const areaM2 = row.area_fumigable_m2;
+    return {
+      parcel_id: row.parcel_id,
+      land_name: row.land_name,
+      external_id: row.external_id,
+      field_type: row.field_type,
+      is_orchard: row.is_orchard,
+      drone_model_name: row.drone_model_name,
+      crop_type: row.crop_type,
+      recommended_cadence_days: row.recommended_cadence_days,
+      last_fumigation_date: lastDate,
+      next_due_date: nextDue,
+      days_until_next_due: days,
+      severity,
+      area_fumigable_m2: areaM2,
+      waypoint_count: row.waypoint_count,
+      area_fumigable_ha: areaM2 !== null ? Math.round((areaM2 / 10000) * 100) / 100 : null
+    };
+  });
+
+  // Sort por prioridad de fumigación (overdue > due_soon > ok > no_history,
+  // luego días más negativos primero, luego parcel_id estable).
+  // Q2: filtramos solo overdue y due_soon en el WHERE implícito del
+  // caller (maxDaysAhead). Aquí ordenamos todos los que volvieron.
+  return enriched.sort(sortOverdueByPriority);
+}
+
+export const fetchOverdueParcelsCached = unstable_cache(
+  async (args: FetchOverdueArgs) => fetchOverdueParcelsRaw(args),
+  ["overdue-parcels"],
+  { revalidate: CACHE_TTL.overdue, tags: [CACHE_TAGS.overdue, CACHE_TAGS.parcels] }
+);
+
+// Re-export del args interface para callers que no quieran importar
+// internals de este archivo.
+export type { FetchOverdueArgs as OverdueParcelsArgs };
+
+// ============================================================
 // M6 — flight points (footprint minimo por sortie)
 // ============================================================
 
@@ -410,6 +545,9 @@ export function invalidateAfterFumigationMutation(): void {
   invalidateTagImmediate(CACHE_TAGS.upcoming);
   invalidateTagImmediate(CACHE_TAGS.metrics);
   invalidateTagImmediate(CACHE_TAGS.alerts);
+  // M3-M5 Q2: invalidar también la lista de "Faltan" — al registrar
+  // una fumigación, la cadencia de la parcela afectada se recalcula.
+  invalidateTagImmediate(CACHE_TAGS.overdue);
 }
 
 /**
