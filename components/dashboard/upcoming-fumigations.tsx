@@ -42,10 +42,23 @@ function daysLabel(days: number | null): string {
   return `En ${days} días`;
 }
 
-export function UpcomingFumigations({ items }: { items: UpcomingFumigation[] }) {
+export function UpcomingFumigations({
+  items,
+  totalOverdue
+}: {
+  items: UpcomingFumigation[];
+  /**
+   * Total real de parcelas overdue en el sistema (no solo el top-N de este panel).
+   * Cuando es > items.filter(overdue), mostramos el link "Ver todas (N) →" hacia
+   * `/parcels/overdue`. Si es `undefined`, el link se oculta (back-compat con tests
+   * que sólo pasan `items`).
+   */
+  totalOverdue?: number;
+}) {
   const overdue = items.filter((i) => i.status === "overdue").length;
   const dueSoon = items.filter((i) => i.status === "due_soon").length;
   const ok = items.filter((i) => i.status === "ok").length;
+  const showAllOverdueLink = typeof totalOverdue === "number" && totalOverdue > overdue;
 
   return (
     <section
@@ -57,7 +70,17 @@ export function UpcomingFumigations({ items }: { items: UpcomingFumigation[] }) 
           <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#587064]">Próximas fumigaciones</p>
           <h3 className="mt-1 text-lg font-semibold text-[#121815]">Plan operativo por cadencia</h3>
         </div>
-        <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.18em]">
+        <div className="flex items-center gap-3 text-[10px] font-bold uppercase tracking-[0.18em]">
+          {showAllOverdueLink && (
+            <Link
+              className="rounded-full border border-[#a93232]/40 bg-white px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-[#a93232] transition hover:bg-[#a93232]/10"
+              data-testid="upcoming-ver-todas-overdue"
+              href="/parcels/overdue"
+            >
+              Ver todas ({totalOverdue}) →
+            </Link>
+          )}
+          <div className="flex items-center gap-2">
           {overdue > 0 && (
             <span className="rounded-full bg-[#a93232]/15 px-2.5 py-1 text-[#a93232]">
               {overdue} vencida{overdue === 1 ? "" : "s"}
@@ -69,6 +92,7 @@ export function UpcomingFumigations({ items }: { items: UpcomingFumigation[] }) 
             </span>
           )}
           <span className="rounded-full bg-[#0b5f2d]/10 px-2.5 py-1 text-[#0b5f2d]">{ok} en fecha</span>
+          </div>
         </div>
       </div>
 

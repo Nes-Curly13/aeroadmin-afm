@@ -151,13 +151,16 @@ describe("cache wrappers — el callback subyacente se ejecuta", () => {
 // ─── Invalidation helpers ─────────────────────────────────────────────
 
 describe("invalidate* — disparan revalidateTag con profile { expire: 0 }", () => {
-  it("invalidateAfterFumigationMutation afecta upcoming + metrics + alerts", () => {
+  it("invalidateAfterFumigationMutation afecta upcoming + metrics + alerts + overdue", () => {
     invalidateAfterFumigationMutation();
-    expect(revalidateTagMock).toHaveBeenCalledTimes(3);
+    // M3-M5 Q2: ahora también invalida `afm:overdue` (lista "Faltan por
+    // fumigar") porque la cadencia se recalcula al registrar una fumigación.
+    expect(revalidateTagMock).toHaveBeenCalledTimes(4);
     const tags = revalidateTagMock.mock.calls.map((c) => c[0]);
     expect(tags).toContain(CACHE_TAGS.upcoming);
     expect(tags).toContain(CACHE_TAGS.metrics);
     expect(tags).toContain(CACHE_TAGS.alerts);
+    expect(tags).toContain(CACHE_TAGS.overdue);
     for (const call of revalidateTagMock.mock.calls) {
       expect(call[1]).toEqual({ expire: 0 });
     }

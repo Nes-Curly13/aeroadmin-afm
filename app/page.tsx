@@ -2,7 +2,14 @@ import { AppShell } from "@/components/app-shell";
 import { OperationsPanel } from "@/components/dashboard/operations-panel";
 import { UpcomingFumigations } from "@/components/dashboard/upcoming-fumigations";
 import { MetricCard } from "@/components/ui/metric-card";
-import { getAlerts, getDashboardMetrics, getFlights, getParcelsNormalized, getUpcomingFumigations } from "@/api/repositories";
+import {
+  getAlerts,
+  getDashboardMetrics,
+  getFlights,
+  getOverdueParcels,
+  getParcelsNormalized,
+  getUpcomingFumigations
+} from "@/api/repositories";
 import { countHighAlerts } from "@/lib/alerts";
 import { formatArea, formatNumber } from "@/lib/format";
 import { getDashboardKpiTone } from "@/lib/ui-tokens";
@@ -64,8 +71,17 @@ function DroneIcon() {
   );
 }
 
+function OverdueIcon() {
+  return (
+    <svg fill="none" height="24" viewBox="0 0 24 24" width="24">
+      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M12 7v5l3 2" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.6" />
+    </svg>
+  );
+}
+
 export default async function DashboardPage() {
-  const [metrics, parcelsResult, flightsResult, alerts, upcoming] = await Promise.all([
+  const [metrics, parcelsResult, flightsResult, alerts, upcoming, overdue] = await Promise.all([
     getDashboardMetrics(),
     // (S1.7 / 2026-07-01) Migrado de getParcels() (legacy, lee dji_land_assets shape)
     // a getParcelsNormalized() — tabla dji_parcels, 1 fila por campo, columnas planas.
@@ -73,8 +89,14 @@ export default async function DashboardPage() {
     getParcelsNormalized(1, 200),
     getFlights(),
     getAlerts(),
-    getUpcomingFumigations(8)
+    getUpcomingFumigations(8),
+    // M3-M5 Q2: cuenta de parcelas overdue para KPI "Vencidas".
+    // Cacheada con TTL 60s (tag `afm:overdue`) — se invalida junto con
+    // `upcoming` al registrar una fumigación.
+    getOverdueParcels({ maxDaysAhead: 14 })
   ]);
+
+  const overdueCount = overdue.filter((p) => p.severity === "overdue").length;
 
   return (
     <AppShell
@@ -90,7 +112,7 @@ export default async function DashboardPage() {
       subtitle="Resumen operativo de la fumigación con drones DJI Agras. Trazabilidad por día, alertas y cobertura por dron."
       title="AeroAdmin AFM"
     >
-      <div className="grid gap-5 xl:grid-cols-4">
+      <div className="grid gap-5 xl:grid-cols-5">
         <MetricCard
           accent={<CompassIcon />}
           hint="Misiones registradas en todas las parcelas"
@@ -119,9 +141,16 @@ export default async function DashboardPage() {
           tone={getDashboardKpiTone("highAlertParcels")}
           value={formatNumber(metrics.highAlertParcels)}
         />
+        <MetricCard
+          accent={<OverdueIcon />}
+          hint="Parcelas con cadencia vencida o próxima a vencer"
+          label="Vencidas"
+          tone="danger"
+          value={formatNumber(overdueCount)}
+        />
       </div>
       <div className="mt-5">
-        <UpcomingFumigations items={upcoming} />
+        <UpcomingFumigations items={upcoming} totalOverdue={overdueCount} />
       </div>
       <div className="mt-5">
         <OperationsPanel alerts={alerts} flights={flightsResult.data} metrics={metrics} parcels={parcelsResult.data} />
