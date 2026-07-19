@@ -3,6 +3,13 @@ import { HistoryTable } from "@/components/history/history-table";
 import { getFlights } from "@/api/repositories";
 import { formatArea } from "@/lib/format";
 
+// DEPRECATED: redirige a /task-history via next.config.js. Mantenido
+// solo para no romper URLs externas (bookmarks, links viejos) — el
+// sidebar ya no la expone, solo se llega por URL directa. La vista
+// canónica del historial es /task-history (Figma frame B).
+// Q1 Coder A (audit §4.2, 2026-07-19). Borrar solo cuando se decida
+// deprecar de verdad en un sprint dedicado.
+
 // (Sprint 7) Antes `force-dynamic`. getFlights() devuelve 7050 sorties
 // agregadas a 127 días — sigue siendo dinámico (alto churn), pero el resto
 // del dashboard deja de pegarle a la BD en cada navegación.
