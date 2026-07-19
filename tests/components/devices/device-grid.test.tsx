@@ -81,9 +81,12 @@ describe("DeviceGrid", () => {
     expect(screen.getByText(/no hay dispositivos/i)).toBeInTheDocument();
   });
 
-  it("muestra el placeholder '+ Agregar dispositivo' si showAddPlaceholder es true", () => {
-    render(<DeviceGrid devices={DEVICES} showAddPlaceholder />);
-    expect(screen.getByText(/\+ agregar dispositivo/i)).toBeInTheDocument();
+  it("oculta el placeholder '+ Agregar dispositivo' si showAddPlaceholder es false (uso actual de /devices)", () => {
+    // La page /devices está en modo "Próximamente" (audit §4.3). El card
+    // "+ Agregar dispositivo" ya no se renderiza para evitar ruido UX
+    // (el operador cliqueaba esperando hacer algo y no pasaba nada).
+    render(<DeviceGrid devices={DEVICES} showAddPlaceholder={false} />);
+    expect(screen.queryByText(/\+ agregar dispositivo/i)).not.toBeInTheDocument();
   });
 
   it("no muestra el placeholder si showAddPlaceholder es false (default)", () => {
