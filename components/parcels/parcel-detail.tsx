@@ -287,20 +287,19 @@ export function ParcelDetail({ parcel }: { parcel: DjiParcelRecord }) {
             <div className="rounded-lg border border-dashed border-[#cfd8d3] bg-[#f7f9fb] p-4 text-sm text-[#4a5b50]">
               <p className="font-semibold text-[#121815]">Última fumigación</p>
               <p className="mt-1">
-                <span className="font-bold text-[#a93232]">No disponible.</span> La fumigación
-                por parcela requiere que el operador la registre manualmente en DJI con un
-                identificador de finca, o que el scraper DJI exponga el desglose
-                por parcela (issue #1 de <code className="mx-1 rounded bg-white px-1.5 py-0.5 text-[10px]">SCRAPER_DEFECTS.md</code>).
-                Ver <code className="mx-1 rounded bg-white px-1.5 py-0.5 text-[10px]">dji_fumigations.parcel_id</code> que se llena vía
-                spatial join con dji_flights.
+                <span className="font-bold text-[#a93232]">No disponible.</span>{" "}
+                Aún no se han registrado fumigaciones para esta parcela. Puedes
+                hacerlo desde la app de campo DJI Agras; la próxima
+                sincronización automática actualizará el historial.
               </p>
             </div>
             <div className="rounded-lg border border-dashed border-[#cfd8d3] bg-[#f7f9fb] p-4 text-sm text-[#4a5b50]">
               <p className="font-semibold text-[#121815]">Próxima fumigación recomendada</p>
               <p className="mt-1">
-                <span className="font-bold text-[#a93232]">No disponible.</span> La tabla
-                <code className="mx-1 rounded bg-white px-1.5 py-0.5 text-[10px]">dji_fumigation_schedule</code>
-                está vacía. Necesita input del cliente sobre cadencia por tipo de cultivo.
+                <span className="font-bold text-[#a93232]">No disponible.</span>{" "}
+                Aún no hay una cadencia configurada para esta parcela.
+                Cuando se registren fumigaciones, el sistema sugerirá la
+                próxima fecha según el cultivo.
               </p>
             </div>
           </div>
