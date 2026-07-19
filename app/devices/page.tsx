@@ -38,7 +38,12 @@ export default function DevicesPage() {
           </div>
         </div>
       </div>
-      <DeviceGrid devices={DEFAULT_DEVICES} showAddPlaceholder />
+      {/* showAddPlaceholder=false: la page /devices está en modo "Próximamente"
+          (audit ui-ux-2026-07 §4.3). El banner amarillo ya comunica el estado, así
+          que renderizar el card "+ Agregar dispositivo" solo agregaría ruido UX
+          (el operador cliquea esperando hacer algo y no pasa nada). El card vuelve
+          a aparecer cuando se habilite el CRUD real (S3 del roadmap). */}
+      <DeviceGrid devices={DEFAULT_DEVICES} showAddPlaceholder={false} />
     </AppShell>
   );
 }

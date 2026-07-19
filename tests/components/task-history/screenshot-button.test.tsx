@@ -118,6 +118,87 @@ describe("ScreenshotButton — contrato §4.1", () => {
       expect(btn.getAttribute("aria-busy")).toBe("false");
     });
   });
+
+  describe("Q1 Coder A — targetSelector prop (AppShell actions)", () => {
+    // Cuando el ScreenshotButton vive en el `actions` slot del AppShell
+    // (server component), el ref no puede cruzar la frontera server/client
+    // para apuntar al contenido dentro del TaskHistoryClient. La salida
+    // es un `targetSelector` (CSS selector) que el botón resuelve con
+    // `document.querySelector` al momento del click.
+    it("acepta un targetSelector en lugar de targetRef (uso desde AppShell actions)", () => {
+      const host = document.createElement("div");
+      host.innerHTML = `<section data-testid="task-history-content">contenido</section>`;
+      document.body.appendChild(host);
+      try {
+        render(
+          <ScreenshotButton
+            polygonCount={10}
+            targetSelector="[data-testid='task-history-content']"
+          />
+        );
+        const btn = screen.getByRole("button");
+        expect(btn).toBeInTheDocument();
+        expect(btn).toBeEnabled();
+      } finally {
+        host.remove();
+      }
+    });
+
+    it("al hacer click usa document.querySelector(targetSelector) si está dado", async () => {
+      const host = document.createElement("div");
+      const targetEl = document.createElement("section");
+      targetEl.setAttribute("data-testid", "task-history-content");
+      targetEl.getBoundingClientRect = () =>
+        ({ width: 100, height: 100, top: 0, left: 0, right: 100, bottom: 100, x: 0, y: 0, toJSON: () => ({}) } as DOMRect);
+      host.appendChild(targetEl);
+      document.body.appendChild(host);
+
+      const querySpy = vi.spyOn(document, "querySelector");
+
+      try {
+        const { default: userEvent } = await import("@testing-library/user-event");
+        const user = userEvent.setup();
+        render(
+          <ScreenshotButton
+            polygonCount={10}
+            targetSelector="[data-testid='task-history-content']"
+          />
+        );
+        await user.click(screen.getByRole("button"));
+        expect(querySpy).toHaveBeenCalledWith("[data-testid='task-history-content']");
+      } finally {
+        querySpy.mockRestore();
+        host.remove();
+      }
+    });
+
+    it("prioriza targetSelector sobre targetRef cuando ambos están dados", () => {
+      const refCurrent = document.createElement("div");
+      const host = document.createElement("div");
+      const selEl = document.createElement("section");
+      selEl.setAttribute("data-testid", "task-history-content");
+      host.appendChild(selEl);
+      document.body.appendChild(host);
+
+      const ref = { current: refCurrent } as unknown as React.RefObject<HTMLElement | null>;
+      const querySpy = vi.spyOn(document, "querySelector");
+
+      try {
+        render(
+          <ScreenshotButton
+            polygonCount={10}
+            targetRef={ref}
+            targetSelector="[data-testid='task-history-content']"
+          />
+        );
+        expect(screen.getByTestId("task-history-screenshot-button")).toBeInTheDocument();
+        expect(querySpy).toBeDefined();
+      } finally {
+        querySpy.mockRestore();
+        host.remove();
+      }
+    });
+  });
 });
 
 describe("buildFilename — composición del filename con dateRange", () => {

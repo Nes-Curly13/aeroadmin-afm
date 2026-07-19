@@ -51,6 +51,20 @@ const nextConfig: NextConfig = {
         headers: securityHeaders
       }
     ];
+  },
+  // Q1 (2026-07-19, audit §4.2): el sidebar item "HISTORIAL" apunta a
+  // /task-history (Figma B) pero /history (legacy) seguía accesible
+  // → doble entry point confuso. Redirect permanente para que cualquier
+  // URL externa (bookmarks, links viejos, scrapers) aterrice en la
+  // vista canónica sin perder SEO del histórico.
+  async redirects() {
+    return [
+      {
+        source: "/history",
+        destination: "/task-history",
+        permanent: true
+      }
+    ];
   }
 };
 

@@ -3,6 +3,7 @@ import { OperationsPanel } from "@/components/dashboard/operations-panel";
 import { UpcomingFumigations } from "@/components/dashboard/upcoming-fumigations";
 import { MetricCard } from "@/components/ui/metric-card";
 import { getAlerts, getDashboardMetrics, getFlights, getParcelsNormalized, getUpcomingFumigations } from "@/api/repositories";
+import { countHighAlerts } from "@/lib/alerts";
 import { formatArea, formatNumber } from "@/lib/format";
 import { getDashboardKpiTone } from "@/lib/ui-tokens";
 
@@ -84,7 +85,7 @@ export default async function DashboardPage() {
       }
       activeSection="dashboard"
       eyebrow="Panel de Control"
-      highAlertsCount={metrics.highAlertParcels}
+      highAlertsCount={countHighAlerts(alerts)}
       parcelsCount={parcelsResult.data.length}
       subtitle="Resumen operativo de la fumigación con drones DJI Agras. Trazabilidad por día, alertas y cobertura por dron."
       title="AeroAdmin AFM"
@@ -120,10 +121,10 @@ export default async function DashboardPage() {
         />
       </div>
       <div className="mt-5">
-        <OperationsPanel alerts={alerts} flights={flightsResult.data} metrics={metrics} parcels={parcelsResult.data} />
+        <UpcomingFumigations items={upcoming} />
       </div>
       <div className="mt-5">
-        <UpcomingFumigations items={upcoming} />
+        <OperationsPanel alerts={alerts} flights={flightsResult.data} metrics={metrics} parcels={parcelsResult.data} />
       </div>
     </AppShell>
   );

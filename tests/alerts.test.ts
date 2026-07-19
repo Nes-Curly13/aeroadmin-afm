@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { buildAlert, getAlertLevel } from "@/lib/alerts";
-import type { DjiDailySummaryRecord } from "@/lib/types";
+import { buildAlert, countHighAlerts, getAlertLevel } from "@/lib/alerts";
+import type { DjiAlertRecord, DjiDailySummaryRecord } from "@/lib/types";
 
 describe("alert logic", () => {
   it("maps summary thresholds to the expected alert levels", () => {
@@ -31,5 +31,36 @@ describe("alert logic", () => {
       level: "HIGH",
       age_days: 31
     });
+  });
+});
+
+describe("countHighAlerts", () => {
+  const alert = (level: DjiAlertRecord["level"], id: number): DjiAlertRecord => ({
+    parcel_id: id,
+    parcel_name: `P${id}`,
+    level,
+    age_days: 1,
+    message: "x",
+    geometry: null
+  });
+
+  it("devuelve 0 para lista vacía", () => {
+    expect(countHighAlerts([])).toBe(0);
+  });
+
+  it("cuenta solo alertas con level === 'HIGH'", () => {
+    const alerts = [
+      alert("HIGH", 1),
+      alert("LOW", 2),
+      alert("MEDIUM", 3),
+      alert("HIGH", 4),
+      alert("HIGH", 5)
+    ];
+    expect(countHighAlerts(alerts)).toBe(3);
+  });
+
+  it("ignora LOW y MEDIUM", () => {
+    const alerts = [alert("LOW", 1), alert("MEDIUM", 2), alert("MEDIUM", 3)];
+    expect(countHighAlerts(alerts)).toBe(0);
   });
 });
