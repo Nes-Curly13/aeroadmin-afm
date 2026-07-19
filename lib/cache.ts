@@ -370,7 +370,7 @@ export interface FetchOverdueArgs {
 async function fetchOverdueParcelsRaw(args: FetchOverdueArgs): Promise<OverdueParcel[]> {
   const db = getDb();
   const { maxDaysAhead = 14, limit = 200, cropType, isOrchard } = args;
-  const conditions: string[] = ["s.is_active = true", "p.spray_geometry IS NOT NULL"];
+  const conditions: string[] = ["s.is_active = true", "p.spray_geom IS NOT NULL"];
   const params: unknown[] = [];
   // Filtro de fecha: next_due_date <= today + maxDaysAhead.
   // El cálculo de "today" lo hace el caller (computed today) para que

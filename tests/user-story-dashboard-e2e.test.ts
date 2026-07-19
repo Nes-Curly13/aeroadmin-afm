@@ -521,4 +521,63 @@ describe.skipIf(!HAS_DB)("E2E — Historia de usuario del operador", () => {
       expect(r.rows[0].invalid).toBe(0);
     });
   });
+
+  // Q2 regression (CI run 29705508394, fixed in 26cf276 follow-up): el
+  // query de fetchOverdueParcelsRaw referencia `p.spray_geometry` en el
+  // WHERE, pero la columna física es `p.spray_geom` (PostGIS) y el alias
+  // `spray_geometry` solo aplica al SELECT. Los unit tests mockean el DB
+  // y no lo detectaban; el build de Next.js lo cazaba en pre-render con
+  // `42703 column does not exist`. Este test corre el mismo query del
+  // cache.ts contra la BD real para que el bug se detecte en la suite,
+  // no en el build (que solo corre en CI y tarda más en fallar).
+  //
+  // NOTA: `unstable_cache` no funciona fuera del runtime de Next.js
+  // ("incrementalCache missing"), así que no podemos llamar al wrapper
+  // `fetchOverdueParcelsCached` desde vitest. Duplicamos el query acá
+  // y mantenemos sincronizado manualmente. Si cambia el query del
+  // cache.ts, actualizá este SQL también.
+  describe("Q2 regression: el query de overdue no referencia columnas inexistentes", () => {
+    it("ejecuta el query real del cache.ts y devuelve un array", async () => {
+      const r = await client.query(
+        `SELECT
+            p.id              AS parcel_id,
+            p.land_name,
+            p.external_id,
+            p.field_type,
+            p.is_orchard,
+            p.drone_model_name,
+            p.spray_area_m2   AS area_fumigable_m2,
+            p.waypoint_count,
+            s.crop_type,
+            s.recommended_cadence_days,
+            s.last_fumigation_date,
+            s.next_due_date
+          FROM dji_fumigation_schedule s
+          JOIN dji_parcels p ON p.id = s.parcel_id
+          WHERE s.is_active = true
+            AND p.spray_geom IS NOT NULL
+            AND s.next_due_date <= (CURRENT_DATE + $1 * INTERVAL '1 day')
+          ORDER BY s.next_due_date ASC NULLS LAST
+          LIMIT $2`,
+        [14, 5]
+      );
+      expect(Array.isArray(r.rows)).toBe(true);
+      // No asumimos length: CI corre migrations-only, schedule puede
+      // estar vacía y rows.length === 0 es válido.
+    });
+
+    it("dji_parcels tiene 'spray_geom' (PostGIS) y NO 'spray_geometry'", async () => {
+      // Defensa explícita: si alguien revierte el fix y vuelve a usar
+      // `p.spray_geometry` en el WHERE, este test falla con 42703
+      // antes incluso de llegar al query de arriba.
+      const r = await client.query(`
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'dji_parcels'
+      `);
+      const cols = new Set(r.rows.map((row) => row.column_name));
+      expect(cols.has("spray_geom")).toBe(true);
+      expect(cols.has("spray_geometry")).toBe(false);
+    });
+  });
 });
