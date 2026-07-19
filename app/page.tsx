@@ -120,10 +120,10 @@ export default async function DashboardPage() {
         />
       </div>
       <div className="mt-5">
-        <OperationsPanel alerts={alerts} flights={flightsResult.data} metrics={metrics} parcels={parcelsResult.data} />
+        <UpcomingFumigations items={upcoming} />
       </div>
       <div className="mt-5">
-        <UpcomingFumigations items={upcoming} />
+        <OperationsPanel alerts={alerts} flights={flightsResult.data} metrics={metrics} parcels={parcelsResult.data} />
       </div>
     </AppShell>
   );
