@@ -20,7 +20,10 @@ import {
 } from "@/lib/djiag-from-make/task-history";
 import { getPolygonsInRange } from "@/lib/djiag-spatial-aggregator";
 
+import { AppShell } from "@/components/app-shell";
+
 import { TaskHistoryClient } from "./TaskHistoryClient";
+import { TaskHistoryToolbar } from "./TaskHistoryToolbar";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -302,13 +305,21 @@ export default async function TaskHistoryPage({ searchParams }: PageProps) {
   });
 
   return (
-    <TaskHistoryClient
-      days={days}
-      from={from}
-      polygons={polygons}
-      selectedParcelId={parcelId ?? null}
-      to={to}
-      totals={totals}
-    />
+    <AppShell
+      actions={
+        <TaskHistoryToolbar from={from} polygonCount={polygons.length} to={to} />
+      }
+      activeSection="task-history"
+      eyebrow="Trazabilidad DJI"
+      subtitle="Rollup diario de fumigaciones con KPIs, mapa de parcelas fumigadas y filtros por dron, parcela o piloto."
+      title="Historial de tareas"
+    >
+      <TaskHistoryClient
+        days={days}
+        polygons={polygons}
+        selectedParcelId={parcelId ?? null}
+        totals={totals}
+      />
+    </AppShell>
   );
 }

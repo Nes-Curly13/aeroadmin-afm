@@ -45,7 +45,16 @@ import { useCallback, useState, type RefObject } from "react";
 
 export interface ScreenshotButtonProps {
   /** Ref al elemento a capturar. */
-  targetRef: RefObject<HTMLElement | null>;
+  targetRef?: RefObject<HTMLElement | null>;
+  /**
+   * Alternativa a `targetRef`: selector CSS que se resuelve con
+   * `document.querySelector` al momento del click. Útil cuando el
+   * botón vive en un slot de un Server Component (ej. AppShell
+   * `actions`) y no puede recibir refs que cruzan la frontera
+   * server/client. Si se pasan ambos, `targetSelector` tiene
+   * precedencia.
+   */
+  targetSelector?: string;
   /** Prefijo del filename (default: "task-history"). */
   filenamePrefix?: string;
   /** Opcional: omitir el mapa del screenshot (tiles tienen CORS issues). */
@@ -102,6 +111,7 @@ export function buildFilename(
 
 export function ScreenshotButton({
   targetRef,
+  targetSelector,
   filenamePrefix = DEFAULT_FILENAME_PREFIX,
   omitMap = true,
   ariaLabel = DEFAULT_ARIA_LABEL,
@@ -118,9 +128,15 @@ export function ScreenshotButton({
   const isDisabled = busy || polygonCount === 0;
 
   const onClick = useCallback(async () => {
-    const target = targetRef.current;
+    // Resolución del target: targetSelector (CSS) tiene precedencia sobre
+    // targetRef (objeto ref). Esto permite que el botón viva en un slot
+    // de Server Component (AppShell actions) y apunte a un elemento
+    // dentro de un Client Component hermano (TaskHistoryClient).
+    const target = targetSelector
+      ? document.querySelector(targetSelector)
+      : targetRef?.current ?? null;
     if (!target) {
-      setError("No target ref");
+      setError(targetSelector ? `No element matches ${targetSelector}` : "No target ref");
       return;
     }
     setBusy(true);
@@ -205,7 +221,7 @@ export function ScreenshotButton({
       setError(e instanceof Error ? e.message : "Screenshot failed.");
       setBusy(false);
     }
-  }, [targetRef, filenamePrefix, omitMap, excludeSelector, dateRange]);
+  }, [targetRef, targetSelector, filenamePrefix, omitMap, excludeSelector, dateRange]);
 
   return (
     <button
