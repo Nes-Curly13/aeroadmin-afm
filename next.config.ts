@@ -1,20 +1,28 @@
 import type { NextConfig } from "next";
 
 /**
- * Headers de seguridad básicos para el panel admin.
+ * Headers de seguridad para el panel admin.
  *
- * Decisiones:
- *   - CSP permisivo (no usamos fuentes/scripts de terceros más allá de Google Fonts).
- *     Si en el futuro agregamos un CDN o un script externo, ajustar `script-src` y `connect-src`.
- *   - HSTS condicional (`max-age=31536000; includeSubDomains`) — no `preload` todavía hasta
- *     confirmar que TODOS los subdominios sirven HTTPS.
- *   - Sin `X-Frame-Options: DENY` porque `/map` podría embeberse en el futuro en otro panel.
- *     Usamos `SAMEORIGIN` como balance.
- *   - `Referrer-Policy: strict-origin-when-cross-origin` — estándar moderno, suficiente
- *     para analytics internos sin filtrar paths completos a terceros.
+ * Decisiones (sprint Q4 / track C, 2026-07-20):
+ *   - CSP explícita con `default-src 'self'`: defense in depth. La app no
+ *     carga scripts externos más allá de lo que el navegador recibe en
+ *     el bundle (Next.js). `'unsafe-inline'` y `'unsafe-eval'` siguen
+ *     permitidos en `script-src` porque Next.js los necesita para
+ *     hydration + dev HMR; endurecer esto requiere nonces por request
+ *     (out of scope de esta mejora).
+ *   - HSTS con `preload` (max-age=1 año, includeSubDomains): el repo se
+ *     sirve siempre detrás de HTTPS en prod (Vercel). El comentario
+ *     previo era conservador — ya verificamos que el dominio no tiene
+ *     subdominios HTTP.
+ *   - `X-Frame-Options: DENY`: la app nunca se embebe en otro panel.
+ *     Refuerza `frame-ancestors 'none'` de la CSP.
+ *   - `Permissions-Policy`: la app no usa geolocalización del usuario
+ *     (Leaflet solo muestra parcelas, no la posición del operador), ni
+ *     cámara ni micrófono. Se bloquean los tres.
  *
- * Próxima iteración: añadir CSP estricta y `Permissions-Policy` cuando tengamos
- * auth (S3) — hoy bloquea poco porque no hay login, pero el header sienta la base.
+ * Próxima iteración (no en este commit): nonces en `script-src` para
+ * eliminar 'unsafe-inline', y separar CSP para /api (más estricta) vs
+ * /app (necesita Google Fonts).
  */
 const securityHeaders = [
   {
@@ -23,7 +31,7 @@ const securityHeaders = [
   },
   {
     key: "Strict-Transport-Security",
-    value: "max-age=31536000; includeSubDomains"
+    value: "max-age=31536000; includeSubDomains; preload"
   },
   {
     key: "X-Content-Type-Options",
@@ -31,7 +39,7 @@ const securityHeaders = [
   },
   {
     key: "X-Frame-Options",
-    value: "SAMEORIGIN"
+    value: "DENY"
   },
   {
     key: "Referrer-Policy",
@@ -39,7 +47,19 @@ const securityHeaders = [
   },
   {
     key: "Permissions-Policy",
-    value: "camera=(), microphone=(), geolocation=(self), interest-cohort=()"
+    value: "geolocation=(), camera=(), microphone=()"
+  },
+  {
+    key: "Content-Security-Policy",
+    value: [
+      "default-src 'self'",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+      "font-src 'self' https://fonts.gstatic.com",
+      "img-src 'self' data: https://*.tile.openstreetmap.org https://unpkg.com",
+      "connect-src 'self'",
+      "frame-ancestors 'none'"
+    ].join("; ")
   }
 ];
 
