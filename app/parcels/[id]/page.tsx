@@ -76,7 +76,7 @@ export default async function ParcelPage({
           </Link>
         </div>
       }
-      activeSection="map"
+      activeSection="parcels"
       eyebrow={`Parcela #${id}`}
       parcelsCount={allParcels.data.length}
       subtitle={

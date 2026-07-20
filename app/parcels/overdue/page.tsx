@@ -96,7 +96,7 @@ export default async function OverduePage({ searchParams }: PageProps) {
           Ventana: {maxDaysAhead} días
         </div>
       }
-      activeSection="map"
+      activeSection="faltan"
       eyebrow="Planificación"
       parcelsCount={allParcels.length}
       subtitle="Parcelas que necesitan fumigación según cadencia. Ordenadas por urgencia: vencidas primero, luego las que vencen esta semana. Click en una fila para abrir el detalle."

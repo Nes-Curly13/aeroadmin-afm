@@ -114,7 +114,7 @@ export default async function ParcelTimelinePage({
 
   return (
     <AppShell
-      activeSection="map"
+      activeSection="parcels"
       eyebrow={`Parcela #${id}`}
       subtitle={
         parcel.land_name

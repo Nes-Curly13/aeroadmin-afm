@@ -4,12 +4,26 @@ import { render, screen } from "@testing-library/react";
 import { AppShell } from "@/components/app-shell";
 
 describe("AppShell", () => {
-  it("renderiza las 4 secciones del nav con sus hrefs", () => {
+  it("renderiza las 6 secciones del nav con sus hrefs", () => {
     render(<AppShell activeSection="dashboard" eyebrow="x" title="t" />);
     expect(screen.getByRole("link", { name: /panel/i })).toHaveAttribute("href", "/");
     expect(screen.getByRole("link", { name: /mapa/i })).toHaveAttribute("href", "/map");
     expect(screen.getByRole("link", { name: /historial/i })).toHaveAttribute("href", "/task-history");
+    expect(screen.getByRole("link", { name: /^parcelas$/i })).toHaveAttribute("href", "/parcels");
+    expect(screen.getByRole("link", { name: /faltan por fumigar/i })).toHaveAttribute("href", "/parcels/overdue");
     expect(screen.getByRole("link", { name: /dispositivos/i })).toHaveAttribute("href", "/devices");
+  });
+
+  it("acepta activeSection='parcels' y marca ese link como activo", () => {
+    render(<AppShell activeSection="parcels" eyebrow="x" title="t" />);
+    const parcelsLink = screen.getByRole("link", { name: /^parcelas$/i });
+    expect(parcelsLink.className).toContain("bg-[#2c7f44]");
+  });
+
+  it("acepta activeSection='faltan' y marca ese link como activo", () => {
+    render(<AppShell activeSection="faltan" eyebrow="x" title="t" />);
+    const faltanLink = screen.getByRole("link", { name: /faltan por fumigar/i });
+    expect(faltanLink.className).toContain("bg-[#2c7f44]");
   });
 
   it("marca como activo el link correspondiente a activeSection", () => {
