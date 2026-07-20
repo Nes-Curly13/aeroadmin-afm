@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 
 import { KeyboardShortcuts } from "@/components/keyboard-shortcuts";
@@ -10,6 +10,16 @@ const bodyFont = Inter({
   variable: "--font-body",
   weight: ["400", "500", "600", "700", "800", "900"]
 });
+
+// Track B v1.2 — MEJORA 2: viewport meta tag. Next.js 16 NO lo incluye por
+// default y sin esto el panel se ve minúsculo en mobile (el operador de
+// campo en Valle del Cauca necesita que el drawer hamburguesa funcione).
+// `viewport-fit=cover` permite usar safe-area-inset en futuras mejoras.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover"
+};
 
 export const metadata: Metadata = {
   title: "AeroAdmin AFM",

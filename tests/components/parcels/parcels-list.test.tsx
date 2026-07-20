@@ -17,6 +17,21 @@ import { render, screen, within } from "@testing-library/react";
 // referenciar el mock state antes de que se ejecute el factory.
 const mockGetParcelsNormalized = vi.hoisted(() => vi.fn());
 
+// Track B v1.2: app-shell renderiza <MobileSidebarDrawer> que usa useRouter.
+// Mockeamos next/navigation porque estos tests renderizan la ParcelsPage
+// (que envuelve AppShell) en jsdom sin App Router montado.
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    refresh: vi.fn(),
+    back: vi.fn(),
+    forward: vi.fn()
+  }),
+  usePathname: () => "/",
+  useSearchParams: () => new URLSearchParams()
+}));
+
 import type { DjiParcelRecord } from "@/lib/types";
 
 function makeParcel(over: Partial<DjiParcelRecord> = {}): DjiParcelRecord {

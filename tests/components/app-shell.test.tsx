@@ -1,7 +1,31 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 
+// Track B v1.2: app-shell ahora renderiza <MobileSidebarDrawer> (client
+// component) que usa useRouter. Mockeamos next/navigation para que el
+// server component renderice sin reventar en jsdom ("invariant expected
+// app router to be mounted").
+const mockState = vi.hoisted(() => ({
+  pushMock: vi.fn()
+}));
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: mockState.pushMock,
+    replace: vi.fn(),
+    refresh: vi.fn(),
+    back: vi.fn(),
+    forward: vi.fn()
+  }),
+  usePathname: () => "/",
+  useSearchParams: () => new URLSearchParams()
+}));
+
 import { AppShell } from "@/components/app-shell";
+
+beforeEach(() => {
+  mockState.pushMock.mockClear();
+});
 
 describe("AppShell", () => {
   it("renderiza las 6 secciones del nav con sus hrefs", () => {
