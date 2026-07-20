@@ -24,6 +24,21 @@ const mockGetAlerts = vi.hoisted(() => vi.fn());
 const mockGetUpcomingFumigations = vi.hoisted(() => vi.fn());
 const mockGetOverdueParcels = vi.hoisted(() => vi.fn());
 
+// Track B v1.2: app-shell renderiza <MobileSidebarDrawer> que usa useRouter.
+// Mockeamos next/navigation porque estos tests renderizan la DashboardPage
+// (que envuelve AppShell) en jsdom sin App Router montado.
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    refresh: vi.fn(),
+    back: vi.fn(),
+    forward: vi.fn()
+  }),
+  usePathname: () => "/",
+  useSearchParams: () => new URLSearchParams()
+}));
+
 const stubMetrics = {
   totalFlights: 100,
   totalAreaCovered: 12.5,
