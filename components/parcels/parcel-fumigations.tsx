@@ -50,11 +50,19 @@ export function ParcelFumigations({
     setSubmitting(true);
     setError(null);
     try {
+      const areaRaw = formData.get("area_fumigated_m2");
+      // string vacío → null (NO 0). El supervisor puede dejar el campo
+      // sin tocar si quiere registrar la fumigación sin área medida.
+      const areaFumigatedM2 =
+        typeof areaRaw === "string" && areaRaw.trim() !== ""
+          ? Number(areaRaw)
+          : null;
       const body = {
         parcel_id: parcel.id,
         fumigation_date: formData.get("fumigation_date"),
         product_used: formData.get("product_used") || null,
         dose_l_per_ha: formData.get("dose_l_per_ha") ? Number(formData.get("dose_l_per_ha")) : null,
+        area_fumigated_m2: areaFumigatedM2,
         duration_minutes: formData.get("duration_minutes") ? Number(formData.get("duration_minutes")) : null,
         notes: formData.get("notes") || null,
         recorded_by: formData.get("recorded_by") || null
@@ -187,6 +195,27 @@ export function ParcelFumigations({
                 step="0.1"
                 type="number"
               />
+            </label>
+            <label className="block">
+              <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#587064]">Área fumigada (m²)</span>
+              <input
+                className="mt-1 w-full rounded border border-[#cfd8d3] px-2 py-1.5"
+                min="0"
+                name="area_fumigated_m2"
+                // Track B v1.1: pre-llenado con `parcel.spray_area_m2` cuando
+                // existe (el sistema ya sabe el área fumigable). El supervisor
+                // puede ajustar si la fumigación real fue menor (obstáculos,
+                // franjas de seguridad, etc.). No pre-llenamos cuando es null/0
+                // para no inducir errores — un valor 0 no es un default razonable.
+                {...(parcel.spray_area_m2 !== null && parcel.spray_area_m2 > 0
+                  ? { defaultValue: String(parcel.spray_area_m2) }
+                  : {})}
+                step="0.01"
+                type="number"
+              />
+              <span className="mt-1 block text-[10px] text-[#587064]">
+                Editable si la fumigación real fue menor al área fumigable.
+              </span>
             </label>
             <label className="block">
               <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#587064]">Duración (min)</span>
