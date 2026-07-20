@@ -136,7 +136,7 @@ export default async function DashboardPage() {
         />
         <MetricCard
           accent={<AlertIcon />}
-          hint="Días con volumen o frecuencia de riesgo"
+          hint="Umbral: 4 ha o 8h en un día. Día con volumen o frecuencia de riesgo."
           label="Alertas Altas"
           tone={getDashboardKpiTone("highAlertParcels")}
           value={formatNumber(metrics.highAlertParcels)}
