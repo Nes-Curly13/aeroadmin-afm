@@ -914,3 +914,97 @@ equireAuth() (a diferencia de /api/task-history
   copy).
 
 
+### 2026-07-19 — Q3 sprint parcial (4 items UI/UX audit cerrados)
+- **Sesión**: `mvs_4aa351e2363341b08ef0c6428712cd9b` (root)
+- **Objetivo**: cerrar 4 items del audit ui-ux-2026-07 que estaban
+  abiertos post-Q2 (#8 empty states, #9 búsqueda parcelas, #10
+  export CSV, #12 filtro Agriculture). Sin #11 notes (requiere
+  schema change — necesita tu OK) ni #13 dark mode (L effort,
+  audit lo marca Backlog) ni M2 notificaciones (bloqueado por
+  product input).
+- **Acciones**:
+  1. `5582ac1` feat(q3): componente <EmptyState> reutilizable + copy sin developer-facing (#8)
+     - `components/ui/empty-state.tsx` (nuevo): shape consistente
+       (eyebrow + title + description + CTA opcional + testId +
+       size sm/default). Tokens del AFM. 0 deps.
+     - 6 tests del componente (render, eyebrow, CTA link/button,
+       icon, size, testId).
+     - 5 empty states migrados: UpcomingFumigations, MapView,
+       HistoryTable, AlertsPanel, ParcelFumigations. Copy
+       user-facing siempre (sin comandos, sin paths).
+     - 1 commit también incluye el map-view.tsx (cambio de
+       `<select>` a `<ParcelSearch>` y el empty state nuevo) +
+       el `showCategoryFilter` de #12 + los 2 tests nuevos de
+       history-table.
+  2. `ec5565e` feat(q3): búsqueda de parcelas en /map con atajo '/' (#9)
+     - `components/map/parcel-search.tsx` (nuevo, client island).
+       Wrappea `ParcelSelector` y filtra por `land_name` con
+       `includes` case-insensitive. Atajo `/` estilo GitHub
+       (no se dispara si el foco está en otro input/textarea).
+     - 13 tests (render, filter, case-insensitive, atajo OK,
+       atajo no-dispara en otros inputs, cleanup al desmontar,
+       delegar empty state).
+     - `components/map-view.tsx`: reemplaza `<select>` inline por
+       `<ParcelSearch>` (incluido en commit #8 — están en el
+       mismo file).
+  3. `fe1360d` feat(q3): export CSV de fumigaciones desde /parcels/[id] (#10)
+     - `lib/csv.ts` (nuevo, puro, sin deps): `toCsv()` + `slugFilename()`.
+       - Separador ';' (locale es-CO + decimales ',')
+       - BOM U+FEFF (Excel UTF-8)
+       - Quoting RFC 4180 (';' | '"' | '\n' → wrap, '"' → '""')
+       - Slug: NFD + strip combining + lowercase + alnum
+     - `components/parcels/export-fumigations-csv-button.tsx`
+       (nuevo, client island): genera CSV con fumigaciones +
+       download via Blob + URL.createObjectURL. Columnas: Fecha,
+       Dron, Piloto, Área (ha), Duración (min), Volumen (L),
+       Producto, Notas. Notas-blob de provenance omitidas.
+     - 17 tests del CSV lib + 7 tests del botón.
+     - `components/parcels/parcel-fumigations.tsx`: botón
+       integrado en header del historial (incluido en commit #8).
+  4. #12 — filtro Categoría oculto cuando hay 1 sola categoría
+     (en `components/history/history-table.tsx`): `showCategoryFilter
+     = categories.length > 2`. Si el operador tiene 1 sola
+     categoría (típico: solo "Agriculture"), el dropdown es un
+     no-op y confunde — se oculta. Si en el futuro hay 2+,
+     vuelve a aparecer. Incluido en commit #8.
+- **Archivos tocados**:
+  - Nuevos: `components/ui/empty-state.tsx`,
+    `components/map/parcel-search.tsx`,
+    `components/parcels/export-fumigations-csv-button.tsx`,
+    `lib/csv.ts`, + 4 archivos de tests.
+  - Modificados: 5 components (map-view, alerts-panel,
+    upcoming-fumigations, history-table, parcel-fumigations) +
+    3 archivos de tests viejos (copy actualizado).
+- **Estado**: ✅ 4 items cerrados (#8, #9, #10, #12). Q3
+  completo al alcance del sprint. Pendiente: #11 notes (schema
+  change), #13 dark mode (L/backlog), M2 notificaciones.
+- **Tests**: `npx tsc --noEmit` limpio. 853/853 verde (de 806
+  antes de Q3 = +47 tests: 6 EmptyState + 13 ParcelSearch +
+  17 csv + 7 csv-button + 2 history-table + 2 que ajusté por
+  copy).
+- **Notas / bloqueos**:
+  - Ambos agentes (Track A y B) murieron por token limit (2056)
+    pero dejaron código completo y tests en su worktree. Hice
+    recovery manual copiando al master + cherry-picking de los
+    cambios de map-view.tsx y parcel-fumigations.tsx. Cero
+    trabajo perdido, pero confirma que para sprints > 30min
+    con agentes paralelos, los worktrees son obligatorios
+    (ya estaban) y un humano debe integrar.
+  - **Lección**: el "split por commit" planeado (1 commit por
+    item) terminó mezclando 3 items en el commit de empty state
+    porque comparten el mismo file (map-view.tsx, history-table
+    y parcel-fumigations). El código queda correcto pero los
+    mensajes de commit mienten un poco. Para próximos sprints,
+    mejor 1 commit por **file touched**, no por item.
+- **Próximo paso**: push + CI verde. Decisiones pendientes:
+  - **#11 (notes en fumigaciones)**: ¿OK con schema change
+    `ALTER TABLE dji_fumigations ADD COLUMN notes TEXT`?
+    Si sí, 1 sprint corto más.
+  - **#13 (dark mode)**: esfuerzo L, audit lo marca Backlog.
+    Lo dejo para cuando haya demanda explícita del operador
+    o dueño.
+  - **M2 notificaciones**: bloqueado. Necesito del operador:
+    canal (email / in-app / ambos), umbral de alerta (área
+    total / frecuencia / ambas), copy del mensaje.
+
+
