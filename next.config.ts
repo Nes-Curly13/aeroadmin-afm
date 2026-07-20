@@ -56,7 +56,7 @@ const securityHeaders = [
       "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "font-src 'self' https://fonts.gstatic.com",
-      "img-src 'self' data: https://*.tile.openstreetmap.org https://unpkg.com",
+      "img-src 'self' data: https://*.tile.openstreetmap.org https://server.arcgisonline.com https://unpkg.com",
       "connect-src 'self'",
       "frame-ancestors 'none'"
     ].join("; ")

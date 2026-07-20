@@ -4,7 +4,7 @@ import "leaflet/dist/leaflet.css";
 
 import L from "leaflet";
 import type { Feature, FeatureCollection, GeoJsonProperties } from "geojson";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CircleMarker, GeoJSON, LayersControl, MapContainer, Polyline, Popup, TileLayer, useMap } from "react-leaflet";
 
 import { waypointsToFlightPlan } from "@/lib/flight-plan";
@@ -14,6 +14,100 @@ import { getAlertPolygonStyle, getParcelPolygonStyle } from "@/lib/map-styles";
 import type { DjiAlertRecord, DjiDailySummaryRecord, DjiParcelRecord, FlightPointRecord } from "@/lib/types";
 
 const center: [number, number] = [3.4516, -76.532];
+
+/**
+ * v1.2 / Track C — toggle de basemap (satellite | streets).
+ *
+ * Decisiones de producto:
+ *   - Default = "satellite": en zona cañera del Valle del Cauca el
+ *     supervisor identifica mejor linderos, cultivos y referencias
+ *     físicas con vista aérea.
+ *   - Persistencia client-side en localStorage (sin round-trip al
+ *     server). La app sigue funcionando aunque localStorage falle
+ *     (modo privado, sandbox, etc.) — fallback al default.
+ *   - Solo se renderiza UN TileLayer activo: si se montaran los dos
+ *     se duplicarían los fetch a {z}/{x}/{y} sin beneficio.
+ *
+ * Atribuciones:
+ *   - Esri World Imagery: el wording oficial de Esri exige mantener
+ *     la lista de data providers intacta (Esri, i-cubed, USDA, USGS,
+ *     etc.) — es parte de los términos de uso del servicio.
+ *   - OSM: contributors + link a la página de copyright.
+ */
+type Basemap = "satellite" | "streets";
+
+const BASEMAP_STORAGE_KEY = "afm:map:basemap";
+const DEFAULT_BASEMAP: Basemap = "satellite";
+
+const BASEMAPS: Record<Basemap, { label: string; url: string; attribution: string }> = {
+  satellite: {
+    label: "Satélite",
+    url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    attribution:
+      "Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community"
+  },
+  streets: {
+    label: "Calles",
+    url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+    attribution:
+      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+  }
+} as const;
+
+function readBasemapFromStorage(): Basemap {
+  if (typeof window === "undefined") return DEFAULT_BASEMAP;
+  try {
+    const value = window.localStorage.getItem(BASEMAP_STORAGE_KEY);
+    if (value === "satellite" || value === "streets") return value;
+  } catch {
+    // localStorage puede tirar SecurityError en modo privado o si está deshabilitado.
+  }
+  return DEFAULT_BASEMAP;
+}
+
+function writeBasemapToStorage(value: Basemap): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(BASEMAP_STORAGE_KEY, value);
+  } catch {
+    // Mismo motivo que arriba: la app sigue funcionando aunque no persista.
+  }
+}
+
+function toggleBasemap(current: Basemap): Basemap {
+  return current === "satellite" ? "streets" : "satellite";
+}
+
+/**
+ * Badge clickeable que muestra el basemap activo y permite alternar.
+ * Verde olivo coherente con el resto del AFM (paleta de lib/ui-tokens.ts).
+ * Posición: top-left del wrapper, fuera del MapContainer, para no chocar
+ * con el LayersControl (top-right) ni con los zoom controls (que Leaflet
+ * renderiza a su top-left interno).
+ */
+function BasemapBadge({ basemap, onToggle }: { basemap: Basemap; onToggle: () => void }) {
+  const next = toggleBasemap(basemap);
+  // aria-label anuncia el estado ACTUAL primero, después el hint de acción.
+  // Decisión UX: un screen reader debe enterarse de qué basemap está
+  // viendo, no solo de qué click haría. El texto visible ("Satélite" /
+  // "Calles") ya coincide con el prefijo del aria-label.
+  return (
+    <button
+      aria-label={`${BASEMAPS[basemap].label} — click para cambiar a ${BASEMAPS[next].label.toLowerCase()}`}
+      className="pointer-events-auto absolute top-3 left-3 z-[1000] flex items-center gap-2 rounded-full border border-[#0b5f2d]/30 bg-white px-3 py-1.5 text-[12px] font-bold uppercase tracking-[0.12em] text-[#0b5f2d] shadow-lg transition hover:bg-[#f4f7f4] focus:outline-none focus:ring-2 focus:ring-[#0b5f2d]"
+      onClick={onToggle}
+      type="button"
+    >
+      <span
+        aria-hidden="true"
+        className={`h-2 w-2 rounded-full ${
+          basemap === "satellite" ? "bg-[#0b5f2d]" : "bg-[#c7a43a]"
+        }`}
+      />
+      {BASEMAPS[basemap].label}
+    </button>
+  );
+}
 
 function ZoomControls() {
   const map = useMap();
@@ -122,6 +216,19 @@ export function MapClient({
   // hijo de él). Usar ref de MapContainer es el patrón estándar.
   const mapRef = useRef<L.Map | null>(null);
 
+  // v1.2 / Track C — basemap activo (satellite | streets). Persistencia
+  // client-side: leer en mount, escribir en cada cambio. Si localStorage
+  // no está disponible, ambos helpers caen al default silenciosamente.
+  const [basemap, setBasemap] = useState<Basemap>(DEFAULT_BASEMAP);
+
+  useEffect(() => {
+    setBasemap(readBasemapFromStorage());
+  }, []);
+
+  useEffect(() => {
+    writeBasemapToStorage(basemap);
+  }, [basemap]);
+
   const parcelCollection: FeatureCollection = {
     type: "FeatureCollection",
     features: parcels
@@ -214,10 +321,14 @@ export function MapClient({
         scrollWheelZoom
         zoom={14}
       >
-        <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        />
+        {(() => {
+          // v1.2 / Track C: solo se monta UN TileLayer activo (no se
+          // duplican los fetch a {z}/{x}/{y}). La config vive en
+          // BASEMAPS para que un cambio de URL/attribution sea un
+          // edit único, no dos.
+          const config = BASEMAPS[basemap];
+          return <TileLayer attribution={config.attribution} url={config.url} />;
+        })()}
         <LayersControl position="topright">
           {layers.parcels && (
             <LayersControl.Overlay checked name="Parcelas">
@@ -390,6 +501,7 @@ export function MapClient({
         <ZoomControls />
         <FitBounds parcels={parcels} />
       </MapContainer>
+      <BasemapBadge basemap={basemap} onToggle={() => setBasemap(toggleBasemap)} />
     </div>
   );
 }
