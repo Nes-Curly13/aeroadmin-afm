@@ -22,6 +22,7 @@
     "fetch:djiag:fumigations": "node scripts/fetch-fumigations-from-djiag.js",
     "upsert:djiag:fumigations": "node scripts/upsert-fumigations-from-djiag.js",
     "db:import:fumigations": "node scripts/import-fumigations-pipeline.js",
+    "refresh:fumigations": "node scripts/refresh-fumigations.js",
     "capture:djiag:fumigations": "node scripts/capture-fumigations-fixture.js",
     "print:djiag:aggr-by-day": "node scripts/print-aggr-by-day.js",
     "print:djiag:flight-records": "node scripts/print-flight-records.js",
