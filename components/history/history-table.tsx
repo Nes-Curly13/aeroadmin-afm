@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 
+import { EmptyState } from "@/components/ui/empty-state";
 import { formatArea, formatDate } from "@/lib/format";
 import type { DjiDailySummaryRecord } from "@/lib/types";
 
@@ -74,6 +75,12 @@ export function HistoryTable({ flights, pageSize = PAGE_SIZE_DEFAULT }: HistoryT
     return ["ALL", ...[...set].sort()];
   }, [flights]);
 
+  // (Q3 / audit 4.5) Si solo hay UNA categoría real (típicamente "Agriculture"
+  // en este operador), el dropdown de Categoría no filtra nada y confunde
+  // al usuario. Ocultamos el control — el filtrado por fecha es suficiente.
+  // Si en el futuro se agregan más categorías, el control vuelve a aparecer.
+  const showCategoryFilter = categories.length > 2;
+
   const filtered = useMemo(() => {
     return categoryFilter === "ALL" ? flights : flights.filter((f) => f.category === categoryFilter);
   }, [flights, categoryFilter]);
@@ -98,9 +105,13 @@ export function HistoryTable({ flights, pageSize = PAGE_SIZE_DEFAULT }: HistoryT
 
   if (flights.length === 0) {
     return (
-      <div className="rounded-2xl border border-[#d2ddd6] bg-white p-10 text-center shadow-[0px_18px_40px_rgba(15,23,42,0.08)]">
-        <p className="text-sm text-[#4a5b50]">No hay resúmenes importados aún.</p>
-      </div>
+      <EmptyState
+        description="Cuando el operador registra fumigaciones o se reimportan los datos desde DJI Agras, el historial aparece acá."
+        eyebrow="Historial"
+        size="sm"
+        testId="history-table-empty"
+        title="No hay fumigaciones registradas"
+      />
     );
   }
 
@@ -110,27 +121,29 @@ export function HistoryTable({ flights, pageSize = PAGE_SIZE_DEFAULT }: HistoryT
         <h3 className="text-sm font-bold uppercase tracking-[0.18em] text-[#121815]">
           Historial de fumigación ({filtered.length})
         </h3>
-        <div className="flex items-center gap-2">
-          <label className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#587064]" htmlFor="history-category">
-            Categoría
-          </label>
-          <select
-            aria-label="Filtrar por categoría"
-            className="rounded-lg border border-[#cfd8d3] px-3 py-1.5 text-sm text-[#4a5b50]"
-            id="history-category"
-            onChange={(e) => {
-              setCategoryFilter(e.target.value);
-              setPage(1);
-            }}
-            value={categoryFilter}
-          >
-            {categories.map((cat) => (
-              <option key={cat} value={cat}>
-                {cat === "ALL" ? "Todas" : cat}
-              </option>
-            ))}
-          </select>
-        </div>
+        {showCategoryFilter ? (
+          <div className="flex items-center gap-2">
+            <label className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#587064]" htmlFor="history-category">
+              Categoría
+            </label>
+            <select
+              aria-label="Filtrar por categoría"
+              className="rounded-lg border border-[#cfd8d3] px-3 py-1.5 text-sm text-[#4a5b50]"
+              id="history-category"
+              onChange={(e) => {
+                setCategoryFilter(e.target.value);
+                setPage(1);
+              }}
+              value={categoryFilter}
+            >
+              {categories.map((cat) => (
+                <option key={cat} value={cat}>
+                  {cat === "ALL" ? "Todas" : cat}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : null}
       </div>
 
       <div className="overflow-x-auto">

@@ -39,7 +39,20 @@ describe("HistoryTable", () => {
 
   it("muestra estado vacío cuando no hay flights", () => {
     render(<HistoryTable flights={[]} />);
-    expect(screen.getByText(/no hay resúmenes importados/i)).toBeInTheDocument();
+    expect(screen.getByText(/no hay fumigaciones registradas/i)).toBeInTheDocument();
+  });
+
+  it("oculta el filtro de Categoría cuando solo hay una categoría real (audit 4.5)", () => {
+    // Subset con una sola categoría — el filtro sería un no-op.
+    const singleCategory = FLIGHTS.map((f) => ({ ...f, category: "Agriculture" }));
+    render(<HistoryTable flights={singleCategory} />);
+    expect(screen.queryByLabelText(/filtrar por categor/i)).not.toBeInTheDocument();
+  });
+
+  it("muestra el filtro de Categoría cuando hay 2+ categorías distintas", () => {
+    // FLIGHTS ya incluye "Agriculture" y "Orchards" en este set de tests.
+    render(<HistoryTable flights={FLIGHTS} />);
+    expect(screen.getByLabelText(/filtrar por categor/i)).toBeInTheDocument();
   });
 
   describe("orden", () => {

@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 
+import { EmptyState } from "@/components/ui/empty-state";
 import type { AlertLevel, DjiAlertRecord } from "@/lib/types";
 
 export interface AlertsPanelProps {
@@ -53,9 +54,19 @@ export function AlertsPanel({ alerts, alertFilter, onAlertFilterChange }: Alerts
       </div>
       <div className="space-y-3">
         {alerts.length === 0 ? (
-          <p className="text-sm text-slate-500">No hay alertas en este momento.</p>
+          <EmptyState
+            description="Cuando un día supere los umbrales de volumen o frecuencia de fumigación, aparecerá una alerta acá."
+            size="sm"
+            testId="alerts-panel-empty"
+            title="Sin alertas activas"
+          />
         ) : filteredAlerts.length === 0 ? (
-          <p className="text-sm text-slate-500">No hay alertas para el filtro seleccionado.</p>
+          <EmptyState
+            description="Cambiá el filtro (ALL/HIGH/MEDIUM/LOW) para ver las alertas de otros niveles."
+            size="sm"
+            testId="alerts-panel-filtered-empty"
+            title="No hay alertas en este nivel"
+          />
         ) : (
           filteredAlerts.map((alert) => (
             <div className={`rounded-xl border p-4 ${alertTone(alert.level)}`} key={`${alert.parcel_id}-${alert.level}`}>

@@ -115,14 +115,14 @@ describe("AlertsPanel", () => {
 
   it("muestra mensaje de estado vacío cuando no hay alertas", () => {
     render(<AlertsPanel alertFilter="ALL" alerts={[]} onAlertFilterChange={() => {}} />);
-    expect(screen.getByText(/no hay alertas/i)).toBeInTheDocument();
+    expect(screen.getByText(/sin alertas activas/i)).toBeInTheDocument();
   });
 
   it("muestra mensaje de filtro sin resultados", () => {
     render(
       <AlertsPanel alertFilter="HIGH" alerts={[ALERT_LOW]} onAlertFilterChange={() => {}} />
     );
-    expect(screen.getByText(/no hay alertas para el filtro/i)).toBeInTheDocument();
+    expect(screen.getByText(/no hay alertas en este nivel/i)).toBeInTheDocument();
   });
 
   it("el botón activo refleja el alertFilter actual con estilo distinto", () => {

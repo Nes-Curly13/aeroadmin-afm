@@ -4,6 +4,8 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
+import { ParcelSearch } from "@/components/map/parcel-search";
+import { EmptyState } from "@/components/ui/empty-state";
 import type { DjiAlertRecord, DjiDailySummaryRecord, DjiParcelRecord, FlightPointRecord } from "@/lib/types";
 
 const MapClient = dynamic(() => import("@/components/map-client").then((module) => module.MapClient), {
@@ -78,15 +80,13 @@ export function MapView({
 
   if (!parcels || parcels.length === 0) {
     return (
-      <div className="rounded-2xl border border-[#d2ddd6] bg-white p-8 shadow-[0px_18px_40px_rgba(15,23,42,0.08)]">
-        <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#587064]">Estado espacial</p>
-        <h2 className="mt-3 text-3xl font-black text-[#121815]">No hay parcelas importadas</h2>
-        <p className="mt-3 max-w-2xl text-sm leading-6 text-[#4a5b50]">
-          El modelo normalizado <code className="rounded bg-[#f4f7f4] px-1.5 py-0.5 text-xs">dji_parcels</code> está vacío.
-          Corre <code className="rounded bg-[#f4f7f4] px-1.5 py-0.5 text-xs">npm run db:init:v2</code> para popularla desde los assets en
-          <code className="rounded bg-[#f4f7f4] px-1.5 py-0.5 text-xs"> djiag_exports/land_files/</code>.
-        </p>
-      </div>
+      <EmptyState
+        cta={{ href: "/parcels", label: "Ver listado de parcelas" }}
+        description="El mapa se habilita cuando el operador importa las parcelas desde DJI Agras. Si esperás ver datos acá y no aparecen, contactá al supervisor del operador."
+        eyebrow="Estado espacial"
+        testId="map-view-empty"
+        title="Aún no hay parcelas para mostrar"
+      />
     );
   }
 
@@ -146,19 +146,12 @@ export function MapView({
         </div>
 
         <div className="mb-4">
-          <label htmlFor="parcel-selector" className="mb-2 block text-xs font-bold uppercase tracking-[0.18em] text-[#587064]">Seleccionar parcela</label>
-          <select
-            id="parcel-selector"
-            className="w-full rounded-lg border border-[#cfd8d3] p-2 text-sm"
-            onChange={(e) => setSelectedParcelId(Number(e.target.value))}
-            value={selectedParcelId ?? ""}
-          >
-            {parcels.map((parcel) => (
-              <option key={parcel.id} value={parcel.id}>
-                {parcel.land_name || parcel.external_id}
-              </option>
-            ))}
-          </select>
+          <p className="mb-2 block text-xs font-bold uppercase tracking-[0.18em] text-[#587064]">Seleccionar parcela</p>
+          <ParcelSearch
+            onSelect={setSelectedParcelId}
+            parcels={parcels}
+            selectedId={selectedParcelId}
+          />
         </div>
 
         <h3 className="text-2xl font-semibold text-[#121815]">

@@ -7,6 +7,8 @@ import { isProvenanceNotes, toDateString } from "@/lib/format";
 import type { DjiFumigationEvent, DjiFumigationSchedule, DjiParcelRecord } from "@/lib/types";
 
 import { CadenceEditor } from "@/components/parcels/cadence-editor";
+import { ExportFumigationsCsvButton } from "@/components/parcels/export-fumigations-csv-button";
+import { EmptyState } from "@/components/ui/empty-state";
 
 function statusChip(status: "ok" | "due_soon" | "overdue" | "no_history", days: number | null) {
   if (status === "overdue") return { label: "Vencida", className: "bg-[#a93232]/15 text-[#a93232]" };
@@ -123,15 +125,24 @@ export function ParcelFumigations({
 
       {schedule ? <CadenceEditor currentCadence={schedule.recommended_cadence_days} parcelId={parcel.id} /> : null}
 
-      <div className="mb-3 flex items-center justify-between">
+      <div className="mb-3 flex items-center justify-between gap-2">
         <h3 className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#587064]">Historial ({events.length})</h3>
-        <button
-          className="rounded-full bg-[#0b5f2d] px-3 py-1.5 text-[11px] font-semibold text-white"
-          onClick={() => setShowForm((v) => !v)}
-          type="button"
-        >
-          {showForm ? "Cancelar" : "Registrar fumigación"}
-        </button>
+        <div className="flex items-center gap-2">
+          {events.length > 0 ? (
+            <ExportFumigationsCsvButton
+              events={events}
+              parcelDroneName={parcel.drone_model_name}
+              parcelName={parcel.land_name ?? parcel.external_id}
+            />
+          ) : null}
+          <button
+            className="rounded-full bg-[#0b5f2d] px-3 py-1.5 text-[11px] font-semibold text-white"
+            onClick={() => setShowForm((v) => !v)}
+            type="button"
+          >
+            {showForm ? "Cancelar" : "Registrar fumigación"}
+          </button>
+        </div>
       </div>
 
       {showForm ? (
@@ -223,9 +234,13 @@ export function ParcelFumigations({
       ) : null}
 
       {events.length === 0 ? (
-        <p className="text-sm text-[#4a5b50]">
-          Sin eventos registrados. Usa el botón <strong>Registrar fumigación</strong> para empezar.
-        </p>
+        <EmptyState
+          cta={{ label: "Registrar fumigación", onClick: () => setShowForm(true) }}
+          description="Cuando registres la primera fumigación, la cadencia recomendada se calcula automáticamente y el panel se actualiza con la próxima fecha objetivo."
+          size="sm"
+          testId="parcel-fumigations-empty"
+          title="Esta parcela aún no tiene fumigaciones"
+        />
       ) : (
         <ol className="space-y-2">
           {events.map((e) => {

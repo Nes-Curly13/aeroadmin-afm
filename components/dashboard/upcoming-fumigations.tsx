@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 
+import { EmptyState } from "@/components/ui/empty-state";
 import { toDateString } from "@/lib/format";
 import type { UpcomingFumigation } from "@/lib/types";
 
@@ -98,8 +99,14 @@ export function UpcomingFumigations({
 
       <div className="divide-y divide-[#d2ddd6]">
         {items.length === 0 ? (
-          <div className="px-6 py-12 text-center text-sm text-[#4a5b50]">
-            No hay parcelas con schedule activo. Corre <code className="rounded bg-[#f4f7f4] px-1.5 py-0.5 text-xs">node scripts/seed-cadences.js</code> para inicializar.
+          <div className="p-4">
+            <EmptyState
+              description="No hay parcelas con cadencia configurada en este momento. Las fumigaciones se listan acá cuando el supervisor carga la frecuencia recomendada por cultivo."
+              eyebrow="Próximas fumigaciones"
+              size="sm"
+              testId="upcoming-fumigations-empty"
+              title="Sin fumigaciones próximas"
+            />
           </div>
         ) : (
           items.map((item) => {
