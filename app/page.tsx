@@ -143,8 +143,8 @@ export default async function DashboardPage() {
         />
         <MetricCard
           accent={<OverdueIcon />}
-          hint="Parcelas con cadencia vencida o próxima a vencer"
-          label="Vencidas"
+          hint="Recomendación basada en cadencia — confirmación manual requerida"
+          label="Atrasadas por cadencia"
           tone="danger"
           value={formatNumber(overdueCount)}
         />
