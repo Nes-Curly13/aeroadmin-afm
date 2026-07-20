@@ -1077,3 +1077,68 @@ equireAuth() (a diferencia de /api/task-history
   + multi-tenant.
 
 
+### 2026-07-20 — Q4 v1.2 sprint (3 mejoras 🟠 del audit cerradas)
+- **Sesión**: `mvs_4aa351e2363341b08ef0c6428712cd9b` (root)
+- **Objetivo**: cerrar 3 items 🟠 ALTA del audit ui-ux-2026-07
+  (performance del mapa, mobile sidebar, vista satélite). 3 tracks
+  paralelos en worktrees con scope < 25 min POR TRACK (lección Q4 v1.1).
+- **Acciones** (3 commits total):
+  1. `13cea60` feat(q4 mobile): hamburger menu + drawer mobile + viewport meta (Track B)
+     - `components/mobile-sidebar-drawer.tsx` (nuevo, client component,
+       0 deps). Drawer con mismo contenido que el sidebar desktop +
+       ARIA correcto (`role=dialog`, `aria-modal`, `aria-current`).
+     - `lib/nav-icons.tsx` (nuevo) — DRY de `NAV_ICON_PATHS` + `NavIcon`.
+       `.tsx` (no `.ts`) porque tiene JSX.
+     - `components/app-shell.tsx` — burger button + drawer. `useEffect`
+       para body overflow + Escape key + click backdrop. `requestAnimationFrame`
+       para focus restoration.
+     - `app/layout.tsx` — `export const viewport` (Next.js 16 API oficial).
+     - 12 tests: render cerrado, abrir, cerrar backdrop/Escape, navegar,
+       aria, focus, body overflow restoration, cleanup.
+  2. `ec10309` feat(q4): toggle satellite/calles en /map con persistencia localStorage (Track C)
+     - `components/map-client.tsx` — 2 TileLayers (OSM + Esri World Imagery).
+       Toggle client-side con state `useState<string>("satellite")`.
+       Persistencia en `localStorage` (`afm:map:basemap`).
+     - `next.config.ts` — CSP `img-src` extendido con
+       `https://server.arcgisonline.com`.
+     - 9 tests: default satellite, toggle a streets, persistencia,
+       fallback si localStorage no está disponible, attribution correcta.
+  3. `f153850` perf(map): streaming con Suspense para que el mapa aparezca antes que los stats (Track A)
+     - `app/map/page.tsx` refactor: queries críticas (parcels +
+       fumigatedIds) top-level, resto (summary, flights, alerts,
+       flightPoints) en un client island.
+     - `components/map/map-stats-island.tsx` (nuevo, client component)
+       recibe las stats como props + renderiza KPI cards + panels.
+     - `components/map/map-stats-skeleton.tsx` (nuevo, server
+       component) con `animate-pulse` de Tailwind.
+     - 16 tests: render de los 5 KPIs, distribución por drone, panels,
+       skeleton, error boundary.
+- **Archivos tocados**: 3 nuevos pages/loaders, 2 nuevos
+  components (`mobile-sidebar-drawer`, `map-stats-island`),
+  1 nuevo lib (`nav-icons.tsx`), 4 archivos de tests nuevos,
+  ediciones quirúrgicas en app-shell, map-client, next.config.
+- **Estado**: ✅ Q4 v1.2 cerrado. 3 items 🟠 del audit resueltos.
+  Total **+37 tests** (de 915 → 952). 0 dependencias nuevas.
+- **Tests**: `npx tsc --noEmit` limpio. 952/952 verde local.
+- **Notas / bloqueos**:
+  - **Track A (perf mapa) terminó en ~40 min** con push OK.
+    Lección: scope < 25 min no es suficiente garantía; el agente
+    también necesita un **paso final de push obligatorio** antes
+    de cualquier verificación. Track C sí lo hizo (~25 min).
+    Track B también (más rápido porque scope era chico).
+  - **Cherry-pick manual funcionó perfecto** para los 3 tracks
+    (orden: A no chocaba con C por scope separado, B tampoco).
+    Master limpio en 3 cherry-picks.
+  - **El refactor del mapa con Suspense** es la mejora más
+    visible de UX: el mapa aparece con la primera query,
+    los stats cargan después. TTI estimado: 50-70% menor
+    (medición exacta en el commit message del track).
+- **Próximo paso**: push + CI verde. Roadmap post-v1.2:
+  - v1.2 restante: reportes compartibles (link público con token),
+    filtros avanzados del mapa.
+  - v2.0: refactor doble modelo fumigaciones + multi-tenant.
+- **Próximo paso**: push + CI verde. v1.2 cubre performance, mobile
+  sidebar, y vista satélite. v2.0 cubre el refactor de fumigaciones
+  + multi-tenant.
+
+
