@@ -182,6 +182,16 @@ export interface DjiParcelsFilter {
  * Sprint 7 (2026-06-28): cacheado con `unstable_cache` (TTL 60s, tag
  * `afm:parcels`). El dashboard y /map pegaban este query en cada
  * navegación; ahora es prácticamente gratis entre revalidaciones.
+ *
+ * v1.3 Track A (2026-07-21): el panel de filtros del mapa
+ * (`components/map/map-filters-panel.tsx`) usa esta función con
+ * `filter = { droneModelCode, fieldType }` para filtrar server-side
+ * via URL searchParams. Como el wrapper cacheado no soporta filters
+ * (sería un keyParts enorme), esa combinación va a la variante
+ * `getParcelsNormalizedUncached` que va directo a la BD. El filtro
+ * `fumigated` NO se hace acá — se aplica in-memory en el page.tsx
+ * sobre `fumigatedParcelIds` (Set<number>) que ya está en memoria
+ * del critical path (M3-M5 Track A).
  */
 export async function getParcelsNormalized(page = 1, limit = 20, filter: DjiParcelsFilter = {}) {
   // El filter actual no lo soporta el wrapper cacheado (sería un keyParts
