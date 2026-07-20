@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 
+import { KeyboardShortcuts } from "@/components/keyboard-shortcuts";
+
 import "./globals.css";
 
 const bodyFont = Inter({
@@ -28,7 +30,14 @@ export default function RootLayout({
           rel="stylesheet"
         />
       </head>
-      <body className={bodyFont.variable}>{children}</body>
+      <body className={bodyFont.variable}>
+        {children}
+        {/*
+          Track B v1.1 — MEJORA 3: atajos de teclado globales (g+p/m/t/d, ?).
+          Client component; no se renderiza nada hasta que se abre el modal.
+        */}
+        <KeyboardShortcuts />
+      </body>
     </html>
   );
 }
