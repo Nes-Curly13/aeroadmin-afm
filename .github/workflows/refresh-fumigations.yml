@@ -1,0 +1,72 @@
+name: refresh-fumigations
+
+# Cron semanal para refrescar los datos derivados de fumigaciones
+# (dji_fumigations + dji_fumigation_schedule) sin re-scrapear DJI.
+#
+# Cierra el hallazgo del audit ui-ux-2026-07 §9: la BD se actualizaba
+# solo cuando se corría el backfill a mano, dejando el panel con
+# data stale 24-48h.
+#
+# Ver scripts/refresh-fumigations.js para el detalle del script.
+
+on:
+  # Todos los lunes a las 06:00 UTC (= 01:00 America/Bogota).
+  # El operador abre el dashboard los lunes a primera hora con data fresca.
+  schedule:
+    - cron: "0 6 * * 1"
+  # Triggerable a mano para re-correr después de un fix de datos o un
+  # backfill manual grande.
+  workflow_dispatch:
+
+# Sin permisos especiales — solo lee el repo y corre un script.
+permissions:
+  contents: read
+
+concurrency:
+  # Si el cron y un workflow_dispatch se solapan, prioriza el dispatch manual
+  # (cancela el run del cron en curso).
+  group: refresh-fumigations
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    name: refresh dji_fumigations + dji_fumigation_schedule
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      # IMPORTANTE: este workflow requiere el secret `DATABASE_URL`
+      # (o `DATABASE_URL_DIRECT`) configurado en el repo. Si no está,
+      # el script falla con "DATABASE_URL is not configured" y el cron
+      # queda silenciosamente roto. Para producción:
+      #   gh secret set DATABASE_URL --repo <owner>/<repo>
+      # (valor = connection string de Supabase, formato
+      #  postgresql://postgres:password@host:port/db)
+      - name: Verify DATABASE_URL is set
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_URL_DIRECT: ${{ secrets.DATABASE_URL_DIRECT }}
+        run: |
+          if [ -z "$DATABASE_URL" ] && [ -z "$DATABASE_URL_DIRECT" ]; then
+            echo "::error::Neither DATABASE_URL nor DATABASE_URL_DIRECT secret is configured. Add one in repo Settings → Secrets."
+            exit 1
+          fi
+
+      - name: Run refresh
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_URL_DIRECT: ${{ secrets.DATABASE_URL_DIRECT }}
+          DATABASE_SSL: ${{ vars.DATABASE_SSL || 'true' }}
+        run: node scripts/refresh-fumigations.js
