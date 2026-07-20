@@ -1008,3 +1008,72 @@ equireAuth() (a diferencia de /api/task-history
     total / frecuencia / ambas), copy del mensaje.
 
 
+### 2026-07-20 — Q4 v1.1 sprint (9 mejoras críticas del audit cerrado)
+- **Sesión**: `mvs_4aa351e2363341b08ef0c6428712cd9b` (root)
+- **Objetivo**: cerrar los items 🔴 y 🟠 del audit ui-ux-2026-07 que
+  eran bloqueantes para salir a demo. 3 tracks paralelos en worktrees
+  + 1 quick win en master.
+- **Acciones** (10 commits total):
+  1. `25c8b65` fix(q4): documentar umbrales de 'Alertas Altas' (master, yo)
+     - Hint del KPI ahora dice "Umbral: 4 ha o 8h en un día".
+  2. `0e65998` feat(security): CSP + HSTS + X-Frame-Options DENY (Track C)
+     - `next.config.ts` con 6 headers de seguridad. 14 tests.
+  3. `529cd57` feat(security): soft delete en fumigations y parcels (Track C)
+     - Migration `20260720000000_add_soft_delete.sql` idempotente.
+     - 2 columnas `deleted_at TIMESTAMPTZ NULL` + 2 índices parciales.
+     - 4 tests E2E (CI corre con DB).
+  4. `ffd5112` feat(security): validación de longitud en POST /api/fumigations
+     - `product_used` ≤ 200, `notes` ≤ 2000, `recorded_by` ≤ 100.
+     - Helper `validateOptionalString` (tipo + longitud). 9 tests.
+  5. `8fb6dc6` feat(q4): loading.tsx skeletons (Track B)
+     - 4 archivos: `/map`, `/parcels/overdue`, `/task-history`,
+       `/parcels/[id]/timeline`. Sin tests (TDD skip explícito —
+       skeletons son pura presentación).
+  6. `584a542` feat(q4): pre-llenar area_fumigated_m2 (Track B)
+     - Default = `parcel.spray_area_m2`. Vacío al submitear → null
+       (no 0). 7 tests.
+  7. `07f80d2` feat(q4): atajos de teclado globales (Track B)
+     - vim-style: g+p, g+m, g+t, g+d. `?` muestra ayuda.
+     - 15 tests.
+  8. `abad267` fix(q4): crear /parcels (Track A, BUG 1)
+     - Cierra el 404 del CTA del map-view.
+     - Server page + client component `<ParcelsList>` con paginación
+       y link a detalle. 8 tests.
+  9. `afd5b03` feat(q4): sidebar expone Parcelas y Faltan (Track A, BUG 2)
+     - 2 items nuevos en `sidebarNav` con activeSection correcto
+       en /parcels, /parcels/overdue, /parcels/[id], /parcels/[id]/timeline.
+     - 2 tests nuevos en app-shell.
+  10. `7479f06` fix(q4): KPI 'Atrasadas por cadencia' (Track A, BUG 3)
+      - Label "Atrasadas por cadencia" + hint explica que es
+        recomendación heurística, no certeza. 3 tests.
+- **Archivos tocados**: 1 nuevo page (`/parcels`), 1 nuevo component
+  (`<ParcelsList>`), 1 nuevo client component global (`<KeyboardShortcuts>`),
+  4 nuevos `loading.tsx`, 1 nueva migration SQL, 6 archivos de tests
+  nuevos, y ediciones quirúrgicas en app-shell, next.config, fumigation
+  API route, y parcel-fumigations form.
+- **Estado**: ✅ Q4 v1.1 cerrado. 9 items del audit (3 🔴 + 5 🟠 + 1 🟡)
+  resueltos en este sprint. Total 62 tests nuevos (de 853 → 915).
+- **Tests**: `npx tsc --noEmit` limpio. 915/915 verde local.
+- **Notas / bloqueos**:
+  - Los 3 agentes de coder AGOTARON los 30 min de token plan (Track C
+    terminó OK, Tracks A y B en ~32 min). Patrón confirmado: sprints
+    con scope > 30 min con agentes paralelos NO escalan. **Para próximos
+    sprints: scope < 25 min por track, o sequential**.
+  - **El bug del 404 en `/parcels` ya está fixed** (era 🔴 crítico
+    del audit). El cliente que cliqueaba "Ver listado de parcelas"
+    desde el map-view ya no rompe.
+  - **Soft delete migration es idempotente** (sigue el patrón de las
+    16 migrations previas). CI la aplica automáticamente; dev local
+    necesita correr `node scripts/apply-pending-migrations.js` para que
+    los 4 tests E2E pasen.
+  - **Performance del mapa sigue siendo 🟠 ALTA** (audit #8). No se
+    atacó en v1.1 — queda para v1.2 con Suspense + viewport-based
+    loading de polígonos.
+  - **El doble modelo fumigaciones (flights vs fumigations)** sigue
+    siendo 🔴 CRÍTICA estructural (audit #2). No se atacó en v1.1
+    porque requiere refactor de queries — queda para v2.0.
+- **Próximo paso**: push + CI verde. v1.2 cubre performance, mobile
+  sidebar, y vista satélite. v2.0 cubre el refactor de fumigaciones
+  + multi-tenant.
+
+
