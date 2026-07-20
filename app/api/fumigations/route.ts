@@ -20,6 +20,44 @@ interface CreateFumigationBody {
   recorded_by?: string;
 }
 
+// Límites de longitud por campo (sprint Q4 / track C, mejora 3, 2026-07-20).
+// Defense in depth: las columnas SQL son text sin limite, pero un input
+// de 1MB rompe JSON.parse y tumba el handler. La validación es del server
+// (el cliente tambien tiene maxLength en el form, pero es solo UX).
+// Alineado con la convencion del repo: PUT /api/parcels/[id] usa 200
+// para land_name, 64 para field_type. Aca: 200 para product_used,
+// 2000 para notes, 100 para recorded_by.
+const MAX_LENGTHS = {
+  product_used: 200,
+  notes: 2000,
+  recorded_by: 100
+} as const;
+
+/**
+ * Valida tipo y longitud de un campo string opcional. Devuelve
+ * NextResponse con 400 si falla, o `null` si todo OK.
+ */
+function validateOptionalString(
+  value: unknown,
+  fieldName: keyof typeof MAX_LENGTHS
+): NextResponse | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "string") {
+    return NextResponse.json(
+      { error: `${fieldName} debe ser string o null.` },
+      { status: 400 }
+    );
+  }
+  const max = MAX_LENGTHS[fieldName];
+  if (value.length > max) {
+    return NextResponse.json(
+      { error: `${fieldName} max ${max} chars (recibido: ${value.length}).` },
+      { status: 400 }
+    );
+  }
+  return null;
+}
+
 /**
  * GET /api/fumigations?parcelId=N
  * Devuelve los eventos de fumigación de una parcela, ordenados desc.
@@ -59,6 +97,14 @@ export async function POST(request: NextRequest) {
     }
     if (typeof body.fumigation_date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(body.fumigation_date)) {
       return NextResponse.json({ error: "fumigation_date requerido (YYYY-MM-DD)." }, { status: 400 });
+    }
+
+    // Validacion de longitud (sprint Q4 / track C, mejora 3). Orden:
+    // primero tipo, despues longitud. Si el campo es null/undefined
+    // (opcional) se acepta.
+    for (const field of ["product_used", "notes", "recorded_by"] as const) {
+      const err = validateOptionalString(body[field], field);
+      if (err) return err;
     }
 
     const created = await createFumigationEvent({

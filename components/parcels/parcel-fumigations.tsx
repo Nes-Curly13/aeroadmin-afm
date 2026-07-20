@@ -172,6 +172,7 @@ export function ParcelFumigations({
               <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#587064]">Producto</span>
               <input
                 className="mt-1 w-full rounded border border-[#cfd8d3] px-2 py-1.5"
+                maxLength={200}
                 name="product_used"
                 placeholder="ej. Glifosato 1L/ha"
                 type="text"
@@ -200,6 +201,7 @@ export function ParcelFumigations({
               <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#587064]">Operador</span>
               <input
                 className="mt-1 w-full rounded border border-[#cfd8d3] px-2 py-1.5"
+                maxLength={100}
                 name="recorded_by"
                 placeholder="ej. Juan Pérez"
                 type="text"
@@ -209,6 +211,7 @@ export function ParcelFumigations({
               <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#587064]">Notas</span>
               <textarea
                 className="mt-1 w-full rounded border border-[#cfd8d3] px-2 py-1.5"
+                maxLength={2000}
                 name="notes"
                 rows={2}
               />
