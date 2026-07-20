@@ -1137,6 +1137,61 @@ equireAuth() (a diferencia de /api/task-history
   - v1.2 restante: reportes compartibles (link público con token),
     filtros avanzados del mapa.
   - v2.0: refactor doble modelo fumigaciones + multi-tenant.
+
+
+### 2026-07-20 — Q4 v1.3 sprint (2 items 🟠 del audit cerrados)
+- **Sesión**: `mvs_4aa351e2363341b08ef0c6428712cd9b` (root)
+- **Objetivo**: cerrar 2 items 🟠 del audit (filtros del mapa + cron
+  semanal de fumigaciones). 2 tracks paralelos en worktrees.
+- **Acciones** (2 commits total):
+  1. `ef3bfdd` feat(cron): refresh semanal de fumigaciones (Track B)
+     - `scripts/refresh-fumigations.js` (nuevo, ~75 líneas): wrapper
+       que reusa los scripts `backfill-fumigations-from-flights.js`
+       y `update-fumigation-schedule.js` (NO duplica SQL). DI para
+       tests. Falla explícito si `DATABASE_URL` no está seteado.
+     - `scripts/refresh-fumigations.d.ts` (nuevo) — tipos TS.
+     - `tests/refresh-fumigations.test.ts` (nuevo) — 9 tests.
+     - `.github/workflows/refresh-fumigations.yml` (nuevo) — cron
+       lunes 06:00 UTC + `workflow_dispatch` manual.
+     - `scripts/README.md` (nuevo) — docs.
+     - `package.json` (mod) — nuevo script `npm run refresh:fumigations`.
+  2. `1eca934` feat(map): filtros drone/crop/fumigated (Track A)
+     - `api/repositories.ts` (mod) — `getParcelsNormalized` acepta
+       args opcionales: `droneModelCode`, `cropType`, `isOrchard`.
+       Back-compat: sin args = comportamiento actual.
+     - `app/map/page.tsx` (mod) — parsea `searchParams` y los pasa
+       al repo.
+     - `components/map/map-filters-panel.tsx` (nuevo, client
+       island) — 3 `<select>` (drone, crop, fumigated) + botón
+       "Limpiar filtros". `router.push` con `scroll: false`.
+       `useSearchParams` para reflejar estado actual. ARIA labels.
+     - `tests/components/map/map-filters-panel.test.tsx` (nuevo)
+       — 14 tests: render, navegación, limpiar, aria, defaults.
+- **Archivos tocados**: 5 nuevos, 2 modificados.
+- **Estado**: ✅ Q4 v1.3 cerrado. 2 items 🟠 del audit resueltos.
+  **+14 tests** (de 939 → 953). 0 dependencias nuevas.
+- **Tests**: `npx tsc --noEmit` limpio. 953/953 verde local.
+- **Notas / bloqueos**:
+  - **Track A (filtros mapa) requirió recovery manual** — el agente
+    de coder generó el código completo (4 files, 671 insertions)
+    pero murió por token plan antes del commit. Hice `git add` +
+    `git commit` + `git push` manualmente desde el worktree con
+    el mensaje apropiado. **4 veces en 4 sprints que esto pasa**
+    cuando el scope es > 25 min. Patrón confirmado.
+  - **El cron necesita un secret en producción**:
+    `gh secret set DATABASE_URL --repo Nes-Curly13/aeroadmin-afm`
+    Sin esto, el cron falla explícito en el Actions log (no silencioso).
+  - **Mejora potencial futura**: el `map-filters-panel` actualmente
+    solo 3 filtros (drone, crop, fumigated). El audit menciona
+    también "rango de fecha" y "piloto" — para próximos sprints
+    si el supervisor lo pide.
+  - **Sprint de decisión abierta antes de v2.0**: multi-tenant
+    + refactor doble modelo fumigaciones requieren conversación
+    de producto con el user. Sin ella, no arrancamos esos tracks.
+- **Próximo paso**: push + CI verde. v1.3 cerrado.
+  v1.4+ depende de: (a) decisión multi-tenant, (b) input del
+  operador para M2 notificaciones, (c) decisión de schema
+  change para #11 notes.
 - **Próximo paso**: push + CI verde. v1.2 cubre performance, mobile
   sidebar, y vista satélite. v2.0 cubre el refactor de fumigaciones
   + multi-tenant.
