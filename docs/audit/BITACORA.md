@@ -1141,4 +1141,64 @@ equireAuth() (a diferencia de /api/task-history
   sidebar, y vista satélite. v2.0 cubre el refactor de fumigaciones
   + multi-tenant.
 
-
+### 2026-07-21 — v1.3 Track A — filtros avanzados del mapa (cierra 🟠 ALTA del audit ui-ux-2026-07)
+- **Sesión**: branch `v1.3/track-a-filtros-mapa` basada en master 9605e76
+- **Objetivo**: cerrar el item 🟠 ALTA 'el mapa muestra TODO o nada — sin
+  filtros por drone / crop / has_fumigation' del audit ui-ux-2026-07. El
+  supervisor con 200 parcelas no podía reducir la vista a 'solo T40 +
+  Orchard + fumigadas' sin abrir 4 tabs en /parcels.
+- **Acciones** (2 commits):
+  1. `test+feat(map): panel de filtros con 14 tests TDD primero`
+     - `components/map/map-filters-panel.tsx` (nuevo, client component).
+       3 selects (drone / cultivo / fumigación reciente) + botón
+       'Limpiar filtros'. Navegación server-side via `router.push()` con
+       `scroll: false` (no perdemos posición de scroll del mapa). Dedupe
+       de drones por `drone_model_code` + omite rows con code null.
+     - `tests/components/map/map-filters-panel.test.tsx` (nuevo) — 14
+       tests: render con 0/3 drones, default values, lectura de
+       searchParams, navegación al cambiar select, preservar otros
+       params, limpiar individual + masivo, dedupe, omisión de null,
+       aria-labels, 3 selects con options correctos.
+  2. `feat(map): wire panel + filtros server-side via URL searchParams`
+     - `app/map/page.tsx`: `searchParams` parseado, `getParcelsNormalized`
+       llamado con `{ droneModelCode, fieldType }` (ya soportado desde
+       Sprint 7 — solo lo documentamos en JSDoc). `fumigated` se aplica
+       in-memory sobre `fumigatedIds` (Set<number> ya en memoria del
+       critical path desde M3-M5). `getParcelsSummary` se mueve del
+       island al critical path para que el panel tenga la lista de
+       drones al primer render.
+     - `api/repositories.ts`: JSDoc en `getParcelsNormalized` documenta
+       el uso v1.3 (drone + crop). Sin cambios de signature — la
+       back-compat es total (sin args = comportamiento pre-v1.3).
+- **Archivos tocados**: 2 nuevos (`map-filters-panel.tsx`, su test),
+  ediciones quirúrgicas en `app/map/page.tsx` + 1 doc-comment en
+  `api/repositories.ts`. **NO** se tocó `map-view.tsx`, `map-client.tsx`,
+  `app-shell.tsx`, `lib/`, ni `app/page.tsx` (regla dura del scope).
+- **Estado**: ✅ hecho.
+- **Tests**: `npx tsc --noEmit` limpio. `npx vitest run` 944 passed
+  (+14 del panel, 11 skipped por Docker apagado — mismo baseline).
+  Sin regresiones.
+- **Notas / bloqueos**:
+  - **El fumigated filter se hace in-memory**, no en SQL. Razón: el
+    `Set<number>` de fumigatedIds ya está en memoria desde el critical
+    path (M3-M5), y aplicarlo en SQL requeriría un NOT IN subquery
+    o cambiar la firma del repo. Dataset es bounded (~200 parcelas),
+    así que `parcels.filter(p => fumigatedIds.has(p.id))` es ~0ms.
+  - **`getParcelsSummary` se movió del island al critical path** para
+    que el panel de filtros tenga la lista de drones en el primer
+    render. El `summary` que recibe `MapStatsIsland` (panel
+    'Distribución por drone') sigue siendo el NO filtrado — el
+    usuario ve siempre la composición completa de la flota, no solo
+    la del filtro activo.
+  - **El wrapper cacheado de `getParcelsNormalized` no se usa cuando
+    hay filtros** (keyParts sería enorme). Va directo a la BD con
+    `getParcelsNormalizedUncached`. Sin filtros, sigue cacheado con
+    TTL 60s.
+  - **El `parcelsCount` del AppShell ahora refleja el conteo
+    filtrado**, no el total. UX: el badge del sidebar muestra 'lo
+    que está visible' — si filtrás a 8 parcelas, dice 8, no 200.
+- **Próximo paso**:
+  - v1.3 Track B: reportes compartibles (link público con token).
+  - v1.3 Track C: cualquier otro item 🟠/🔴 del audit que el usuario
+    priorice (revisar `docs/audit/ui-ux-2026-07.md` secciones 4-5).
+  - v2.0 (sin fecha): refactor doble modelo fumigaciones + multi-tenant.
