@@ -580,4 +580,72 @@ describe.skipIf(!HAS_DB)("E2E — Historia de usuario del operador", () => {
       expect(cols.has("spray_geometry")).toBe(false);
     });
   });
+
+  // Q4 sprint / track C (mejora 2): soft delete en dji_fumigations y
+  // dji_parcels via columna `deleted_at TIMESTAMPTZ NULL`. Esta columna
+  // es el prerequisito para:
+  //   - Recuperar data borrada por error (no hay backup automático).
+  //   - Auditar quién/por qué se eliminó algo (futuro: tabla de audit).
+  // El refactor de queries existentes para agregar `WHERE deleted_at IS NULL`
+  // es intencionalmente OUT OF SCOPE de esta mejora (ver BITACORA y la
+  // tarea original). Acá solo verificamos que la columna EXISTE y es
+  // nullable + timestamptz, sin tocar la data.
+  //
+  // NO se skipea con !HAS_DATA porque validar schema no requiere datos:
+  // CI corre migrations-only y este test debe pasar ahí también.
+  describe("Q4 sprint: schema de soft delete (deleted_at)", () => {
+    it("dji_fumigations tiene la columna deleted_at (TIMESTAMPTZ NULL)", async () => {
+      const r = await client.query(`
+        SELECT column_name, data_type, is_nullable
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'dji_fumigations'
+          AND column_name = 'deleted_at'
+      `);
+      // Si la migration no se aplicó, la query devuelve 0 filas y el
+      // test falla con "expected at least 1".
+      expect(r.rows.length).toBe(1);
+      const row = r.rows[0] as { data_type: string; is_nullable: string };
+      expect(row.data_type).toBe("timestamp with time zone");
+      expect(row.is_nullable).toBe("YES");
+    });
+
+    it("dji_parcels tiene la columna deleted_at (TIMESTAMPTZ NULL)", async () => {
+      const r = await client.query(`
+        SELECT column_name, data_type, is_nullable
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'dji_parcels'
+          AND column_name = 'deleted_at'
+      `);
+      expect(r.rows.length).toBe(1);
+      const row = r.rows[0] as { data_type: string; is_nullable: string };
+      expect(row.data_type).toBe("timestamp with time zone");
+      expect(row.is_nullable).toBe("YES");
+    });
+
+    it("dji_fumigations.deleted_at tiene indice parcial (idx_dji_fumigations_deleted_at)", async () => {
+      // Defense in depth: si la migration se aplicó a medias (columna
+      // sin índice) el query de "filas activas" va a ser lento a futuro.
+      const r = await client.query(`
+        SELECT 1
+        FROM pg_indexes
+        WHERE schemaname = 'public'
+          AND tablename = 'dji_fumigations'
+          AND indexname = 'idx_dji_fumigations_deleted_at'
+      `);
+      expect(r.rows.length).toBe(1);
+    });
+
+    it("dji_parcels.deleted_at tiene indice parcial (idx_dji_parcels_deleted_at)", async () => {
+      const r = await client.query(`
+        SELECT 1
+        FROM pg_indexes
+        WHERE schemaname = 'public'
+          AND tablename = 'dji_parcels'
+          AND indexname = 'idx_dji_parcels_deleted_at'
+      `);
+      expect(r.rows.length).toBe(1);
+    });
+  });
 });
