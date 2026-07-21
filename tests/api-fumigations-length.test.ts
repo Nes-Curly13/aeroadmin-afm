@@ -156,4 +156,86 @@ describe("POST /api/fumigations — validación de longitud", () => {
     expect(response.status).toBe(400);
     expect(repositoryMocks.createFumigationEvent).not.toHaveBeenCalled();
   });
+
+  // ============================================================
+  // human_notes — Track C v1.4 (audit ui-ux-2026-07 #11)
+  // Separado de `notes` (que es provenance del backfill) para que el
+  // operador fumigador pueda dejar contexto libre sin pisar metadata
+  // técnica. Mismo límite de 2000 chars (alineado con CHECK del schema
+  // `20260721010000_add_fumigation_human_notes.sql`).
+  // ============================================================
+  it("rechaza human_notes > 2000 chars (400)", async () => {
+    const req = buildRequest({
+      ...VALID_BODY,
+      human_notes: "h".repeat(2001)
+    });
+    const response = await postFumigationRoute(req);
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { error?: string };
+    expect(body.error).toMatch(/human_notes.*2000/);
+    expect(repositoryMocks.createFumigationEvent).not.toHaveBeenCalled();
+  });
+
+  it("acepta human_notes con exactamente 2000 chars (201)", async () => {
+    const req = buildRequest({
+      ...VALID_BODY,
+      human_notes: "h".repeat(2000)
+    });
+    const response = await postFumigationRoute(req);
+    expect(response.status).toBe(201);
+  });
+
+  it("acepta human_notes null y lo pasa al repository como null", async () => {
+    const req = buildRequest({
+      ...VALID_BODY,
+      human_notes: null
+    });
+    const response = await postFumigationRoute(req);
+    expect(response.status).toBe(201);
+    expect(repositoryMocks.createFumigationEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ human_notes: null })
+    );
+  });
+
+  it("pasa human_notes al repository cuando está presente", async () => {
+    const req = buildRequest({
+      ...VALID_BODY,
+      human_notes: "Lluvia matinal retrasó el vuelo"
+    });
+    const response = await postFumigationRoute(req);
+    expect(response.status).toBe(201);
+    expect(repositoryMocks.createFumigationEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        human_notes: "Lluvia matinal retrasó el vuelo"
+      })
+    );
+  });
+
+  it("rechaza human_notes de tipo no-string (400)", async () => {
+    const req = buildRequest({
+      ...VALID_BODY,
+      human_notes: 12345
+    });
+    const response = await postFumigationRoute(req);
+    expect(response.status).toBe(400);
+    expect(repositoryMocks.createFumigationEvent).not.toHaveBeenCalled();
+  });
+
+  it("human_notes es independiente de notes (provenance) — ambos pueden coexistir", async () => {
+    // Regresión: la nota humana no debe pisar la metadata técnica.
+    // El body puede traer ambos campos con valores distintos.
+    const req = buildRequest({
+      ...VALID_BODY,
+      notes: JSON.stringify({ backfilled_from: "dji_flights" }),
+      human_notes: "Contexto del operador"
+    });
+    const response = await postFumigationRoute(req);
+    expect(response.status).toBe(201);
+    expect(repositoryMocks.createFumigationEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        notes: JSON.stringify({ backfilled_from: "dji_flights" }),
+        human_notes: "Contexto del operador"
+      })
+    );
+  });
 });

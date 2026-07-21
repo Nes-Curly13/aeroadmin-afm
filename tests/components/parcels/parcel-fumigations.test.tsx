@@ -4,6 +4,9 @@
  * Track B (perf/ux v1.1) — MEJORA 2: pre-llenar el campo
  * `area_fumigated_m2` con `parcel.spray_area_m2` cuando existe.
  *
+ * Track C (v1.4) — MEJORA 1: input de nota humana (`human_notes`),
+ * separado de `notes` (provenance del backfill).
+ *
  * Cobertura:
  *   1. Cuando `parcel.spray_area_m2` existe, el input aparece pre-llenado
  *      con ese valor (no vacío, no `null`).
@@ -12,6 +15,12 @@
  *      para que el form lo trate como null al submitear (NO como 0).
  *   4. El campo se llama `area_fumigated_m2` para matchear el payload que
  *      envía el form al API (regresión: el nombre debe permanecer estable).
+ *
+ * Track C — human_notes (v1.4):
+ *   5. El form tiene un `<textarea name="human_notes">` para que el operador
+ *      pueda dejar contexto libre ("lluvia", "producto nuevo", etc.).
+ *   6. La nota humana se muestra en el historial del evento, separada de
+ *      `notes` (que es provenance del backfill y NO debe renderizarse).
  *
  * No testeamos el submit completo porque ya está cubierto en
  * `parcel-detail.test.tsx` (focus en la nueva UX, no en regresiones del
@@ -234,5 +243,127 @@ describe("ParcelFumigations — pre-llenado de area_fumigated_m2 (Track B v1.1)"
     );
     expect(consoleError).not.toHaveBeenCalled();
     consoleError.mockRestore();
+  });
+});
+
+// ============================================================
+// Track C v1.4 — MEJORA 1: input de nota humana del operador
+// (separado de `notes` que es provenance del backfill).
+// ============================================================
+describe("ParcelFumigations — human_notes (Track C v1.4)", () => {
+  it("el form tiene un textarea con name='human_notes' (no 'notes')", () => {
+    const parcel = makeParcel({ spray_area_m2: 4000 });
+    render(
+      <ParcelFumigations
+        daysUntilNextDue={3}
+        events={EMPTY_EVENTS}
+        parcel={parcel}
+        schedule={makeSchedule()}
+        status="due_soon"
+      />
+    );
+
+    fireEvent.click(screen.getAllByRole("button", { name: /registrar fumigación/i })[0]);
+
+    // El input se llama `human_notes` (no `notes`) para que el POST mande
+    // el body a la nueva columna SQL. Regresión: si alguien renombra de
+    // vuelta, este test lo detecta.
+    const textarea = screen.getByLabelText(/agregar nota|nota/i) as HTMLTextAreaElement;
+    expect(textarea).toBeInTheDocument();
+    expect(textarea.name).toBe("human_notes");
+    expect(textarea.tagName).toBe("TEXTAREA");
+  });
+
+  it("el textarea tiene maxLength=2000 (alineado con CHECK del schema)", () => {
+    const parcel = makeParcel({ spray_area_m2: 4000 });
+    render(
+      <ParcelFumigations
+        daysUntilNextDue={3}
+        events={EMPTY_EVENTS}
+        parcel={parcel}
+        schedule={makeSchedule()}
+        status="due_soon"
+      />
+    );
+
+    fireEvent.click(screen.getAllByRole("button", { name: /registrar fumigación/i })[0]);
+
+    const textarea = screen.getByLabelText(/agregar nota|nota/i) as HTMLTextAreaElement;
+    // El maxLength es solo UX (el server es la defensa real), pero
+    // mantenerlo consistente evita mensajes confusos al operador.
+    expect(textarea.maxLength).toBe(2000);
+  });
+
+  it("muestra human_notes en el historial del evento cuando está presente", () => {
+    const eventWithHumanNote: DjiFumigationEvent = {
+      id: 1,
+      parcel_id: 42,
+      fumigation_date: "2026-07-15",
+      product_used: "Glifosato",
+      dose_l_per_ha: 1.0,
+      area_fumigated_m2: 4000,
+      drone_code_used: null,
+      duration_minutes: 30,
+      notes: null, // provenance no presente
+      human_notes: "Se atrasó por lluvia matinal, equipo reportó viento fuerte",
+      recorded_by: "Juan Pérez",
+      recorded_at: "2026-07-15T10:00:00Z",
+      source: "manual"
+    };
+    const parcel = makeParcel({ spray_area_m2: 4000 });
+    render(
+      <ParcelFumigations
+        daysUntilNextDue={3}
+        events={[eventWithHumanNote]}
+        parcel={parcel}
+        schedule={makeSchedule()}
+        status="due_soon"
+      />
+    );
+
+    // La nota humana se renderiza en el card del evento.
+    expect(
+      screen.getByText(/se atrasó por lluvia matinal/i)
+    ).toBeInTheDocument();
+  });
+
+  it("NO muestra notes cuando es provenance JSON (separación técnica vs humana)", () => {
+    // Aunque el evento venga con `notes` con JSON de provenance y `human_notes`
+    // null, el render filtra la provenance y no muestra nada. La nota humana
+    // se renderizaría SOLO si está presente.
+    const eventWithProvenanceOnly: DjiFumigationEvent = {
+      id: 2,
+      parcel_id: 42,
+      fumigation_date: "2026-07-10",
+      product_used: null,
+      dose_l_per_ha: null,
+      area_fumigated_m2: null,
+      drone_code_used: null,
+      duration_minutes: null,
+      notes: JSON.stringify({ backfilled_from: "dji_flights", flight_count: 5 }),
+      human_notes: null,
+      recorded_by: null,
+      recorded_at: "2026-07-10T10:00:00Z",
+      source: "djiscraper"
+    };
+    const parcel = makeParcel({ spray_area_m2: 4000 });
+    render(
+      <ParcelFumigations
+        daysUntilNextDue={3}
+        events={[eventWithProvenanceOnly]}
+        parcel={parcel}
+        schedule={makeSchedule()}
+        status="due_soon"
+      />
+    );
+
+    // El JSON de provenance NO debe aparecer en el DOM (es metadata técnica).
+    expect(
+      screen.queryByText(/backfilled_from/)
+    ).not.toBeInTheDocument();
+    // El label del valor tampoco.
+    expect(
+      screen.queryByText(/"flight_count"/)
+    ).not.toBeInTheDocument();
   });
 });

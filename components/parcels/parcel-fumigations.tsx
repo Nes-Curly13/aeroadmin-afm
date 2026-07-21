@@ -64,7 +64,10 @@ export function ParcelFumigations({
         dose_l_per_ha: formData.get("dose_l_per_ha") ? Number(formData.get("dose_l_per_ha")) : null,
         area_fumigated_m2: areaFumigatedM2,
         duration_minutes: formData.get("duration_minutes") ? Number(formData.get("duration_minutes")) : null,
-        notes: formData.get("notes") || null,
+        // Track C v1.4: `notes` queda como provenance del backfill (no se
+        // setea desde el form). El operador usa `human_notes` para dejar
+        // contexto libre (lluvia, producto nuevo, problema del equipo, etc.).
+        human_notes: formData.get("human_notes") || null,
         recorded_by: formData.get("recorded_by") || null
       };
       const res = await fetch("/api/fumigations", {
@@ -237,13 +240,17 @@ export function ParcelFumigations({
               />
             </label>
             <label className="col-span-2 block">
-              <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#587064]">Notas</span>
+              <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#587064]">Agregar nota (opcional)</span>
               <textarea
                 className="mt-1 w-full rounded border border-[#cfd8d3] px-2 py-1.5"
                 maxLength={2000}
-                name="notes"
+                name="human_notes"
+                placeholder="ej. Se atrasó por lluvia matinal"
                 rows={2}
               />
+              <span className="mt-1 block text-[10px] text-[#587064]">
+                Contexto libre sobre esta fumigación. No se mezcla con la metadata técnica del sistema.
+              </span>
             </label>
           </div>
           <div className="flex gap-2">
@@ -297,6 +304,11 @@ export function ParcelFumigations({
                     {e.duration_minutes && <span>{e.duration_minutes} min</span>}
                     {e.recorded_by && <span>Por: {e.recorded_by}</span>}
                   </div>
+                  {e.human_notes && (
+                    <p className="mt-1 text-[11px] italic text-[#4a5b50]" data-testid="fumigation-human-notes">
+                      {e.human_notes}
+                    </p>
+                  )}
                   {e.notes && !isProvenanceNotes(e.notes) && (
                     <p className="mt-1 text-[11px] italic text-[#4a5b50]">{e.notes}</p>
                   )}

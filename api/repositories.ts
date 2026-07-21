@@ -403,6 +403,7 @@ const fumigationEventsByParcelQuery = `
     drone_code_used,
     duration_minutes,
     notes,
+    human_notes,
     recorded_by,
     recorded_at,
     source
@@ -605,6 +606,7 @@ export async function createFumigationEvent(event: {
   drone_code_used?: number | null;
   duration_minutes?: number | null;
   notes?: string | null;
+  human_notes?: string | null;
   recorded_by?: string | null;
 }): Promise<DjiFumigationEvent> {
   const db = getDb();
@@ -618,12 +620,12 @@ export async function createFumigationEvent(event: {
             INSERT INTO dji_fumigations
               (parcel_id, fumigation_date, product_used, dose_l_per_ha,
                area_fumigated_m2, drone_code_used, duration_minutes, notes,
-               recorded_by, source)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'manual')
+               human_notes, recorded_by, source)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'manual')
             RETURNING
               id, parcel_id, fumigation_date, product_used, dose_l_per_ha,
               area_fumigated_m2, drone_code_used, duration_minutes, notes,
-              recorded_by, recorded_at, source
+              human_notes, recorded_by, recorded_at, source
           `,
           [
             event.parcel_id,
@@ -634,6 +636,7 @@ export async function createFumigationEvent(event: {
             event.drone_code_used ?? null,
             event.duration_minutes ?? null,
             event.notes ?? null,
+            event.human_notes ?? null,
             event.recorded_by ?? null
           ]
         );

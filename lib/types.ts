@@ -127,6 +127,14 @@ export interface DjiFumigationEvent {
   drone_code_used: number | null;
   duration_minutes: number | null;
   notes: string | null;
+  /**
+   * Nota libre del operador fumigador ("lluvia matinal", "producto nuevo",
+   * "equipo reportó problema X"). Separada de `notes` (que es provenance
+   * del backfill, JSON técnico, no visible al usuario).
+   *
+   * Track C v1.4 — audit ui-ux-2026-07 #11.
+   */
+  human_notes: string | null;
   recorded_by: string | null;
   recorded_at: string;
   source: "manual" | "djiscraper" | "import";
