@@ -3,6 +3,7 @@
 import Link from "next/link";
 
 import { EmptyState } from "@/components/ui/empty-state";
+import { ScrollablePanel } from "@/components/ui/scrollable-panel";
 import { toDateString } from "@/lib/format";
 import type { UpcomingFumigation } from "@/lib/types";
 
@@ -62,13 +63,19 @@ export function UpcomingFumigations({
   const showAllOverdueLink = typeof totalOverdue === "number" && totalOverdue > overdue;
 
   return (
-    <section
-      aria-label="Próximas fumigaciones"
-      className="rounded-2xl border border-[#d2ddd6] bg-white shadow-[0px_18px_40px_rgba(15,23,42,0.08)]"
-    >
-      <div className="flex items-center justify-between border-b border-[#d2ddd6] px-6 py-4">
+    // Antes (pre-v1.7) este componente traía su propio <section> con
+    // border / padding / shadow. En el bento refactor (sprint v1.7),
+    // el BentoCard padre provee ese "frame" exterior, así que el
+    // componente se queda como un fragment de header + lista
+    // scrollable. Los tests existentes sólo chequean contenido
+    // interno (testids, texto), no el <section> exterior, así que
+    // siguen pasando.
+    <div className="flex h-full flex-col" data-testid="upcoming-fumigations">
+      <div className="mb-3 flex items-center justify-between gap-3">
         <div>
-          <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#587064]">Próximas fumigaciones</p>
+          <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#587064]">
+            Próximas fumigaciones
+          </p>
           <h3 className="mt-1 text-lg font-semibold text-[#121815]">Plan operativo por cadencia</h3>
         </div>
         <div className="flex items-center gap-3 text-[10px] font-bold uppercase tracking-[0.18em]">
@@ -82,22 +89,26 @@ export function UpcomingFumigations({
             </Link>
           )}
           <div className="flex items-center gap-2">
-          {overdue > 0 && (
-            <span className="rounded-full bg-[#a93232]/15 px-2.5 py-1 text-[#a93232]">
-              {overdue} vencida{overdue === 1 ? "" : "s"}
-            </span>
-          )}
-          {dueSoon > 0 && (
-            <span className="rounded-full bg-[#d4b23c]/20 px-2.5 py-1 text-[#7a5f0d]">
-              {dueSoon} pronto
-            </span>
-          )}
-          <span className="rounded-full bg-[#0b5f2d]/10 px-2.5 py-1 text-[#0b5f2d]">{ok} en fecha</span>
+            {overdue > 0 && (
+              <span className="rounded-full bg-[#a93232]/15 px-2.5 py-1 text-[#a93232]">
+                {overdue} vencida{overdue === 1 ? "" : "s"}
+              </span>
+            )}
+            {dueSoon > 0 && (
+              <span className="rounded-full bg-[#d4b23c]/20 px-2.5 py-1 text-[#7a5f0d]">
+                {dueSoon} pronto
+              </span>
+            )}
+            <span className="rounded-full bg-[#0b5f2d]/10 px-2.5 py-1 text-[#0b5f2d]">{ok} en fecha</span>
           </div>
         </div>
       </div>
 
-      <div className="divide-y divide-[#d2ddd6]">
+      <ScrollablePanel
+        ariaLabel="Lista de próximas fumigaciones"
+        maxHeight="320px"
+        testId="upcoming-fumigations-scroll"
+      >
         {items.length === 0 ? (
           <div className="p-4">
             <EmptyState
@@ -109,45 +120,54 @@ export function UpcomingFumigations({
             />
           </div>
         ) : (
-          items.map((item) => {
-            const style = statusStyle(item.status);
-            return (
-              <Link
-                className={`flex items-center gap-4 px-6 py-4 transition hover:bg-[#f7f9fb] ${style.border}`}
-                href={`/parcels/${item.parcel_id}`}
-                key={item.parcel_id}
-              >
-                <div className="flex-1 min-w-0">
-                  <div className="flex flex-wrap items-baseline gap-2">
-                    <h4 className="truncate text-sm font-semibold text-[#121815]">
-                      {item.land_name || item.external_id}
-                    </h4>
-                    <span className="rounded-full bg-[#f4f7f4] px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.18em] text-[#587064]">
-                      {item.field_type}
+          <div className="divide-y divide-[#d2ddd6]">
+            {items.map((item) => {
+              const style = statusStyle(item.status);
+              return (
+                <Link
+                  className={`flex items-center gap-4 px-6 py-4 transition hover:bg-[#f7f9fb] ${style.border}`}
+                  href={`/parcels/${item.parcel_id}`}
+                  key={item.parcel_id}
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-baseline gap-2">
+                      <h4 className="truncate text-sm font-semibold text-[#121815]">
+                        {item.land_name || item.external_id}
+                      </h4>
+                      <span className="rounded-full bg-[#f4f7f4] px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.18em] text-[#587064]">
+                        {item.field_type}
+                      </span>
+                      <span className="text-[10px] text-[#4a5b50]">{item.crop_type}</span>
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-center gap-3 text-[11px] text-[#4a5b50]">
+                      <span>
+                        Cadencia:{" "}
+                        <strong className="text-[#121815]">{item.recommended_cadence_days} días</strong>
+                      </span>
+                      {item.drone_model_name && (
+                        <span>
+                          Dron: <strong className="text-[#121815]">{item.drone_model_name}</strong>
+                        </span>
+                      )}
+                      {item.last_fumigation_date && (
+                        <span>Última: {toDateString(item.last_fumigation_date) ?? "—"}</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-end gap-1">
+                    <span
+                      className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.18em] ${style.chip}`}
+                    >
+                      {style.label}
                     </span>
-                    <span className="text-[10px] text-[#4a5b50]">{item.crop_type}</span>
+                    <span className="text-[10px] text-[#4a5b50]">{daysLabel(item.days_until_next_due)}</span>
                   </div>
-                  <div className="mt-1 flex flex-wrap items-center gap-3 text-[11px] text-[#4a5b50]">
-                    <span>Cadencia: <strong className="text-[#121815]">{item.recommended_cadence_days} días</strong></span>
-                    {item.drone_model_name && (
-                      <span>Dron: <strong className="text-[#121815]">{item.drone_model_name}</strong></span>
-                    )}
-                    {item.last_fumigation_date && (
-                      <span>Última: {toDateString(item.last_fumigation_date) ?? "—"}</span>
-                    )}
-                  </div>
-                </div>
-                <div className="flex flex-col items-end gap-1">
-                  <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.18em] ${style.chip}`}>
-                    {style.label}
-                  </span>
-                  <span className="text-[10px] text-[#4a5b50]">{daysLabel(item.days_until_next_due)}</span>
-                </div>
-              </Link>
-            );
-          })
+                </Link>
+              );
+            })}
+          </div>
         )}
-      </div>
-    </section>
+      </ScrollablePanel>
+    </div>
   );
 }
