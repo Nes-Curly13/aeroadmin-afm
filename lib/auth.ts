@@ -38,11 +38,19 @@ import bcrypt from "bcryptjs";
 
 import { getDb } from "@/lib/db";
 import { authConfig } from "@/lib/auth.config";
+import { requireRole as requireRoleCanonical } from "@/lib/auth/role";
+import type { AppRole } from "@/lib/auth/role";
 
 // Re-export del app-role type y cookie name para callers que no quieren
-// importar auth.config directo.
-export type { AppRole } from "@/lib/auth.config";
+// importar auth.config/role directo. v1.4: el type vive en
+// `lib/auth/role` (single source of truth); `auth.config` lo
+// re-exporta; este archivo tambien.
+export type { AppRole };
 export { AUTH_COOKIE_NAME } from "@/lib/auth.config";
+// Re-export del requireRole canonico (v1.4): acepta string o array,
+// lee el role del JWT. Mantiene compat con callers existentes que
+// importan `requireRole` desde `@/lib/auth` (ej. change-password).
+export { requireRoleCanonical as requireRole };
 
 /**
  * Extender el config edge-safe con el Credentials provider (Node runtime,
@@ -89,7 +97,7 @@ const fullAuthConfig: NextAuthConfig = {
           id: number;
           email: string;
           password_hash: string;
-          role: "admin" | "viewer";
+          role: AppRole;
           is_active: boolean;
         } | null = null;
         try {
@@ -98,7 +106,7 @@ const fullAuthConfig: NextAuthConfig = {
             id: number;
             email: string;
             password_hash: string;
-            role: "admin" | "viewer";
+            role: AppRole;
             is_active: boolean;
           }>(
             `SELECT id, email, password_hash, role, is_active
@@ -144,18 +152,23 @@ const fullAuthConfig: NextAuthConfig = {
     /**
      * Cada vez que Auth.js crea o refresca el JWT metemos `role` + `uid`
      * desde el `user` que devolvio `authorize`.
+     *
+     * Default: 'supervisor' (no 'admin' ni 'viewer') para que un JWT
+     * emitido por un bug/edge-case (sin role explicito) NO quede con
+     * permisos de admin. v1.4: el sistema es admin | supervisor
+     * (viewer se renombro a supervisor con mas permisos).
      */
     async jwt({ token, user }) {
       if (user) {
-        token.role = (user as { role?: "admin" | "viewer" }).role ?? "viewer";
+        token.role = (user as { role?: AppRole }).role ?? "supervisor";
         token.uid = (user as { id?: string }).id ?? "";
       }
       return token;
     },
     async session({ session, token }) {
       if (session.user) {
-        (session.user as { role?: "admin" | "viewer" }).role =
-          (token as { role?: "admin" | "viewer" }).role ?? "viewer";
+        (session.user as { role?: AppRole }).role =
+          (token as { role?: AppRole }).role ?? "supervisor";
         (session.user as { id?: string }).id =
           (token as { uid?: string }).uid ?? "";
       }
@@ -170,6 +183,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth(fullAuthConfig);
  * Helpers para usar en server components / api routes. Lanza error tipado
  * con `code = 'UNAUTHENTICATED' | 'FORBIDDEN'` que el caller o Next.js
  * puede convertir en redirect / 401 / 403.
+ *
+ * v1.4: `requireRole` ya no vive aca — se re-exporta arriba desde
+ * `lib/auth/role` (la firma nueva acepta `AppRole | AppRole[]`).
+ * `requireAuth` se queda aca porque es auth-only (no RBAC).
  */
 export async function requireAuth() {
   const session = await auth();
@@ -180,21 +197,6 @@ export async function requireAuth() {
     };
     err.code = "UNAUTHENTICATED";
     err.status = 401;
-    throw err;
-  }
-  return session;
-}
-
-export async function requireRole(role: "admin" | "viewer") {
-  const session = await requireAuth();
-  const actual = (session.user as { role?: "admin" | "viewer" }).role;
-  if (actual !== role) {
-    const err = new Error("FORBIDDEN") as Error & {
-      code?: string;
-      status?: number;
-    };
-    err.code = "FORBIDDEN";
-    err.status = 403;
     throw err;
   }
   return session;

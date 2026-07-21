@@ -16,6 +16,13 @@ const authMocks = vi.hoisted(() => ({
 
 vi.mock("@/api/repositories", () => repositoryMocks);
 vi.mock("@/lib/auth", () => authMocks);
+// v1.4 Track A: POST /api/fumigations ahora llama `requireRole` desde
+// `@/lib/auth/role` antes de validar. Mockeamos para no requerir sesion
+// real en los tests de este archivo (que son de validacion de input,
+// no de auth).
+vi.mock("@/lib/auth/role", () => ({
+  requireRole: vi.fn().mockResolvedValue(undefined)
+}));
 
 import { GET as getAlertsRoute } from "@/app/api/alerts/route";
 import { GET as getFlightsRoute } from "@/app/api/flights/route";

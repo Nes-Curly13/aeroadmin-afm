@@ -5,6 +5,7 @@ import {
   getFumigationEventsByParcel
 } from "@/api/repositories";
 import { parseIntParam } from "@/lib/request";
+import { requireRole } from "@/lib/auth/role";
 
 export const dynamic = "force-dynamic";
 
@@ -85,9 +86,24 @@ export async function GET(request: NextRequest) {
  * POST /api/fumigations
  * Registra un nuevo evento de fumigación para una parcela.
  * Recalcula automáticamente `next_due_date` en el schedule.
+ *
+ * v1.4 Track A: guard de role. Tanto admin como supervisor pueden
+ * registrar fumigaciones propias (el supervisor es operario de
+ * campo, no solo consulta). El guard es solo demostracion del
+ * sistema RBAC; el resto de endpoints no se toca en este PR para
+ * mantener el scope (<25 min, decision PO 2026-07-21).
+ *
+ * futuro: aplicar este patron a todos los endpoints criticos
+ * (cambiar-password, editar cadencia, etc.). En este PR se deja
+ * solo el de fumigations como ejemplo verificable.
  */
 export async function POST(request: NextRequest) {
   try {
+    // Guard de role (v1.4 Track A). 401 si no hay sesion, 403 si
+    // el role no es admin ni supervisor. El try/catch exterior
+    // traduce los errores tipados a 401/403.
+    await requireRole(["admin", "supervisor"]);
+
     const body = (await request.json()) as CreateFumigationBody;
     if (!body || typeof body !== "object") {
       return NextResponse.json({ error: "Body JSON requerido." }, { status: 400 });
@@ -120,6 +136,18 @@ export async function POST(request: NextRequest) {
     });
     return NextResponse.json({ data: created }, { status: 201 });
   } catch (error) {
+    // Traduccion de errores tipados de `requireRole` (v1.4 Track A).
+    // Patron consistente con app/api/auth/change-password/route.ts.
+    const code = (error as { code?: string }).code;
+    if (code === "UNAUTHENTICATED") {
+      return NextResponse.json({ error: "No autenticado." }, { status: 401 });
+    }
+    if (code === "FORBIDDEN") {
+      return NextResponse.json(
+        { error: "No tiene permisos para registrar fumigaciones." },
+        { status: 403 }
+      );
+    }
     return NextResponse.json(
       {
         error: error instanceof Error ? error.message : "Error al registrar fumigación."
