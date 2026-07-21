@@ -1,10 +1,11 @@
 /**
- * Tests del panel de filtros del mapa (v1.3 Track A).
+ * Tests del sidebar de filtros del mapa (v1.7 Track B).
  *
- * Auditoría ui-ux-2026-07 §10 (🟠 ALTA): el mapa mostraba TODO o nada.
- * El supervisor con 200 parcelas no podía filtrar por drone / crop /
- * fumigación reciente. Este panel agrega 3 filtros server-side via
- * URL searchParams.
+ * Reemplaza a `tests/components/map/map-filters-panel.test.tsx` (v1.3
+ * Track A), que testeba el panel horizontal arriba del mapa. La nueva
+ * versión (v1.7) vive como sidebar a la derecha del mapa, dentro de un
+ * `<FilterSidebar>` primitive con 3 `<FilterSidebarSection>` (uno por
+ * filtro).
  *
  * Decisiones cubiertas por los tests:
  *   1. Render con drones disponibles en el select (derivado de summary).
@@ -13,13 +14,15 @@
  *   3. Lee los searchParams actuales y los refleja en los selects.
  *   4. Cambiar un select navega con router.push() preservando los
  *      otros params y con scroll:false (no perdemos posición de scroll).
- *   5. Botón "Limpiar filtros" navega a /map sin params.
+ *   5. Botón "Limpiar filtros" del sidebar navega a /map sin params.
  *   6. Accessibility: cada select tiene label accesible.
  *   7. Fumigated tiene 3 opciones: yes / no / (omit = todos).
+ *   8. El sidebar muestra el resultado con `resultCount` y `resultLabel`.
+ *   9. Cada section muestra el `count` y (cuando hay filtro) el
+ *      `activeCount` como badge.
  *
  * Patrón: mock de next/navigation (useRouter, useSearchParams,
- * usePathname) con control per-test. Mismo patrón que
- * tests/components/task-history/verifier-contract-adversarial.test.tsx.
+ * usePathname) con control per-test. Mismo patrón que la versión v1.3.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -46,7 +49,7 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => mockState.searchParams
 }));
 
-import { MapFiltersPanel } from "@/components/map/map-filters-panel";
+import { MapFilterSidebar } from "@/components/map/map-filter-sidebar";
 
 /**
  * Fila mínima de summary de parcelas — solo necesitamos
@@ -78,7 +81,7 @@ const DEFAULT_SUMMARY = [
   makeSummaryRow({ drone_model_code: 72, drone_model_name: "MG-1P", count_by_drone: "20" })
 ];
 
-describe("MapFiltersPanel — v1.3 Track A", () => {
+describe("MapFilterSidebar — v1.7 Track B", () => {
   beforeEach(() => {
     // Cada test arranca con searchParams vacío y mocks limpios.
     mockState.searchParams = new URLSearchParams();
@@ -90,41 +93,104 @@ describe("MapFiltersPanel — v1.3 Track A", () => {
     cleanup();
   });
 
-  it("renderiza los 3 selects con labels accesibles", () => {
-    render(<MapFiltersPanel summary={DEFAULT_SUMMARY} />);
+  it("renderiza el sidebar con titulo y resultado", () => {
+    render(<MapFilterSidebar resultCount={47} summary={DEFAULT_SUMMARY} />);
 
-    // 3 selects, uno por filtro. Usamos getByRole("combobox") porque
-    // los <select> nativos se exponen con role=combobox.
+    // Titulo del sidebar (heading h2)
+    expect(
+      screen.getByRole("heading", { name: "Filtros del mapa" })
+    ).toBeInTheDocument();
+    // Badge de resultado: aria-label "47 parcelas"
+    expect(screen.getByLabelText("47 parcelas")).toBeInTheDocument();
+  });
+
+  it("renderiza los 3 sections con titulos accesibles", () => {
+    render(<MapFilterSidebar resultCount={47} summary={DEFAULT_SUMMARY} />);
+
+    // 3 sections, uno por filtro. Cada uno es un <h3> con su titulo.
+    expect(screen.getByRole("heading", { name: "Drones" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Cultivo" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /Fumigadas \(6m\)/i })).toBeInTheDocument();
+  });
+
+  it("renderiza los 3 selects con labels accesibles", () => {
+    render(<MapFilterSidebar resultCount={47} summary={DEFAULT_SUMMARY} />);
+
     const selects = screen.getAllByRole("combobox");
     expect(selects).toHaveLength(3);
 
-    // Labels accesibles vía aria-label (no usamos <label for=> porque
-    // no tenemos ids estables en el form; aria-label es la opción más
-    // simple y accesible).
     expect(screen.getByRole("combobox", { name: /drone/i })).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: /cultivo/i })).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: /fumigaci[oó]n/i })).toBeInTheDocument();
   });
 
+  it("el section de drones muestra el count de opciones del select", () => {
+    render(<MapFilterSidebar resultCount={47} summary={DEFAULT_SUMMARY} />);
+    // 3 drones únicos. El section lo muestra como "3" al lado del titulo.
+    const dronesSection = screen.getByTestId("map-filter-section-drones");
+    expect(dronesSection).toBeInTheDocument();
+    // El count aparece como un span dentro del header del section.
+    expect(dronesSection).toHaveTextContent("3");
+  });
+
+  it("el section de cultivo muestra count=2 (Farmland + Orchards)", () => {
+    render(<MapFilterSidebar resultCount={47} summary={DEFAULT_SUMMARY} />);
+    const cropSection = screen.getByTestId("map-filter-section-crop");
+    expect(cropSection).toBeInTheDocument();
+    expect(cropSection).toHaveTextContent("2");
+  });
+
+  it("el section fumigated NO muestra count, solo activeCount cuando hay filtro", () => {
+    render(<MapFilterSidebar resultCount={47} summary={DEFAULT_SUMMARY} />);
+    const fumSection = screen.getByTestId("map-filter-section-fumigated");
+    expect(fumSection).toBeInTheDocument();
+    // Sin filtro activo: NO debe haber badge "activo" ni count textual
+    // numérico (el section no recibe `count`, solo `activeCount`).
+    expect(fumSection).not.toHaveTextContent(/\b1\b/);
+    expect(fumSection).not.toHaveTextContent(/\b2\b/);
+  });
+
+  it("el section fumigated muestra activeCount=1 cuando fumigated=yes", () => {
+    mockState.searchParams = new URLSearchParams("fumigated=yes");
+    render(<MapFilterSidebar resultCount={47} summary={DEFAULT_SUMMARY} />);
+    // Solo el section fumigated tiene activeCount=1.
+    const activeBadges = screen.getAllByLabelText("1 activo");
+    expect(activeBadges).toHaveLength(1);
+  });
+
+  it("muestra activeCount=1 en el section correspondiente cuando hay filtro", () => {
+    mockState.searchParams = new URLSearchParams("drone=202&crop=Orchards&fumigated=yes");
+
+    render(<MapFilterSidebar resultCount={47} summary={DEFAULT_SUMMARY} />);
+
+    // 3 sections, cada uno con activeCount=1 → 3 badges "activo"
+    const activeBadges = screen.getAllByLabelText("1 activo");
+    expect(activeBadges).toHaveLength(3);
+  });
+
+  it("NO muestra badge active cuando activeCount=0 (sin filtros)", () => {
+    render(<MapFilterSidebar resultCount={47} summary={DEFAULT_SUMMARY} />);
+
+    expect(screen.queryByLabelText(/activo/i)).toBeNull();
+  });
+
   it("el select de drones lista los drones del summary + opción 'Todos'", () => {
-    render(<MapFiltersPanel summary={DEFAULT_SUMMARY} />);
+    render(<MapFilterSidebar resultCount={47} summary={DEFAULT_SUMMARY} />);
     const droneSelect = screen.getByRole("combobox", { name: /drone/i }) as HTMLSelectElement;
 
     // 3 drones + "Todos" = 4 options
     expect(droneSelect.options.length).toBe(4);
-    // "Todos" (value="") es siempre la primera opción (default).
     expect(droneSelect.options[0].value).toBe("");
     expect(droneSelect.options[0].text).toMatch(/Todos/);
-    // Luego los 3 drones, ordenados por nombre (Agras T40, Agras T50, MG-1P).
+    // Ordenados por nombre (Agras T40, Agras T50, MG-1P).
     expect(droneSelect.options[1].text).toMatch(/Agras T40/);
     expect(droneSelect.options[2].text).toMatch(/Agras T50/);
     expect(droneSelect.options[3].text).toMatch(/MG-1P/);
   });
 
   it("el select de cultivo tiene solo Farmland + Orchards + 'Todos'", () => {
-    render(<MapFiltersPanel summary={DEFAULT_SUMMARY} />);
+    render(<MapFilterSidebar resultCount={47} summary={DEFAULT_SUMMARY} />);
     const cropSelect = screen.getByRole("combobox", { name: /cultivo/i }) as HTMLSelectElement;
-    // "Todos" + Farmland + Orchards = 3
     expect(cropSelect.options.length).toBe(3);
     expect(cropSelect.options[0].value).toBe("");
     expect(cropSelect.options[1].value).toBe("Farmland");
@@ -132,9 +198,8 @@ describe("MapFiltersPanel — v1.3 Track A", () => {
   });
 
   it("el select de fumigación tiene yes / no / 'Todos' (omit)", () => {
-    render(<MapFiltersPanel summary={DEFAULT_SUMMARY} />);
+    render(<MapFilterSidebar resultCount={47} summary={DEFAULT_SUMMARY} />);
     const fumSelect = screen.getByRole("combobox", { name: /fumigaci[oó]n/i }) as HTMLSelectElement;
-    // "Todos" + yes + no = 3
     expect(fumSelect.options.length).toBe(3);
     expect(fumSelect.options[0].value).toBe("");
     expect(fumSelect.options[1].value).toBe("yes");
@@ -142,7 +207,7 @@ describe("MapFiltersPanel — v1.3 Track A", () => {
   });
 
   it("default values son vacíos (sin searchParams)", () => {
-    render(<MapFiltersPanel summary={DEFAULT_SUMMARY} />);
+    render(<MapFilterSidebar resultCount={47} summary={DEFAULT_SUMMARY} />);
     const droneSelect = screen.getByRole("combobox", { name: /drone/i }) as HTMLSelectElement;
     const cropSelect = screen.getByRole("combobox", { name: /cultivo/i }) as HTMLSelectElement;
     const fumSelect = screen.getByRole("combobox", { name: /fumigaci[oó]n/i }) as HTMLSelectElement;
@@ -156,7 +221,7 @@ describe("MapFiltersPanel — v1.3 Track A", () => {
     // El usuario llegó a /map?drone=202&crop=Orchards&fumigated=yes
     mockState.searchParams = new URLSearchParams("drone=202&crop=Orchards&fumigated=yes");
 
-    render(<MapFiltersPanel summary={DEFAULT_SUMMARY} />);
+    render(<MapFilterSidebar resultCount={47} summary={DEFAULT_SUMMARY} />);
 
     const droneSelect = screen.getByRole("combobox", { name: /drone/i }) as HTMLSelectElement;
     const cropSelect = screen.getByRole("combobox", { name: /cultivo/i }) as HTMLSelectElement;
@@ -168,13 +233,11 @@ describe("MapFiltersPanel — v1.3 Track A", () => {
   });
 
   it("cambiar el select de drone navega con router.push y scroll:false", () => {
-    render(<MapFiltersPanel summary={DEFAULT_SUMMARY} />);
+    render(<MapFilterSidebar resultCount={47} summary={DEFAULT_SUMMARY} />);
     const droneSelect = screen.getByRole("combobox", { name: /drone/i }) as HTMLSelectElement;
 
     fireEvent.change(droneSelect, { target: { value: "201" } });
 
-    // router.push debe haberse llamado con la URL con el query string
-    // y la opción { scroll: false } para no perder la posición de scroll.
     expect(mockState.pushMock).toHaveBeenCalledTimes(1);
     const [url, options] = mockState.pushMock.mock.calls[0];
     expect(url).toContain("/map");
@@ -185,7 +248,7 @@ describe("MapFiltersPanel — v1.3 Track A", () => {
   it("cambiar el select de crop preserva el filtro de drone existente", () => {
     mockState.searchParams = new URLSearchParams("drone=202");
 
-    render(<MapFiltersPanel summary={DEFAULT_SUMMARY} />);
+    render(<MapFilterSidebar resultCount={47} summary={DEFAULT_SUMMARY} />);
     const cropSelect = screen.getByRole("combobox", { name: /cultivo/i }) as HTMLSelectElement;
 
     fireEvent.change(cropSelect, { target: { value: "Orchards" } });
@@ -197,7 +260,7 @@ describe("MapFiltersPanel — v1.3 Track A", () => {
   });
 
   it("cambiar el select de fumigated a 'no' navega con fumigated=no", () => {
-    render(<MapFiltersPanel summary={DEFAULT_SUMMARY} />);
+    render(<MapFilterSidebar resultCount={47} summary={DEFAULT_SUMMARY} />);
     const fumSelect = screen.getByRole("combobox", { name: /fumigaci[oó]n/i }) as HTMLSelectElement;
 
     fireEvent.change(fumSelect, { target: { value: "no" } });
@@ -207,10 +270,10 @@ describe("MapFiltersPanel — v1.3 Track A", () => {
     expect(url).toContain("fumigated=no");
   });
 
-  it("botón 'Limpiar filtros' navega a /map sin query params", () => {
+  it("botón 'Limpiar filtros' del sidebar navega a /map sin query params", () => {
     mockState.searchParams = new URLSearchParams("drone=202&crop=Orchards&fumigated=yes");
 
-    render(<MapFiltersPanel summary={DEFAULT_SUMMARY} />);
+    render(<MapFilterSidebar resultCount={47} summary={DEFAULT_SUMMARY} />);
     const clearButton = screen.getByRole("button", { name: /limpiar filtros/i });
     expect(clearButton).toBeInTheDocument();
 
@@ -225,7 +288,7 @@ describe("MapFiltersPanel — v1.3 Track A", () => {
   });
 
   it("renderiza con summary vacío (sin drones) — el select queda con solo 'Todos'", () => {
-    render(<MapFiltersPanel summary={[]} />);
+    render(<MapFilterSidebar resultCount={0} summary={[]} />);
     const droneSelect = screen.getByRole("combobox", { name: /drone/i }) as HTMLSelectElement;
     expect(droneSelect.options.length).toBe(1);
     expect(droneSelect.options[0].value).toBe("");
@@ -234,14 +297,14 @@ describe("MapFiltersPanel — v1.3 Track A", () => {
   it("deduplica drones por drone_model_code (no se repiten en el select)", () => {
     // Caso real: el summary agrupa por (drone_model_code, drone_model_name)
     // pero si la BD tiene NULL en code, podemos terminar con 2 filas para
-    // el mismo dron. El panel debe deduplicar por code (que es el filter key).
+    // el mismo dron. El sidebar debe deduplicar por code (que es el filter key).
     const summaryWithDup = [
       makeSummaryRow({ drone_model_code: 201, drone_model_name: "Agras T40", count_by_drone: "100" }),
       makeSummaryRow({ drone_model_code: 201, drone_model_name: "Agras T40 (otro lote)", count_by_drone: "20" }),
       makeSummaryRow({ drone_model_code: 202, drone_model_name: "Agras T50", count_by_drone: "30" })
     ];
 
-    render(<MapFiltersPanel summary={summaryWithDup} />);
+    render(<MapFilterSidebar resultCount={47} summary={summaryWithDup} />);
     const droneSelect = screen.getByRole("combobox", { name: /drone/i }) as HTMLSelectElement;
     // 2 codes únicos + "Todos" = 3 options
     expect(droneSelect.options.length).toBe(3);
@@ -253,7 +316,7 @@ describe("MapFiltersPanel — v1.3 Track A", () => {
       makeSummaryRow({ drone_model_code: null, drone_model_name: "Sin asignar", count_by_drone: "20" })
     ];
 
-    render(<MapFiltersPanel summary={summaryWithNull} />);
+    render(<MapFilterSidebar resultCount={47} summary={summaryWithNull} />);
     const droneSelect = screen.getByRole("combobox", { name: /drone/i }) as HTMLSelectElement;
     // Solo Agras T40 (code no null) + "Todos" = 2 options
     expect(droneSelect.options.length).toBe(2);
@@ -263,7 +326,7 @@ describe("MapFiltersPanel — v1.3 Track A", () => {
     // Caso: el usuario filtró por drone, después quiere quitar SOLO ese filtro.
     mockState.searchParams = new URLSearchParams("drone=202");
 
-    render(<MapFiltersPanel summary={DEFAULT_SUMMARY} />);
+    render(<MapFilterSidebar resultCount={47} summary={DEFAULT_SUMMARY} />);
     const droneSelect = screen.getByRole("combobox", { name: /drone/i }) as HTMLSelectElement;
 
     fireEvent.change(droneSelect, { target: { value: "" } });

@@ -3,52 +3,62 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useMemo } from "react";
 
+import { FilterSidebar, FilterSidebarSection } from "@/components/ui/filter-sidebar";
 import type { getParcelsSummary } from "@/api/repositories";
 
 /**
- * components/map/map-filters-panel.tsx
+ * components/map/map-filter-sidebar.tsx
  *
- * v1.3 Track A — panel de filtros avanzados del mapa.
+ * v1.7 Track B — sidebar de filtros del mapa (mapa a la izquierda, filtros a
+ * la derecha).
  *
- * Auditoría ui-ux-2026-07 §10 (🟠 ALTA): el mapa mostraba TODO o nada.
- * El supervisor con 200 parcelas no podía filtrar por drone / crop /
- * fumigación reciente. Este panel agrega 3 filtros server-side via
- * URL searchParams (drone, crop, fumigated).
+ * Reemplaza a `components/map/map-filters-panel.tsx` (v1.3 Track A),
+ * que era un `<form>` horizontal arriba del mapa. La nueva versión
+ * envuelve los 3 selects en `<FilterSidebar>` + `<FilterSidebarSection>`
+ * (primitives de v1.7) y la page la monta como sidebar a la derecha
+ * del mapa en el body de `/map`.
  *
- * Decisiones de diseño:
- *   1. **Filtros = URL searchParams** (no estado local). Permite
- *      compartir filtros por link, navegar con back/forward, y la
- *      página es server-rendered: el filtro se aplica en el SQL antes
- *      de mandar los polígonos al cliente.
- *   2. **`<form>` con `router.push()` y `scroll: false`**: el form
- *      permite submit con Enter (a11y) pero el handler intercepta
- *      el submit y los cambios de select para no hacer full reload.
- *   3. **`scroll: false`**: el mapa del operador puede tener mucho
- *      zoom/pan. Al cambiar filtro, no queremos que la página
- *      salte al top.
- *   4. **Deduplicar drones por `drone_model_code`**: `getParcelsSummary`
- *      agrupa por (code, name); si hay lotes con el mismo code pero
- *      nombres distintos, solo dejamos el primero.
- *   5. **Omitir drones con `code` null**: no se puede filtrar SQL por
- *      NULL desde un <select> con value="" — se filtra client-side.
- *   6. **Limpiar = navega a /map** (sin query string). El botón
- *      "Limpiar filtros" borra TODOS los filtros de una.
- *   7. **No tocar `map-view.tsx` ni `map-client.tsx`**: los polígonos
- *      ya vienen filtrados del server (getParcelsNormalized con
- *      filter={droneModelCode, fieldType}). El cliente no sabe que
- *      hubo filtro — la abstracción es transparente.
+ * Decisiones:
+ *   - **Filtros = URL searchParams** (mismo patrón que v1.3). Permite
+ *     compartir filtros por link, navegar con back/forward, y la
+ *     página es server-rendered: el filtro se aplica en el SQL antes
+ *     de mandar los polígonos al cliente.
+ *   - **`router.push()` con `scroll: false`**: el mapa del operador
+ *     puede tener mucho zoom/pan. Al cambiar filtro, no queremos que
+ *     la página salte al top.
+ *   - **`onClear` del sidebar** navega a `/map` sin query string. Es
+ *     el equivalente del "Limpiar filtros" del v1.3 pero provisto por
+ *     el primitive (no por este componente).
+ *   - **Deduplicar drones por `drone_model_code`**: `getParcelsSummary`
+ *     agrupa por (code, name); si hay lotes con el mismo code pero
+ *     nombres distintos, solo dejamos el primero.
+ *   - **Omitir drones con `code` null**: no se puede filtrar SQL por
+ *     NULL desde un <select> con value="" — se filtra client-side.
+ *   - **Conteo del section "Drones"**: usamos el conteo de drones
+ *     únicos (post-dedup), no el largo de `summary`, para que el badge
+ *     del primitive refleje opciones reales en el select.
+ *   - **Conteo del section "Cultivo"**: 2 (Farmland + Orchards),
+ *     no el total de tipos en la BD. Es lo que el usuario puede
+ *     elegir.
+ *   - **Conteo del section "Fumigadas"**: no se pasa `count`, solo
+ *     `activeCount` cuando hay filtro activo.
  */
 
 type ParcelsSummaryRow = Awaited<ReturnType<typeof getParcelsSummary>>[number];
 
-export interface MapFiltersPanelProps {
+export interface MapFilterSidebarProps {
   /**
-   * Filas del summary de parcelas (mismo shape que `MapStatsIsland`).
-   * Se usa SOLO para derivar la lista única de `drone_model_code` +
-   * `drone_model_name` que aparece en el select de "Drone". El panel
-   * NO recalcula KPIs ni totales — eso es responsabilidad del island.
+   * Filas del summary de parcelas. Se usa SOLO para derivar la lista
+   * única de `drone_model_code` + `drone_model_name` que aparece en
+   * el select de "Drones".
    */
   summary: ParcelsSummaryRow[];
+  /**
+   * Conteo de parcelas visibles después de aplicar todos los filtros.
+   * Se muestra en el badge del header del sidebar (a11y: el operador
+   * ve cuántas parcelas pasan el filtro actual).
+   */
+  resultCount: number;
 }
 
 /**
@@ -118,7 +128,7 @@ export function buildFiltersQueryString(
   return qs ? `?${qs}` : "";
 }
 
-export function MapFiltersPanel({ summary }: MapFiltersPanelProps) {
+export function MapFilterSidebar({ summary, resultCount }: MapFilterSidebarProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -145,6 +155,12 @@ export function MapFiltersPanel({ summary }: MapFiltersPanelProps) {
   const currentCrop = parseCropParam(searchParams.get("crop"));
   const currentFumigated = parseFumigatedParam(searchParams.get("fumigated"));
 
+  // activeCount por section: 1 si hay filtro, 0 si no. Fumigated:
+  // "" (omit) = 0, "yes"/"no" = 1.
+  const droneActive = currentDrone ? 1 : 0;
+  const cropActive = currentCrop ? 1 : 0;
+  const fumigatedActive = currentFumigated ? 1 : 0;
+
   const navigateWith = useCallback(
     (next: { drone: string; crop: string; fumigated: FumigatedFilter }) => {
       const qs = buildFiltersQueryString(searchParams, next);
@@ -169,35 +185,33 @@ export function MapFiltersPanel({ summary }: MapFiltersPanelProps) {
     });
   };
 
-  const onClearFilters = () => {
-    // Navegamos a /map puro. router.push con path solo = strip query.
+  // onClear del FilterSidebar: navega a /map sin query string.
+  // Es el equivalente del "Limpiar filtros" del v1.3.
+  const handleClear = useCallback(() => {
     router.push("/map", { scroll: false });
-  };
-
-  // Detectamos "hay filtros activos" para mostrar el botón "Limpiar"
-  // de forma más prominente (y no confundir al usuario).
-  const hasActiveFilters = Boolean(currentDrone || currentCrop || currentFumigated);
+  }, [router]);
 
   return (
-    <form
-      aria-label="Filtros del mapa"
-      className="mb-4 flex flex-wrap items-end gap-3 rounded-2xl border border-[#d2ddd6] bg-white p-4 shadow-[0px_18px_40px_rgba(15,23,42,0.08)]"
-      data-testid="map-filters-panel"
-      // El form permite submit con Enter, pero como cada select navega
-      // onChange, no necesitamos un botón "Aplicar". onSubmit vacío
-      // evita un POST accidental al URL actual.
-      onSubmit={(e) => e.preventDefault()}
+    <FilterSidebar
+      ariaLabel="Filtros del mapa"
+      className="h-full"
+      clearLabel="Limpiar filtros"
+      onClear={handleClear}
+      resultCount={resultCount}
+      resultLabel="parcelas"
+      testId="map-filter-sidebar"
+      title="Filtros del mapa"
     >
-      <div className="flex flex-col gap-1">
-        <label
-          className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#587064]"
-          htmlFor="map-filter-drone"
-        >
-          Drone
-        </label>
+      <FilterSidebarSection
+        activeCount={droneActive}
+        count={droneOptions.length}
+        testId="map-filter-section-drones"
+        title="Drones"
+      >
         <select
           aria-label="Filtrar por modelo de drone"
           className="rounded-lg border border-[#cfd8d3] bg-white px-3 py-2 text-sm font-semibold text-[#121815] focus:border-[#0b5f2d] focus:outline-none focus:ring-2 focus:ring-[#0b5f2d]/30"
+          data-testid="map-filter-drone"
           id="map-filter-drone"
           onChange={onChangeDrone}
           value={currentDrone}
@@ -209,18 +223,18 @@ export function MapFiltersPanel({ summary }: MapFiltersPanelProps) {
             </option>
           ))}
         </select>
-      </div>
+      </FilterSidebarSection>
 
-      <div className="flex flex-col gap-1">
-        <label
-          className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#587064]"
-          htmlFor="map-filter-crop"
-        >
-          Cultivo
-        </label>
+      <FilterSidebarSection
+        activeCount={cropActive}
+        count={2}
+        testId="map-filter-section-crop"
+        title="Cultivo"
+      >
         <select
           aria-label="Filtrar por tipo de cultivo"
           className="rounded-lg border border-[#cfd8d3] bg-white px-3 py-2 text-sm font-semibold text-[#121815] focus:border-[#0b5f2d] focus:outline-none focus:ring-2 focus:ring-[#0b5f2d]/30"
+          data-testid="map-filter-crop"
           id="map-filter-crop"
           onChange={onChangeCrop}
           value={currentCrop}
@@ -229,18 +243,17 @@ export function MapFiltersPanel({ summary }: MapFiltersPanelProps) {
           <option value="Farmland">Farmland</option>
           <option value="Orchards">Orchards</option>
         </select>
-      </div>
+      </FilterSidebarSection>
 
-      <div className="flex flex-col gap-1">
-        <label
-          className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#587064]"
-          htmlFor="map-filter-fumigated"
-        >
-          Fumigación reciente
-        </label>
+      <FilterSidebarSection
+        activeCount={fumigatedActive}
+        testId="map-filter-section-fumigated"
+        title="Fumigadas (6m)"
+      >
         <select
           aria-label="Filtrar por fumigación reciente (últimos 6 meses)"
           className="rounded-lg border border-[#cfd8d3] bg-white px-3 py-2 text-sm font-semibold text-[#121815] focus:border-[#0b5f2d] focus:outline-none focus:ring-2 focus:ring-[#0b5f2d]/30"
+          data-testid="map-filter-fumigated"
           id="map-filter-fumigated"
           onChange={onChangeFumigated}
           value={currentFumigated}
@@ -249,21 +262,7 @@ export function MapFiltersPanel({ summary }: MapFiltersPanelProps) {
           <option value="yes">Con fumigación</option>
           <option value="no">Sin fumigación</option>
         </select>
-      </div>
-
-      <button
-        className={
-          "rounded-full px-4 py-2 text-sm font-semibold transition " +
-          (hasActiveFilters
-            ? "bg-[#0b5f2d] text-white hover:bg-[#0a4f25]"
-            : "border border-[#cfd8d3] bg-white text-[#4a5b50] hover:bg-[#f4f7f4]")
-        }
-        disabled={!hasActiveFilters}
-        onClick={onClearFilters}
-        type="button"
-      >
-        Limpiar filtros
-      </button>
-    </form>
+      </FilterSidebarSection>
+    </FilterSidebar>
   );
 }
