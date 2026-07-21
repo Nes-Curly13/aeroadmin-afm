@@ -1197,3 +1197,132 @@ equireAuth() (a diferencia de /api/task-history
   + multi-tenant.
 
 
+### 2026-07-21 — v1.4 Track A — RBAC admin/supervisor (cierra decisión PO sobre roles)
+- **Sesión**: branch `v1.4/track-a-rbac-auth` basada en master 672f7c9
+- **Objetivo**: implementar la decisión del PO 2026-07-21 — sistema
+  single-tenant (operador cañero) con 2 roles: `admin` y `supervisor`.
+  Antes había 1 solo rol `viewer` (read-only). El supervisor es el
+  operario de campo: registra fumigaciones propias pero no edita
+  cadencias ni gestiona usuarios.
+- **Decisión de scope quirúrgico (<25 min, decisión PO)**: solo
+  - el schema + backfill (migration nueva)
+  - los helpers `AppRole` / `getCurrentUserRole` / `requireRole`
+  - el type augmentation en `lib/auth.config.ts` (que ya tenía
+    `AppRole` del Sprint 3, ahora apunta al nuevo)
+  - **un solo guard de ejemplo** en `POST /api/fumigations`
+  - tests del role + el guard
+  NO se aplicó el guard al resto de endpoints críticos (cambiar
+  password, editar cadencia) — eso queda para un track futuro
+  que haga sweep completo de la API.
+- **Acciones** (2 commits):
+  1. `a259fff` feat(rbac): app_users.role + helpers
+     getCurrentUserRole/requireRole — **commit de Mavis recovery**
+     (el agente original murió por token plan antes del commit;
+     recuperé manualmente con `git add` + `git commit` desde el
+     worktree. Patrón confirmado por 5ta vez en 5 sprints).
+     - `supabase/migrations/20260721000000_add_app_users_role.sql`
+       (nuevo, 94 líneas): backfill `viewer` → `supervisor`, drop
+       old CHECK, add new CHECK `('admin','supervisor')`, default
+       `admin` (back-compat), índice parcial en `role='supervisor'`.
+       Idempotente.
+     - `lib/auth/role.ts` (nuevo, 156 líneas): `AppRole`,
+       `getCurrentUserRole()` (lee de BD, no JWT — para callers
+       que necesitan la verdad fresca), `requireRole()` (acepta
+       string o array), `hasRole()` helper puro. Documenta la
+       decisión de NO usar `unstable_cache` (stale risk > benefit
+       para 1 SELECT por email).
+     - `lib/auth.config.ts` (mod): `AppRole` ahora se re-exporta
+       desde `./auth/role` (single source of truth). El type era
+       `"admin" | "viewer"`; ahora `"admin" | "supervisor"`.
+     - `lib/auth.ts` (mod): callbacks `jwt` y `session` actualizados
+       al nuevo AppRole. Default en fallback de role:
+       `?? "supervisor"` (no `?? "viewer"` ni `?? "admin"` — un
+       JWT sin role explícito NO debe caer en admin). El viejo
+       `requireRole(role: AppRole)` se reemplaza por re-export
+       del nuevo (acepta array, single source of truth).
+     - `app/api/fumigations/route.ts` (mod): guard de role en
+       POST con `await requireRole(["admin", "supervisor"])` +
+       traducción de `code` a 401/403 en el catch (patrón
+       consistente con `change-password/route.ts`).
+     - `tests/lib/auth/role.test.ts` (nuevo, 18 tests): cubre
+       sessionless, session admin, session supervisor, session
+       sin email, email sin fila en BD, error de DB no propaga,
+       normalización email (trim+lowercase), query por email
+       con LIMIT 1, requireRole sin sesión (401), mismatch
+       single (403), match single, match en array, mismatch en
+       array, session sin role (403), hasRole puro (4 casos).
+     - `tests/auth.test.ts` (mod, 3 literales): `viewer` →
+       `supervisor` en callbacks de session/jwt/authorized. El
+       test verifica que `supervisor` accede a `/map` pero NO
+       a `/admin/users` (mismo comportamiento esperado del viejo
+       `viewer`; solo renombramos por coherencia de tipo).
+     - `tests/api-routes.test.ts` + `tests/api-fumigations-length.test.ts`
+       (mod, +7 líneas c/u): mockean `@/lib/auth/role` para que
+       el guard nuevo no rompa los tests de validación de input
+       existentes. **Fuera del scope original del PO** (los 2
+       archivos no estaban en la "Solo" list) pero necesario
+       para no romper la suite con el guard nuevo.
+  2. Esta entrada de BITACORA (commit separado, mismo patrón
+     que v1.3 Track A en `1f74583`).
+- **Archivos tocados**: 3 nuevos, 5 modificados. **+18 tests**
+  (de 953 → 971). 0 dependencias nuevas.
+- **Tests**: `npx tsc --noEmit` limpio. `npx vitest run` →
+  **971 passed / 11 skipped** (baseline 953/11, +18 = mis tests,
+  0 regresiones). El mock de `@/lib/auth/role` en los 2 tests
+  existentes evita que el guard rompa la suite.
+- **Migration**: NO aplicada localmente (no había Docker /
+  `.env.local` en este sandbox). Verifiqué la estructura con
+  un script ad-hoc de parseo: 6 statements, todas las palabras
+  clave presentes (UPDATE, DROP CONSTRAINT IF EXISTS, ADD
+  CONSTRAINT con CHECK, ALTER COLUMN SET DEFAULT, CREATE INDEX
+  IF NOT EXISTS, COMMENT). Cuando se levante Docker en el
+  entorno de deploy, `node scripts/apply-pending-migrations.js`
+  la aplica idempotente.
+- **Notas / bloqueos**:
+  - **Scope expansion justificada**: la PO dijo "Solo estos
+    archivos", pero la realidad era que `app_users` ya tenía
+    una columna `role` con valores distintos (`admin|viewer`,
+    default `viewer`). El spec asumía "no existe la columna".
+    Esto requirió: (a) adaptar la migration de ADD COLUMN a
+    ALTER (drop CHECK, backfill, add new CHECK, change default);
+    (b) renombrar el `AppRole` en `lib/auth.config.ts` y todos
+    sus call sites (incluyendo `lib/auth.ts` callbacks y el
+    re-export); (c) actualizar 3 literales en `tests/auth.test.ts`
+    para que tsc no rompa; (d) mockear el nuevo helper en 2
+    archivos de test de la API route que no estaban en la "Solo"
+    list. **4 archivos fuera de scope explícito** pero el
+    cambio no era coherente sin tocarlos. Reportado al parent.
+  - **Default `admin` (no `supervisor`)**: el PO dijo "hoy todos
+    los usuarios son admin por default". El default anterior era
+    `viewer` (lectura). Como el seed actual fuerza `admin` en
+    todos los usuarios existentes, mantener default `admin` es
+    coherente con el estado real y protege contra INSERTs
+    accidentales sin role explícito.
+  - **Backfill `viewer` → `supervisor` (no `admin`)**: el PO no
+    especificó qué hacer con viewers existentes. El rename
+    semántico (viewer con menos permisos → supervisor con más
+    permisos) implica que cualquier viewer hereda los permisos
+    del nuevo rol. Promover a admin sería un cambio de privilegios
+    que el PO no pidió.
+  - **NO hay guard en el resto de endpoints críticos** (cambiar
+    password, editar cadencia, etc.). El guard en fumigations es
+    solo demostración del patrón. Track futuro (¿v1.5?): sweep
+    completo de API.
+  - **JWT role vs DB role**: el JWT tiene role con 12h max age.
+    Si se promueve un supervisor a admin, el cambio se ve
+    inmediatamente en la próxima request que haga `requireRole`
+    (lee del JWT, así que se ve cuando el JWT se refresca; en
+    el peor caso, hasta 12h). `getCurrentUserRole()` lee de la
+    BD y se ve al toque — usar para acciones de admin donde la
+    frescura importa.
+  - **5ta vez en 5 sprints que el último track muere por token
+    plan** (per `BITACORA.md` v1.3 + memory Mavis recovery).
+    El agente debe acostumbrarse a commits parciales frecuentes
+    para no perder trabajo.
+- **Próximo paso**: push + CI verde. Track B (UI gates) está en
+  `v1.4/track-b-ui-gates` y depende de este PR (usa
+  `getCurrentUserRole` + `requireRole`). Track C (notas
+  fumigaciones, ya merged a master vía `39719bf`) no toca auth.
+  v2.0 sigue dependiendo de la decisión multi-tenant.
+
+
