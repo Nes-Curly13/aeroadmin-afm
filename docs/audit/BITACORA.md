@@ -1420,3 +1420,63 @@ equireAuth() (a diferencia de /api/task-history
     heatmap, PWA.
 
 
+### 2026-07-21 — Q4 v1.6 slice 1 (alertas derivan de dji_fumigations — audit #2)
+- **Sesión**: `mvs_4aa351e2363341b08ef0c6428712cd9b` (root, sin worktrees)
+- **Objetivo**: cerrar el bug estructural de la auditoria #2 "doble
+  modelo fumigaciones" en su primera rebanada — solo alertas, donde
+  el bug es visible y duele. La slice completa del refactor (tambien
+  metrics, KPIs, etc.) queda para sprints futuros.
+- **El bug visible**: `getAlerts()` derivaba de `dji_flights` agregado
+  por DIA total. El `parcel_id` resultante era el id sintetico del
+  dia (1, 2, 3...) y `parcel_name` era la fecha. El operador veia
+  "alertas" que NO correspondian a ninguna parcela real — eran buckets
+  por dia sin identidad de finca. Resultado: KPIs dudosos, panel
+  "Alertas DJI" con mensajes tipo "2026-06-02 Agriculture: 94 salidas,
+  62.5 mu" en vez de "Parcela #904 Porvenir STE 3: 6 eventos, 67.45 mu".
+- **Decision de scope**: solo `getAlerts()`. `getFlights()`,
+  `getDashboardMetrics()`, `getFlightPoints()` siguen derivando de
+  `dji_flights` (out of scope de este sprint). `dji_flights` NO se
+  borra — sigue siendo la fuente de data de los rollups por dia en
+  `/history`, `/task-history` y el dashboard.
+- **Acciones** (1 commit de codigo, 1 pendiente de docs):
+  1. `94d9dbb` feat(rbac): alertas derivan de dji_fumigations (v1.6 c1)
+     - `lib/dji-fumigations-aggregate.ts` (nuevo, ~270 lineas, puro):
+       `aggregateFumigationsByParcelAndDay(rows)` agrupa fumigaciones
+       per-parcela por (parcel_id, fumigation_date) y devuelve
+       `FumigationDailySummary[]`. `buildAlertFromFumigation(summary)`
+       produce `DjiAlertRecord` con parcel_id y parcel_name REALES.
+       Helper one-shot `buildAlertsFromFumigations(rows)`.
+       Thresholds (60 mu / 30 mu / 80 sorties / 40 sorties) son los
+       MISMOS del agregador viejo — recalibrar es scope separado
+       (audit #2.2).
+     - `lib/cache.ts`: nuevo `fetchAlertsFromFumigationsRaw()` con SQL
+       JOIN dji_fumigations + dji_parcels, WHERE parcel_id NOT NULL
+       AND deleted_at IS NULL (respeta soft delete v1.1). El codigo
+       viejo se conserva como `fetchAlertsLegacyFromFlightsRaw()`
+       (privado, rollback-only, removal v2.0).
+     - `scripts/check-fumigations-coverage.js` (nuevo, CLI): detecta
+       gaps de cobertura antes de confiar ciegamente en el swap.
+       Cuenta dias con flights vs dias con fumigations per-parcela
+       en los ultimos N dias. Exit 1 si cobertura < threshold.
+       `scripts/check-fumigations-coverage.d.ts` companion para tipos.
+- **Archivos tocados**: 6 (1 cache.ts modificado, 1 nuevo aggregator
+  + tests, 1 nuevo script + d.ts + tests). 0 migrations, 0 schema
+  changes, 0 deps nuevas.
+- **Estado**: v1.6 slice 1 cerrado. **+24 tests** (de 1035 → 1059,
+  11 skipped DB). `npx tsc --noEmit` limpio.
+- **Riesgo conocido**: si el backfill historico tiene gaps, las
+  nuevas alertas van a ser MENOS (no mas) que las actuales —
+  fumigations es subset de flights. Eso es lo correcto (no queremos
+  alertas falsas) pero hay que avisarle al operador cuando se
+  despliegue a prod. **Pre-despliegue**: correr
+  `node scripts/check-fumigations-coverage.js` para auditar gaps.
+  Si hay gaps, re-correr `scripts/backfill-fumigations-from-flights.js`
+  (idempotente) y volver a chequear.
+- **Tests**: 1059/1059 verde local. Cron semanal refresca fumigations
+  automaticamente, asi que la cobertura mejora con cada lunes.
+- **Proximo paso**: push + CI verde. v1.6 slice 2 (opcional) seria
+  aplicar el mismo patron a `getDashboardMetrics()` si el operador
+  reporta problemas similares en los KPIs. **No automatico** — esperar
+  feedback real antes de seguir refactorizando.
+
+
