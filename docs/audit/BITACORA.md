@@ -1008,6 +1008,84 @@ equireAuth() (a diferencia de /api/task-history
     total / frecuencia / ambas), copy del mensaje.
 
 
+### 2026-07-21 — Q4 v1.4 sprint (RBAC + Notes fumigaciones)
+
+- **Sesión**: `mvs_4aa351e2363341b08ef0c6428712cd9b` (root)
+- **Decisión PO 2026-07-21**: sistema **single-tenant** (solo para el
+  dueño del operador cañero). 2 roles: **admin | supervisor**.
+  Sin billing/pricing. NO multi-tenant. Esto destranca el 80% del
+  roadmap que estaba bloqueado.
+- **Objetivo**: cerrar la decisión + implementar RBAC + audit #11
+  (notes fumigaciones). 3 tracks paralelos en worktrees.
+- **Acciones** (5 commits total):
+  1. `fd20752` feat(q-11): notas humanas en fumigaciones, separadas de provenance (Track C)
+     - `supabase/migrations/20260721010000_add_fumigation_human_notes.sql`
+       (nuevo): agrega `dji_fumigations.human_notes TEXT` con CHECK
+       `length ≤ 2000`. Idempotente. Schema aditivo (no rompe nada).
+     - `lib/types.ts` — `DjiFumigationEvent.human_notes: string | null`.
+     - `app/api/fumigations/route.ts` — body acepta `human_notes`,
+       valida con `validateOptionalString` (mismo patrón Q4 v1.1).
+     - `components/parcels/parcel-fumigations.tsx` — form renombra
+       campo "notes" a "Agregar nota" con helper text.
+     - Render del historial: notas humanas en italic, separadas
+       de metadata técnica (que sigue oculta).
+     - 10 tests del flujo end-to-end.
+  2. `5a93744` docs(v1.4): entrada BITACORA (Track C)
+  3. `a259fff` feat(rbac): app_users.role + helpers getCurrentUserRole/requireRole (Track A — recovery manual)
+     - `supabase/migrations/20260721000000_add_app_users_role.sql`
+       (nuevo): `role TEXT NOT NULL DEFAULT 'admin' CHECK (role IN
+       ('admin', 'supervisor'))` + índice parcial. Idempotente.
+       Default 'admin' cubre todos los usuarios existentes (back-compat).
+     - `lib/auth/role.ts` (nuevo): `AppRole` type, `getCurrentUserRole()`
+       (cache con `unstable_cache`), `requireRole(role)` throws 403.
+     - `lib/auth.ts` + `lib/auth.config.ts`: type augmentation
+       agrega `role` al Session y JWT.
+     - `app/api/fumigations/route.ts`: guard de ejemplo con
+       `requireRole(['admin', 'supervisor'])`. NO aplicado a todos
+       los endpoints — el patrón es el deliverable.
+     - 6+ tests del role + integration con API route.
+  4. `0fc3c5f` feat(rbac): UI gates por role (Track B — recovery manual)
+     - `components/auth/types.ts` (nuevo) — tipos compartidos.
+     - `components/auth/use-user-role.ts` (nuevo) — hook client
+       que hace fetch a `/api/auth/me` y cachea en state. 0 deps.
+     - `app/api/auth/me/route.ts` (nuevo, GET): devuelve
+       `{ email, role, name }`. 401 sin sesión.
+     - `components/auth/role-gate.tsx` (nuevo): `<RoleGate allow={...}>`.
+     - `components/auth/role-badge.tsx` (nuevo): badge en header
+       con color por role.
+     - `app/devices/page.tsx`: banner "Próximamente" envuelto en
+       `<RoleGate allow={['admin']}>` (demo del patrón).
+     - `components/parcels/parcel-fumigations.tsx`: form
+       envuelto en `<RoleGate allow={['admin', 'supervisor']}>`.
+     - 11+ tests del panel + endpoint.
+- **Archivos tocados**: 17 nuevos, 7 modificados.
+- **Estado**: ✅ Q4 v1.4 cerrado. RBAC + #11 (notes) implementados.
+  **+56 tests** (de 953 → 1009). 0 dependencias nuevas.
+- **Tests**: `npx tsc --noEmit` limpio. 1009/1009 verde local.
+- **Notas / bloqueos**:
+  - **5ta y 6ta vez en 5 sprints que el último track muere por
+    token plan sin commit**. Tracks A y B requirieron recovery manual
+    (commit + push desde el worktree con mensaje documentando
+    el recovery). Patrón confirmado y documentado en memory.
+  - **Aplicar migrations en producción**:
+    ```bash
+    node scripts/apply-pending-migrations.js
+    ```
+    Aplica 2 migrations: `add_app_users_role` y
+    `add_fumigation_human_notes`. Idempotentes.
+  - **El guard `requireRole()` solo se aplica a `POST /api/fumigations`**
+    como demo. Para extender a todos los endpoints, se necesita
+    un sprint de refactor (recomendado para v1.5).
+- **Próximo paso**: push + CI verde. Roadmap post-v1.4:
+  - **v1.5**: extender `requireRole` a todos los endpoints críticos
+    (POST /api/fumigation-schedule, PATCH endpoints futuros).
+  - **v1.6**: refactor doble modelo fumigaciones (audit #2 — el
+    bug estructural que afecta confianza de alertas).
+  - **v1.7**: M2 notificaciones (input del operador pendiente).
+  - **Backlog**: #13 dark mode, reportes compartibles,
+    vista satélite ya en master (v1.2).
+
+
 ### 2026-07-20 — Q4 v1.1 sprint (9 mejoras críticas del audit cerrado)
 - **Sesión**: `mvs_4aa351e2363341b08ef0c6428712cd9b` (root)
 - **Objetivo**: cerrar los items 🔴 y 🟠 del audit ui-ux-2026-07 que
