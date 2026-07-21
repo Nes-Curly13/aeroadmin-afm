@@ -1,8 +1,39 @@
+import { redirect } from "next/navigation";
+
 import { AppShell } from "@/components/app-shell";
 import { DeviceGrid } from "@/components/devices/device-grid";
+import { auth } from "@/lib/auth";
+import { normalizeRole } from "@/components/auth/types";
 import { DEFAULT_DEVICES } from "@/lib/devices";
 
-export default function DevicesPage() {
+/**
+ * /devices — Gestion de dispositivos.
+ *
+ * Track B v1.4 — UI gates por role:
+ *   - Si el user es supervisor (no admin) -> redirect("/").
+ *     El banner "Proximamente" y la grilla son contenido admin-only
+ *     (gestion de flota, alta/baja de equipos). El supervisor no
+ *     necesita verlos.
+ *   - Si el user es admin -> renderiza la pagina completa.
+ *   - Si no hay sesion -> el middleware Edge (proxy.ts) ya redirige
+ *     a /login antes de llegar aca. La lectura de `auth()` es
+ *     defensiva: si por algun motivo pasa sin sesion, redirect a /.
+ *
+ * El redirect es server-side (no client-side gate) porque esta
+ * pagina es server component y el server es la unica fuente de
+ * verdad que el usuario no puede bypassear. Un RoleGate client
+ * ocultaria la UI pero un curl podria leer la pagina igual.
+ */
+export default async function DevicesPage() {
+  const session = await auth();
+  const user = session?.user as { role?: string | null } | undefined;
+  const role = normalizeRole(user?.role);
+
+  if (role !== "admin") {
+    // Supervisor (o sin sesion, defensivo) -> fuera.
+    redirect("/");
+  }
+
   return (
     <AppShell
       actions={
@@ -42,7 +73,11 @@ export default function DevicesPage() {
           (audit ui-ux-2026-07 §4.3). El banner amarillo ya comunica el estado, así
           que renderizar el card "+ Agregar dispositivo" solo agregaría ruido UX
           (el operador cliquea esperando hacer algo y no pasa nada). El card vuelve
-          a aparecer cuando se habilite el CRUD real (S3 del roadmap). */}
+          a aparecer cuando se habilite el CRUD real (S3 del roadmap).
+
+          Track B v1.4: el banner y la grilla solo se muestran para admin (el
+          redirect de arriba ya filtro al supervisor). Esto centraliza la
+          decision de acceso en el server. */}
       <DeviceGrid devices={DEFAULT_DEVICES} showAddPlaceholder={false} />
     </AppShell>
   );
