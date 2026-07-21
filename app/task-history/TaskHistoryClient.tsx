@@ -1,37 +1,56 @@
 "use client";
 
 /**
- * TaskHistoryClient — orquestador client del Task History.
+ * TaskHistoryClient — orquestador client del Task History (v1.7 Track C).
  *
- * Recibe la data ya agregada del server component y compone los
- * componentes interactivos del CUERPO (TabSwitcher, HeaderCard,
- * DayList, MapView). El h1/subtítulo y el toolbar (DateRangePicker,
- * FilterButton, ScreenshotButton) viven ahora en el `actions` slot
- * del AppShell que envuelve la page (ver audit §4.1 / Q1 Coder A).
+ * Layout nuevo (sprint v1.7): patrón bento "map main + sidebar" igual
+ * al que ya usa track B. El cliente renderiza:
  *
- * La logica de fetching vive en app/task-history/page.tsx (server).
+ *   ┌──────────────────────────────────────────────────────────┐
+ *   │  TabSwitcher (Map / List)                                │
+ *   ├────────────────────────────────────┬─────────────────────┤
+ *   │                                    │  FilterSidebar      │
+ *   │                                    │   - Periodo         │
+ *   │                                    │   - Drones          │
+ *   │   <MapView />                      │   - Piloto          │
+ *   │   (leaflet, polígonos fumigados)   │   - Parcela         │
+ *   │                                    │   - [Descargar]     │
+ *   │                                    │   - DayCard 1       │
+ *   │                                    │     ...sub-lista    │
+ *   │                                    │   - DayCard 2       │
+ *   │                                    │     ...sub-lista    │
+ *   │                                    │   - ... (scroll)    │
+ *   └────────────────────────────────────┴─────────────────────┘
+ *
+ * El scroll de la lista de items es INTERNO al sidebar (gracias a
+ * `ScrollablePanel`), no del body. El operador nunca pierde de vista
+ * los filtros mientras scrollea los días.
+ *
+ * El h1 + el subtítulo del AppShell siguen siendo el header del screen
+ * (no se renderizan acá). El DateRangePicker, FilterButton y
+ * ScreenshotButton se movieron del `actions` del AppShell al sidebar
+ * (v1.7 Track C). Ver `TaskHistorySidebar.tsx` para esos detalles.
+ *
+ * El `data-testid="task-history-content"` se mantiene como target del
+ * ScreenshotButton (que vive en la sidebar).
  *
  * Estructura del DOM:
  *
  *   <section data-testid="task-history-content"> ← target del screenshot
  *     <TabSwitcher />
- *     <HeaderCard />
- *     <DayList />
- *     <MapView />
+ *     <div flex row>
+ *       <MapView />  ← izquierda (~60%)
+ *       <TaskHistorySidebar />  ← derecha (~40%)
+ *     </div>
  *   </section>
- *
- * El `data-testid="task-history-content"` es el selector que usa
- * `ScreenshotButton.targetSelector` desde AppShell actions para
- * encontrar el contenedor a capturar.
  */
 
-import { Suspense, useRef } from "react";
+import { Suspense } from "react";
 import dynamic from "next/dynamic";
 
-import { DayList } from "@/components/task-history/day-list";
-import { HeaderCard } from "@/components/task-history/header-card";
 import { TabSwitcher } from "@/components/task-history/tab-switcher";
-import type { DayCard as DayCardData, TaskHistoryTotals } from "@/lib/djiag-from-make/task-history";
+import { TaskHistorySidebar } from "@/components/task-history/task-history-sidebar";
+import type { DayCardWithFlights } from "@/lib/djiag-from-make/task-history";
 import type { MapPolygon } from "@/components/task-history/map-view";
 
 const TaskHistoryMap = dynamic(
@@ -39,62 +58,82 @@ const TaskHistoryMap = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="h-[600px] animate-pulse rounded-2xl bg-[#f4f7f4]" data-testid="task-history-map-loading" />
+      <div
+        className="h-full min-h-[600px] animate-pulse rounded-2xl bg-[#f4f7f4]"
+        data-testid="task-history-map-loading"
+      />
     )
   }
 );
 
 export interface TaskHistoryClientProps {
-  totals: TaskHistoryTotals;
-  days: DayCardData[];
+  /** Rango activo — se pasa al ScreenshotButton y al DateRangePicker. */
+  from: string;
+  to: string;
+  /** Días enriquecidos con sus vuelos individuales. */
+  days: DayCardWithFlights[];
   polygons: MapPolygon[];
   selectedParcelId: number | null;
+  /** Sugerencias de drones para el datalist del filtro. */
+  droneSuggestions: string[];
+  /** Lookup de nombre de parcela por id. */
+  parcelNameById: Map<number, string> | Record<number, string>;
 }
 
 export function TaskHistoryClient({
-  totals,
+  from,
+  to,
   days,
   polygons,
-  selectedParcelId
+  selectedParcelId,
+  droneSuggestions,
+  parcelNameById
 }: TaskHistoryClientProps) {
-  const contentRef = useRef<HTMLElement | null>(null);
-
   return (
-    <div className="flex flex-col gap-6" data-testid="task-history-page">
+    <div className="flex flex-col gap-4" data-testid="task-history-page">
       <TabSwitcher />
 
       <section
-        className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,420px)_minmax(0,1fr)]"
+        className="flex h-[calc(100vh-220px)] min-h-[640px] flex-col gap-4 lg:flex-row"
         data-testid="task-history-content"
-        ref={contentRef}
       >
-        <div className="flex flex-col gap-4">
-          <HeaderCard totals={totals} />
-          {selectedParcelId !== null ? (
-            <p
-              className="rounded-md border border-[#0b5f2d] bg-[#f4f7f4] px-3 py-2 text-sm font-semibold text-[#0b5f2d]"
-              data-testid="task-history-selected-banner"
-            >
-              Mostrando fumigaciones del parcel #{selectedParcelId}.
-            </p>
-          ) : null}
-          <DayList days={days} />
-        </div>
-        <div className="min-h-[600px]">
+        {/* Mapa principal — ~60% del ancho en desktop. */}
+        <div className="relative min-h-[480px] flex-[3] lg:min-h-0">
           <Suspense
             fallback={
               <div
-                className="h-[600px] animate-pulse rounded-2xl bg-[#f4f7f4]"
+                className="h-full min-h-[600px] animate-pulse rounded-2xl bg-[#f4f7f4]"
                 data-testid="task-history-map-loading"
               />
             }
           >
             <TaskHistoryMap
               center={[3.5, -76.3]}
+              height="100%"
               polygons={polygons}
               selectedParcelId={selectedParcelId}
             />
           </Suspense>
+          {selectedParcelId !== null ? (
+            <p
+              className="absolute right-3 bottom-3 z-[1000] rounded-md border border-[#0b5f2d] bg-white/90 px-3 py-2 text-xs font-semibold text-[#0b5f2d] shadow"
+              data-testid="task-history-selected-banner"
+            >
+              Filtrando por parcela #{selectedParcelId}.
+            </p>
+          ) : null}
+        </div>
+
+        {/* Sidebar — ~40% del ancho en desktop, ~400px máx. */}
+        <div className="flex w-full shrink-0 flex-col lg:w-[400px]">
+          <TaskHistorySidebar
+            days={days}
+            droneSuggestions={droneSuggestions}
+            from={from}
+            parcelNameById={parcelNameById}
+            polygonCount={polygons.length}
+            to={to}
+          />
         </div>
       </section>
     </div>

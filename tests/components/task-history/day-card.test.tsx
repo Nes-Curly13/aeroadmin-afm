@@ -8,13 +8,19 @@
  *   - Grilla 2x2 con SVG por icono
  *   - data-date attribute (util para selectors)
  *   - aria-label descriptivo
+ *   - v1.7 Track C: sub-lista opcional de vuelos (FlightSubList) cuando
+ *     se pasa `flights`; click handler opcional cuando se pasa
+ *     `onFlightClick`.
  */
 
 import { cleanup, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { DayCard } from "@/components/task-history/day-card";
-import type { DayCard as DayCardData } from "@/lib/djiag-from-make/task-history";
+import type {
+  DayCard as DayCardData,
+  FlightListItem
+} from "@/lib/djiag-from-make/task-history";
 
 const mockDay: DayCardData = {
   date: "2026/07/08",
@@ -33,6 +39,21 @@ const dayWithoutWeekday: DayCardData = {
   liters: 100,
   duration: { hours: 0, minutes: 30, seconds: 0, djiFormat: "0Hour30min0s" }
 };
+
+function makeFlight(overrides: Partial<FlightListItem> = {}): FlightListItem {
+  return {
+    id: 123,
+    localDate: "2026-07-08",
+    localTime: "09:14",
+    durationSeconds: 1800,
+    areaMu: 12.5,
+    liters: 250,
+    droneSerial: "1581F5BKD23100045",
+    pilotName: "Breiner",
+    parcelId: 42,
+    ...overrides
+  };
+}
 
 afterEach(cleanup);
 
@@ -139,5 +160,100 @@ describe("DayCard", () => {
     const grid = screen.getByTestId("task-history-day-card-grid");
     expect(grid.className).toContain("grid");
     expect(grid.className).toContain("grid-cols-2");
+  });
+
+  // ==========================================================
+  // v1.7 Track C — sub-lista opcional de vuelos
+  // ==========================================================
+  describe("v1.7 Track C — sub-lista de vuelos", () => {
+    it("NO renderiza la sub-lista si no se pasa `flights` (back-compat)", () => {
+      render(<DayCard day={mockDay} />);
+      expect(screen.queryByTestId("task-history-flight-sub-list")).toBeNull();
+    });
+
+    it("NO renderiza la sub-lista si `flights=[]`", () => {
+      render(<DayCard day={mockDay} flights={[]} />);
+      expect(screen.queryByTestId("task-history-flight-sub-list")).toBeNull();
+    });
+
+    it("SÍ renderiza la sub-lista si se pasa `flights` con 1+ items", () => {
+      const flights = [makeFlight()];
+      render(<DayCard day={mockDay} flights={flights} />);
+      expect(screen.getByTestId("task-history-flight-sub-list")).toBeInTheDocument();
+      const items = screen.getAllByTestId("task-history-flight-sub-list-item");
+      expect(items).toHaveLength(1);
+    });
+
+    it("la sub-lista muestra HH:MM, drone (acortado), piloto, area, duration", () => {
+      const flights = [makeFlight()];
+      render(<DayCard day={mockDay} flights={flights} />);
+      const sub = screen.getByTestId("task-history-flight-sub-list");
+      const text = sub.textContent ?? "";
+      expect(text).toContain("09:14");
+      // Drone serial acortado a "…00045" (últimos 5 chars)
+      expect(text).toContain("…00045");
+      // Piloto
+      expect(text).toContain("Breiner");
+      // Area con 1 decimal
+      expect(text).toContain("12.5");
+      expect(text).toContain("mu");
+      // Duration 1800s = 30min → "30m"
+      expect(text).toContain("30m");
+    });
+
+    it("renderiza items como <div> no-clickeables cuando no se pasa onFlightClick", () => {
+      const flights = [makeFlight()];
+      render(<DayCard day={mockDay} flights={flights} />);
+      const item = screen.getByTestId("task-history-flight-sub-list-item");
+      // No es un botón → no se puede "clickear" como control
+      expect(item.tagName).not.toBe("BUTTON");
+    });
+
+    it("renderiza items como <button> clickeables cuando se pasa onFlightClick", () => {
+      const onClick = vi.fn();
+      const flights = [makeFlight({ id: 999 })];
+      render(<DayCard day={mockDay} flights={flights} onFlightClick={onClick} />);
+      const item = screen.getByTestId("task-history-flight-sub-list-item");
+      expect(item.tagName).toBe("BUTTON");
+      item.click();
+      expect(onClick).toHaveBeenCalledTimes(1);
+      // El handler recibe el FlightListItem completo, no solo el id
+      expect(onClick).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 999, pilotName: "Breiner" })
+      );
+    });
+
+    it("muestra data-flight-id en cada item para que tests E2E puedan targetearlo", () => {
+      const flights = [makeFlight({ id: 777 }), makeFlight({ id: 778 })];
+      render(<DayCard day={mockDay} flights={flights} />);
+      const items = screen.getAllByTestId("task-history-flight-sub-list-item");
+      expect(items[0].getAttribute("data-flight-id")).toBe("777");
+      expect(items[1].getAttribute("data-flight-id")).toBe("778");
+    });
+
+    it("muestra 'N vuelos más' cuando flights.length > MAX_VISIBLE_FLIGHTS (5)", () => {
+      const flights = Array.from({ length: 8 }, (_, i) =>
+        makeFlight({ id: 1000 + i })
+      );
+      render(<DayCard day={mockDay} flights={flights} />);
+      const items = screen.getAllByTestId("task-history-flight-sub-list-item");
+      expect(items).toHaveLength(5);
+      // 8 - 5 = 3 → "+3 vuelos más"
+      const more = screen.getByTestId("task-history-flight-sub-list-more");
+      expect(more.textContent).toContain("+3");
+      expect(more.textContent).toContain("vuelos");
+    });
+
+    it("muestra '1 vuelo más' (singular) cuando sobra exactamente 1", () => {
+      const flights = Array.from({ length: 6 }, (_, i) =>
+        makeFlight({ id: 2000 + i })
+      );
+      render(<DayCard day={mockDay} flights={flights} />);
+      const more = screen.getByTestId("task-history-flight-sub-list-more");
+      expect(more.textContent).toContain("+1");
+      expect(more.textContent).toContain("vuelo");
+      // No plural
+      expect(more.textContent).not.toContain("vuelos");
+    });
   });
 });
