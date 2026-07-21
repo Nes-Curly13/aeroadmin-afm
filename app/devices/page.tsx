@@ -45,6 +45,12 @@ export default async function DevicesPage() {
       eyebrow="Configuración"
       subtitle="Vista previa del inventario de la flota. El CRUD real se habilitará cuando esté la auth (S3 del roadmap)."
       title="Dispositivos"
+      // v1.5: el role ya está validado arriba (redirect a / si != admin).
+      // Pasarlo al sidebar mantiene coherencia visual (ocultar /devices
+      // no tiene efecto porque el supervisor no llega a esta page, pero
+      // si en el futuro se permite ver algo del listado sin redirect, el
+      // sidebar ya queda consistente).
+      viewerRole={role}
     >
       <div
         className="mb-6 rounded-2xl border border-[#d4b23c] bg-[#fff8e3] p-5 shadow-[0px_18px_40px_rgba(15,23,42,0.08)]"

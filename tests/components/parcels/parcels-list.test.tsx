@@ -160,6 +160,12 @@ describe("ParcelsPage (server wrapper)", () => {
     vi.doMock("@/api/repositories", () => ({
       getParcelsNormalized: mockGetParcelsNormalized
     }));
+    // v1.5: getViewerRole() en la page llama auth() de next-auth.
+    // Mockeamos para no requerir sesion real en este test de contrato
+    // de la UI (la cobertura del RBAC vive en tests/lib/auth/role.test.ts).
+    vi.doMock("@/lib/auth/role", () => ({
+      getViewerRole: vi.fn().mockResolvedValue(null)
+    }));
 
     // Importar DESPUÉS de los mocks (importante para module isolation).
     const { default: ParcelsPage } = await import("@/app/parcels/page");
@@ -197,6 +203,10 @@ describe("ParcelsPage (server wrapper)", () => {
 
     vi.doMock("@/api/repositories", () => ({
       getParcelsNormalized: mockGetParcelsNormalized
+    }));
+    // v1.5: ver nota en el test anterior.
+    vi.doMock("@/lib/auth/role", () => ({
+      getViewerRole: vi.fn().mockResolvedValue(null)
     }));
 
     const { default: ParcelsPage } = await import("@/app/parcels/page");

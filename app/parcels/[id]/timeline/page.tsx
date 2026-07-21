@@ -33,6 +33,7 @@ import {
   getFumigationTimelineForParcel,
   getParcelById
 } from "@/api/repositories";
+import { getViewerRole } from "@/lib/auth/role";
 import { buildFumigationTimeline } from "@/lib/fumigation-timeline";
 import type { ParcelTimelineMode } from "@/components/fumigations/parcel-timeline";
 
@@ -112,6 +113,9 @@ export default async function ParcelTimelinePage({
     events
   });
 
+  // v1.5: sidebar gate.
+  const viewerRole = await getViewerRole();
+
   return (
     <AppShell
       activeSection="parcels"
@@ -122,6 +126,7 @@ export default async function ParcelTimelinePage({
           : "Timeline de fumigaciones"
       }
       title={parcel.land_name ?? "Parcela sin nombre"}
+      viewerRole={viewerRole}
     >
       <div className="space-y-5">
         <div className="flex flex-wrap items-center gap-2">

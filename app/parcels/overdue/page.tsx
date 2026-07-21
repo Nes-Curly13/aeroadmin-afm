@@ -18,6 +18,7 @@
 import { AppShell } from "@/components/app-shell";
 import { OverdueList } from "@/components/overdue/overdue-list";
 import { getOverdueParcels } from "@/api/repositories";
+import { getViewerRole } from "@/lib/auth/role";
 import type { OverdueParcel } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -89,6 +90,9 @@ export default async function OverduePage({ searchParams }: PageProps) {
     0
   );
 
+  // v1.5: sidebar gate.
+  const viewerRole = await getViewerRole();
+
   return (
     <AppShell
       actions={
@@ -101,6 +105,7 @@ export default async function OverduePage({ searchParams }: PageProps) {
       parcelsCount={allParcels.length}
       subtitle="Parcelas que necesitan fumigación según cadencia. Ordenadas por urgencia: vencidas primero, luego las que vencen esta semana. Click en una fila para abrir el detalle."
       title="Faltan por fumigar"
+      viewerRole={viewerRole}
     >
       <OverdueList
         parcels={parcels}

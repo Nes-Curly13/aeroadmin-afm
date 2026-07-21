@@ -7,6 +7,7 @@ import {
   type MobileSidebarNavItem,
   type MobileSidebarSection
 } from "@/components/mobile-sidebar-drawer";
+import type { AppRole } from "@/lib/auth/role";
 import { NavIcon } from "@/lib/nav-icons";
 
 export type ActiveSection = MobileSidebarSection;
@@ -20,6 +21,11 @@ const sidebarNav: readonly MobileSidebarNavItem[] = [
   { href: "/devices", label: "Dispositivos", icon: "devices", key: "devices" }
 ];
 
+// v1.5 — sidebar gate. /devices es admin-only (gestion de flota).
+// Un supervisor no debe ver el link en el sidebar. Si navega por URL
+// directa, el server-side redirect en `app/devices/page.tsx` lo manda a /.
+const ADMIN_ONLY_HREFS: ReadonlySet<string> = new Set(["/devices"]);
+
 const DEFAULT_SUBTITLE =
   "Reportes, mapas y trazabilidad DJI integrados para operaciones de campo, con foco en el historial de este año.";
 
@@ -32,6 +38,19 @@ export interface AppShellProps {
   activeSection: ActiveSection;
   parcelsCount?: number;
   highAlertsCount?: number;
+  /**
+   * Role del usuario actual. Si es `supervisor`, los items de
+   * `ADMIN_ONLY_HREFS` se ocultan del sidebar (desktop y mobile).
+   * `null` o `undefined` = no se sabe (loading, error, not-found),
+   * no se filtra nada (defensa: mostrar todo es menos roto que
+   * esconder todo).
+   *
+   * v1.5: el gate del SIDEBAR es cosmético. El gate REAL es
+   * server-side (`requireRole` en los endpoints, `redirect()` en
+   * las páginas admin-only). Esto es solo para que el supervisor
+   * no vea un link que lo manda a un redirect.
+   */
+  viewerRole?: AppRole | null;
 }
 
 export function AppShell({
@@ -42,9 +61,16 @@ export function AppShell({
   actions,
   activeSection,
   parcelsCount = 0,
-  highAlertsCount = 0
+  highAlertsCount = 0,
+  viewerRole = null
 }: AppShellProps) {
   const showStatus = parcelsCount > 0 || highAlertsCount > 0;
+
+  // Filtrar items admin-only si el viewer es supervisor.
+  const visibleNav =
+    viewerRole === "supervisor"
+      ? sidebarNav.filter((item) => !ADMIN_ONLY_HREFS.has(item.href))
+      : sidebarNav;
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(34,139,34,0.12),_transparent_32%),linear-gradient(180deg,_#f4f7f3_0%,_#ebf0ec_100%)] text-[#121815]">
@@ -61,7 +87,7 @@ export function AppShell({
             activeSection={activeSection}
             highAlertsCount={highAlertsCount}
             parcelsCount={parcelsCount}
-            sidebarNav={sidebarNav}
+            sidebarNav={visibleNav}
           />
           <Link className="flex items-center gap-3" href="/">
             <div className="relative h-10 w-12 overflow-hidden rounded-lg">
@@ -78,7 +104,7 @@ export function AppShell({
       <div className="flex min-h-[calc(100vh-64px)]">
         <aside className="hidden h-[calc(100vh-64px)] w-72 shrink-0 flex-col border-r border-[#21352a] bg-[#0f1713] px-4 py-6 text-white lg:flex">
           <div className="space-y-1">
-            {sidebarNav.map((item) => {
+            {visibleNav.map((item) => {
               const active = item.key === activeSection;
               return (
                 <Link

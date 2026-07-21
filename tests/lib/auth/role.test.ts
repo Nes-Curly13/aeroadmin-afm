@@ -37,6 +37,7 @@ vi.mock("@/lib/db", () => ({
 // IMPORT DESPUES de los mocks — patron tests/auth.test.ts.
 import {
   getCurrentUserRole,
+  getViewerRole,
   hasRole,
   requireRole
 } from "@/lib/auth/role";
@@ -198,5 +199,59 @@ describe("hasRole", () => {
   it("false si el role actual es null/undefined", () => {
     expect(hasRole(null, "admin")).toBe(false);
     expect(hasRole(undefined, ["admin", "supervisor"])).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// getViewerRole (v1.5 — sidebar gate)
+//
+// Lee el role del JWT (sin DB hit). Pensado para UI condicional.
+// Diferencia con getCurrentUserRole: este es rapido y puede tener
+// hasta ~12h de stale-ness; getCurrentUserRole lee de la BD (truth fresh).
+// ─────────────────────────────────────────────────────────────────────
+
+describe("getViewerRole", () => {
+  it("devuelve null cuando no hay sesion", async () => {
+    mocks.authSession = null;
+    const role = await getViewerRole();
+    expect(role).toBeNull();
+  });
+
+  it("devuelve 'admin' cuando la sesion tiene role=admin", async () => {
+    mocks.authSession = {
+      user: { email: "a@y.com", id: "1", role: "admin" }
+    };
+    expect(await getViewerRole()).toBe("admin");
+  });
+
+  it("devuelve 'supervisor' cuando la sesion tiene role=supervisor", async () => {
+    mocks.authSession = {
+      user: { email: "s@y.com", id: "2", role: "supervisor" }
+    };
+    expect(await getViewerRole()).toBe("supervisor");
+  });
+
+  it("mapea role=viewer (legacy) a 'supervisor' (retrocompat)", async () => {
+    mocks.authSession = {
+      user: { email: "v@y.com", id: "3", role: "viewer" }
+    };
+    expect(await getViewerRole()).toBe("supervisor");
+  });
+
+  it("mapea role desconocido a 'supervisor' (least privilege)", async () => {
+    mocks.authSession = {
+      user: { email: "x@y.com", id: "4", role: "guest" }
+    };
+    expect(await getViewerRole()).toBe("supervisor");
+  });
+
+  it("NO toca la BD (diferencia con getCurrentUserRole)", async () => {
+    // Si tocara la BD, dbQueryMock seria llamado. La idea es que
+    // getViewerRole es JWT-only y la UI no paga el costo de un SELECT.
+    mocks.authSession = {
+      user: { email: "a@y.com", id: "1", role: "admin" }
+    };
+    await getViewerRole();
+    expect(mocks.dbQuery).not.toHaveBeenCalled();
   });
 });

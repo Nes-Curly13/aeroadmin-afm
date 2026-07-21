@@ -19,6 +19,7 @@
 import { AppShell } from "@/components/app-shell";
 import { ParcelsList } from "@/components/parcels/parcels-list";
 import { getParcelsNormalized } from "@/api/repositories";
+import { getViewerRole } from "@/lib/auth/role";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +30,8 @@ const PARCELS_LIMIT = 1000;
 
 export default async function ParcelsPage() {
   const parcelsResult = await getParcelsNormalized(1, PARCELS_LIMIT);
+  // v1.5: sidebar gate. Sin DB hit, lee del JWT.
+  const viewerRole = await getViewerRole();
 
   return (
     <AppShell
@@ -37,6 +40,7 @@ export default async function ParcelsPage() {
       parcelsCount={parcelsResult.data.length}
       subtitle="Listado completo de parcelas importadas desde DJI Agras. Click en una fila para abrir el detalle."
       title="Parcelas"
+      viewerRole={viewerRole}
     >
       <ParcelsList parcels={parcelsResult.data} />
     </AppShell>

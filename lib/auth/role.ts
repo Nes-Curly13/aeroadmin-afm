@@ -50,6 +50,7 @@
 
 import { getDb } from "@/lib/db";
 import { auth } from "@/lib/auth";
+import { normalizeRole } from "@/lib/auth/role-display";
 
 /**
  * Roles validos en el sistema (v1.4). El type literal existe en
@@ -109,6 +110,38 @@ export async function getCurrentUserRole(): Promise<AppRole | null> {
     // BD) y tolerar este helper fallando. Ver tests.
     return null;
   }
+}
+
+/**
+ * Lee el role del viewer ACTUAL desde la sesion JWT (sin tocar la BD).
+ *
+ * v1.5 — sidebar gate. Pensado para uso en server components que
+ * renderizan UI condicional al role (ej. ocultar /devices del sidebar
+ * para supervisores). Para gates de seguridad reales (endpoints
+ * críticos) usar `requireRole` o `getCurrentUserRole` (BD-fresh).
+ *
+ * Diferencia con `getCurrentUserRole`:
+ *   - Este helper: lee del JWT, sin DB hit. Rápido. Puede tener hasta
+ *     ~12h de stale-ness si el role cambió en la BD.
+ *   - `getCurrentUserRole`: lee de la BD. Stale-ness = 0 ms (truth
+ *     instantánea). Más lento. Usar solo cuando el caller NO confía
+ *     en el JWT.
+ *
+ * Diferencia con `requireRole`:
+ *   - `requireRole` lanza 401/403 si el role no match. Es para
+ *     autorización (gates de seguridad).
+ *   - Este helper solo lee el role. Es para render condicional
+ *     (gates de UI).
+ *
+ * Devuelve `null` si no hay sesión. `normalizeRole` (en role-display)
+ * se aplica internamente para que el caller reciba el dominio
+ * `admin | supervisor` sin tener que pensar en `viewer` legacy.
+ */
+export async function getViewerRole(): Promise<AppRole | null> {
+  const session = await auth();
+  if (!session?.user) return null;
+  const user = session.user as { role?: string | null } | undefined;
+  return normalizeRole(user?.role);
 }
 
 /**

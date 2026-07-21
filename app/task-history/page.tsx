@@ -21,6 +21,7 @@ import {
 import { getPolygonsInRange } from "@/lib/djiag-spatial-aggregator";
 
 import { AppShell } from "@/components/app-shell";
+import { getViewerRole } from "@/lib/auth/role";
 
 import { TaskHistoryClient } from "./TaskHistoryClient";
 import { TaskHistoryToolbar } from "./TaskHistoryToolbar";
@@ -304,6 +305,9 @@ export default async function TaskHistoryPage({ searchParams }: PageProps) {
     pilot
   });
 
+  // v1.5: sidebar gate.
+  const viewerRole = await getViewerRole();
+
   return (
     <AppShell
       actions={
@@ -313,6 +317,7 @@ export default async function TaskHistoryPage({ searchParams }: PageProps) {
       eyebrow="Trazabilidad DJI"
       subtitle="Rollup diario de fumigaciones con KPIs, mapa de parcelas fumigadas y filtros por dron, parcela o piloto."
       title="Historial de tareas"
+      viewerRole={viewerRole}
     >
       <TaskHistoryClient
         days={days}

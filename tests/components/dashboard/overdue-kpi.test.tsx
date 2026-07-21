@@ -71,6 +71,12 @@ describe("DashboardPage — KPI de cadencia vencida (BUG 3 audit)", () => {
       getUpcomingFumigations: mockGetUpcomingFumigations,
       getOverdueParcels: mockGetOverdueParcels
     }));
+    // v1.5: getViewerRole() en la page llama auth() de next-auth.
+    // Mockeamos para no requerir sesion real en este test de contrato
+    // de la UI (la cobertura del RBAC vive en tests/lib/auth/role.test.ts).
+    vi.doMock("@/lib/auth/role", () => ({
+      getViewerRole: vi.fn().mockResolvedValue(null)
+    }));
 
     const { default: DashboardPage } = await import("@/app/page");
     const element = await DashboardPage();
@@ -82,6 +88,7 @@ describe("DashboardPage — KPI de cadencia vencida (BUG 3 audit)", () => {
     expect(screen.queryByText("Vencidas")).toBeNull();
 
     vi.doUnmock("@/api/repositories");
+    vi.doUnmock("@/lib/auth/role");
   });
 
   it("el hint explica que es una recomendación basada en cadencia (no certeza)", async () => {
@@ -93,6 +100,10 @@ describe("DashboardPage — KPI de cadencia vencida (BUG 3 audit)", () => {
       getAlerts: mockGetAlerts,
       getUpcomingFumigations: mockGetUpcomingFumigations,
       getOverdueParcels: mockGetOverdueParcels
+    }));
+    // v1.5: ver nota en el test anterior.
+    vi.doMock("@/lib/auth/role", () => ({
+      getViewerRole: vi.fn().mockResolvedValue(null)
     }));
 
     const { default: DashboardPage } = await import("@/app/page");
@@ -106,6 +117,7 @@ describe("DashboardPage — KPI de cadencia vencida (BUG 3 audit)", () => {
     expect(screen.getByText(/confirmación manual requerida/i)).toBeInTheDocument();
 
     vi.doUnmock("@/api/repositories");
+    vi.doUnmock("@/lib/auth/role");
   });
 
   it("pasa totalOverdue a UpcomingFumigations sin alterarlo", async () => {
@@ -141,6 +153,10 @@ describe("DashboardPage — KPI de cadencia vencida (BUG 3 audit)", () => {
       getAlerts: mockGetAlerts,
       getUpcomingFumigations: mockGetUpcomingFumigations,
       getOverdueParcels: mockGetOverdueParcels
+    }));
+    // v1.5: ver nota en el test anterior.
+    vi.doMock("@/lib/auth/role", () => ({
+      getViewerRole: vi.fn().mockResolvedValue(null)
     }));
 
     const { default: DashboardPage } = await import("@/app/page");

@@ -11,6 +11,7 @@ import {
   getUpcomingFumigations
 } from "@/api/repositories";
 import { countHighAlerts } from "@/lib/alerts";
+import { getViewerRole } from "@/lib/auth/role";
 import { formatArea, formatNumber } from "@/lib/format";
 import { getDashboardKpiTone } from "@/lib/ui-tokens";
 
@@ -98,6 +99,11 @@ export default async function DashboardPage() {
 
   const overdueCount = overdue.filter((p) => p.severity === "overdue").length;
 
+  // v1.5: sidebar gate. Lee el role del JWT (sin DB hit) y filtra
+  // /devices si el viewer es supervisor. Si no hay sesion, devuelve
+  // null y el sidebar muestra todo (acceptable, middleware ya redirige).
+  const viewerRole = await getViewerRole();
+
   return (
     <AppShell
       actions={
@@ -111,6 +117,7 @@ export default async function DashboardPage() {
       parcelsCount={parcelsResult.data.length}
       subtitle="Resumen operativo de la fumigación con drones DJI Agras. Trazabilidad por día, alertas y cobertura por dron."
       title="AeroAdmin AFM"
+      viewerRole={viewerRole}
     >
       <div className="grid gap-5 xl:grid-cols-5">
         <MetricCard

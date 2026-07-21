@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 
 // Track B v1.2: app-shell ahora renderiza <MobileSidebarDrawer> (client
 // component) que usa useRouter. Mockeamos next/navigation para que el
@@ -151,6 +151,86 @@ describe("AppShell", () => {
       );
       expect(screen.getByText("50")).toBeInTheDocument();
       expect(screen.getByText("2")).toBeInTheDocument();
+    });
+  });
+
+  // ============================================================
+  // v1.5 — Sidebar gate: ocultar /devices para supervisores
+  // ============================================================
+  describe("viewerRole (v1.5 sidebar gate)", () => {
+    it("oculta /devices del sidebar cuando viewerRole='supervisor'", () => {
+      // El supervisor sigue viendo los 5 items permitidos, pero NO
+      // Dispositivos. La defensa real es el server-side redirect en
+      // /devices/page.tsx; este gate es solo cosmético.
+      render(
+        <AppShell
+          activeSection="dashboard"
+          eyebrow="x"
+          title="t"
+          viewerRole="supervisor"
+        />
+      );
+      expect(screen.queryByRole("link", { name: /dispositivos/i })).not.toBeInTheDocument();
+      // Los 5 items no-admin siguen visibles.
+      expect(screen.getByRole("link", { name: /panel/i })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: /mapa/i })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: /historial/i })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: /^parcelas$/i })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: /faltan por fumigar/i })).toBeInTheDocument();
+    });
+
+    it("muestra /devices cuando viewerRole='admin'", () => {
+      render(
+        <AppShell
+          activeSection="dashboard"
+          eyebrow="x"
+          title="t"
+          viewerRole="admin"
+        />
+      );
+      expect(screen.getByRole("link", { name: /dispositivos/i })).toHaveAttribute("href", "/devices");
+    });
+
+    it("muestra /devices cuando viewerRole=null (default, sin sesion o loading)", () => {
+      // Sin prop: comportamiento default. Mostrar todo es menos roto
+      // que esconder todo (defensa: si no sabemos el role, no
+      // asumimos supervisor).
+      const { rerender } = render(
+        <AppShell activeSection="dashboard" eyebrow="x" title="t" />
+      );
+      expect(screen.getByRole("link", { name: /dispositivos/i })).toBeInTheDocument();
+
+      // Tambien con null explicito
+      rerender(
+        <AppShell
+          activeSection="dashboard"
+          eyebrow="x"
+          title="t"
+          viewerRole={null}
+        />
+      );
+      expect(screen.getByRole("link", { name: /dispositivos/i })).toBeInTheDocument();
+    });
+
+    it("el filtro del sidebar desktop se refleja en el drawer mobile", () => {
+      // El drawer recibe `visibleNav` (filtrado), no `sidebarNav` (full).
+      // Verificamos que NO se renderiza un link a /devices cuando
+      // viewerRole=supervisor y el drawer esta abierto.
+      render(
+        <AppShell
+          activeSection="dashboard"
+          eyebrow="x"
+          title="t"
+          viewerRole="supervisor"
+        />
+      );
+      // El drawer esta cerrado por default. Lo abrimos y verificamos.
+      const burger = screen.getByRole("button", { name: /abrir menú/i });
+      act(() => {
+        burger.click();
+      });
+      // El link "Dispositivos" NO debe existir en el drawer mobile.
+      expect(screen.queryByRole("link", { name: /dispositivos/i })).not.toBeInTheDocument();
     });
   });
 });

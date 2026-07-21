@@ -6,6 +6,7 @@ import { MapStatsIsland } from "@/components/map/map-stats-island";
 import { MapStatsSkeleton } from "@/components/map/map-stats-skeleton";
 import { MapView } from "@/components/map-view";
 import { getAlerts, getFlightPoints, getFlights, getFumigatedParcelIdsSince, getParcelsNormalized, getParcelsSummary } from "@/api/repositories";
+import { getViewerRole } from "@/lib/auth/role";
 import { toDateString } from "@/lib/format";
 import type { DjiParcelRecord } from "@/lib/types";
 
@@ -119,6 +120,12 @@ export default async function MapPage({ searchParams }: PageProps) {
   // del SQL. Si no hay filtro, esto es un no-op (retorna el array tal cual).
   const visibleParcels = applyFumigatedFilter(parcelsResult.data, fumigatedIds, fumigated);
 
+  // v1.5: sidebar gate. Lee del JWT, sin DB hit. El mapa está en el
+  // critical path de Suspense (no bloquear con la query — Promise.all
+  // arriba no la incluye). Si la query falla, viewerRole=null y el
+  // sidebar muestra todo (acceptable: defense in depth).
+  const viewerRole = await getViewerRole();
+
   return (
     <AppShell
       actions={
@@ -132,6 +139,7 @@ export default async function MapPage({ searchParams }: PageProps) {
       parcelsCount={visibleParcels.length}
       subtitle="Mapa operativo de parcelas DJI con geometría, plan de vuelo y configuración. Toggle de capas, selector de parcela activa y detalle al costado."
       title="Mapa de Parcelas"
+      viewerRole={viewerRole}
     >
       {/* v1.3 — Panel de filtros. DENTRO del critical path (sin Suspense)
           porque necesita la lista de drones al primer render. El form

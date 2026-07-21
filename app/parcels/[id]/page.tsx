@@ -10,6 +10,7 @@ import {
   getParcelById,
   getParcelsNormalized
 } from "@/api/repositories";
+import { getViewerRole } from "@/lib/auth/role";
 import { daysUntilNextDue, getFumigationStatus } from "@/lib/fumigation-cadence";
 
 export const dynamic = "force-dynamic";
@@ -46,6 +47,9 @@ export default async function ParcelPage({
   const cadence = schedule?.recommended_cadence_days ?? 14;
   const status = getFumigationStatus(schedule?.last_fumigation_date ?? null, cadence);
   const days = daysUntilNextDue(schedule?.last_fumigation_date ?? null, cadence);
+
+  // v1.5: sidebar gate.
+  const viewerRole = await getViewerRole();
 
   return (
     <AppShell
@@ -85,6 +89,7 @@ export default async function ParcelPage({
           : "Detalle operativo de la parcela"
       }
       title={parcel.land_name ?? "Parcela sin nombre"}
+      viewerRole={viewerRole}
     >
       <div className="space-y-5">
         <ParcelDetail parcel={parcel} />
