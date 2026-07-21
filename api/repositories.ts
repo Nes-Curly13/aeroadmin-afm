@@ -184,7 +184,8 @@ export interface DjiParcelsFilter {
  * navegación; ahora es prácticamente gratis entre revalidaciones.
  *
  * v1.3 Track A (2026-07-21): el panel de filtros del mapa
- * (`components/map/map-filters-panel.tsx`) usa esta función con
+ * (`components/map/map-filter-sidebar.tsx`, antes `map-filters-panel.tsx`
+ * en v1.3) usa esta función con
  * `filter = { droneModelCode, fieldType }` para filtrar server-side
  * via URL searchParams. Como el wrapper cacheado no soporta filters
  * (sería un keyParts enorme), esa combinación va a la variante

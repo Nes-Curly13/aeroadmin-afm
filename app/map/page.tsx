@@ -1,11 +1,7 @@
-import { Suspense } from "react";
-
 import { AppShell } from "@/components/app-shell";
-import { MapFiltersPanel } from "@/components/map/map-filters-panel";
-import { MapStatsIsland } from "@/components/map/map-stats-island";
-import { MapStatsSkeleton } from "@/components/map/map-stats-skeleton";
+import { MapFilterSidebar } from "@/components/map/map-filter-sidebar";
 import { MapView } from "@/components/map-view";
-import { getAlerts, getFlightPoints, getFlights, getFumigatedParcelIdsSince, getParcelsNormalized, getParcelsSummary } from "@/api/repositories";
+import { getFumigatedParcelIdsSince, getParcelsNormalized, getParcelsSummary } from "@/api/repositories";
 import { getViewerRole } from "@/lib/auth/role";
 import { toDateString } from "@/lib/format";
 import type { DjiParcelRecord } from "@/lib/types";
@@ -14,28 +10,32 @@ import type { DjiParcelRecord } from "@/lib/types";
 // `unstable_cache` con TTL 60s se aplica al listado de parcelas + summary.
 // El mapa siempre lee data fresca al primer click del usuario (CSR).
 //
-// v1.2 Track A perf (2026-07-20): las queries se dividen en 2 grupos
-// para habilitar <Suspense> streaming. Antes, las 6 queries iban en un
-// solo `Promise.all` y TTI era `max(las 6)`. Ahora:
-//   - Críticas (mapa): parcels + fumigatedIds → bloquean el render del mapa
-//   - Stats (island): flights + alerts + flightPoints → streamean
-//     después, dentro de un <Suspense> con fallback <MapStatsSkeleton />.
-// El mapa aparece apenas las 2 críticas resuelven; los stats se hidratan
-// después sin bloquear el render principal.
-//
 // v1.3 Track A (2026-07-21): panel de filtros server-side via searchParams.
-// El panel se renderiza junto al mapa (critical path) y necesita la lista
-// de drones = `getParcelsSummary()`. Esa query se mueve del island al
-// critical path. El fumigated filter se aplica in-memory sobre el
-// resultado de `getParcelsNormalized` (el Set<number> ya está en memoria
-// del critical path desde M3-M5 Track A).
+// La sidebar de filtros se renderiza junto al mapa (critical path) y
+// necesita la lista de drones = `getParcelsSummary()`. Esa query se
+// mueve del island al critical path. El fumigated filter se aplica
+// in-memory sobre el resultado de `getParcelsNormalized` (el Set<number>
+// ya está en memoria del critical path desde M3-M5 Track A).
+//
+// v1.7 Track B (2026-07-22): refactor de layout. El mapa pasa a ser
+// el elemento principal del body (flex fill-height, ~70%) con la
+// sidebar de filtros a la derecha (~30%, 320px). Se elimina el panel
+// de filtros horizontal (v1.3) y el `<Suspense>` con `MapStatsIsland`
+// que vivía debajo (v1.2 Track A perf) — los stats eran visual clutter,
+// el mapa ya muestra polígonos fumigados/no fumigados con el flag
+// `hasFumigation`. Sin `<Suspense>`, las 3 queries del critical path
+// (parcels + fumigatedIds + summary) van en un solo `Promise.all` y
+// el mapa aparece cuando `max` resuelve. Se mantiene `auto` (no se
+// cambia a `force-dynamic`) — el comportamiento de cache es el mismo,
+// solo cambia la composición del body.
 interface PageProps {
   searchParams: Record<string, string | string[] | undefined>;
 }
 
 /**
- * v1.3 — Tipos de los searchParams que el panel entiende. Inline porque
- * son privados a esta página (el panel re-define los suyos en el client).
+ * v1.3 — Tipos de los searchParams que la sidebar entiende. Reusamos
+ * los mismos tipos que `MapFilterSidebar` exporta (single source of
+ * truth — no redefinir acá).
  */
 type FumigatedFilter = "" | "yes" | "no";
 type CropFilter = "" | "Farmland" | "Orchards";
@@ -88,10 +88,8 @@ export default async function MapPage({ searchParams }: PageProps) {
   const fumigated = parseFumigatedParam(searchParams.fumigated);
 
   // Opción B: usamos la tabla normalizada dji_parcels (1 fila por campo con
-  // columnas planas). Mantenemos getAlerts y getFlights (legacy) por ahora
-  // hasta migrar la lógica de alertas a dji_fumigations.
-  // M6: getFlightPoints() agrega circulos en el mapa con la posición
-  // (lng, lat) de los 300 sorties mas recientes.
+  // columnas planas). getAlerts/getFlights ya no se usan acá desde v1.7 —
+  // el `<Suspense>` con MapStatsIsland se eliminó.
   // M3-M5 Track A: getFumigatedParcelIdsSince(6m) alimenta el flag
   // `hasFumigation` por parcela — fumigadas se ven solidas, no fumigadas
   // dashed con fill atenuado.
@@ -120,10 +118,10 @@ export default async function MapPage({ searchParams }: PageProps) {
   // del SQL. Si no hay filtro, esto es un no-op (retorna el array tal cual).
   const visibleParcels = applyFumigatedFilter(parcelsResult.data, fumigatedIds, fumigated);
 
-  // v1.5: sidebar gate. Lee del JWT, sin DB hit. El mapa está en el
-  // critical path de Suspense (no bloquear con la query — Promise.all
-  // arriba no la incluye). Si la query falla, viewerRole=null y el
-  // sidebar muestra todo (acceptable: defense in depth).
+  // v1.5: sidebar gate. Lee del JWT, sin DB hit. Se pasa al AppShell
+  // para que el sidebar desktop oculte /devices a supervisores.
+  // Si la query falla, viewerRole=null y el sidebar muestra todo
+  // (acceptable: defense in depth).
   const viewerRole = await getViewerRole();
 
   return (
@@ -141,90 +139,49 @@ export default async function MapPage({ searchParams }: PageProps) {
       title="Mapa de Parcelas"
       viewerRole={viewerRole}
     >
-      {/* v1.3 — Panel de filtros. DENTRO del critical path (sin Suspense)
-          porque necesita la lista de drones al primer render. El form
-          navega a /map con searchParams al cambiar — los polígonos del
-          mapa ya vienen filtrados del server (getParcelsNormalized
-          + applyFumigatedFilter). */}
-      <MapFiltersPanel summary={summary} />
+      {/*
+        v1.7 Track B — layout horizontal: mapa (main) a la izquierda,
+        sidebar de filtros a la derecha.
 
-      {/* QUERIES NO-CRÍTICAS (island) — streamean con Suspense.
-          El skeleton aparece mientras las 3 queries resuelven; el mapa
-          ya está renderizado abajo. La promesa se completa una vez que
-          TODAS las queries del Promise.all estén listas, pero el usuario
-          ya ve el mapa interactivo. */}
-      <Suspense fallback={<MapStatsSkeleton />}>
-        <MapStatsSection
-          fumigatedIds={fumigatedIds}
-          parcels={visibleParcels}
-          sectionQueries={Promise.all([
-            getFlights(),
-            getAlerts(),
-            getFlightPoints(300)
-          ])}
-          summary={summary}
-        />
-      </Suspense>
+        Altura del contenedor: `h-[calc(100vh-220px)]` (mismo cálculo
+        que el `min-h` interno de `<MapView>`). 220px = header (64)
+        + padding del main (32 en lg) + bloque eyebrow/título/subtítulo
+        (~120). En mobile (flex-col) el mapa tiene `min-h-[60vh]` para
+        que ocupe un viewport razonable antes de empujar la sidebar
+        hacia abajo.
 
-      <MapView
-        alerts={[]}
-        flightPoints={[]}
-        flights={[]}
-        fumigatedParcelIds={fumigatedIds}
-        parcels={visibleParcels}
-      />
+        En desktop (lg:flex-row) el mapa es `flex-1` (~70% del ancho
+        útil, descontando la sidebar de 320px + gap de 16px) y la
+        sidebar es `w-80` (~30%, ~320px) con `overflow-y-auto` por
+        si los filtros crecen.
+
+        El 220px difiere del 128px que mencionaba el spec original
+        (header 64 + padding del main 32 = 96). El bloque de título
+        de la page (eyebrow + h1 + subtítulo) consume ~120px más
+        y sin descontarlo la sidebar queda recortada por debajo del
+        viewport en viewports típicos (1080p con sidebar del sistema
+        abierta, etc.).
+      */}
+      <div className="flex flex-col gap-4 lg:h-[calc(100vh-220px)] lg:flex-row">
+        {/* Mapa (main) — flex-1, ocupa el alto del flex container */}
+        <div className="min-h-[60vh] flex-1 lg:min-h-0">
+          <MapView
+            alerts={[]}
+            flightPoints={[]}
+            flights={[]}
+            fumigatedParcelIds={fumigatedIds}
+            parcels={visibleParcels}
+          />
+        </div>
+
+        {/* Sidebar de filtros (right) — w-80 fijo en desktop, scroll si crece */}
+        <div className="lg:w-80 lg:overflow-y-auto">
+          <MapFilterSidebar
+            resultCount={visibleParcels.length}
+            summary={summary}
+          />
+        </div>
+      </div>
     </AppShell>
-  );
-}
-
-/**
- * Sub-componente server (async) que corre las queries "lentas" en paralelo
- * y pasa los resultados al MapStatsIsland (client). Vive aquí (en page.tsx)
- * porque solo se usa en este flujo — no merece su propio archivo.
- *
- * Recibe `parcels` y `fumigatedIds` ya calculados por el page.tsx (critical
- * path) para que el island muestre KPIs reales desde el primer frame; las
- * queries "lentas" (flights, alerts, flightPoints) se inyectan vía
- * `sectionQueries` para que el HTML del island se streame apenas resuelvan.
- *
- * v1.3 — ya no recibe `summary` como prop porque se pasa al panel de
- * filtros directamente (panel vive en el critical path, no en el island).
- */
-async function MapStatsSection({
-  parcels,
-  fumigatedIds,
-  sectionQueries,
-  summary
-}: {
-  parcels: DjiParcelRecord[];
-  fumigatedIds: Set<number>;
-  sectionQueries: Promise<
-    [
-      Awaited<ReturnType<typeof getFlights>>,
-      Awaited<ReturnType<typeof getAlerts>>,
-      Awaited<ReturnType<typeof getFlightPoints>>
-    ]
-  >;
-  /**
-   * v1.3 — pasamos el summary sin filtrar al island. El panel
-   * "Distribución por drone" muestra la composición completa de la
-   * flota independientemente del filtro activo — si el usuario
-   * filtró a Agras T40, la barra de T40 sigue mostrando el conteo
-   * total (no solo el subconjunto filtrado) y el resto de las
-   * barras siguen visibles para que pueda ver el contexto.
-   */
-  summary: Awaited<ReturnType<typeof getParcelsSummary>>;
-}) {
-  const [flightsResult, alerts, flightPoints] = await sectionQueries;
-
-  return (
-    <MapStatsIsland
-      alerts={alerts}
-      flightPoints={flightPoints}
-      flights={flightsResult}
-      fumigatedIds={fumigatedIds}
-      parcels={parcels}
-      summary={summary}
-    />
   );
 }
