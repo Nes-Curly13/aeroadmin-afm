@@ -1196,4 +1196,64 @@ equireAuth() (a diferencia de /api/task-history
   sidebar, y vista satélite. v2.0 cubre el refactor de fumigaciones
   + multi-tenant.
 
+### 2026-07-21 — Q4 v1.4 Track C (audit #11: notas humanas en fumigaciones)
+- **Sesión**: worktree `v1.4/track-c-notes-fumigaciones`
+- **Objetivo**: resolver el item #11 del audit ui-ux-2026-07. El operador
+  fumigador del Valle del Cauca quiere dejar contexto libre en cada
+  fumigación ("se atrasó por lluvia", "producto nuevo", "equipo reportó
+  problema X"). Hoy `notes` se reusa para provenance del backfill —
+  mezclar metadata técnica con user input es un anti-pattern.
+- **Decisión de schema**: columna SEPARADA `human_notes` (no fusionar
+  con `notes`). `notes` queda intacta (provenance, nunca visible al
+  usuario). CHECK constraint `<= 2000` para evitar que el operador pegue
+  1 GB. Idempotente (`IF NOT EXISTS`).
+- **Acciones** (1 commit de código + 1 commit de docs):
+  - `20260721010000_add_fumigation_human_notes.sql` (nuevo) — migration
+    additive: `ALTER TABLE dji_fumigations ADD COLUMN human_notes TEXT
+    CHECK (length <= 2000)` + comment explicativo del propósito.
+  - `lib/types.ts` (mod) — `DjiFumigationEvent` incluye `human_notes`.
+  - `api/repositories.ts` (mod) — `createFumigationEvent` acepta
+    `human_notes` (lo inserta y lo devuelve en `RETURNING`); query
+    `fumigationEventsByParcelQuery` también lo selecciona.
+  - `app/api/fumigations/route.ts` (mod) — `CreateFumigationBody` ahora
+    incluye `human_notes?`; mismo `validateOptionalString` con
+    `MAX_LENGTHS.human_notes = 2000`; pasa el campo al repo en el INSERT.
+  - `components/parcels/parcel-fumigations.tsx` (mod, SOLO el form) —
+    `<textarea name="notes">` renombrado a `<textarea name="human_notes">`
+    con label "Agregar nota (opcional)" y helper text. El POST body
+    ahora envía `human_notes` (no `notes`). El render del historial
+    muestra `human_notes` (con `data-testid="fumigation-human-notes"`)
+    y deja el filtro `isProvenanceNotes(e.notes)` intacto para `notes`.
+  - Tests: `parcel-fumigations.test.tsx` (+4 tests en describe nuevo
+    "human_notes (Track C v1.4)"); `api-fumigations-length.test.ts`
+    (+6 tests: 2001→400, 2000→201, null→201, valor→pasa al repo,
+    tipo no-string→400, coexistencia notes+human_notes). Fixture
+    `makeEvent` en `export-fumigations-csv-button.test.tsx` (+1 línea
+    `human_notes: null` para no romper el tipo).
+- **Archivos tocados**: 1 nuevo, 4 modificados, 2 tests modificados.
+- **Estado**: ✅ Q4 v1.4 Track C cerrado. Item #11 del audit resuelto.
+  **+10 tests** (de 953 → 963). 0 dependencias nuevas. Scope < 25 min.
+- **Tests**: `npx tsc --noEmit` limpio. 963/985 verde local
+  (11 skipped, todos DB-dependientes con Docker apagado — baseline
+  esperada según SDD §9).
+- **Notas / bloqueos**:
+  - **Out of scope intencional**: NO se tocó `parcel-timeline.tsx` ni
+    `export-fumigations-csv-button.tsx`. El timeline no muestra
+    `human_notes` aún y el CSV no la exporta — son mejoras para
+    siguientes sprints si el operador las pide. El cambio de schema
+    ya está hecho, así que esos updates son código nuevo sin
+    migración adicional.
+  - **No reintroducir la confusión `notes` ↔ `human_notes`**: cualquier
+    agente que trabaje sobre fumigaciones debe respetar la separación.
+    Si ve un INSERT/UPDATE que setea `notes` desde el form, es un bug
+    (esos datos deben ir a `human_notes`).
+  - **CSV export queda con la misma metadata visible que antes** — el
+    `notas` del CSV sigue siendo `notes` filtrado por `isProvenanceNotes`,
+    no incluye `human_notes`. Si el operador pide el reporte con notas
+    humanas, hay que actualizar `ExportFumigationsCsvButton` en otro
+    sprint (cambio chico, ~10 líneas).
+- **Próximo paso**: push + CI verde. v1.4 Track C cerrado. Resto de
+  v1.4 (notificaciones M2, multi-tenant) sigue pendiente de decisión
+  de producto.
+
 
