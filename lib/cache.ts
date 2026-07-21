@@ -35,6 +35,10 @@ import {
   aggregateFlightsByDay,
   type FlightRow
 } from "@/lib/dji-flights-aggregate";
+import {
+  buildAlertsFromFumigations,
+  type FumigationRow
+} from "@/lib/dji-fumigations-aggregate";
 import { toDateString } from "@/lib/format";
 import {
   computeNextDueDate,
@@ -240,7 +244,102 @@ interface FlightDbRow {
   point: GeoJSON.Geometry | null;
 }
 
+/**
+ * v1.6 (auditoria #2 doble modelo fumigaciones):
+ *   ANTES: las alertas se derivaban de dji_flights agregado por DIA total.
+ *   El `parcel_id` resultante era el id sintetico del row de dji_daily_summaries
+ *   (1, 2, 3...) y `parcel_name` era la fecha. La UI mostraba "alertas" que
+ *   no correspondian a ninguna parcela real — eran buckets por dia.
+ *
+ *   AHORA: las alertas se derivan de dji_fumigations (la verdad per-parcela),
+ *   agrupadas por (parcel_id, fumigation_date). `parcel_id` y `parcel_name`
+ *   son reales. Si una fumigacion cubre varias parcelas en un dia, cada
+ *   parcela tiene su propia alerta (no se mezclan).
+ *
+ *   Thresholds (60 mu / 30 mu / 80 sorties / 40 sorties) son los MISMOS
+ *   que el agregador viejo. NO se re-calibran en v1.6 — eso es scope
+ *   separado (audit #2.2 — "¿que nivel de riesgo significa realmente
+ *   60 mu en UNA parcela vs 60 mu en TODA la cuenta?".
+ *
+ *   Soft delete (v1.1): las fumigaciones con deleted_at IS NOT NULL
+ *   quedan excluidas. Mismo para dji_parcels.
+ *
+ *   Aggregate imports (parcel_id IS NULL): excluidos — representan "se
+ *   fumigo en algun lado del total de la cuenta", no sabemos donde.
+ *   Ver migration `20260619140000_make_dji_fumigations_parcel_nullable.sql`.
+ */
+async function fetchAlertsFromFumigationsRaw(): Promise<DjiAlertRecord[]> {
+  const db = getDb();
+  // Traemos TODAS las fumigaciones per-parcela (no agregamos en SQL
+  // porque queremos reutilizar el aggregator puro `buildAlertsFromFumigations`,
+  // testeable sin BD). Dataset actual: ~400 rows, chiquito.
+  // Si crece a >50k, mover el GROUP BY a SQL (la función pura sigue
+  // siendo util para tests).
+  const result = await db.query<{
+    id: number;
+    parcel_id: number;
+    // node-postgres devuelve columnas DATE como string (YYYY-MM-DD).
+    // Mantenemos string en el boundary.
+    fumigation_date: string;
+    area_fumigated_m2: string | number | null;
+    duration_minutes: number | null;
+    dose_l_per_ha: string | number | null;
+    land_name: string | null;
+  }>(
+    `SELECT f.id, f.parcel_id, f.fumigation_date,
+            f.area_fumigated_m2, f.duration_minutes, f.dose_l_per_ha,
+            p.land_name
+       FROM dji_fumigations f
+       JOIN dji_parcels p ON p.id = f.parcel_id
+      WHERE f.parcel_id IS NOT NULL
+        AND f.deleted_at IS NULL
+        AND p.deleted_at IS NULL
+      ORDER BY f.fumigation_date DESC, f.parcel_id ASC`
+  );
+  const rows: FumigationRow[] = result.rows.map((r) => ({
+    id: r.id,
+    parcel_id: r.parcel_id,
+    fumigation_date: r.fumigation_date,
+    area_fumigated_m2:
+      r.area_fumigated_m2 === null ? null : Number(r.area_fumigated_m2),
+    duration_minutes: r.duration_minutes,
+    dose_l_per_ha:
+      r.dose_l_per_ha === null ? null : Number(r.dose_l_per_ha),
+    parcel_name: r.land_name
+  }));
+  return buildAlertsFromFumigations(rows);
+}
+
+/**
+ * v1.6: fetchAlertsRaw ahora delega al nuevo fetchAlertsFromFumigationsRaw.
+ * El cache + tag (`afm:alerts`) se mantienen — la UI no nota el cambio.
+ *
+ * El codigo viejo (basado en dji_flights) se conserva en este archivo
+ * como `fetchAlertsLegacyFromFlightsRaw` por si necesitamos rollback
+ * rapido. Si en 30 dias no se usa, borrar (TODO: ticket de cleanup).
+ */
 async function fetchAlertsRaw(): Promise<DjiAlertRecord[]> {
+  return fetchAlertsFromFumigationsRaw();
+}
+
+export const fetchAlertsCached = unstable_cache(
+  async () => fetchAlertsRaw(),
+  ["alerts"],
+  { revalidate: CACHE_TTL.alerts, tags: [CACHE_TAGS.alerts] }
+);
+
+/**
+ * LEGACY v1.5: derivaba alertas de dji_flights agregado por dia.
+ * Conservado como `fetchAlertsLegacyFromFlightsRaw` SOLO para
+ * rollback rapido. No se invoca desde el codigo de produccion.
+ *
+ * Para usar en caso de emergencia:
+ *   1. Cambiar `fetchAlertsRaw` para que retorne esta version.
+ *   2. Commit con revert explicito en el mensaje.
+ *
+ * Removal: v2.0 (cuando se decida el destino final de dji_flights).
+ */
+async function fetchAlertsLegacyFromFlightsRaw(): Promise<DjiAlertRecord[]> {
   const db = getDb();
   const result = await db.query<FlightDbRow>(
     `SELECT id, flight_id, start_at, end_at, duration_seconds, area_m2,
@@ -280,12 +379,6 @@ async function fetchAlertsRaw(): Promise<DjiAlertRecord[]> {
     };
   });
 }
-
-export const fetchAlertsCached = unstable_cache(
-  async () => fetchAlertsRaw(),
-  ["alerts"],
-  { revalidate: CACHE_TTL.alerts, tags: [CACHE_TAGS.alerts] }
-);
 
 async function fetchUpcomingFumigationsRaw(limit: number): Promise<UpcomingFumigation[]> {
   const db = getDb();
