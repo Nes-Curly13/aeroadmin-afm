@@ -1480,3 +1480,116 @@ equireAuth() (a diferencia de /api/task-history
   feedback real antes de seguir refactorizando.
 
 
+
+### 2026-07-21 — Q4 v1.7 Track C (sprint UI overhaul — task history sidebar + item details)
+- **Sesión**: worktree `sprint/v1.7-track-c-taskhistory`
+- **Objetivo**: aplicar el patrón bento "map main + sidebar" (que ya
+  usa track B en `/map`) a `/task-history`, más mejorar los items de
+  la lista con detalle de vuelos individuales (audit #11) y aplicar
+  accessibility badges de "cuántos registros muestra el filtro".
+- **Patrón bento aplicado** (mismo que track B):
+  ```
+  ┌────────────────────────┬──────────────────────┐
+  │  TabSwitcher (Map/List)│                      │
+  │                        │  Filtros    12 par.  │
+  │   <MapView>            │  ─ Periodo   1       │
+  │   (~60%, polígonos     │  ─ Drones    0 / 12  │
+  │    fumigados)          │  ─ Piloto    0       │
+  │                        │  ─ Parcela   0       │
+  │                        │  ─ [Descargar]       │
+  │                        │  ─ DayCard 1         │
+  │                        │    09:14 T40#45 ...  │
+  │                        │  ─ DayCard 2 ...     │
+  └────────────────────────┴──────────────────────┘
+  ```
+- **Acciones** (1 commit):
+  1. `lib/djiag-from-make/task-history.ts`:
+     - `FlightLikeRow` extendida con `drone_serial?`, `pilot_name?`,
+       `parcel_id?` opcionales (back-compat con callers viejos).
+     - `FlightLikeRow.area_m2` y `spray_usage_ml` ahora son
+       `number | null` (la BD los declara nullables).
+     - Nueva `aggregateNormalizedDaysWithFlights()` que devuelve
+       `DayCardWithFlights[]` (rollup + lista de vuelos por día).
+     - Nuevo `FlightListItem` y `DayCardWithFlights` exportados.
+  2. `app/task-history/TaskHistoryClient.tsx` (rewrite):
+     - Layout: flex horizontal, mapa main (~60%) + sidebar (~40%, 400px).
+     - Saca `data-testid="task-history-content"` envuelve el row completo
+       (mismo target del ScreenshotButton que ya tenía track Q1).
+     - El `<MapView>` toma `height="100%"` para llenar el row.
+     - El banner de "parcela seleccionada" se reubicó del lateral
+       izquierdo al overlay del mapa (esquina inferior derecha, sobre
+       el mapa — sigue siendo visible sin interrumpir el sidebar).
+  3. `app/task-history/page.tsx` (rewrite):
+     - Drop `TaskHistoryToolbar` (movido al sidebar).
+     - 3 paths de fetching:
+       (a) filtros de vuelo → `aggregateNormalizedDaysWithFlights` directo.
+       (b) sin filtros + `dji_daily_summaries` existe → summary +
+           query separada a `dji_flights` con LEFT JOIN a `dji_parcels`
+           para resolver el nombre de la parcela fumigada.
+       (c) sin filtros + tabla no existe (CI) → fallback a (a).
+     - Nueva query `fetchDroneSuggestions(limit)` que devuelve
+       `DISTINCT drone_serial` ordenado para el datalist del filtro.
+     - `parcelNameById: Map<number, string>` se construye con lookup
+       del JOIN flights+parcels + fallback desde polygons.
+  4. `app/task-history/TaskHistoryToolbar.tsx` (eliminado).
+     Movido a `components/task-history/task-history-sidebar.tsx`.
+  5. `components/task-history/task-history-sidebar.tsx` (nuevo, ~400
+     líneas, client component):
+     - `<FilterSidebar>` primitive con title="Filtros", resultCount
+       (parcelas) y botón "Limpiar" condicional (aparece solo si
+       hay filtros activos).
+     - 4 `<FilterSidebarSection>`: Periodo (DateRangePicker), Drones
+       (input + datalist), Piloto (input), Parcela (input numérico).
+     - Cada section muestra `count` (total de opciones) y `activeCount`
+       (cuántas activas) — a11y audit #11.
+     - ScreenshotButton al final (después de los filtros, antes de
+       la lista de items).
+     - Lista de DayCards dentro de `<ScrollablePanel maxHeight="calc(100vh-560px)">`
+       → el scroll es INTERNO al sidebar, no del body.
+     - DayCards renderizan `FlightSubList` (sub-lista de vuelos).
+     - `<FlightDetailDrawer>` se monta al final del sidebar y se
+       abre cuando el usuario hace click en un vuelo de la sub-lista.
+  6. `components/task-history/flight-sub-list.tsx` (nuevo, ~140 líneas):
+     - Sub-lista de vuelos dentro de DayCard. Items clickeables
+       (cuando se pasa `onFlightClick`) o no (div) según contexto.
+     - Layout ultra-compacto: HH:MM, drone (acortado a "…00045"),
+       piloto, area, duration. Sin truncado hardcode — el caller
+       decide cuántos items mostrar.
+     - Máximo 5 items visibles + "+N vuelos más" si sobran.
+  7. `components/task-history/flight-detail-drawer.tsx` (nuevo, ~180
+     líneas, client component):
+     - `<dialog>` HTML nativo. Sin libs de modal.
+     - Muestra: ID del vuelo, fecha/hora local, drone (serial completo),
+       piloto, parcela fumigada (nombre via `parcelNameById`),
+       duración, área (mu), litros.
+     - Accesibilidad: `aria-modal`, `aria-labelledby`, `<Esc>` para
+       cerrar, focus al botón "Cerrar" al abrir.
+     - **TODO v1.7+ Track C**: agregar source URL del DJI cuando se
+       agregue la columna `source_url` a `dji_flights` (bloqueado por
+       el constraint "0 schema changes" del sprint).
+  8. `components/task-history/day-card.tsx` (extendido):
+     - Nuevos props opcionales: `flights: FlightListItem[]` y
+       `onFlightClick: (flight) => void`. Back-compat 100% — los
+       callers que no los pasan ven el card idéntico al de antes.
+  9. Tests:
+     - `tests/components/task-history/task-history-client.test.tsx`
+       (rewrite, 11 tests, todos pasando) — match el nuevo shape.
+     - `tests/components/task-history/day-card.test.tsx` (extendido,
+       +9 tests para la sub-lista de vuelos).
+     - `tests/components/task-history/task-history-sidebar.test.tsx`
+       (nuevo, 19 tests) — cubre render, sections, button clear,
+       screenshot, lista, drawer, empty state.
+     - `tests/djiag-from-make/task-history.test.ts` (extendido,
+       +9 tests para `aggregateNormalizedDaysWithFlights`).
+- **Archivos tocados**: 5 nuevos, 4 modificados, 1 eliminado.
+  Total: ~1200 líneas de código + ~700 líneas de tests.
+- **Constraints cumplidos**:
+  - ✅ 0 deps nuevas.
+  - ✅ 0 schema changes. 0 migrations.
+  - ✅ El sub-lista de vuelos (SÍ) y el drawer (SÍ) ambos quedaron
+     implementados. El TODO del source URL del DJI queda en el drawer
+     porque la BD no tiene esa columna.
+- **Estado**: sprint v1.7 Track C cerrado.
+- **Próximo paso**: push + CI verde. v1.7 puede continuar con
+  Track D (notifications según roadmap) o sprints de polish (M2
+  notificaciones, audit #13 dark mode, etc.).

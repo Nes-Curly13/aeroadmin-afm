@@ -9,13 +9,22 @@
 //   F2: HeaderCard + DayCard + DayList + TabSwitcher ✓ committed (0b32e71)
 //   F3: MapView con polígonos seleccionables        ✓ (working tree)
 //   F4: DateRangePicker + FilterButton + ScreenshotButton ✓ (working tree)
-//   F5: Esta página integradora                     ← (en curso)
+//   F5: Esta página integradora                     ← (v1.7 Track C: refactor)
+//
+// v1.7 Track C:
+//   - Layout: flex horizontal, mapa main (60%) + sidebar filtros+items (40%).
+//   - El TaskHistoryToolbar (que vivía en el AppShell `actions` slot) se
+//     elimina. Sus controles se reubicaron al sidebar (DateRangePicker en
+//     el section "Periodo", ScreenshotButton al header de la sidebar,
+//     FilterButton se reemplaza por inputs inline en cada section).
+//   - DayCards reciben los vuelos individuales del día (sub-lista).
+//   - Click en un vuelo → FlightDetailDrawer con el detalle.
 
 import { getDb } from "@/lib/db";
 import {
-  aggregateNormalizedDays,
-  type FlightLikeRow,
+  aggregateNormalizedDaysWithFlights,
   type DayCard as DayCardData,
+  type DayCardWithFlights,
   type TaskHistoryTotals
 } from "@/lib/djiag-from-make/task-history";
 import { getPolygonsInRange } from "@/lib/djiag-spatial-aggregator";
@@ -24,7 +33,6 @@ import { AppShell } from "@/components/app-shell";
 import { getViewerRole } from "@/lib/auth/role";
 
 import { TaskHistoryClient } from "./TaskHistoryClient";
-import { TaskHistoryToolbar } from "./TaskHistoryToolbar";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -36,6 +44,8 @@ interface PageProps {
 const DEFAULT_WINDOW_DAYS = 183; // ~6 meses, mismo que /api/task-history
 const M2_PER_MU = 666.67;
 const ML_PER_L = 1000;
+const DEFAULT_FLIGHTS_PER_DAY = 10; // top-N para la sub-lista del DayCard
+const DEFAULT_DRONE_SUGGESTIONS_LIMIT = 30;
 
 function toIsoDate(s: string | string[] | undefined, fallback: string): string {
   if (!s) return fallback;
@@ -127,74 +137,283 @@ async function fetchDaysFromSummary(from: string, to: string) {
   }
 }
 
-async function fetchFilteredFlights(args: {
+interface EnrichedFlightRow {
+  id: number;
+  flight_id: number | string;
+  start_at: Date | string;
+  duration_seconds: number;
+  area_m2: number | null;
+  spray_usage_ml: number | null;
+  drone_serial: string | null;
+  pilot_name: string | null;
+  parcel_id: number | null;
+}
+
+/**
+ * Lee los dji_flights del rango+filtros con metadata extra para
+ * soportar la sub-lista del DayCard (v1.7 Track C). Retorna los
+ * flights crudos (en orden ASC por start_at) más el lookup de
+ * nombres de parcela.
+ */
+async function fetchEnrichedFlights(args: {
   from: string;
   to: string;
   parcelId?: number;
   droneSerial?: string;
   pilot?: string;
-}): Promise<FlightLikeRow[]> {
+}): Promise<{ rows: EnrichedFlightRow[]; parcelNameById: Map<number, string> }> {
   const db = getDb();
   const where: string[] = [
-    "start_at >= $1::date",
-    "start_at <  ($2::date + INTERVAL '1 day')"
+    "f.start_at >= $1::date",
+    "f.start_at <  ($2::date + INTERVAL '1 day')"
   ];
   const params: unknown[] = [args.from, args.to];
   if (args.parcelId !== undefined) {
     params.push(args.parcelId);
-    where.push(`parcel_id = $${params.length}`);
+    where.push(`f.parcel_id = $${params.length}`);
   }
   if (args.droneSerial) {
     params.push(args.droneSerial);
-    where.push(`drone_serial = $${params.length}`);
+    where.push(`f.drone_serial = $${params.length}`);
   }
   if (args.pilot) {
     params.push(args.pilot);
-    where.push(`pilot_name = $${params.length}`);
+    where.push(`f.pilot_name = $${params.length}`);
   }
+  // LEFT JOIN a dji_parcels para resolver el nombre de la parcela
+  // fumigada. Necesario para el FlightDetailDrawer. Sin parcel_id
+  // (NULL), no hay join — el campo queda como null y el drawer
+  // muestra "—".
   const sql = `
-    SELECT id, flight_id, start_at, duration_seconds, area_m2, spray_usage_ml
-      FROM dji_flights
+    SELECT f.id, f.flight_id, f.start_at, f.duration_seconds,
+           f.area_m2, f.spray_usage_ml,
+           f.drone_serial, f.pilot_name, f.parcel_id,
+           p.land_name AS parcel_name
+      FROM dji_flights f
+      LEFT JOIN dji_parcels p ON p.id = f.parcel_id
      WHERE ${where.join(" AND ")}
-     ORDER BY start_at ASC
+     ORDER BY f.start_at ASC
   `;
   const result = await db.query<{
     id: number;
-    flight_id: number;
+    flight_id: number | string;
     start_at: Date;
     duration_seconds: number;
     area_m2: number | null;
     spray_usage_ml: number | null;
+    drone_serial: string | null;
+    pilot_name: string | null;
+    parcel_id: number | null;
+    parcel_name: string | null;
   }>(sql, params);
-  return result.rows.map((r) => ({
+
+  const parcelNameById = new Map<number, string>();
+  for (const r of result.rows) {
+    if (r.parcel_id !== null && r.parcel_name) {
+      parcelNameById.set(r.parcel_id, r.parcel_name);
+    }
+  }
+
+  const rows: EnrichedFlightRow[] = result.rows.map((r) => ({
     id: r.id,
     flight_id: r.flight_id,
     start_at: r.start_at,
     duration_seconds: r.duration_seconds ?? 0,
-    area_m2: r.area_m2 ?? 0,
-    spray_usage_ml: r.spray_usage_ml ?? 0
+    area_m2: r.area_m2,
+    spray_usage_ml: r.spray_usage_ml,
+    drone_serial: r.drone_serial,
+    pilot_name: r.pilot_name,
+    parcel_id: r.parcel_id
   }));
+
+  return { rows, parcelNameById };
 }
 
-async function resolveDays(args: {
+async function fetchDroneSuggestions(limit: number): Promise<string[]> {
+  const db = getDb();
+  try {
+    const result = await db.query<{ drone_serial: string }>(
+      `SELECT DISTINCT drone_serial
+         FROM dji_flights
+        WHERE drone_serial IS NOT NULL
+          AND drone_serial <> ''
+        ORDER BY drone_serial ASC
+        LIMIT $1`,
+      [limit]
+    );
+    return result.rows
+      .map((r) => r.drone_serial)
+      .filter((s): s is string => typeof s === "string" && s.length > 0);
+  } catch (err) {
+    // Si la tabla no existe (CI sin materializar) o cualquier error,
+    // devolvemos lista vacía — el filtro funciona sin sugerencias
+    // (el usuario tipea el serial completo).
+    if (isUndefinedTableError(err)) return [];
+    if (process.env.NODE_ENV !== "test") {
+      // eslint-disable-next-line no-console
+      console.error("[task-history] fetchDroneSuggestions failed:", err);
+    }
+    return [];
+  }
+}
+
+function toLocalDateBogota(date: Date): string {
+  const offsetMin = -5 * 60; // -300
+  const localMs = date.getTime() + offsetMin * 60_000;
+  const local = new Date(localMs);
+  const y = local.getUTCFullYear();
+  const m = String(local.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(local.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function toLocalTimeBogota(date: Date): string {
+  const offsetMin = -5 * 60; // -300
+  const localMs = date.getTime() + offsetMin * 60_000;
+  const local = new Date(localMs);
+  const h = String(local.getUTCHours()).padStart(2, "0");
+  const m = String(local.getUTCMinutes()).padStart(2, "0");
+  return `${h}:${m}`;
+}
+
+/**
+ * Decisión de paths de fetching (v1.7 Track C):
+ *
+ *  1. Si hay filtros de vuelo (parcelId/droneSerial/pilot):
+ *     - El summary no sirve (no tiene esas dimensiones).
+ *     - Re-agregamos desde dji_flights con `aggregateNormalizedDaysWithFlights`,
+ *       que devuelve los días + la lista de vuelos por día.
+ *
+ *  2. Si NO hay filtros y existe dji_daily_summaries:
+ *     - Rollup desde summary (rápido).
+ *     - Sub-lista desde una query separada a dji_flights.
+ *     - Esta es la diferencia clave: antes solo se agregaba desde
+ *       flights, ahora también se puede componer desde summary+flights.
+ *
+ *  3. Si NO hay filtros y NO existe dji_daily_summaries (CI, primer
+ *     deploy): fallback al path 1 (todo desde flights).
+ */
+async function resolveEnrichedDays(args: {
   from: string;
   to: string;
   parcelId?: number;
   droneSerial?: string;
   pilot?: string;
-}) {
+}): Promise<{
+  enriched: DayCardWithFlights[];
+  parcelNameById: Map<number, string>;
+}> {
   const hasFlightFilters =
     args.parcelId !== undefined || !!args.droneSerial || !!args.pilot;
+
   if (hasFlightFilters) {
-    const flights = await fetchFilteredFlights(args);
-    return aggregateNormalizedDays(flights);
+    // Path 1: todo desde dji_flights
+    const { rows, parcelNameById } = await fetchEnrichedFlights(args);
+    const enriched = aggregateNormalizedDaysWithFlights(rows);
+    return { enriched, parcelNameById };
   }
+
+  // Path 2: summary + flights
   const summaryRows = await fetchDaysFromSummary(args.from, args.to);
-  if (summaryRows !== null) {
-    return summaryRows.map(dailySummaryToNormalizedDay);
+  if (summaryRows === null) {
+    // Path 3: fallback
+    const { rows, parcelNameById } = await fetchEnrichedFlights(args);
+    const enriched = aggregateNormalizedDaysWithFlights(rows);
+    return { enriched, parcelNameById };
   }
-  const flights = await fetchFilteredFlights(args);
-  return aggregateNormalizedDays(flights);
+
+  const normalizedDays = summaryRows.map(dailySummaryToNormalizedDay);
+
+  // Fetch la data de flights para la sub-lista. Si falla, devolvemos
+  // los días sin flights (la page no rompe, el sidebar muestra el
+  // rollup sin sub-lista).
+  let byDate = new Map<string, EnrichedFlightRow[]>();
+  let parcelNameById = new Map<number, string>();
+  try {
+    const enriched = await fetchEnrichedFlights(args);
+    byDate = new Map();
+    for (const r of enriched.rows) {
+      const startAt =
+        r.start_at instanceof Date ? r.start_at : new Date(r.start_at);
+      const dateStr = toLocalDateBogota(startAt);
+      const bucket = byDate.get(dateStr) ?? [];
+      bucket.push(r);
+      byDate.set(dateStr, bucket);
+    }
+    parcelNameById = enriched.parcelNameById;
+  } catch {
+    byDate = new Map();
+  }
+
+  const enriched: DayCardWithFlights[] = normalizedDays.map((n) => {
+    const dateStr = n.date ?? "";
+    const rows = (byDate.get(dateStr) ?? [])
+      .slice()
+      .sort((a, b) => {
+        const aT =
+          a.start_at instanceof Date ? a.start_at : new Date(a.start_at);
+        const bT =
+          b.start_at instanceof Date ? b.start_at : new Date(b.start_at);
+        return aT.getTime() - bT.getTime();
+      })
+      .slice(0, DEFAULT_FLIGHTS_PER_DAY);
+    const flights = rows.map((r) => {
+      const startAt =
+        r.start_at instanceof Date ? r.start_at : new Date(r.start_at);
+      return {
+        id: r.id,
+        localDate: dateStr,
+        localTime: toLocalTimeBogota(startAt),
+        durationSeconds: r.duration_seconds ?? 0,
+        areaMu: Math.round(((r.area_m2 ?? 0) / M2_PER_MU) * 100) / 100,
+        liters: Math.round(((r.spray_usage_ml ?? 0) / ML_PER_L) * 100) / 100,
+        droneSerial: r.drone_serial,
+        pilotName: r.pilot_name,
+        parcelId: r.parcel_id
+      };
+    });
+    return { day: n, flights };
+  });
+
+  return { enriched, parcelNameById };
+}
+
+/**
+ * Convierte un día agregado (rollup) al shape `DayCard` que muestra
+ * el UI. La conversión se hace server-side para que el client reciba
+ * un shape listo para renderizar (no tiene que adivinar el formato
+ * de la fecha ni del duration).
+ */
+function normalizedDayToCard(d: DayCardWithFlights["day"]): DayCardData {
+  const dateStr = d.date ?? "";
+  const dateObj = dateStr ? new Date(dateStr) : new Date(NaN);
+  const weekday = Number.isNaN(dateObj.getTime())
+    ? ""
+    : [
+        "Sunday",
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday"
+      ][dateObj.getUTCDay()];
+  const hours = Math.floor((d.workTimeSec ?? 0) / 3600);
+  const minutes = Math.floor(((d.workTimeSec ?? 0) % 3600) / 60);
+  const seconds = (d.workTimeSec ?? 0) % 60;
+  return {
+    date: dateStr.replace(/-/g, "/"),
+    weekday,
+    areaMu: Math.round(((d.workAreaM2 ?? 0) / M2_PER_MU) * 100) / 100,
+    times: d.sortieCount ?? 0,
+    liters: d.sprayUsageL ?? 0,
+    duration: {
+      hours,
+      minutes,
+      seconds,
+      djiFormat: `${hours}Hour${minutes}min${seconds}s`
+    }
+  };
 }
 
 function computeTotalsLocal(days: DayCardData[]): TaskHistoryTotals {
@@ -224,49 +443,6 @@ function computeTotalsLocal(days: DayCardData[]): TaskHistoryTotals {
   };
 }
 
-function dayToCard(day: {
-  createTimestamp: number | null;
-  date: string | null;
-  workAreaM2: number | null;
-  workTimeSec: number | null;
-  workTimeMin: number | null;
-  sortieCount: number | null;
-  sprayUsageMl: number | null;
-  sprayUsageL: number | null;
-  doseLPerHa: number | null;
-  hasAgriculture: boolean;
-}): DayCardData {
-  const dateStr = day.date ?? "";
-  const dateObj = dateStr ? new Date(dateStr) : new Date(NaN);
-  const weekday = Number.isNaN(dateObj.getTime())
-    ? ""
-    : [
-        "Sunday",
-        "Monday",
-        "Tuesday",
-        "Wednesday",
-        "Thursday",
-        "Friday",
-        "Saturday"
-      ][dateObj.getUTCDay()];
-  const hours = Math.floor((day.workTimeSec ?? 0) / 3600);
-  const minutes = Math.floor(((day.workTimeSec ?? 0) % 3600) / 60);
-  const seconds = (day.workTimeSec ?? 0) % 60;
-  return {
-    date: dateStr.replace(/-/g, "/"),
-    weekday,
-    areaMu: Math.round(((day.workAreaM2 ?? 0) / M2_PER_MU) * 100) / 100,
-    times: day.sortieCount ?? 0,
-    liters: day.sprayUsageL ?? 0,
-    duration: {
-      hours,
-      minutes,
-      seconds,
-      djiFormat: `${hours}Hour${minutes}min${seconds}s`
-    }
-  };
-}
-
 export default async function TaskHistoryPage({ searchParams }: PageProps) {
   const from = toIsoDate(searchParams.from, daysAgoIso(DEFAULT_WINDOW_DAYS));
   const to = toIsoDate(searchParams.to, todayIso());
@@ -284,35 +460,49 @@ export default async function TaskHistoryPage({ searchParams }: PageProps) {
     Array.isArray(searchParams.pilot) ? searchParams.pilot[0] : searchParams.pilot
   )?.trim() || undefined;
 
-  const normalizedDays = await resolveDays({
-    from,
-    to,
-    parcelId,
-    droneSerial,
-    pilot
-  });
-  const days: DayCardData[] = normalizedDays.map(dayToCard);
-  const totals = computeTotalsLocal(days);
+  // Enriquecer: rollup + sub-lista en una sola pasada server-side.
+  // La query a dji_flights ya viene con LEFT JOIN a dji_parcels para
+  // resolver el nombre de la parcela fumigada.
+  const [{ enriched, parcelNameById: parcelsFromFlights }, polygons, droneSuggestions] =
+    await Promise.all([
+      resolveEnrichedDays({ from, to, parcelId, droneSerial, pilot }),
+      getPolygonsInRange({
+        from,
+        to,
+        onlyFumigated: true,
+        parcelId,
+        droneSerial,
+        pilot
+      }),
+      fetchDroneSuggestions(DEFAULT_DRONE_SUGGESTIONS_LIMIT)
+    ]);
 
-  // Polígonos del mapa: TODOS los parcels fumigados en el rango
-  // (decisión 5: same color, click → filter).
-  const polygons = await getPolygonsInRange({
-    from,
-    to,
-    onlyFumigated: true,
-    parcelId,
-    droneSerial,
-    pilot
-  });
+  // Rollup cards (mismo shape que la v1.6) para los KPIs. En v1.7 Track C
+  // el header de totales se removió del cuerpo del screen (vive como
+  // el FilterSidebar header en su lugar). Mantenemos la conversión por
+  // simetría con el API /api/task-history y para futuro reuso.
+  const days = enriched.map((e) => normalizedDayToCard(e.day));
+
+  // Lookup de nombre de parcela por id (para el FlightDetailDrawer).
+  // Preferencia: lookup del JOIN flights+parcels (más completo,
+  // incluye parcelas fumigadas que pueden no estar en polygons).
+  // Fallback: polygons. Si falta algún nombre, el drawer muestra
+  // "Parcela #N" (fallback en el componente).
+  const parcelNameById = new Map<number, string>();
+  for (const [id, name] of parcelsFromFlights) {
+    parcelNameById.set(id, name);
+  }
+  for (const p of polygons) {
+    if (p.parcelId && p.landName && !parcelNameById.has(p.parcelId)) {
+      parcelNameById.set(p.parcelId, p.landName);
+    }
+  }
 
   // v1.5: sidebar gate.
   const viewerRole = await getViewerRole();
 
   return (
     <AppShell
-      actions={
-        <TaskHistoryToolbar from={from} polygonCount={polygons.length} to={to} />
-      }
       activeSection="task-history"
       eyebrow="Trazabilidad DJI"
       subtitle="Rollup diario de fumigaciones con KPIs, mapa de parcelas fumigadas y filtros por dron, parcela o piloto."
@@ -320,10 +510,13 @@ export default async function TaskHistoryPage({ searchParams }: PageProps) {
       viewerRole={viewerRole}
     >
       <TaskHistoryClient
-        days={days}
+        days={enriched}
+        droneSuggestions={droneSuggestions}
+        from={from}
+        parcelNameById={parcelNameById}
         polygons={polygons}
         selectedParcelId={parcelId ?? null}
-        totals={totals}
+        to={to}
       />
     </AppShell>
   );

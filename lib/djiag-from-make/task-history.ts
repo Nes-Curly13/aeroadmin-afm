@@ -157,14 +157,29 @@ export function buildTaskHistorySnapshot(
 /** Shape mínima de fila de `dji_flights` que necesita el agregador.
  *  Igual a `FlightRow` en `lib/dji-flights-aggregate.ts` pero copiada
  *  acá para no acoplar el wrapper del Figma al agregador del dashboard
- *  (cambios en uno no deben propagar al otro). */
+ *  (cambios en uno no deben propagar al otro).
+ *
+ *  v1.7 Track C: extendida con `drone_serial`, `pilot_name`, `parcel_id`
+ *  para soportar la sub-lista de vuelos por día en el DayCard. Los
+ *  campos nuevos son opcionales (los callers legacy que solo quieren
+ *  el rollup pueden seguir pasando filas sin ellos).
+ *
+ *  `area_m2` y `spray_usage_ml` son nullable porque la BD los declara
+ *  como tales (algunos flights viejos tienen NULLs en estas columnas).
+ *  Los agregadores hacen `r.area_m2 ?? 0` para tratar el null como 0. */
 export interface FlightLikeRow {
   id: number;
   flight_id: number | string;
   start_at: Date | string;
   duration_seconds: number;
-  area_m2: number;
-  spray_usage_ml: number;
+  area_m2: number | null;
+  spray_usage_ml: number | null;
+  /** Opcional (v1.7): serial del dron (e.g. "1581F5BKD23100045"). */
+  drone_serial?: string | null;
+  /** Opcional (v1.7): nombre del piloto. */
+  pilot_name?: string | null;
+  /** Opcional (v1.7): id de parcela fumigada (join espacial). */
+  parcel_id?: number | null;
 }
 
 const M2_PER_MU = 666.67;
@@ -248,4 +263,153 @@ export function aggregateNormalizedDays(rows: FlightLikeRow[]): NormalizedFumiga
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+// ============================================================
+// v1.7 Track C — sub-lista de vuelos por día
+// ============================================================
+
+/** Vista de un vuelo "para mostrar" en la sub-lista del DayCard.
+ *  Contiene los campos mínimos que el UI necesita para renderizar la
+ *  fila (drone, piloto, duración, área) más el id para el detail
+ *  drawer. Es un sub-set de `FlightLikeRow`. */
+export interface FlightListItem {
+  id: number;
+  /** YYYY-MM-DD de la fecha local del vuelo (Bogota). */
+  localDate: string;
+  /** Hora local (HH:MM) en Bogota — útil para ordenar dentro del día. */
+  localTime: string;
+  durationSeconds: number;
+  areaMu: number;
+  liters: number;
+  droneSerial: string | null;
+  pilotName: string | null;
+  parcelId: number | null;
+}
+
+/** Una card de día enriquecida con los vuelos individuales que la componen. */
+export interface DayCardWithFlights {
+  /** El rollup diario (mismo shape que `NormalizedFumigationDay`). */
+  day: ReturnType<typeof aggregateNormalizedDays>[number];
+  /** Vuelos que componen este día, ordenados por `start_at` ASC. */
+  flights: FlightListItem[];
+}
+
+/**
+ * Variante de `aggregateNormalizedDays` que además devuelve los vuelos
+ * individuales por día. Pensado para la sub-lista del DayCard (v1.7).
+ *
+ * Mismas decisiones que `aggregateNormalizedDays` (TZ America/Bogota,
+ * AVG de area_m2, etc.) — solo agrega que en vez de descartar las
+ * filas después de agregar, las devuelve con metadata útil para el UI.
+ *
+ * Si `rows` viene vacío, devuelve `[]`. Si un día tiene 1 vuelo, ese
+ * día tiene `flights: [1]`. Sin truncado: el caller decide cuántos
+ * mostrar (típicamente top 3-5 + "ver más").
+ */
+export function aggregateNormalizedDaysWithFlights(
+  rows: FlightLikeRow[]
+): DayCardWithFlights[] {
+  if (rows.length === 0) return [];
+
+  // Agrupa por fecha local (Bogota) — reusamos la misma helper de
+  // timezone que aggregateNormalizedDays. Exportada en este módulo
+  // (toLocalDateString de dji-flights-aggregate). Para evitar acoplar
+  // el wrapper del Figma al agregador del dashboard, replicamos el
+  // map de offsets mínimo (UTC-5 Bogota, sin DST).
+  const buckets = new Map<string, FlightLikeRow[]>();
+  for (const row of rows) {
+    const startAt =
+      row.start_at instanceof Date ? row.start_at : new Date(row.start_at);
+    const dateStr = toLocalDateStringBogota(startAt);
+    const bucket = buckets.get(dateStr) ?? [];
+    bucket.push(row);
+    buckets.set(dateStr, bucket);
+  }
+
+  // Ordena fechas DESC.
+  const sortedDates = [...buckets.keys()].sort((a, b) => b.localeCompare(a));
+
+  return sortedDates.map((dateStr) => {
+    const rowsForDay = buckets.get(dateStr)!;
+    const flightCount = rowsForDay.length;
+    const totalAreaM2 = rowsForDay.reduce(
+      (sum, r) => sum + (r.area_m2 ?? 0),
+      0
+    );
+    const totalSprayMl = rowsForDay.reduce(
+      (sum, r) => sum + (r.spray_usage_ml ?? 0),
+      0
+    );
+    const totalDurationSec = rowsForDay.reduce(
+      (sum, r) => sum + (r.duration_seconds ?? 0),
+      0
+    );
+    const avgAreaM2 = flightCount > 0 ? totalAreaM2 / flightCount : 0;
+    const sprayL = totalSprayMl / ML_PER_L;
+
+    // Construir la lista de vuelos individuales, ordenada por start_at
+    // ASC (el orden cronológico de cómo ocurrieron en el día).
+    const flights: FlightListItem[] = [...rowsForDay]
+      .sort((a, b) => {
+        const aT = a.start_at instanceof Date ? a.start_at : new Date(a.start_at);
+        const bT = b.start_at instanceof Date ? b.start_at : new Date(b.start_at);
+        return aT.getTime() - bT.getTime();
+      })
+      .map((r) => {
+        const startAt = r.start_at instanceof Date ? r.start_at : new Date(r.start_at);
+        return {
+          id: r.id,
+          localDate: dateStr,
+          localTime: toLocalTimeStringBogota(startAt),
+          durationSeconds: r.duration_seconds ?? 0,
+          areaMu: round2((r.area_m2 ?? 0) / M2_PER_MU),
+          liters: round2((r.spray_usage_ml ?? 0) / ML_PER_L),
+          droneSerial: r.drone_serial ?? null,
+          pilotName: r.pilot_name ?? null,
+          parcelId: r.parcel_id ?? null
+        };
+      });
+
+    return {
+      day: {
+        createTimestamp: dateStringToEpochSec(dateStr),
+        date: dateStr,
+        workAreaM2: round2(avgAreaM2),
+        workTimeSec: totalDurationSec,
+        workTimeMin: Math.round(totalDurationSec / 60),
+        sortieCount: flightCount,
+        sprayUsageMl: totalSprayMl,
+        sprayUsageL: round2(sprayL),
+        doseLPerHa: avgAreaM2 > 0 ? round2(sprayL / (avgAreaM2 / 10000)) : 0,
+        hasAgriculture: true
+      },
+      flights
+    };
+  });
+}
+
+/**
+ * Replica local de `toLocalDateString('America/Bogota')` de
+ * `lib/dji-flights-aggregate.ts`. Mantenida acá para no acoplar el
+ * wrapper del Figma al agregador del dashboard. Bogota = UTC-5, sin DST.
+ */
+function toLocalDateStringBogota(date: Date): string {
+  const offsetMin = -5 * 60; // -300
+  const localMs = date.getTime() + offsetMin * 60_000;
+  const local = new Date(localMs);
+  const y = local.getUTCFullYear();
+  const m = String(local.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(local.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+/** Hora local HH:MM (Bogota) para mostrar en la sub-lista de vuelos. */
+function toLocalTimeStringBogota(date: Date): string {
+  const offsetMin = -5 * 60; // -300
+  const localMs = date.getTime() + offsetMin * 60_000;
+  const local = new Date(localMs);
+  const h = String(local.getUTCHours()).padStart(2, "0");
+  const m = String(local.getUTCMinutes()).padStart(2, "0");
+  return `${h}:${m}`;
 }

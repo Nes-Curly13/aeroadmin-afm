@@ -1,18 +1,20 @@
 /**
- * Tests del TaskHistoryClient (Q1 Coder A — Commit 1).
+ * Tests del TaskHistoryClient (v1.7 Track C).
  *
- * Después del wrap con AppShell (ver docs/audit/ui-ux-2026-07.md §4.1),
- * el TaskHistoryClient ya NO renderiza su propio header (h1 "Task
- * History") ni el toolbar (DateRangePicker / FilterButton /
- * ScreenshotButton). Esos viven ahora en el `actions` slot del AppShell
- * que envuelve la page.
+ * Después del refactor de v1.7 Track C, el TaskHistoryClient:
+ *   - NO renderiza su propio header (movido al AppShell).
+ *   - NO renderiza DateRangePicker, FilterButton, ni ScreenshotButton
+ *     (movidos al TaskHistorySidebar).
+ *   - SÍ renderiza el TabSwitcher (sigue siendo parte del body).
+ *   - SÍ renderiza el MapView a la izquierda (~60% del ancho).
+ *   - SÍ renderiza el TaskHistorySidebar a la derecha (~40% del ancho),
+ *     que contiene los filtros + la lista de DayCards con sub-lista.
  *
- * El cliente solo renderiza el cuerpo: TabSwitcher + HeaderCard +
- * DayList + mapa. La ref de screenshot ahora usa un `targetSelector`
- * compartido por data-testid="task-history-content".
+ * El test sigue usando data-testid para localizar elementos y mockea
+ * el MapView (Leaflet no carga en jsdom).
  *
  * Patrón de assertion: `getByTestId` para los elementos que esperamos
- * y `queryByText` / `queryByRole` para los que NO esperamos.
+ * y `queryByTestId` para los que NO esperamos.
  */
 import { render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -39,56 +41,63 @@ vi.mock("@/components/task-history/map-view", () => ({
 import { TaskHistoryClient } from "@/app/task-history/TaskHistoryClient";
 import type {
   DayCard as DayCardData,
-  TaskHistoryTotals
+  DayCardWithFlights
 } from "@/lib/djiag-from-make/task-history";
+import type { MapPolygon } from "@/components/task-history/map-view";
 
-const TOTALS: TaskHistoryTotals = {
-  areaMu: 5462.23,
-  times: 8028,
-  liters: 100884.1,
-  duration: { hours: 631, minutes: 11, seconds: 23, djiFormat: "631Hour11min23s" }
-};
-
-const DAYS: DayCardData[] = [
-  {
+function makeDay(overrides: Partial<DayCardData> = {}): DayCardData {
+  return {
     date: "2026/07/08",
     weekday: "Wednesday",
     areaMu: 18.29,
     times: 22,
     liters: 365.2,
-    duration: { hours: 1, minutes: 44, seconds: 53, djiFormat: "1Hour44min53s" }
-  }
+    duration: { hours: 1, minutes: 44, seconds: 53, djiFormat: "1Hour44min53s" },
+    ...overrides
+  };
+}
+
+const DAY_A: DayCardData = makeDay();
+const DAY_B: DayCardData = makeDay({ date: "2026/07/07", weekday: "Tuesday" });
+
+const ENRICHED: DayCardWithFlights[] = [
+  { day: { ...DAY_A, date: "2026-07-08", workAreaM2: 12193 }, flights: [] },
+  { day: { ...DAY_B, date: "2026-07-07", workAreaM2: 13000 }, flights: [] }
 ];
 
-const POLYGONS: [] = [];
+const POLYGONS: MapPolygon[] = [];
 
 afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe("TaskHistoryClient — sin header propio (Q1 Commit 1)", () => {
+describe("TaskHistoryClient — v1.7 Track C layout", () => {
   it("NO renderiza el h1 'Task History' (movido al AppShell)", () => {
     render(
       <TaskHistoryClient
-        days={DAYS}
+        days={ENRICHED}
+        droneSuggestions={[]}
+        from="2026-01-01"
+        parcelNameById={{}}
         polygons={POLYGONS}
         selectedParcelId={null}
-        totals={TOTALS}
+        to="2026-07-15"
       />
     );
-    // El h1 con texto "Task History" ya no debe existir en este componente
     expect(screen.queryByRole("heading", { name: /task history/i })).toBeNull();
-    // Cualquier <h1> dentro del cliente es un leak del header viejo
     expect(screen.queryByRole("heading", { level: 1 })).toBeNull();
   });
 
-  it("NO renderiza DateRangePicker (movido al AppShell actions)", () => {
+  it("NO renderiza DateRangePicker (movido al sidebar)", () => {
     render(
       <TaskHistoryClient
-        days={DAYS}
+        days={ENRICHED}
+        droneSuggestions={[]}
+        from="2026-01-01"
+        parcelNameById={{}}
         polygons={POLYGONS}
         selectedParcelId={null}
-        totals={TOTALS}
+        to="2026-07-15"
       />
     );
     expect(screen.queryByTestId("task-history-date-range-picker")).toBeNull();
@@ -96,37 +105,47 @@ describe("TaskHistoryClient — sin header propio (Q1 Commit 1)", () => {
     expect(screen.queryByTestId("task-history-date-to")).toBeNull();
   });
 
-  it("NO renderiza FilterButton (movido al AppShell actions)", () => {
+  it("NO renderiza FilterButton (reemplazado por inputs inline en el sidebar)", () => {
     render(
       <TaskHistoryClient
-        days={DAYS}
+        days={ENRICHED}
+        droneSuggestions={[]}
+        from="2026-01-01"
+        parcelNameById={{}}
         polygons={POLYGONS}
         selectedParcelId={null}
-        totals={TOTALS}
+        to="2026-07-15"
       />
     );
     expect(screen.queryByTestId("task-history-filter-button")).toBeNull();
   });
 
-  it("NO renderiza ScreenshotButton (movido al AppShell actions)", () => {
+  it("SÍ renderiza el ScreenshotButton (movido al sidebar pero presente en la page)", () => {
     render(
       <TaskHistoryClient
-        days={DAYS}
+        days={ENRICHED}
+        droneSuggestions={[]}
+        from="2026-01-01"
+        parcelNameById={{}}
         polygons={POLYGONS}
         selectedParcelId={null}
-        totals={TOTALS}
+        to="2026-07-15"
       />
     );
-    expect(screen.queryByTestId("task-history-screenshot-button")).toBeNull();
+    // ScreenshotButton está en la sidebar (que vive adentro del client).
+    expect(screen.getByTestId("task-history-screenshot-button")).toBeInTheDocument();
   });
 
   it("SÍ renderiza el TabSwitcher (sigue siendo parte del cuerpo)", () => {
     render(
       <TaskHistoryClient
-        days={DAYS}
+        days={ENRICHED}
+        droneSuggestions={[]}
+        from="2026-01-01"
+        parcelNameById={{}}
         polygons={POLYGONS}
         selectedParcelId={null}
-        totals={TOTALS}
+        to="2026-07-15"
       />
     );
     expect(screen.getByTestId("task-history-tab-switcher")).toBeInTheDocument();
@@ -134,67 +153,120 @@ describe("TaskHistoryClient — sin header propio (Q1 Commit 1)", () => {
     expect(screen.getByTestId("task-history-tab-list")).toBeInTheDocument();
   });
 
-  it("SÍ renderiza el HeaderCard con los totales del rango", () => {
+  it("SÍ renderiza el MapView a la izquierda", () => {
     render(
       <TaskHistoryClient
-        days={DAYS}
+        days={ENRICHED}
+        droneSuggestions={[]}
+        from="2026-01-01"
+        parcelNameById={{}}
         polygons={POLYGONS}
         selectedParcelId={null}
-        totals={TOTALS}
+        to="2026-07-15"
       />
     );
-    expect(screen.getByTestId("task-history-header-card")).toBeInTheDocument();
+    expect(screen.getByTestId("task-history-map-mock")).toBeInTheDocument();
   });
 
-  it("SÍ renderiza el DayList con los días del rango", () => {
+  it("SÍ renderiza la sidebar (FilterSidebar container)", () => {
     render(
       <TaskHistoryClient
-        days={DAYS}
+        days={ENRICHED}
+        droneSuggestions={[]}
+        from="2026-01-01"
+        parcelNameById={{}}
         polygons={POLYGONS}
         selectedParcelId={null}
-        totals={TOTALS}
+        to="2026-07-15"
       />
     );
+    expect(screen.getByTestId("task-history-sidebar")).toBeInTheDocument();
+  });
+
+  it("SÍ renderiza los FilterSidebarSections (Periodo, Drones, Piloto, Parcela)", () => {
+    render(
+      <TaskHistoryClient
+        days={ENRICHED}
+        droneSuggestions={["1581F5BKD23100045"]}
+        from="2026-01-01"
+        parcelNameById={{}}
+        polygons={POLYGONS}
+        selectedParcelId={null}
+        to="2026-07-15"
+      />
+    );
+    expect(screen.getByTestId("task-history-sidebar-section-period")).toBeInTheDocument();
+    expect(screen.getByTestId("task-history-sidebar-section-drone")).toBeInTheDocument();
+    expect(screen.getByTestId("task-history-sidebar-section-pilot")).toBeInTheDocument();
+    expect(screen.getByTestId("task-history-sidebar-section-parcel")).toBeInTheDocument();
+  });
+
+  it("SÍ renderiza los DayCards en el scrollable panel", () => {
+    render(
+      <TaskHistoryClient
+        days={ENRICHED}
+        droneSuggestions={[]}
+        from="2026-01-01"
+        parcelNameById={{}}
+        polygons={POLYGONS}
+        selectedParcelId={null}
+        to="2026-07-15"
+      />
+    );
+    // El sidebar renderiza los DayCards con sub-lista.
+    const cards = screen.getAllByTestId("task-history-day-card");
+    expect(cards).toHaveLength(2);
+    // El contenedor de la lista tiene data-testid.
     expect(screen.getByTestId("task-history-day-list")).toBeInTheDocument();
-    expect(screen.getByTestId("task-history-day-card")).toBeInTheDocument();
+    // El ScrollablePanel envuelve la lista.
+    expect(screen.getByTestId("task-history-sidebar-items")).toBeInTheDocument();
   });
 
-  it("el contenedor del contenido tiene data-testid='task-history-content' (target del screenshot desde AppShell)", () => {
+  it("el contenedor del contenido tiene data-testid='task-history-content' (target del screenshot)", () => {
     render(
       <TaskHistoryClient
-        days={DAYS}
+        days={ENRICHED}
+        droneSuggestions={[]}
+        from="2026-01-01"
+        parcelNameById={{}}
         polygons={POLYGONS}
         selectedParcelId={null}
-        totals={TOTALS}
+        to="2026-07-15"
       />
     );
-    // El ScreenshotButton en AppShell actions usa
+    // El ScreenshotButton usa
     // document.querySelector("[data-testid='task-history-content']")
-    // para encontrar este contenedor. Si cambia el testid, hay que
-    // actualizar el ScreenshotButton's targetSelector en la page.
+    // para encontrar este contenedor.
     expect(screen.getByTestId("task-history-content")).toBeInTheDocument();
   });
 
   it("renderiza el banner de parcel seleccionado cuando selectedParcelId no es null", () => {
     render(
       <TaskHistoryClient
-        days={DAYS}
+        days={ENRICHED}
+        droneSuggestions={[]}
+        from="2026-01-01"
+        parcelNameById={{}}
         polygons={POLYGONS}
         selectedParcelId={42}
-        totals={TOTALS}
+        to="2026-07-15"
       />
     );
-    expect(screen.getByTestId("task-history-selected-banner")).toBeInTheDocument();
-    expect(screen.getByTestId("task-history-selected-banner").textContent).toContain("42");
+    const banner = screen.getByTestId("task-history-selected-banner");
+    expect(banner).toBeInTheDocument();
+    expect(banner.textContent).toContain("42");
   });
 
   it("NO renderiza el banner de parcel seleccionado cuando selectedParcelId es null", () => {
     render(
       <TaskHistoryClient
-        days={DAYS}
+        days={ENRICHED}
+        droneSuggestions={[]}
+        from="2026-01-01"
+        parcelNameById={{}}
         polygons={POLYGONS}
         selectedParcelId={null}
-        totals={TOTALS}
+        to="2026-07-15"
       />
     );
     expect(screen.queryByTestId("task-history-selected-banner")).toBeNull();
