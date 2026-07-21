@@ -1335,3 +1335,88 @@ equireAuth() (a diferencia de /api/task-history
   de producto.
 
 
+### 2026-07-21 — Q4 v1.5 sprint (RBAC extension + AppRole consolidation + sidebar gate)
+- **Sesión**: `mvs_4aa351e2363341b08ef0c6428712cd9b` (root, sin worktrees —
+  el scope era lo bastante chico para hacer 3 commits en master directo)
+- **Objetivo**: cerrar los 3 gotchas que dejó v1.4 (ver "Próximo paso"
+  de la entrada anterior). Sin agentes paralelos — trabajo manual
+  secuencial porque cada commit toca archivos relacionados (3 commits
+  total = ~50 min, no justifica worktrees).
+- **Acciones** (4 commits total):
+  1. `08b5827` feat(rbac): requireRole admin en PATCH /api/fumigation-schedule
+     - La cadencia es decisión de negocio (define cada cuánto se espera
+       fumigar cada parcela) → solo admin. Un supervisor registra
+       fumigaciones reales pero no reprograma la frecuencia esperada.
+     - Mismo patrón que POST /api/fumigations (v1.4): `await requireRole("admin")`
+       antes de validar body, errores tipados traducidos en catch.
+     - `tests/api-fumigation-schedule-auth.test.ts` (nuevo) — 4 tests:
+       401 sin sesión, 403 supervisor, 200 admin, guard corre ANTES de
+       validar body (defense in depth).
+  2. `fbf2671` refactor(rbac): consolidar AppRole y display helpers en lib/auth/role
+     - Cierra el gotcha "AppRole duplicado" de v1.4 (Track A vs Track B
+       definían el type localmente). Single source-of-truth: `lib/auth/role.ts`.
+     - `lib/auth/role-display.ts` (nuevo, puro, sin deps): re-exporta
+       `AppRole` + `ROLE_LABELS` + `ROLE_BADGE_CLASS` + `normalizeRole`.
+       Display separado de la lógica de auth.
+     - `components/auth/types.ts` queda como shim de back-compat (re-export
+       de los anteriores). NO agregar código nuevo ahí.
+     - 4 archivos actualizados para importar de los canónicos
+       (`use-user-role`, `role-gate`, `role-badge`, `auth/me`,
+       `auth/change-password`, `app/devices/page`).
+     - 12 tests en `tests/lib/auth/role-display.test.ts` (cubre
+       `normalizeRole` retrocompat `viewer → supervisor`, etc.).
+  3. `84fbe1d` feat(rbac): sidebar oculta /devices para supervisores
+     - Cierra el último gotcha de v1.4: el supervisor veía un link
+       "Dispositivos" que lo mandaba a un redirect a /. UX feo.
+     - `lib/auth/role.ts`: nuevo helper `getViewerRole()` que lee
+       el role del JWT (sin DB hit). Diferencia con `getCurrentUserRole`:
+       este es JWT-only, pensado para UI condicional. El otro es
+       DB-fresh, pensado para gates de seguridad.
+     - `components/app-shell.tsx`: nueva prop opcional `viewerRole` +
+       constante `ADMIN_ONLY_HREFS = new Set(["/devices"])`. Filtra
+       el nav desktop Y pasa la lista filtrada al `<MobileSidebarDrawer>`.
+     - 9 pages server component pasan ahora `viewerRole` al AppShell:
+       /, /map, /parcels, /parcels/[id], /parcels/[id]/timeline,
+       /parcels/overdue, /task-history, /history, /devices.
+     - 4 tests nuevos en `app-shell.test.tsx` (oculta/muestra
+       según role, drawer mobile refleja el filtro).
+     - 6 tests nuevos en `lib/auth/role.test.ts` (cubre `getViewerRole`
+       con todos los casos + verifica que NO toca la BD).
+- **Archivos tocados**: 4 nuevos (role-display, role-display test,
+  fumigation-schedule-auth test, y los 2 existentes ampliados),
+  13 modificados. 0 migrations nuevas (sprint de auth puro, sin
+  schema change).
+- **Estado**: ✅ Q4 v1.5 cerrado. **+26 tests** (de 1009 → 1035,
+  11 skipped DB). 0 dependencias nuevas.
+- **Tests**: `npx tsc --noEmit` limpio. 1035/1035 verde local.
+- **Notas / bloqueos**:
+  - **Cero worktrees, cero recovery manual**: el sprint era lo
+    bastante chico para hacerlo secuencial. La lección de v1.4
+    ("scope < 25 min POR TRACK = requiere worktree + recovery
+    manual") no aplica cuando el scope total cabe en la sesión
+    principal sin agentes paralelos. Regla actualizada: si el
+    sprint cabe en ~60 min sin agentes, NO usar worktrees.
+  - **`getViewerRole` vs `getCurrentUserRole`**: la diferencia
+    importa. El primero es JWT-only (UI condicional, ~0ms).
+    El segundo es DB-fresh (gates de seguridad, ~5-50ms). Mezclar
+    los dos usos = footgun. Documentado en la JSDoc de cada uno.
+  - **AppRole tipo: una sola fuente**. `lib/auth/role.ts` es
+    canónico, `lib/auth/role-display.ts` re-exporta el type,
+    `components/auth/types.ts` re-exporta ambos. Si en el futuro
+    se agrega un nuevo role, hay que tocar los 3 lugares (test
+    `role-display.test.ts` cubre esto explícitamente).
+  - **Loading.tsx / error.tsx / not-found.tsx** no pasan
+    `viewerRole` (no hay user context en esos renders). Eso
+    significa que el sidebar muestra TODO por default en esos
+    estados — acceptable, son transitorios.
+- **Próximo paso**: push + CI verde. v1.5 cerrado.
+  Roadmap post-v1.5:
+  - **v1.6**: refactor doble modelo fumigaciones (audit #2 — el
+    bug estructural que afecta confianza de alertas). 5-7 días dev.
+  - **v1.7**: M2 notificaciones (input del operador pendiente
+    sobre canal/umbral/copy). Probablemente 2-3 días después de
+    tener la decisión.
+  - **Backlog**: #13 dark mode, reportes compartibles, geofencing,
+    heatmap, PWA.
+
+
