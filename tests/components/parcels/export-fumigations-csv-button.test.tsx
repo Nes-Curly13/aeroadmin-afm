@@ -23,6 +23,7 @@ function makeEvent(over: Partial<DjiFumigationEvent> = {}): DjiFumigationEvent {
     drone_code_used: 201,
     duration_minutes: 25,
     notes: "Aplicación normal",
+    human_notes: null,
     recorded_by: "Juan Pérez",
     recorded_at: "2026-07-15T15:30:00Z",
     source: "manual",

@@ -17,6 +17,12 @@ interface CreateFumigationBody {
   drone_code_used?: number;
   duration_minutes?: number;
   notes?: string;
+  /**
+   * Nota libre del operador fumigador ("lluvia matinal", "producto nuevo",
+   * etc.). Separada de `notes` que es provenance del backfill (JSON técnico,
+   * no visible al usuario). Track C v1.4 — audit ui-ux-2026-07 #11.
+   */
+  human_notes?: string;
   recorded_by?: string;
 }
 
@@ -26,10 +32,11 @@ interface CreateFumigationBody {
 // (el cliente tambien tiene maxLength en el form, pero es solo UX).
 // Alineado con la convencion del repo: PUT /api/parcels/[id] usa 200
 // para land_name, 64 para field_type. Aca: 200 para product_used,
-// 2000 para notes, 100 para recorded_by.
+// 2000 para notes y human_notes, 100 para recorded_by.
 const MAX_LENGTHS = {
   product_used: 200,
   notes: 2000,
+  human_notes: 2000,
   recorded_by: 100
 } as const;
 
@@ -101,8 +108,9 @@ export async function POST(request: NextRequest) {
 
     // Validacion de longitud (sprint Q4 / track C, mejora 3). Orden:
     // primero tipo, despues longitud. Si el campo es null/undefined
-    // (opcional) se acepta.
-    for (const field of ["product_used", "notes", "recorded_by"] as const) {
+    // (opcional) se acepta. `human_notes` se valida junto a los demás
+    // (Track C v1.4): misma regla de longitud que `notes` (2000 chars).
+    for (const field of ["product_used", "notes", "human_notes", "recorded_by"] as const) {
       const err = validateOptionalString(body[field], field);
       if (err) return err;
     }
@@ -116,6 +124,7 @@ export async function POST(request: NextRequest) {
       drone_code_used: body.drone_code_used,
       duration_minutes: body.duration_minutes,
       notes: body.notes,
+      human_notes: body.human_notes,
       recorded_by: body.recorded_by
     });
     return NextResponse.json({ data: created }, { status: 201 });
