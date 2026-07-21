@@ -21,6 +21,13 @@ const repositoryMocks = vi.hoisted(() => ({
   createFumigationEvent: vi.fn()
 }));
 
+// v1.4 Track A: el handler ahora llama `requireRole(["admin","supervisor"])`
+// antes de validar. Mockeamos el modulo para que los tests de validacion
+// de longitud (que no son de auth) no necesiten una sesion real.
+vi.mock("@/lib/auth/role", () => ({
+  requireRole: vi.fn().mockResolvedValue(undefined)
+}));
+
 vi.mock("@/api/repositories", () => repositoryMocks);
 
 import { POST as postFumigationRoute } from "@/app/api/fumigations/route";

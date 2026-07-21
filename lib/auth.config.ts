@@ -17,9 +17,26 @@
 
 import type { NextAuthConfig } from "next-auth";
 
+import type { AppRole } from "@/lib/auth/role";
+
 export const AUTH_COOKIE_NAME = "afm.session";
 
-export type AppRole = "admin" | "viewer";
+/**
+ * Re-export del AppRole canonico (v1.4 Track A).
+ *
+ * El type vive en `lib/auth/role.ts` (single source of truth) y
+ * este modulo lo re-exporta para mantener compat con:
+ *   - `types/next-auth.d.ts` que hace `import type { AppRole } from "@/lib/auth"`
+ *   - cualquier caller historico que importaba `AppRole` desde
+ *     `lib/auth.config` directamente.
+ *
+ * Antes (v1.3): exportaba `"admin" | "viewer"`.
+ * Ahora (v1.4): re-exporta `"admin" | "supervisor"` desde role.ts.
+ * El rename semantico viewer->supervisor refleja que el operario
+ * ahora puede REGISTRAR fumigaciones, no solo mirar. Ver migration
+ * 20260721000000_add_app_users_role.sql.
+ */
+export type { AppRole } from "@/lib/auth/role";
 
 const authSecret = process.env.AUTH_SECRET;
 if (!authSecret && process.env.NODE_ENV === "production") {

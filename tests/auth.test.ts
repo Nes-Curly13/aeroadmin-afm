@@ -240,9 +240,9 @@ describe("lib/auth — callbacks jwt + session", () => {
   it("session callback expone role + id en session.user", async () => {
     const out = await callbacks.session({
       session: { user: { email: "x@y.com" } },
-      token: { role: "viewer", uid: "7" }
+      token: { role: "supervisor", uid: "7" }
     });
-    expect(out.user.role).toBe("viewer");
+    expect(out.user.role).toBe("supervisor");
     expect(out.user.id).toBe("7");
   });
 });
@@ -275,13 +275,13 @@ describe("lib/auth — authorized callback (route protection)", () => {
     expect(await isAuthorized(null, "/history")).toBe(false);
   });
 
-  it("/map con role=viewer -> OK", async () => {
-    expect(await isAuthorized({ user: { role: "viewer" } }, "/map")).toBe(true);
+  it("/map con role=supervisor -> OK", async () => {
+    expect(await isAuthorized({ user: { role: "supervisor" } }, "/map")).toBe(true);
   });
 
-  it("/admin/users con role=viewer -> bloquea", async () => {
+  it("/admin/users con role=supervisor -> bloquea", async () => {
     expect(
-      await isAuthorized({ user: { role: "viewer" } }, "/admin/users")
+      await isAuthorized({ user: { role: "supervisor" } }, "/admin/users")
     ).toBe(false);
   });
 
