@@ -20,7 +20,7 @@
  */
 
 import { useUserRole } from "@/components/auth/use-user-role";
-import { ROLE_BADGE_CLASS, ROLE_LABELS } from "@/components/auth/types";
+import { ROLE_BADGE_CLASS, ROLE_LABELS } from "@/lib/auth/role-display";
 
 export function RoleBadge() {
   const role = useUserRole();

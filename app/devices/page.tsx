@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { DeviceGrid } from "@/components/devices/device-grid";
 import { auth } from "@/lib/auth";
-import { normalizeRole } from "@/components/auth/types";
+import { normalizeRole } from "@/lib/auth/role-display";
 import { DEFAULT_DEVICES } from "@/lib/devices";
 
 /**

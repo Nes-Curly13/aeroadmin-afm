@@ -30,7 +30,7 @@
 import type { ReactNode } from "react";
 
 import { useUserRole } from "@/components/auth/use-user-role";
-import type { AppRole } from "@/components/auth/types";
+import type { AppRole } from "@/lib/auth/role";
 
 export interface RoleGateProps {
   /** Lista de roles que pueden ver el contenido. */

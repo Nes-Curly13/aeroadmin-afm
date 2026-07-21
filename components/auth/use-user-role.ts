@@ -29,7 +29,7 @@
 
 import { useEffect, useState } from "react";
 
-import type { AppRole } from "@/components/auth/types";
+import type { AppRole } from "@/lib/auth/role";
 
 /**
  * Tipos de la respuesta del endpoint. Inline (no en `types.ts`) porque

@@ -26,7 +26,7 @@
 import { NextResponse } from "next/server";
 
 import { auth } from "@/lib/auth";
-import { normalizeRole } from "@/components/auth/types";
+import { normalizeRole } from "@/lib/auth/role-display";
 
 export const dynamic = "force-dynamic";
 

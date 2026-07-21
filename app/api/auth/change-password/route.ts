@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import bcrypt from "bcryptjs";
 
 import { getDb } from "@/lib/db";
-import { requireRole } from "@/lib/auth";
+import { requireRole } from "@/lib/auth/role";
 
 interface ChangePasswordBody {
   email: string;
