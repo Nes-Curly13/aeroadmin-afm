@@ -38,6 +38,17 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams()
 }));
 
+// Track B v1.4: el botón "Registrar fumigación" está envuelto en un
+// <RoleGate allow={["admin","supervisor"]}>. El gate llama a
+// useUserRole(), que en runtime hace un fetch a /api/auth/me. En test
+// no queremos pegarle al endpoint, así que mockeamos el hook para que
+// devuelva "supervisor" (uno de los roles permitidos). El comportamiento
+// del RoleGate se cubre por separado en role-gate.test.tsx.
+const useUserRoleMock = vi.hoisted(() => vi.fn().mockReturnValue("supervisor"));
+vi.mock("@/components/auth/use-user-role", () => ({
+  useUserRole: useUserRoleMock
+}));
+
 import { ParcelFumigations } from "@/components/parcels/parcel-fumigations";
 import type {
   DjiFumigationEvent,

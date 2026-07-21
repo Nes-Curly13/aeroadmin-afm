@@ -9,6 +9,7 @@ import type { DjiFumigationEvent, DjiFumigationSchedule, DjiParcelRecord } from 
 import { CadenceEditor } from "@/components/parcels/cadence-editor";
 import { ExportFumigationsCsvButton } from "@/components/parcels/export-fumigations-csv-button";
 import { EmptyState } from "@/components/ui/empty-state";
+import { RoleGate } from "@/components/auth/role-gate";
 
 function statusChip(status: "ok" | "due_soon" | "overdue" | "no_history", days: number | null) {
   if (status === "overdue") return { label: "Vencida", className: "bg-[#a93232]/15 text-[#a93232]" };
@@ -143,13 +144,21 @@ export function ParcelFumigations({
               parcelName={parcel.land_name ?? parcel.external_id}
             />
           ) : null}
-          <button
-            className="rounded-full bg-[#0b5f2d] px-3 py-1.5 text-[11px] font-semibold text-white"
-            onClick={() => setShowForm((v) => !v)}
-            type="button"
-          >
-            {showForm ? "Cancelar" : "Registrar fumigación"}
-          </button>
+          {/* Track B v1.4: gate por role. Admin y supervisor pueden registrar
+              fumigaciones (es una operacion de campo, no de admin). El patron
+              RoleGate se aplica aca como ejemplo: cuando se agreguen mas
+              permisos granulares, cambiar el `allow` sin tocar el resto.
+              El boton "Cancelar" sigue mostrandose siempre que el form
+              este abierto (mismo gate adentro del form si es necesario). */}
+          <RoleGate allow={["admin", "supervisor"]}>
+            <button
+              className="rounded-full bg-[#0b5f2d] px-3 py-1.5 text-[11px] font-semibold text-white"
+              onClick={() => setShowForm((v) => !v)}
+              type="button"
+            >
+              {showForm ? "Cancelar" : "Registrar fumigación"}
+            </button>
+          </RoleGate>
         </div>
       </div>
 
@@ -266,13 +275,25 @@ export function ParcelFumigations({
       ) : null}
 
       {events.length === 0 ? (
-        <EmptyState
-          cta={{ label: "Registrar fumigación", onClick: () => setShowForm(true) }}
-          description="Cuando registres la primera fumigación, la cadencia recomendada se calcula automáticamente y el panel se actualiza con la próxima fecha objetivo."
-          size="sm"
-          testId="parcel-fumigations-empty"
-          title="Esta parcela aún no tiene fumigaciones"
-        />
+        <RoleGate
+          allow={["admin", "supervisor"]}
+          fallback={
+            <EmptyState
+              description="Cuando registres la primera fumigación, la cadencia recomendada se calcula automáticamente y el panel se actualiza con la próxima fecha objetivo."
+              size="sm"
+              testId="parcel-fumigations-empty"
+              title="Esta parcela aún no tiene fumigaciones"
+            />
+          }
+        >
+          <EmptyState
+            cta={{ label: "Registrar fumigación", onClick: () => setShowForm(true) }}
+            description="Cuando registres la primera fumigación, la cadencia recomendada se calcula automáticamente y el panel se actualiza con la próxima fecha objetivo."
+            size="sm"
+            testId="parcel-fumigations-empty"
+            title="Esta parcela aún no tiene fumigaciones"
+          />
+        </RoleGate>
       ) : (
         <ol className="space-y-2">
           {events.map((e) => {
