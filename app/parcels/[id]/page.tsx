@@ -92,7 +92,6 @@ export default async function ParcelPage({
       viewerRole={viewerRole}
     >
       <div className="space-y-5">
-        <ParcelDetail parcel={parcel} />
         <ParcelFumigations
           daysUntilNextDue={days}
           events={events}
@@ -100,6 +99,7 @@ export default async function ParcelPage({
           schedule={schedule}
           status={status}
         />
+        <ParcelDetail parcel={parcel} />
       </div>
     </AppShell>
   );

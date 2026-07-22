@@ -118,6 +118,56 @@ export async function PUT(
       }
       patch.spray_area_m2 = (v as number | null) ?? null;
     }
+    if ("crop_type" in b) {
+      const v = b.crop_type;
+      if (v !== null && typeof v !== "string") {
+        return NextResponse.json({ error: "crop_type debe ser string o null." }, { status: 400 });
+      }
+      if (typeof v === "string" && v.length > 100) {
+        return NextResponse.json({ error: "crop_type max 100 chars." }, { status: 400 });
+      }
+      patch.crop_type = (v as string | null) ?? null;
+    }
+    if ("planting_date" in b) {
+      const v = b.planting_date;
+      if (v !== null && typeof v !== "string") {
+        return NextResponse.json({ error: "planting_date debe ser string YYYY-MM-DD o null." }, { status: 400 });
+      }
+      if (typeof v === "string" && !/^\d{4}-\d{2}-\d{2}$/.test(v)) {
+        return NextResponse.json({ error: "planting_date debe tener formato YYYY-MM-DD." }, { status: 400 });
+      }
+      patch.planting_date = (v as string | null) ?? null;
+    }
+    if ("owner_name" in b) {
+      const v = b.owner_name;
+      if (v !== null && typeof v !== "string") {
+        return NextResponse.json({ error: "owner_name debe ser string o null." }, { status: 400 });
+      }
+      if (typeof v === "string" && v.length > 200) {
+        return NextResponse.json({ error: "owner_name max 200 chars." }, { status: 400 });
+      }
+      patch.owner_name = (v as string | null) ?? null;
+    }
+    if ("owner_contact" in b) {
+      const v = b.owner_contact;
+      if (v !== null && typeof v !== "string") {
+        return NextResponse.json({ error: "owner_contact debe ser string o null." }, { status: 400 });
+      }
+      if (typeof v === "string" && v.length > 200) {
+        return NextResponse.json({ error: "owner_contact max 200 chars." }, { status: 400 });
+      }
+      patch.owner_contact = (v as string | null) ?? null;
+    }
+    if ("supervisor_notes" in b) {
+      const v = b.supervisor_notes;
+      if (v !== null && typeof v !== "string") {
+        return NextResponse.json({ error: "supervisor_notes debe ser string o null." }, { status: 400 });
+      }
+      if (typeof v === "string" && v.length > 2000) {
+        return NextResponse.json({ error: "supervisor_notes max 2000 chars." }, { status: 400 });
+      }
+      patch.supervisor_notes = (v as string | null) ?? null;
+    }
 
     const updated = await updateParcelMetadata(idParsed.value, patch);
     if (!updated) {

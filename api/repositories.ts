@@ -164,7 +164,14 @@ const djiParcelsQuery = `
     source_url_geometry,
     source_url_parameter,
     source_url_waypoint,
-    fetched_at
+    fetched_at,
+    -- Metadata editable por el supervisor (migration 20260722000000).
+    -- DJI no expone estos datos — los llena el operador manualmente.
+    crop_type,
+    planting_date,
+    owner_name,
+    owner_contact,
+    supervisor_notes
   FROM dji_parcels
 `;
 
@@ -282,13 +289,20 @@ export async function getParcelsSummary() {
 /**
  * Campos editables de una parcela desde la UI. NO incluye geometrías ni datos
  * de DJI scrapeados — esos vienen del importer. Solo metadata que el operador
- * puede querer ajustar manualmente (nombre visible, tipo declarado, areas).
+ * puede querer ajustar manualmente (nombre visible, tipo declarado, areas,
+ * y la metadata humana que DJI no expone: cultivo, siembra, propietario, contacto, notas).
  */
 export type ParcelMetadataUpdate = {
   land_name?: string | null;
   field_type?: "Farmland" | "Orchards" | string | null;
   declared_area_ha?: number | null;
   spray_area_m2?: number | null;
+  // Metadata humana (sprint 2026-07-22). El supervisor llena una vez por parcela.
+  crop_type?: string | null;
+  planting_date?: string | null;
+  owner_name?: string | null;
+  owner_contact?: string | null;
+  supervisor_notes?: string | null;
 };
 
 /**
@@ -328,6 +342,42 @@ export async function updateParcelMetadata(
     }
     sets.push(`spray_area_m2 = $${idx++}`);
     params.push(patch.spray_area_m2 ?? null);
+  }
+  if (patch.crop_type !== undefined) {
+    if (patch.crop_type !== null && patch.crop_type.length > 100) {
+      throw new Error("crop_type max 100 chars");
+    }
+    sets.push(`crop_type = $${idx++}`);
+    params.push(patch.crop_type ?? null);
+  }
+  if (patch.planting_date !== undefined) {
+    // Acepta "YYYY-MM-DD" o null. Validamos formato básico server-side.
+    if (patch.planting_date !== null && !/^\d{4}-\d{2}-\d{2}$/.test(patch.planting_date)) {
+      throw new Error("planting_date debe tener formato YYYY-MM-DD");
+    }
+    sets.push(`planting_date = $${idx++}`);
+    params.push(patch.planting_date ?? null);
+  }
+  if (patch.owner_name !== undefined) {
+    if (patch.owner_name !== null && patch.owner_name.length > 200) {
+      throw new Error("owner_name max 200 chars");
+    }
+    sets.push(`owner_name = $${idx++}`);
+    params.push(patch.owner_name ?? null);
+  }
+  if (patch.owner_contact !== undefined) {
+    if (patch.owner_contact !== null && patch.owner_contact.length > 200) {
+      throw new Error("owner_contact max 200 chars");
+    }
+    sets.push(`owner_contact = $${idx++}`);
+    params.push(patch.owner_contact ?? null);
+  }
+  if (patch.supervisor_notes !== undefined) {
+    if (patch.supervisor_notes !== null && patch.supervisor_notes.length > 2000) {
+      throw new Error("supervisor_notes max 2000 chars");
+    }
+    sets.push(`supervisor_notes = $${idx++}`);
+    params.push(patch.supervisor_notes ?? null);
   }
 
   if (sets.length === 0) {

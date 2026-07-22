@@ -41,10 +41,29 @@ function dateOrDash(iso: string | null | undefined) {
   }
 }
 
+/** Calcula días desde una fecha YYYY-MM-DD hasta hoy. null si input falsy. */
+function daysSince(iso: string | null | undefined): number | null {
+  if (!iso) return null;
+  const d = new Date(`${iso}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return null;
+  const ms = Date.now() - d.getTime();
+  return Math.floor(ms / 86_400_000);
+}
+
 function yesNo(v: boolean | null | undefined) {
   if (v === true) return "Sí";
   if (v === false) return "No";
   return "—";
+}
+
+/** Fila vacía con hint "editá para agregar" — más útil que "—" sordo. */
+function EmptyMetaField({ label, hint }: { label: string; hint: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3 border-b border-dashed border-[#e0e7e2] pb-2">
+      <dt className="text-[#4a5b50]">{label}</dt>
+      <dd className="text-right text-[10px] italic text-[#587064]">{hint}</dd>
+    </div>
+  );
 }
 
 function section(title: string, children: React.ReactNode) {
@@ -282,26 +301,60 @@ export function ParcelDetail({ parcel }: { parcel: DjiParcelRecord }) {
         )}
 
         {section(
-          "Trazabilidad",
-          <div className="space-y-3">
-            <div className="rounded-lg border border-dashed border-[#cfd8d3] bg-[#f7f9fb] p-4 text-sm text-[#4a5b50]">
-              <p className="font-semibold text-[#121815]">Última fumigación</p>
-              <p className="mt-1">
-                <span className="font-bold text-[#a93232]">No disponible.</span>{" "}
-                Aún no se han registrado fumigaciones para esta parcela. Puedes
-                hacerlo desde la app de campo DJI Agras; la próxima
-                sincronización automática actualizará el historial.
-              </p>
-            </div>
-            <div className="rounded-lg border border-dashed border-[#cfd8d3] bg-[#f7f9fb] p-4 text-sm text-[#4a5b50]">
-              <p className="font-semibold text-[#121815]">Próxima fumigación recomendada</p>
-              <p className="mt-1">
-                <span className="font-bold text-[#a93232]">No disponible.</span>{" "}
-                Aún no hay una cadencia configurada para esta parcela.
-                Cuando se registren fumigaciones, el sistema sugerirá la
-                próxima fecha según el cultivo.
-              </p>
-            </div>
+          "Contexto del lote",
+          <div className="space-y-2 text-sm">
+            {parcel.crop_type ? (
+              <div className="flex items-center justify-between gap-3 border-b border-[#f0f4f1] pb-2">
+                <dt className="text-[#4a5b50]">Cultivo</dt>
+                <dd className="text-right font-semibold text-[#121815]">{parcel.crop_type}</dd>
+              </div>
+            ) : (
+              <EmptyMetaField label="Cultivo" hint="Editá para agregar el cultivo (caña, maíz, arroz…)" />
+            )}
+            {parcel.planting_date ? (
+              <div className="flex items-center justify-between gap-3 border-b border-[#f0f4f1] pb-2">
+                <dt className="text-[#4a5b50]">Sembrado el</dt>
+                <dd className="text-right font-semibold text-[#121815]">
+                  {dateOrDash(parcel.planting_date)}
+                  {(() => {
+                    const d = daysSince(parcel.planting_date);
+                    return d !== null ? (
+                      <span className="ml-1 text-[10px] font-normal text-[#4a5b50]">({d} días)</span>
+                    ) : null;
+                  })()}
+                </dd>
+              </div>
+            ) : (
+              <EmptyMetaField label="Fecha de siembra" hint="Editá para registrar cuándo se plantó" />
+            )}
+            {parcel.owner_name ? (
+              <div className="flex items-center justify-between gap-3 border-b border-[#f0f4f1] pb-2">
+                <dt className="text-[#4a5b50]">Propietario</dt>
+                <dd className="text-right font-semibold text-[#121815]">{parcel.owner_name}</dd>
+              </div>
+            ) : (
+              <EmptyMetaField label="Propietario" hint="Editá para agregar el nombre del cañero" />
+            )}
+            {parcel.owner_contact ? (
+              <div className="flex items-center justify-between gap-3 border-b border-[#f0f4f1] pb-2">
+                <dt className="text-[#4a5b50]">Contacto</dt>
+                <dd className="text-right font-semibold text-[#121815]">{parcel.owner_contact}</dd>
+              </div>
+            ) : (
+              <EmptyMetaField label="Contacto" hint="Editá para agregar teléfono o email" />
+            )}
+            {parcel.location_label ? (
+              <div className="flex items-center justify-between gap-3 border-b border-[#f0f4f1] pb-2">
+                <dt className="text-[#4a5b50]">Ubicación DJI</dt>
+                <dd className="text-right text-xs font-semibold text-[#121815]">{parcel.location_label}</dd>
+              </div>
+            ) : null}
+            {parcel.supervisor_notes ? (
+              <div className="pt-1">
+                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#587064]">Notas del supervisor</p>
+                <p className="mt-1 whitespace-pre-wrap text-sm text-[#121815]">{parcel.supervisor_notes}</p>
+              </div>
+            ) : null}
           </div>
         )}
 

@@ -38,6 +38,21 @@ export interface DjiParcelRecord {
   source_url_parameter: string | null;
   source_url_waypoint: string | null;
   fetched_at: string | null;
+  // Direccion humana (viene de DJI, no la llena el supervisor).
+  // Existe desde la migration 20260709000000.
+  // Opcional en el type por la misma razon que crop_type et al.
+  location_label?: string | null;
+  // Metadata editable por el supervisor (migration 20260722000000).
+  // DJI no expone estos datos — los llena el operador manualmente una vez
+  // por parcela y se mantienen persistentes.
+  // Opcionales en el type porque los fixtures de tests previos no los
+  // incluyen; en runtime la query `djiParcelsQuery` siempre los trae
+  // (con null si estan vacios).
+  crop_type?: string | null;
+  planting_date?: string | null;     // YYYY-MM-DD
+  owner_name?: string | null;
+  owner_contact?: string | null;
+  supervisor_notes?: string | null;
 }
 
 export interface DjiDailySummaryRecord {

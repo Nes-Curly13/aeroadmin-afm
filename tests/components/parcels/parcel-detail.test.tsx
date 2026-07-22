@@ -96,10 +96,35 @@ describe("ParcelDetail", () => {
     expect(screen.getByText(/10\.000 ha/)).toBeInTheDocument();
   });
 
-  it("muestra el placeholder de trazabilidad cuando no hay history", () => {
+  it("muestra hints de 'editá para agregar' en la sección Contexto del lote cuando no hay metadata del supervisor", () => {
     render(<ParcelDetail parcel={makeParcel()} />);
-    expect(screen.getByText(/última fumigación/i)).toBeInTheDocument();
-    expect(screen.getByText(/próxima fumigación recomendada/i)).toBeInTheDocument();
+    // El render no rompe sin crop_type / planting_date / owner_* / supervisor_notes.
+    // Los hints guían al supervisor a completar la metadata.
+    expect(screen.getByText(/^cultivo$/i)).toBeInTheDocument();
+    expect(screen.getByText(/editá para agregar el cultivo/i)).toBeInTheDocument();
+    expect(screen.getByText(/editá para registrar cuándo se plantó/i)).toBeInTheDocument();
+    expect(screen.getByText(/editá para agregar el nombre del cañero/i)).toBeInTheDocument();
+    expect(screen.getByText(/editá para agregar teléfono o email/i)).toBeInTheDocument();
+  });
+
+  it("muestra los valores reales de metadata cuando están poblados", () => {
+    render(
+      <ParcelDetail
+        parcel={makeParcel({
+          crop_type: "Caña de azúcar",
+          planting_date: "2025-03-15",
+          owner_name: "Juan Pérez",
+          owner_contact: "+57 300 123 4567",
+          location_label: "Palmira, Valle del Cauca",
+          supervisor_notes: "Lote con pendiente pronunciada al norte."
+        })}
+      />
+    );
+    expect(screen.getByText("Caña de azúcar")).toBeInTheDocument();
+    expect(screen.getByText("Juan Pérez")).toBeInTheDocument();
+    expect(screen.getByText("+57 300 123 4567")).toBeInTheDocument();
+    expect(screen.getByText("Palmira, Valle del Cauca")).toBeInTheDocument();
+    expect(screen.getByText(/lote con pendiente pronunciada al norte/i)).toBeInTheDocument();
   });
 
   it("muestra el placeholder de área cuando no hay declared ni spray", () => {
