@@ -105,6 +105,31 @@ export function daysBetween(from: string, to: string): number | null {
 }
 
 /**
+ * Devuelve la fecha actual en zona horaria `America/Bogota` como string
+ * `YYYY-MM-DD`. Opcionalmente shifted `offsetDays` días (puede ser negativo).
+ *
+ * Por qué existe: el proyecto opera 100% en TZ `America/Bogota` y los
+ * tests son TZ-frágiles con `new Date()` directo (jsdom corre en UTC).
+ * Centralizar acá permite que el test mockee el helper o setee
+ * `process.env.TZ` consistentemente.
+ *
+ * Implementación: `Intl.DateTimeFormat` con `timeZone: "America/Bogota"`
+ * y `en-CA` (que produce `YYYY-MM-DD` por convención del locale canadiense).
+ * Funciona en node y jsdom. NO usa `toLocaleDateString` directo.
+ */
+export function getBogotaDateString(offsetDays = 0): string {
+  const target = new Date(Date.now() + offsetDays * 86_400_000);
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Bogota",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(target);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
+/**
  * Detecta si un string parece un blob JSON de provenance (backfill de DJI scraper).
  *
  * El scraper mete metadata del backfill en `dji_fumigations.notes` como JSON:

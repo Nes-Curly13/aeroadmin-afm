@@ -6,7 +6,7 @@ import {
   CADENCE_DEFAULTS,
   computeNextDueDate
 } from "@/lib/fumigation-cadence";
-import { toDateString } from "@/lib/format";
+import { getBogotaDateString, toDateString } from "@/lib/format";
 import {
   aggregateFlightsByDay,
   type DailySummaryLike,
@@ -20,9 +20,11 @@ import {
   fetchParcelsNormalizedCached,
   fetchParcelsSummaryCached,
   fetchUpcomingFumigationsCached,
+  fetchActivityComparisonCached,
   invalidateAfterFumigationMutation,
   invalidateAfterParcelMutation
 } from "@/lib/cache";
+import type { ActivityComparison } from "@/lib/cache";
 import type {
   DashboardMetrics,
   DjiDailySummaryRecord,
@@ -850,4 +852,30 @@ export async function getDashboardMetrics(): Promise<DashboardMetrics> {
 export async function getFlightPoints(limit = 300): Promise<FlightPointRecord[]> {
   const safeLimit = Math.max(1, Math.min(limit, 2000));
   return fetchFlightPointsCached(safeLimit);
+}
+
+/**
+ * Sprint A — F4.0: comparativa de actividad "ayer vs hoy" en Bogota
+ * local. Lo que consume `<TodayYesterdayCard>` en el dashboard.
+ *
+ * Las fechas se calculan acá (en Bogota local, via `getBogotaDateString`)
+ * y se pasan al wrapper cacheado como parte del cache key. Eso significa
+ * que el cache hit es estable dentro del mismo día (los args no cambian
+ * entre renders) y se renueva al cruzar el midnight Bogota.
+ *
+ * Fallback: si la BD no responde, devuelve ceros para ambos días. El
+ * card renderiza empty state ("Sin actividad ayer / hoy") que es el
+ * comportamiento esperado en una BD vacía recién sembrada.
+ */
+export async function getActivityComparison(): Promise<ActivityComparison> {
+  const today = getBogotaDateString(0);
+  const yesterday = getBogotaDateString(-1);
+  return withLocalFallback(
+    async () => fetchActivityComparisonCached(today, yesterday),
+    async () => ({
+      today: { flights_count: 0, area_fumigated_m2: 0, parcels_touched: 0, duration_minutes: 0 },
+      yesterday: { flights_count: 0, area_fumigated_m2: 0, parcels_touched: 0, duration_minutes: 0 },
+      dates: { today, yesterday }
+    })
+  );
 }

@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { AlertsPanelPaginated } from "@/components/dashboard/alerts-panel-paginated";
 import { OperationsPanel } from "@/components/dashboard/operations-panel";
+import { TodayYesterdayCard } from "@/components/dashboard/today-yesterday-card";
 import { UpcomingFumigations } from "@/components/dashboard/upcoming-fumigations";
 import { BentoCard, BentoGrid } from "@/components/ui/bento-grid";
 import { MetricCard } from "@/components/ui/metric-card";
@@ -17,6 +18,7 @@ import type {
   DjiParcelRecord,
   UpcomingFumigation
 } from "@/lib/types";
+import type { ActivityComparison } from "@/lib/cache";
 
 // Iconos inline (eran locales en app/page.tsx antes del bento refactor).
 // Los mantenemos en este client component para no contaminar el page.tsx
@@ -105,6 +107,8 @@ export interface DashboardClientProps {
   parcels: DjiParcelRecord[];
   upcoming: UpcomingFumigation[];
   overdueCount: number;
+  /** Sprint A — F4.0: comparativa ayer/hoy para el card superior. */
+  activityComparison: ActivityComparison;
 }
 
 /**
@@ -149,7 +153,8 @@ export function DashboardClient({
   flights,
   parcels,
   upcoming,
-  overdueCount
+  overdueCount,
+  activityComparison
 }: DashboardClientProps) {
   // Estado compartido entre AlertsPanel (filtra alerts) y
   // RecentFlightsList (filtra vuelos por nivel de alerta derivado).
@@ -157,6 +162,13 @@ export function DashboardClient({
 
   return (
     <BentoGrid ariaLabel="Panel de control operativo">
+      {/* Fila 0 (Sprint A — F4.0) — vista del día. Full-width, va
+          ARRIBA de los KPIs para responder "¿qué pasó ayer?" antes de
+          que el supervisor tenga que scrollear. */}
+      <BentoCard colSpan={12} testId="card-activity-comparison">
+        <TodayYesterdayCard comparison={activityComparison} />
+      </BentoCard>
+
       {/* Fila 1 — KPIs. Mix colSpan=2 + colSpan=3 = 12 (ver doc arriba). */}
       <BentoCard colSpan={2} testId="kpi-total-flights">
         <MetricCard

@@ -23,6 +23,9 @@ const mockGetFlights = vi.hoisted(() => vi.fn());
 const mockGetAlerts = vi.hoisted(() => vi.fn());
 const mockGetUpcomingFumigations = vi.hoisted(() => vi.fn());
 const mockGetOverdueParcels = vi.hoisted(() => vi.fn());
+// Sprint A — F4.0: la DashboardPage ahora también llama getActivityComparison()
+// en el Promise.all inicial. Mockeamos para no requerir BD en este test de UI.
+const mockGetActivityComparison = vi.hoisted(() => vi.fn());
 
 // Track B v1.2: app-shell renderiza <MobileSidebarDrawer> que usa useRouter.
 // Mockeamos next/navigation porque estos tests renderizan la DashboardPage
@@ -49,6 +52,13 @@ const stubMetrics = {
 const stubParcelsResult = { data: [], total: 0, page: 1, limit: 200, totalPages: 0 };
 const stubFlights = { data: [] };
 const stubAlerts: unknown[] = [];
+// F4.0: comparativa ayer/hoy por defecto (ambos en 0 — el test no valida F4.0,
+// solo que la page renderice sin crashear con el nuevo prop).
+const stubActivityComparison = {
+  today: { flights_count: 0, area_fumigated_m2: 0, parcels_touched: 0, duration_minutes: 0 },
+  yesterday: { flights_count: 0, area_fumigated_m2: 0, parcels_touched: 0, duration_minutes: 0 },
+  dates: { today: "2026-07-23", yesterday: "2026-07-22" }
+};
 
 function setUpMocks() {
   mockGetDashboardMetrics.mockResolvedValue(stubMetrics);
@@ -57,6 +67,7 @@ function setUpMocks() {
   mockGetAlerts.mockResolvedValue(stubAlerts);
   mockGetUpcomingFumigations.mockResolvedValue([]);
   mockGetOverdueParcels.mockResolvedValue([]);
+  mockGetActivityComparison.mockResolvedValue(stubActivityComparison);
 }
 
 describe("DashboardPage — KPI de cadencia vencida (BUG 3 audit)", () => {
@@ -69,7 +80,8 @@ describe("DashboardPage — KPI de cadencia vencida (BUG 3 audit)", () => {
       getFlights: mockGetFlights,
       getAlerts: mockGetAlerts,
       getUpcomingFumigations: mockGetUpcomingFumigations,
-      getOverdueParcels: mockGetOverdueParcels
+      getOverdueParcels: mockGetOverdueParcels,
+      getActivityComparison: mockGetActivityComparison
     }));
     // v1.5: getViewerRole() en la page llama auth() de next-auth.
     // Mockeamos para no requerir sesion real en este test de contrato
@@ -99,7 +111,8 @@ describe("DashboardPage — KPI de cadencia vencida (BUG 3 audit)", () => {
       getFlights: mockGetFlights,
       getAlerts: mockGetAlerts,
       getUpcomingFumigations: mockGetUpcomingFumigations,
-      getOverdueParcels: mockGetOverdueParcels
+      getOverdueParcels: mockGetOverdueParcels,
+      getActivityComparison: mockGetActivityComparison
     }));
     // v1.5: ver nota en el test anterior.
     vi.doMock("@/lib/auth/role", () => ({
@@ -152,7 +165,8 @@ describe("DashboardPage — KPI de cadencia vencida (BUG 3 audit)", () => {
       getFlights: mockGetFlights,
       getAlerts: mockGetAlerts,
       getUpcomingFumigations: mockGetUpcomingFumigations,
-      getOverdueParcels: mockGetOverdueParcels
+      getOverdueParcels: mockGetOverdueParcels,
+      getActivityComparison: mockGetActivityComparison
     }));
     // v1.5: ver nota en el test anterior.
     vi.doMock("@/lib/auth/role", () => ({

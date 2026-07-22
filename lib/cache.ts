@@ -69,7 +69,11 @@ export const CACHE_TAGS = {
   flights: "afm:flights",
   // M3-M5 Q2: lista de parcelas "Faltan por fumigar" (overdue + due_soon).
   // Invalida junto con `upcoming` cuando se registra una fumigación.
-  overdue: "afm:overdue"
+  overdue: "afm:overdue",
+  // Sprint A — F4.0: actividad comparativa "ayer vs hoy" del dashboard.
+  // Cacheada con TTL corto (5min) porque cambia intra-día; se invalida
+  // junto con `flights` cuando se re-importan vuelos.
+  activityComparison: "afm:activity-comparison"
 } as const;
 
 export const CACHE_TAGS_ALL = Object.values(CACHE_TAGS);
@@ -83,7 +87,10 @@ export const CACHE_TTL = {
   flights: 30,
   // Q2: misma TTL que upcoming porque la cadencia cambia con cada
   // fumigación registrada. Invalidación por tag al mutar.
-  overdue: 60
+  overdue: 60,
+  // F4.0: 5min. "Hoy" cambia intra-día; "ayer" es estable, pero el cache
+  // key incluye la fecha, así que no hay hit cross-day.
+  activityComparison: 300
 } as const;
 
 // ============================================================
@@ -593,6 +600,133 @@ export const fetchFlightPointsCached = unstable_cache(
 );
 
 // ============================================================
+// Sprint A — F4.0: actividad comparativa "ayer vs hoy"
+// ============================================================
+
+/**
+ * Una "tarjeta" de actividad para un día. Las métricas derivan de
+ * `dji_flights` (la verdad operativa — no del manual `dji_fumigations`).
+ *
+ * - `flights_count`: cantidad de sorties del día.
+ * - `area_fumigated_m2`: suma de `area_m2` de los vuelos del día.
+ * - `parcels_touched`: cuántas parcelas únicas tuvieron al menos un vuelo.
+ * - `duration_minutes`: suma de `duration_seconds` / 60.
+ */
+export interface ActivityDayMetrics {
+  flights_count: number;
+  area_fumigated_m2: number;
+  parcels_touched: number;
+  duration_minutes: number;
+}
+
+/**
+ * Comparativa de actividad entre "hoy" y "ayer" en TZ America/Bogota.
+ * Lo que consume `<TodayYesterdayCard>` en el dashboard.
+ */
+export interface ActivityComparison {
+  today: ActivityDayMetrics;
+  yesterday: ActivityDayMetrics;
+  /** Las fechas en formato `YYYY-MM-DD` (Bogota local) que se usaron. */
+  dates: { today: string; yesterday: string };
+}
+
+interface ActivityComparisonDbRow {
+  which: "today" | "yesterday";
+  flights_count: string;
+  area_fumigated_m2: string;
+  parcels_touched: string;
+  duration_minutes: string;
+}
+
+/**
+ * Query batch que devuelve las métricas de hoy y ayer en UNA sola
+ * round-trip. Las fechas llegan como parámetros (YYYY-MM-DD Bogota
+ * local) para que el caller controle el "hoy" y para que los tests
+ * sean deterministas sin mockear NOW() del server.
+ *
+ * Filtramos `parcel_id IS NOT NULL` para excluir agregados del importer
+ * que quedaron sin asignar (mismo criterio que `getFumigatedParcelIdsSince`).
+ *
+ * Conversión de TZ: `(start_at AT TIME ZONE 'America/Bogota')::date` —
+ * trunca el timestamptz a la fecha local Bogota del vuelo. Equivalente
+ * al join que ya usa `lib/djiag-spatial-aggregator.ts` y la timeline.
+ */
+async function fetchActivityComparisonRaw(
+  today: string,
+  yesterday: string
+): Promise<ActivityComparison> {
+  const db = getDb();
+  const result = await db.query<ActivityComparisonDbRow>(
+    `
+      SELECT 'today' AS which, * FROM (
+        SELECT
+          COUNT(*)::text AS flights_count,
+          COALESCE(SUM(area_m2), 0)::text AS area_fumigated_m2,
+          COUNT(DISTINCT parcel_id)::text AS parcels_touched,
+          (COALESCE(SUM(duration_seconds), 0) / 60.0)::text AS duration_minutes
+        FROM dji_flights
+        WHERE parcel_id IS NOT NULL
+          AND (start_at AT TIME ZONE 'America/Bogota')::date = $1::date
+      ) t
+      UNION ALL
+      SELECT 'yesterday' AS which, * FROM (
+        SELECT
+          COUNT(*)::text AS flights_count,
+          COALESCE(SUM(area_m2), 0)::text AS area_fumigated_m2,
+          COUNT(DISTINCT parcel_id)::text AS parcels_touched,
+          (COALESCE(SUM(duration_seconds), 0) / 60.0)::text AS duration_minutes
+        FROM dji_flights
+        WHERE parcel_id IS NOT NULL
+          AND (start_at AT TIME ZONE 'America/Bogota')::date = $2::date
+      ) y
+    `,
+    [today, yesterday]
+  );
+
+  const empty: ActivityDayMetrics = {
+    flights_count: 0,
+    area_fumigated_m2: 0,
+    parcels_touched: 0,
+    duration_minutes: 0
+  };
+
+  const today_metrics: ActivityDayMetrics = { ...empty };
+  const yesterday_metrics: ActivityDayMetrics = { ...empty };
+
+  for (const row of result.rows) {
+    const parsed: ActivityDayMetrics = {
+      flights_count: Number(row.flights_count),
+      area_fumigated_m2: Number(row.area_fumigated_m2),
+      parcels_touched: Number(row.parcels_touched),
+      duration_minutes: Number(row.duration_minutes)
+    };
+    if (row.which === "today") Object.assign(today_metrics, parsed);
+    else Object.assign(yesterday_metrics, parsed);
+  }
+
+  return {
+    today: today_metrics,
+    yesterday: yesterday_metrics,
+    dates: { today, yesterday }
+  };
+}
+
+/**
+ * Wrapper cacheado. El cache key de Next incluye los args (today, yesterday),
+ * así que el "ayer" cacheado el 22 de julio NO se reutiliza el 23 de julio
+ * (que pide "ayer=2026-07-22, hoy=2026-07-23" — key distinta). Esto es OK:
+ * el "ayer" del día siguiente es la misma data, pero la query es barata
+ * (~7000 rows totales) y la cache hit durante el mismo día cubre el 99%
+ * de los renders del dashboard.
+ */
+export const fetchActivityComparisonCached = unstable_cache(
+  async (today: string, yesterday: string) =>
+    fetchActivityComparisonRaw(today, yesterday),
+  ["activity-comparison"],
+  { revalidate: CACHE_TTL.activityComparison, tags: [CACHE_TAGS.activityComparison, CACHE_TAGS.flights] }
+);
+
+// ============================================================
 // Invalidation helpers — para usar desde mutations
 // ============================================================
 
@@ -630,6 +764,9 @@ export function invalidateAfterFlightMutation(): void {
   invalidateTagImmediate(CACHE_TAGS.flights);
   invalidateTagImmediate(CACHE_TAGS.metrics);
   invalidateTagImmediate(CACHE_TAGS.alerts);
+  // Sprint A — F4.0: la comparativa ayer/hoy se recalcula cuando entran
+  // nuevos vuelos. Mismo criterio que metrics (derivada de dji_flights).
+  invalidateTagImmediate(CACHE_TAGS.activityComparison);
 }
 
 /**

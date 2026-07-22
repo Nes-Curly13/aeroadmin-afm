@@ -1,6 +1,7 @@
 import { AppShell } from "@/components/app-shell";
 import { DashboardClient } from "@/components/dashboard/dashboard-client";
 import {
+  getActivityComparison,
   getAlerts,
   getDashboardMetrics,
   getFlights,
@@ -36,7 +37,18 @@ import { getViewerRole } from "@/lib/auth/role";
  * Server Component (sin "use client") — fetcha en paralelo y delega.
  */
 export default async function DashboardPage() {
-  const [metrics, parcelsResult, flightsResult, alerts, upcoming, overdue] = await Promise.all([
+  const [
+    metrics,
+    parcelsResult,
+    flightsResult,
+    alerts,
+    upcoming,
+    overdue,
+    // Sprint A — F4.0: comparativa ayer/hoy. Cacheada 5min con tag
+    // `afm:activity-comparison`. La incluimos en el Promise.all para
+    // que corra en paralelo con las otras 6 queries del dashboard.
+    activityComparison
+  ] = await Promise.all([
     getDashboardMetrics(),
     // (S1.7 / 2026-07-01) Migrado de getParcels() (legacy, lee dji_land_assets shape)
     // a getParcelsNormalized() — tabla dji_parcels, 1 fila por campo, columnas planas.
@@ -48,7 +60,8 @@ export default async function DashboardPage() {
     // M3-M5 Q2: cuenta de parcelas overdue para KPI "Vencidas".
     // Cacheada con TTL 60s (tag `afm:overdue`) — se invalida junto con
     // `upcoming` al registrar una fumigación.
-    getOverdueParcels({ maxDaysAhead: 14 })
+    getOverdueParcels({ maxDaysAhead: 14 }),
+    getActivityComparison()
   ]);
 
   const overdueCount = overdue.filter((p) => p.severity === "overdue").length;
@@ -69,6 +82,7 @@ export default async function DashboardPage() {
       viewerRole={viewerRole}
     >
       <DashboardClient
+        activityComparison={activityComparison}
         alerts={alerts}
         flights={flightsResult.data}
         metrics={metrics}
