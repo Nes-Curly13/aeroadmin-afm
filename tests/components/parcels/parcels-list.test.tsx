@@ -115,18 +115,59 @@ describe("ParcelsList", () => {
     expect(within(row as HTMLElement).getByText("—")).toBeInTheDocument();
   });
 
-  it("muestra el estado 'Sin plan' cuando no hay cadencia configurada (indicador heurístico)", () => {
-    // El listado no puede saber si hay cadencia sin otra query. Marcamos todas
-    // como "Pendiente" y dejamos nota en el helper text. Este test documenta
-    // el contrato actual — si en el futuro se cruza con dji_fumigation_schedule,
-    // se actualiza este test junto con la implementación.
+  it("muestra dot de cadencia (F1.1): la columna nunca queda vacía", () => {
+    // Sprint A — F1.1: la columna de cadencia ya no es un chip "Pendiente"
+    // constante. Es un dot de 3 colores según days_since_last_fumigation
+    // (calculado en SQL). Acá validamos el contrato mínimo: la columna
+    // siempre tiene un dot (data-testid presente) y su label accesible
+    // es legible.
     const parcels = [makeParcel({ id: 1, land_name: "X" })];
     render(<ParcelsList parcels={parcels} />);
-    // El chip de estado debe ser visible (texto exacto: "Sin plan" o similar)
     const row = screen.getByText("X").closest("tr");
     expect(row).not.toBeNull();
-    // La columna de estado muestra siempre algo (nunca queda vacía)
-    expect(within(row as HTMLElement).getByText(/pendiente|sin plan|en fecha/i)).toBeInTheDocument();
+    // Sin days_since_last_fumigation, el dot es "no_history" (rojo, sin historial)
+    const dot = within(row as HTMLElement).getByTestId("status-dot-no-history");
+    expect(dot).toBeInTheDocument();
+    // aria-label accesible: "Sin historial — Nunca fumigada"
+    expect(dot.getAttribute("aria-label")).toMatch(/sin historial/i);
+  });
+
+  it("F1.1 — dot verde (ok) cuando days_since_last_fumigation <= 14", () => {
+    const parcels = [
+      makeParcel({ id: 1, land_name: "Fresca", days_since_last_fumigation: 3 }),
+      makeParcel({ id: 2, land_name: "Limite", days_since_last_fumigation: 14 })
+    ];
+    render(<ParcelsList parcels={parcels} />);
+    expect(screen.getAllByTestId("status-dot-ok")).toHaveLength(2);
+  });
+
+  it("F1.1 — dot amarillo (due_soon) cuando days_since_last_fumigation entre 15 y 30", () => {
+    const parcels = [
+      makeParcel({ id: 1, land_name: "Por vencer 15", days_since_last_fumigation: 15 }),
+      makeParcel({ id: 2, land_name: "Por vencer 30", days_since_last_fumigation: 30 })
+    ];
+    render(<ParcelsList parcels={parcels} />);
+    expect(screen.getAllByTestId("status-dot-due-soon")).toHaveLength(2);
+  });
+
+  it("F1.1 — dot rojo (overdue) cuando days_since_last_fumigation > 30", () => {
+    const parcels = [
+      makeParcel({ id: 1, land_name: "Muy vencida", days_since_last_fumigation: 45 }),
+      makeParcel({ id: 2, land_name: "Vencida", days_since_last_fumigation: 31 })
+    ];
+    render(<ParcelsList parcels={parcels} />);
+    expect(screen.getAllByTestId("status-dot-overdue")).toHaveLength(2);
+  });
+
+  it("F1.1 — dot rojo (no_history) cuando days_since_last_fumigation es null/undefined", () => {
+    const parcelsNull = [makeParcel({ id: 1, land_name: "Null", days_since_last_fumigation: null })];
+    const { unmount } = render(<ParcelsList parcels={parcelsNull} />);
+    expect(screen.getByTestId("status-dot-no-history")).toBeInTheDocument();
+    unmount();
+    // También undefined (fixture viejos sin el campo)
+    const parcelsUndef = [makeParcel({ id: 1, land_name: "Undef" })];
+    render(<ParcelsList parcels={parcelsUndef} />);
+    expect(screen.getByTestId("status-dot-no-history")).toBeInTheDocument();
   });
 
   it("pagina client-side: muestra 20 por página por default", () => {

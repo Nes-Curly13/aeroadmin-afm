@@ -53,6 +53,15 @@ export interface DjiParcelRecord {
   owner_name?: string | null;
   owner_contact?: string | null;
   supervisor_notes?: string | null;
+  // Sprint A — F1.1: dot de cadencia por color. `last_fumigation_date`
+  // viene de la fumigación real más reciente (no soft-deleted) vía
+  // `LEFT JOIN LATERAL` con `dji_fumigations` en `djiParcelsQuery`.
+  // `days_since_last_fumigation` se calcula en SQL (CURRENT_DATE - fecha)
+  // para que el UI solo renderice, no compute.
+  // null = "sin historial" (rojo). El UI distingue "vencida" (>30d) de
+  // "nunca fumigada" (null) — son dos alertas distintas para el operador.
+  last_fumigation_date?: string | null;
+  days_since_last_fumigation?: number | null;
 }
 
 export interface DjiDailySummaryRecord {

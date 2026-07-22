@@ -12,6 +12,11 @@
 //   - El sort y el filtro por texto viven en este componente (no se
 //     delegan al server porque no hay params de URL todavía — si en el
 //     futuro se quiere shareable, se mueven a `?page=`, `?sort=`).
+//
+// Sprint A — F1.1: la columna "Estado" ya NO es un chip "Pendiente"
+// constante. Ahora muestra un dot de 3 colores basado en
+// `days_since_last_fumigation` (calculado en SQL por la query unificada,
+// no en el client — ver api/queries.ts).
 
 "use client";
 
@@ -40,20 +45,93 @@ const COLUMN_LABELS: Record<SortColumn, string> = {
   fieldType: "Tipo",
   area: "Área (ha)",
   drone: "Dron canónico",
-  status: "Estado"
+  status: "Cadencia"
 };
 
+// ============================================================
+// F1.1 — Dot de cadencia
+// ============================================================
+
 /**
- * (BUG 1 audit) El estado "Sin plan" es una etiqueta operativa. La query
- * a `dji_fumigation_schedule` es cara y este listado ya carga 1000+ filas
- * desde `getParcelsNormalized`. Decisión: marcar todas como "Pendiente"
- * y dejar la fuente de verdad del estado en /parcels/overdue y
- * /parcels/[id] (que ya hacen el join con schedule). Si en el futuro
- * el operador pide verlo acá, se hace un query ligero tipo
- * `getParcelsWithScheduleStatus()` y se actualiza este helper.
+ * Estados posibles del dot. El color y label accesible vienen de acá;
+ * el componente `<FumigationStatusDot>` es un thin wrapper.
+ *
+ * Umbrales (decisión de producto, no de dev):
+ *   - "ok" (verde): <= 14 días desde la última fumigación.
+ *   - "due_soon" (amarillo): entre 15 y 30 días.
+ *   - "overdue" (rojo): > 30 días.
+ *   - "no_history" (rojo, mismo color que overdue pero distinto label):
+ *     nunca se fumigó. Se separa el caso porque el operador necesita
+ *     distinguir "vencida" (actuar ya) de "nunca fumigada" (cargar
+ *     historial primero).
  */
-function statusLabel(_parcel: DjiParcelRecord): "Pendiente" {
-  return "Pendiente";
+export type FumigationStatus = "ok" | "due_soon" | "overdue" | "no_history";
+
+/**
+ * Determina el estado de cadencia en función de los días. Pura — testeable
+ * sin DOM. La entrada es `parcel.days_since_last_fumigation` (calculado
+ * en SQL). Si el campo no está presente (fixtures de tests viejos),
+ * devuelve "no_history".
+ */
+export function getFumigationStatus(
+  daysSinceLast: number | null | undefined
+): FumigationStatus {
+  if (daysSinceLast === null || daysSinceLast === undefined) return "no_history";
+  if (daysSinceLast <= 14) return "ok";
+  if (daysSinceLast <= 30) return "due_soon";
+  return "overdue";
+}
+
+const STATUS_DOT: Record<
+  FumigationStatus,
+  { dotClass: string; ariaLabel: string; testId: string }
+> = {
+  ok: {
+    dotClass: "bg-[#16a34a]", // verde AFM
+    ariaLabel: "En fecha",
+    testId: "status-dot-ok"
+  },
+  due_soon: {
+    dotClass: "bg-[#eab308]", // amarillo
+    ariaLabel: "Vence pronto",
+    testId: "status-dot-due-soon"
+  },
+  overdue: {
+    dotClass: "bg-[#dc2626]", // rojo
+    ariaLabel: "Vencida",
+    testId: "status-dot-overdue"
+  },
+  no_history: {
+    dotClass: "bg-[#dc2626]", // rojo
+    ariaLabel: "Sin historial",
+    testId: "status-dot-no-history"
+  }
+};
+
+function FumigationStatusDot({ daysSinceLast }: { daysSinceLast: number | null | undefined }) {
+  const status = getFumigationStatus(daysSinceLast);
+  const cfg = STATUS_DOT[status];
+  const detail =
+    daysSinceLast === null || daysSinceLast === undefined
+      ? "Nunca fumigada"
+      : daysSinceLast === 0
+        ? "Fumigada hoy"
+        : `${daysSinceLast} día${daysSinceLast === 1 ? "" : "s"} desde última fumigación`;
+  return (
+    <span
+      aria-label={`${cfg.ariaLabel} — ${detail}`}
+      className="inline-flex items-center gap-2"
+      data-status={status}
+      data-testid={cfg.testId}
+    >
+      <span
+        aria-hidden="true"
+        className={`inline-block h-2.5 w-2.5 rounded-full ${cfg.dotClass}`}
+        title={`${cfg.ariaLabel} · ${detail}`}
+      />
+      <span className="sr-only">{`${cfg.ariaLabel} (${detail})`}</span>
+    </span>
+  );
 }
 
 function getSortValue(parcel: DjiParcelRecord, column: SortColumn): number | string | null {
@@ -67,7 +145,10 @@ function getSortValue(parcel: DjiParcelRecord, column: SortColumn): number | str
     case "drone":
       return parcel.drone_model_name ?? "";
     case "status":
-      return statusLabel(parcel);
+      // Orden: ok < due_soon < overdue < no_history
+      return { ok: 0, due_soon: 1, overdue: 2, no_history: 3 }[
+        getFumigationStatus(parcel.days_since_last_fumigation)
+      ];
   }
 }
 
@@ -251,9 +332,7 @@ export function ParcelsList({ parcels, pageSize = PAGE_SIZE_DEFAULT }: ParcelsLi
                       {parcel.drone_model_name ?? "—"}
                     </td>
                     <td className="px-4 py-3">
-                      <span className="rounded-full bg-[#f4f7f4] px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.18em] text-[#587064]">
-                        {statusLabel(parcel)}
-                      </span>
+                      <FumigationStatusDot daysSinceLast={parcel.days_since_last_fumigation} />
                     </td>
                     <td className="px-4 py-3 text-right">
                       <Link

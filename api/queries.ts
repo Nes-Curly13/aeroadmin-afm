@@ -56,43 +56,63 @@
  */
 export const djiParcelsQuery = `
   SELECT
-    id,
-    external_id,
-    land_name,
-    field_type,
+    p.id,
+    p.external_id,
+    p.land_name,
+    p.field_type,
     -- location_label: address humana de DJI (re-scrape 2026-07-09,
     -- migration 20260709000000). null hasta que se complete el backfill.
-    location_label,
-    declared_area_ha,
-    spray_area_m2,
-    drone_model_code,
-    drone_model_name,
-    spray_width_m,
-    work_speed_mps,
-    optimal_heading_deg,
-    radar_height_m,
-    edge_offset_m,
-    obstacle_offset_m,
-    climb_height_m,
-    no_spray_zone_m2,
-    droplet_size,
-    sweep_direction,
-    is_orchard,
-    uses_side_spray,
-    CASE WHEN spray_geom IS NULL THEN NULL ELSE ST_AsGeoJSON(spray_geom)::json END AS spray_geometry,
-    CASE WHEN reference_point IS NULL THEN NULL ELSE ST_AsGeoJSON(reference_point)::json END AS reference_point,
-    CASE WHEN waypoints IS NULL THEN NULL ELSE ST_AsGeoJSON(waypoints)::json END AS waypoints_geometry,
-    waypoint_count,
-    source_url_geometry,
-    source_url_parameter,
-    source_url_waypoint,
-    fetched_at,
+    p.location_label,
+    p.declared_area_ha,
+    p.spray_area_m2,
+    p.drone_model_code,
+    p.drone_model_name,
+    p.spray_width_m,
+    p.work_speed_mps,
+    p.optimal_heading_deg,
+    p.radar_height_m,
+    p.edge_offset_m,
+    p.obstacle_offset_m,
+    p.climb_height_m,
+    p.no_spray_zone_m2,
+    p.droplet_size,
+    p.sweep_direction,
+    p.is_orchard,
+    p.uses_side_spray,
+    CASE WHEN p.spray_geom IS NULL THEN NULL ELSE ST_AsGeoJSON(p.spray_geom)::json END AS spray_geometry,
+    CASE WHEN p.reference_point IS NULL THEN NULL ELSE ST_AsGeoJSON(p.reference_point)::json END AS reference_point,
+    CASE WHEN p.waypoints IS NULL THEN NULL ELSE ST_AsGeoJSON(p.waypoints)::json END AS waypoints_geometry,
+    p.waypoint_count,
+    p.source_url_geometry,
+    p.source_url_parameter,
+    p.source_url_waypoint,
+    p.fetched_at,
     -- Metadata editable por el supervisor (migration 20260722000000).
     -- DJI no expone estos datos — los llena el operador manualmente.
-    crop_type,
-    planting_date,
-    owner_name,
-    owner_contact,
-    supervisor_notes
-  FROM dji_parcels
+    p.crop_type,
+    p.planting_date,
+    p.owner_name,
+    p.owner_contact,
+    p.supervisor_notes,
+    -- Sprint A — F1.1: dot de cadencia por color en /parcels.
+    -- LEFT JOIN LATERAL con la fumigación más reciente (no soft-deleted)
+    -- para que el supervisor pueda escanear prioridades de un vistazo.
+    -- days_since_last_fumigation se calcula en SQL (CURRENT_DATE - fecha)
+    -- para que sea determinístico: el client solo lee el número, no lo
+    -- computa. El null se preserva para "sin historial" (separa el caso
+    -- de "vencida" de "nunca fumigada").
+    last_fum.fumigation_date AS last_fumigation_date,
+    CASE
+      WHEN last_fum.fumigation_date IS NULL THEN NULL
+      ELSE (CURRENT_DATE - last_fum.fumigation_date)
+    END AS days_since_last_fumigation
+  FROM dji_parcels p
+  LEFT JOIN LATERAL (
+    SELECT fumigation_date
+      FROM dji_fumigations
+     WHERE parcel_id = p.id
+       AND deleted_at IS NULL
+     ORDER BY fumigation_date DESC
+     LIMIT 1
+  ) last_fum ON true
 `;
