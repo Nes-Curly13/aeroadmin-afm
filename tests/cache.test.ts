@@ -89,6 +89,8 @@ describe("CACHE_TTL — duración esperada por dominio", () => {
     expect(CACHE_TAGS.parcelsSummary).toBe("afm:parcels-summary");
     expect(CACHE_TAGS.upcoming).toBe("afm:upcoming");
     expect(CACHE_TAGS.flights).toBe("afm:flights");
+    // Sprint A — F4.0: tag para la comparativa ayer/hoy del dashboard.
+    expect(CACHE_TAGS.activityComparison).toBe("afm:activity-comparison");
   });
 });
 
@@ -175,13 +177,16 @@ describe("invalidate* — disparan revalidateTag con profile { expire: 0 }", () 
     expect(tags).toContain(CACHE_TAGS.upcoming);
   });
 
-  it("invalidateAfterFlightMutation afecta flights + metrics + alerts", () => {
+  it("invalidateAfterFlightMutation afecta flights + metrics + alerts + activity-comparison", () => {
     invalidateAfterFlightMutation();
-    expect(revalidateTagMock).toHaveBeenCalledTimes(3);
+    // Sprint A — F4.0: la comparativa ayer/hoy también se invalida porque
+    // depende de dji_flights. Antes eran 3; ahora son 4.
+    expect(revalidateTagMock).toHaveBeenCalledTimes(4);
     const tags = revalidateTagMock.mock.calls.map((c) => c[0]);
     expect(tags).toContain(CACHE_TAGS.flights);
     expect(tags).toContain(CACHE_TAGS.metrics);
     expect(tags).toContain(CACHE_TAGS.alerts);
+    expect(tags).toContain(CACHE_TAGS.activityComparison);
   });
 
   it("invalidateAll barre todos los tags", () => {
