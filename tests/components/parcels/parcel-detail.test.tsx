@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
 import type { DjiParcelRecord } from "@/lib/types";
 
@@ -125,6 +126,30 @@ describe("ParcelDetail", () => {
     expect(screen.getByText("+57 300 123 4567")).toBeInTheDocument();
     expect(screen.getByText("Palmira, Valle del Cauca")).toBeInTheDocument();
     expect(screen.getByText(/lote con pendiente pronunciada al norte/i)).toBeInTheDocument();
+  });
+
+  it("muestra un botón 'Editar' en la sección Contexto del lote", () => {
+    render(<ParcelDetail parcel={makeParcel()} />);
+    // El test-id existe especificamente para que el botón inline en Contexto
+    // se pueda targetear sin confundir con el 'Editar metadata' del header.
+    expect(screen.getByTestId("parcel-context-edit-button")).toBeInTheDocument();
+  });
+
+  it("al click en 'Editar' de Contexto abre el form (desaparecen los 2 botones y aparece el form)", async () => {
+    const user = userEvent.setup();
+    render(<ParcelDetail parcel={makeParcel()} />);
+    // Inicialmente: AMBOS botones visibles (header + Contexto).
+    expect(screen.getByTestId("parcel-context-edit-button")).toBeInTheDocument();
+    expect(screen.getByTestId("parcel-edit-metadata-button")).toBeInTheDocument();
+    // Form NO visible todavia.
+    expect(screen.queryByPlaceholderText(/caña de azúcar, maíz/i)).not.toBeInTheDocument();
+    // Click en el botón de Contexto.
+    await user.click(screen.getByTestId("parcel-context-edit-button"));
+    // Ahora: ambos botones desaparecen (estamos en editing), y el form se
+    // renderiza (ParcelEditPanel muestra los inputs).
+    expect(screen.queryByTestId("parcel-context-edit-button")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("parcel-edit-metadata-button")).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/caña de azúcar, maíz/i)).toBeInTheDocument();
   });
 
   it("muestra el placeholder de área cuando no hay declared ni spray", () => {

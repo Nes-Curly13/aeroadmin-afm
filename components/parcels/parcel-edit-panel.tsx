@@ -7,6 +7,17 @@ import type { DjiParcelRecord } from "@/lib/types";
 
 interface ParcelEditPanelProps {
   parcel: DjiParcelRecord;
+  /**
+   * Modo controlado: si se provee `editing` + `onClose` + `onOpen`, el
+   * componente NO mantiene estado interno — el padre es dueño del estado.
+   * Esto permite que otros componentes (ej. botón "Editar" en la sección
+   * Contexto del ParcelDetail) abran el mismo form sin refactorizar el
+   * estado. Si NO se proveen, el componente usa estado interno (back-compat
+   * para tests existentes que renderizan el panel sin props de control).
+   */
+  editing?: boolean;
+  onOpen?: () => void;
+  onClose?: () => void;
 }
 
 /**
@@ -21,9 +32,17 @@ interface ParcelEditPanelProps {
  * Sprint 2026-07-22: se agregaron crop_type, planting_date, owner_name,
  * owner_contact, supervisor_notes (metadata humana que DJI no expone).
  */
-export function ParcelEditPanel({ parcel }: ParcelEditPanelProps) {
+export function ParcelEditPanel({ parcel, editing: editingProp, onOpen, onClose }: ParcelEditPanelProps) {
   const router = useRouter();
-  const [editing, setEditing] = useState(false);
+  // Estado interno (back-compat) o controlado (cuando vienen props).
+  const [internalEditing, setInternalEditing] = useState(false);
+  const controlled = editingProp !== undefined;
+  const editing = controlled ? editingProp : internalEditing;
+  const setEditing = controlled
+    ? (next: boolean) => {
+        if (!next) onClose?.();
+      }
+    : setInternalEditing;
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState({
@@ -51,11 +70,20 @@ export function ParcelEditPanel({ parcel }: ParcelEditPanelProps) {
       supervisor_notes: parcel.supervisor_notes ?? ""
     });
     setError(null);
-    setEditing(true);
+    if (controlled) {
+      // El padre mantiene el estado de editing — avisamos que se pidió abrir.
+      onOpen?.();
+    } else {
+      setInternalEditing(true);
+    }
   }
 
   function cancel() {
-    setEditing(false);
+    if (controlled) {
+      onClose?.();
+    } else {
+      setInternalEditing(false);
+    }
     setError(null);
   }
 
@@ -115,6 +143,7 @@ export function ParcelEditPanel({ parcel }: ParcelEditPanelProps) {
       <div className="flex justify-end">
         <button
           className="rounded-full border border-[#0b5f2d] px-4 py-1.5 text-xs font-semibold text-[#0b5f2d] transition hover:bg-[#0b5f2d] hover:text-white"
+          data-testid="parcel-edit-metadata-button"
           onClick={startEdit}
           type="button"
         >

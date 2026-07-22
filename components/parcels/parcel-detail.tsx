@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 import type { DjiParcelRecord } from "@/lib/types";
 
@@ -66,10 +66,13 @@ function EmptyMetaField({ label, hint }: { label: string; hint: string }) {
   );
 }
 
-function section(title: string, children: React.ReactNode) {
+function section(title: string, children: React.ReactNode, headerAction?: React.ReactNode) {
   return (
     <section className="rounded-2xl border border-[#d2ddd6] bg-white p-5 shadow-[0px_18px_40px_rgba(15,23,42,0.08)]">
-      <h2 className="mb-4 text-[11px] font-bold uppercase tracking-[0.2em] text-[#587064]">{title}</h2>
+      <div className="mb-4 flex items-center justify-between gap-2">
+        <h2 className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#587064]">{title}</h2>
+        {headerAction}
+      </div>
       {children}
     </section>
   );
@@ -89,6 +92,11 @@ function dl(rows: Array<[string, React.ReactNode]>) {
 }
 
 export function ParcelDetail({ parcel }: { parcel: DjiParcelRecord }) {
+  // Estado lifted para que el botón "Editar" de la sección Contexto del lote
+  // pueda abrir el mismo editor que el botón "Editar metadata" del header
+  // de identidad. Antes había que scrollear hacia arriba — ahora ambos
+  // botones coordinan via props controlados.
+  const [editing, setEditing] = useState(false);
   const hasGeometry = !!parcel.spray_geometry;
   const hasWaypoints = !!parcel.waypoints_geometry;
   const hasRefPoint = !!parcel.reference_point;
@@ -142,8 +150,13 @@ export function ParcelDetail({ parcel }: { parcel: DjiParcelRecord }) {
           </p>
         </header>
 
-        {/* Panel de edicion de metadata editable */}
-        <ParcelEditPanel parcel={parcel} />
+        {/* Panel de edicion de metadata editable (controlled por estado lifted) */}
+        <ParcelEditPanel
+          editing={editing}
+          onClose={() => setEditing(false)}
+          onOpen={() => setEditing(true)}
+          parcel={parcel}
+        />
 
         {/* Mini mapa de la parcela */}
         {hasGeometry ? (
@@ -303,6 +316,18 @@ export function ParcelDetail({ parcel }: { parcel: DjiParcelRecord }) {
         {section(
           "Contexto del lote",
           <div className="space-y-2 text-sm">
+            {!editing ? (
+              <div className="flex justify-end">
+                <button
+                  className="rounded-full border border-[#0b5f2d] px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-[#0b5f2d] transition hover:bg-[#0b5f2d] hover:text-white"
+                  data-testid="parcel-context-edit-button"
+                  onClick={() => setEditing(true)}
+                  type="button"
+                >
+                  Editar
+                </button>
+              </div>
+            ) : null}
             {parcel.crop_type ? (
               <div className="flex items-center justify-between gap-3 border-b border-[#f0f4f1] pb-2">
                 <dt className="text-[#4a5b50]">Cultivo</dt>
