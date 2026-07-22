@@ -41,6 +41,12 @@ coverage/
 djiag_exports/
 
 # ============================================================
+# DJI credentials (filled from DJI_CREDENTIALS.md.template)
+# Never commit the real credentials file.
+# ============================================================
+docs/DJI_CREDENTIALS.md
+
+# ============================================================
 # Scratch / debug output at repo root
 # (manual page captures, API response samples, console logs)
 # ============================================================
