@@ -49,6 +49,7 @@ import {
   computeSeverity,
   sortOverdueByPriority
 } from "@/lib/overdue-parcels";
+import { djiParcelsQuery } from "@/api/queries";
 import type {
   DashboardMetrics,
   DjiAlertRecord,
@@ -95,39 +96,6 @@ interface MetricsRow {
   high_alert_days: string;
   total_parcels: string;
 }
-
-const djiParcelsQuery = `
-  SELECT
-    id,
-    external_id,
-    land_name,
-    field_type,
-    declared_area_ha,
-    spray_area_m2,
-    drone_model_code,
-    drone_model_name,
-    spray_width_m,
-    work_speed_mps,
-    optimal_heading_deg,
-    radar_height_m,
-    edge_offset_m,
-    obstacle_offset_m,
-    climb_height_m,
-    no_spray_zone_m2,
-    droplet_size,
-    sweep_direction,
-    is_orchard,
-    uses_side_spray,
-    CASE WHEN spray_geom IS NULL THEN NULL ELSE ST_AsGeoJSON(spray_geom)::json END AS spray_geometry,
-    CASE WHEN reference_point IS NULL THEN NULL ELSE ST_AsGeoJSON(reference_point)::json END AS reference_point,
-    CASE WHEN waypoints IS NULL THEN NULL ELSE ST_AsGeoJSON(waypoints)::json END AS waypoints_geometry,
-    waypoint_count,
-    source_url_geometry,
-    source_url_parameter,
-    source_url_waypoint,
-    fetched_at
-  FROM dji_parcels
-`;
 
 // ============================================================
 // Wrappers cacheados
