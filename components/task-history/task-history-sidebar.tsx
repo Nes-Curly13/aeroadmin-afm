@@ -64,6 +64,7 @@ import type {
   DayCardWithFlights,
   FlightListItem
 } from "@/lib/djiag-from-make/task-history";
+import { dayToCard } from "@/lib/djiag-from-make/task-history";
 
 const TASK_HISTORY_CONTENT_SELECTOR = "[data-testid='task-history-content']";
 const SCROLL_MAX_HEIGHT = "calc(100vh - 560px)";
@@ -225,7 +226,7 @@ export function TaskHistorySidebar({
           {days.map(({ day, flights }) => (
             <li data-date={day.date?.replace(/-/g, "/")} key={day.date ?? Math.random()}>
               <DayCard
-                day={day}
+                day={dayToCard(day)}
                 flights={flights}
                 onFlightClick={openFlightDetail}
               />
@@ -269,11 +270,13 @@ function PeriodSection() {
 function DroneSection({
   count,
   activeCount,
-  droneSuggestions
+  droneSuggestions,
+  totalDrones
 }: {
   count?: number;
   activeCount?: number;
   droneSuggestions: string[];
+  totalDrones?: number;
 }) {
   const router = useRouter();
   const pathname = usePathname();

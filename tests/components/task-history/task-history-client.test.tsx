@@ -16,7 +16,7 @@
  * Patrón de assertion: `getByTestId` para los elementos que esperamos
  * y `queryByTestId` para los que NO esperamos.
  */
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/navigation", () => ({
@@ -40,29 +40,35 @@ vi.mock("@/components/task-history/map-view", () => ({
 
 import { TaskHistoryClient } from "@/app/task-history/TaskHistoryClient";
 import type {
-  DayCard as DayCardData,
   DayCardWithFlights
 } from "@/lib/djiag-from-make/task-history";
+import type { NormalizedFumigationDay } from "@/lib/djiag-fumigations-fetcher";
 import type { MapPolygon } from "@/components/task-history/map-view";
 
-function makeDay(overrides: Partial<DayCardData> = {}): DayCardData {
+function makeNormalizedDay(
+  overrides: Partial<NormalizedFumigationDay> = {}
+): NormalizedFumigationDay {
   return {
-    date: "2026/07/08",
-    weekday: "Wednesday",
-    areaMu: 18.29,
-    times: 22,
-    liters: 365.2,
-    duration: { hours: 1, minutes: 44, seconds: 53, djiFormat: "1Hour44min53s" },
+    createTimestamp: 1788892800,
+    date: "2026-07-08",
+    workAreaM2: 12193,
+    workTimeSec: 6293,
+    workTimeMin: 105,
+    sortieCount: 22,
+    sprayUsageMl: 365200,
+    sprayUsageL: 365.2,
+    doseLPerHa: 1.5,
+    hasAgriculture: true,
     ...overrides
   };
 }
 
-const DAY_A: DayCardData = makeDay();
-const DAY_B: DayCardData = makeDay({ date: "2026/07/07", weekday: "Tuesday" });
+const DAY_A: NormalizedFumigationDay = makeNormalizedDay();
+const DAY_B: NormalizedFumigationDay = makeNormalizedDay({ date: "2026-07-07" });
 
 const ENRICHED: DayCardWithFlights[] = [
-  { day: { ...DAY_A, date: "2026-07-08", workAreaM2: 12193 }, flights: [] },
-  { day: { ...DAY_B, date: "2026-07-07", workAreaM2: 13000 }, flights: [] }
+  { day: DAY_A, flights: [] },
+  { day: DAY_B, flights: [] }
 ];
 
 const POLYGONS: MapPolygon[] = [];
@@ -78,7 +84,7 @@ describe("TaskHistoryClient — v1.7 Track C layout", () => {
         days={ENRICHED}
         droneSuggestions={[]}
         from="2026-01-01"
-        parcelNameById={{}}
+        parcelNameById={new Map()}
         polygons={POLYGONS}
         selectedParcelId={null}
         to="2026-07-15"
@@ -88,21 +94,29 @@ describe("TaskHistoryClient — v1.7 Track C layout", () => {
     expect(screen.queryByRole("heading", { level: 1 })).toBeNull();
   });
 
-  it("NO renderiza DateRangePicker (movido al sidebar)", () => {
+  it("NO renderiza DateRangePicker en el body (movido al sidebar)", () => {
     render(
       <TaskHistoryClient
         days={ENRICHED}
         droneSuggestions={[]}
         from="2026-01-01"
-        parcelNameById={{}}
+        parcelNameById={new Map()}
         polygons={POLYGONS}
         selectedParcelId={null}
         to="2026-07-15"
       />
     );
-    expect(screen.queryByTestId("task-history-date-range-picker")).toBeNull();
-    expect(screen.queryByTestId("task-history-date-from")).toBeNull();
-    expect(screen.queryByTestId("task-history-date-to")).toBeNull();
+    // v1.7: el DateRangePicker se movio al sidebar. Verificamos que
+    // esta dentro del sidebar (NO duplicado en el body).
+    const sidebar = screen.getByTestId("task-history-sidebar");
+    expect(
+      within(sidebar).getByTestId("task-history-date-range-picker")
+    ).toBeInTheDocument();
+    // Y NO hay un DateRangePicker suelto fuera del sidebar.
+    // Buscamos por todo el documento y contamos ocurrencias:
+    // debe haber exactamente 1 (dentro del sidebar).
+    const all = screen.queryAllByTestId("task-history-date-range-picker");
+    expect(all).toHaveLength(1);
   });
 
   it("NO renderiza FilterButton (reemplazado por inputs inline en el sidebar)", () => {
@@ -111,7 +125,7 @@ describe("TaskHistoryClient — v1.7 Track C layout", () => {
         days={ENRICHED}
         droneSuggestions={[]}
         from="2026-01-01"
-        parcelNameById={{}}
+        parcelNameById={new Map()}
         polygons={POLYGONS}
         selectedParcelId={null}
         to="2026-07-15"
@@ -126,7 +140,7 @@ describe("TaskHistoryClient — v1.7 Track C layout", () => {
         days={ENRICHED}
         droneSuggestions={[]}
         from="2026-01-01"
-        parcelNameById={{}}
+        parcelNameById={new Map()}
         polygons={POLYGONS}
         selectedParcelId={null}
         to="2026-07-15"
@@ -142,7 +156,7 @@ describe("TaskHistoryClient — v1.7 Track C layout", () => {
         days={ENRICHED}
         droneSuggestions={[]}
         from="2026-01-01"
-        parcelNameById={{}}
+        parcelNameById={new Map()}
         polygons={POLYGONS}
         selectedParcelId={null}
         to="2026-07-15"
@@ -159,7 +173,7 @@ describe("TaskHistoryClient — v1.7 Track C layout", () => {
         days={ENRICHED}
         droneSuggestions={[]}
         from="2026-01-01"
-        parcelNameById={{}}
+        parcelNameById={new Map()}
         polygons={POLYGONS}
         selectedParcelId={null}
         to="2026-07-15"
@@ -174,7 +188,7 @@ describe("TaskHistoryClient — v1.7 Track C layout", () => {
         days={ENRICHED}
         droneSuggestions={[]}
         from="2026-01-01"
-        parcelNameById={{}}
+        parcelNameById={new Map()}
         polygons={POLYGONS}
         selectedParcelId={null}
         to="2026-07-15"
@@ -189,7 +203,7 @@ describe("TaskHistoryClient — v1.7 Track C layout", () => {
         days={ENRICHED}
         droneSuggestions={["1581F5BKD23100045"]}
         from="2026-01-01"
-        parcelNameById={{}}
+        parcelNameById={new Map()}
         polygons={POLYGONS}
         selectedParcelId={null}
         to="2026-07-15"
@@ -207,7 +221,7 @@ describe("TaskHistoryClient — v1.7 Track C layout", () => {
         days={ENRICHED}
         droneSuggestions={[]}
         from="2026-01-01"
-        parcelNameById={{}}
+        parcelNameById={new Map()}
         polygons={POLYGONS}
         selectedParcelId={null}
         to="2026-07-15"
@@ -228,7 +242,7 @@ describe("TaskHistoryClient — v1.7 Track C layout", () => {
         days={ENRICHED}
         droneSuggestions={[]}
         from="2026-01-01"
-        parcelNameById={{}}
+        parcelNameById={new Map()}
         polygons={POLYGONS}
         selectedParcelId={null}
         to="2026-07-15"
@@ -246,7 +260,7 @@ describe("TaskHistoryClient — v1.7 Track C layout", () => {
         days={ENRICHED}
         droneSuggestions={[]}
         from="2026-01-01"
-        parcelNameById={{}}
+        parcelNameById={new Map()}
         polygons={POLYGONS}
         selectedParcelId={42}
         to="2026-07-15"
@@ -263,7 +277,7 @@ describe("TaskHistoryClient — v1.7 Track C layout", () => {
         days={ENRICHED}
         droneSuggestions={[]}
         from="2026-01-01"
-        parcelNameById={{}}
+        parcelNameById={new Map()}
         polygons={POLYGONS}
         selectedParcelId={null}
         to="2026-07-15"

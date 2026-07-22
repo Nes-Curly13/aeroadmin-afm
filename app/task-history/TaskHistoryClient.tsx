@@ -77,7 +77,7 @@ export interface TaskHistoryClientProps {
   /** Sugerencias de drones para el datalist del filtro. */
   droneSuggestions: string[];
   /** Lookup de nombre de parcela por id. */
-  parcelNameById: Map<number, string> | Record<number, string>;
+  parcelNameById: Map<number, string>;
 }
 
 export function TaskHistoryClient({

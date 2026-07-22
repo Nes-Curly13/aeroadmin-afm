@@ -16,7 +16,7 @@
  * Mockeamos next/navigation porque DateRangePicker y los inputs
  * internos usan useRouter/useSearchParams.
  */
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -177,8 +177,11 @@ describe("TaskHistorySidebar — v1.7 Track C", () => {
       searchParams.set("droneSerial", "1581F5BKD23100045");
       render(<TaskHistorySidebar {...DEFAULT_PROPS} />);
       const section = screen.getByTestId("task-history-sidebar-section-drone");
-      // El badge '1' indica que hay 1 filtro activo
-      expect(section.textContent).toMatch(/[_\s]1[_\s]/);
+      // Buscamos DENTRO de la section de Drones para no confundirnos
+      // con la section de Periodo (que hardcodea activeCount=1 por
+      // diseno: el rango siempre esta activo).
+      const activeBadge = within(section).getByLabelText("1 activo");
+      expect(activeBadge).toBeInTheDocument();
     });
   });
 
@@ -295,15 +298,24 @@ describe("TaskHistorySidebar — v1.7 Track C", () => {
     });
 
     it("se abre al click en un item de vuelo (muestra drone + piloto + parcela)", async () => {
-      const user = userEvent.setup();
-      render(<TaskHistorySidebar {...DEFAULT_PROPS} />);
-      const firstItem = screen.getAllByTestId("task-history-flight-sub-list-item")[0];
-      await user.click(firstItem);
-      // El drawer muestra el detalle del vuelo
-      // (El <dialog> nativo requiere showModal() — en jsdom el detail row
-      // puede que no se renderice hasta que el dialog se abra. Testeamos
-      // que el click NO crashea y que el onClick fue invocado.)
-      expect(firstItem).toBeInTheDocument();
+      // jsdom no implementa HTMLDialogElement.showModal() (limitación del
+      // entorno, no del código). Por eso mockeamos showModal antes del
+      // click y verificamos que el handler se invocó correctamente.
+      const showModalMock = vi.fn();
+      const originalDialog = HTMLDialogElement.prototype.showModal;
+      HTMLDialogElement.prototype.showModal = showModalMock;
+      try {
+        const user = userEvent.setup();
+        render(<TaskHistorySidebar {...DEFAULT_PROPS} />);
+        const firstItem = screen.getAllByTestId(
+          "task-history-flight-sub-list-item"
+        )[0];
+        await user.click(firstItem);
+        // El drawer se intento abrir (showModal fue llamado)
+        expect(showModalMock).toHaveBeenCalled();
+      } finally {
+        HTMLDialogElement.prototype.showModal = originalDialog;
+      }
     });
   });
 
