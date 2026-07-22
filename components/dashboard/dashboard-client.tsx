@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { AlertsPanelPaginated } from "@/components/dashboard/alerts-panel-paginated";
+import { DashboardEmptyState } from "@/components/dashboard/dashboard-empty-state";
 import { OperationsPanel } from "@/components/dashboard/operations-panel";
 import { TodayYesterdayCard } from "@/components/dashboard/today-yesterday-card";
 import { UpcomingFumigations } from "@/components/dashboard/upcoming-fumigations";
@@ -159,6 +160,22 @@ export function DashboardClient({
   // Estado compartido entre AlertsPanel (filtra alerts) y
   // RecentFlightsList (filtra vuelos por nivel de alerta derivado).
   const [alertFilter, setAlertFilter] = useState<AlertLevel | "ALL">("ALL");
+
+  // Sprint A — F3.0: si el dashboard está completamente vacío
+  // (sin vuelos, sin cadencias vencidas, sin alertas HIGH), el bento
+  // completo se reemplaza por un solo banner que explica cómo arrancar.
+  // Si CUALQUIERA de las 3 tiene data, se muestra el bento normal.
+  const highAlertsCount = alerts.filter((a) => a.level === "HIGH").length;
+  const isEmpty =
+    metrics.totalFlights === 0 && overdueCount === 0 && highAlertsCount === 0;
+
+  if (isEmpty) {
+    return (
+      <div data-testid="dashboard-empty">
+        <DashboardEmptyState />
+      </div>
+    );
+  }
 
   return (
     <BentoGrid ariaLabel="Panel de control operativo">
