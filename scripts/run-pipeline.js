@@ -186,17 +186,103 @@ function fmtDuration(ms) {
   return `${m}m${s % 60}s`;
 }
 
+/**
+ * XS1 (audit 2026-07-22, docs/DJIAG_AUDIT.md H1).
+ *
+ * Escribe `djiag_exports/_health.json` con el resumen de la corrida.
+ * El endpoint `GET /api/admin/djiag-health` lo lee para reportar
+ * visibilidad operacional al admin (sin necesidad de SSH al server).
+ *
+ * Estructura: ver interface PipelineHealth en
+ * `app/api/admin/djiag-health/route.ts`.
+ *
+ * Idempotente: solo escribe, no falla el pipeline si el write falla
+ * (se loguea warning y se sigue). El health es "best effort".
+ *
+ * `totals` se estiman a partir de los step names (los steps de
+ * upsert-X-from-djiag son los que finalmente dejan data en BD). Si
+ * DJI cambia los nombres, este mapeo se desactualiza — acceptable
+ * degradation, sigue siendo util.
+ */
+function writeHealthFile({ steps, startedAt, finishedAt, runStatus }) {
+  const fs = require('fs');
+  const path = require('path');
+  const outDir = path.join(process.cwd(), 'djiag_exports');
+  const outPath = path.join(outDir, '_health.json');
+
+  const totals = { flights: 0, fumigations: 0, lands: 0 };
+  // Heurística: los steps que importan data son los que tienen
+  // "upsert" + el nombre de la tabla. Si un step es OK, sumamos 1
+  // como placeholder (no tenemos el count exacto del rowCount del
+  // UPSERT desde acá). El endpoint reporta estos como "último sync"
+  // y son útiles para el "¿se ejecutó?"; el count exacto se puede
+  // leer de la BD si hace falta.
+  for (const s of steps) {
+    if (s.status !== 'ok') continue;
+    if (s.name.includes('upsert flights')) totals.flights += 1;
+    else if (s.name.includes('upsert fumigations')) totals.fumigations += 1;
+    else if (s.name.includes('upsert lands')) totals.lands += 1;
+  }
+
+  const lastSuccessfulSyncAt =
+    runStatus === 'ok' ? new Date(finishedAt).toISOString() : readLastSuccessfulSyncAt();
+
+  const payload = {
+    lastRunAt: new Date(finishedAt).toISOString(),
+    lastRunStatus: runStatus, // 'ok' | 'partial' | 'failed'
+    lastSuccessfulSyncAt,
+    steps: steps.map((s) => ({
+      order: s.order,
+      name: s.name,
+      status: s.status, // 'ok' | 'failed' | 'skipped'
+      durationMs: s.durationMs,
+      error: s.error
+    })),
+    totals,
+    version: 1
+  };
+
+  try {
+    fs.mkdirSync(outDir, { recursive: true });
+    fs.writeFileSync(outPath, JSON.stringify(payload, null, 2), 'utf8');
+    if (process.env.DEBUG_PIPELINE) {
+      console.error(`[health] wrote ${outPath} (status=${runStatus}, steps=${steps.length})`);
+    }
+  } catch (err) {
+    // No fallar el pipeline por no poder escribir el health.
+    console.warn(`[health] no se pudo escribir ${outPath}: ${err.message}`);
+  }
+}
+
+/**
+ * Lee el `lastSuccessfulSyncAt` del archivo existente (si lo hay),
+ * para preservarlo cuando esta corrida fue 'partial' o 'failed'.
+ * Si el archivo no existe, devuelve null.
+ */
+function readLastSuccessfulSyncAt() {
+  const fs = require('fs');
+  const path = require('path');
+  const filePath = path.join(process.cwd(), 'djiag_exports', '_health.json');
+  try {
+    const raw = fs.readFileSync(filePath, 'utf8');
+    const parsed = JSON.parse(raw);
+    return parsed?.lastSuccessfulSyncAt ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function runStep(step, opts) {
   const tag = `${c.cyan}[${step.order}/10]${c.reset} ${c.bold}${step.name}${c.reset}`;
   if (step.skip && step.skip()) {
     console.log(`${tag} ${c.gray}— skip (${step.skipReason ? step.skipReason() : 'flag'})${c.reset}`);
-    return { ok: true, skipped: true };
+    return { ok: true, skipped: true, durationMs: 0 };
   }
   const cmdStr = `${c.dim}node ${step.cmd.join(' ')}${c.reset}`;
   console.log(`\n${tag}\n  ${cmdStr}`);
   if (opts.dryRun) {
     console.log(`  ${c.yellow}[dry-run] no ejecutado${c.reset}`);
-    return { ok: true, skipped: true };
+    return { ok: true, skipped: true, durationMs: 0 };
   }
   const t0 = Date.now();
   const r = spawnSync('node', step.cmd, {
@@ -208,11 +294,11 @@ function runStep(step, opts) {
   const dur = fmtDuration(Date.now() - t0);
   if (r.status === 0) {
     console.log(`  ${c.green}✓${c.reset} ${c.gray}(${dur})${c.reset}`);
-    return { ok: true };
+    return { ok: true, durationMs: Date.now() - t0 };
   }
   console.error(`  ${c.red}✗ exit=${r.status} signal=${r.signal ?? '-'} dur=${dur}${c.reset}`);
   console.error(`  ${c.red}step ${step.order} (${step.name}) falló — pipeline abortada${c.reset}`);
-  return { ok: false, exit: r.status };
+  return { ok: false, exit: r.status, durationMs: Date.now() - t0 };
 }
 
 async function main() {
@@ -226,12 +312,32 @@ async function main() {
   console.log('');
 
   const t0 = Date.now();
+  const healthSteps = [];
   let okCount = 0, skipCount = 0, failCount = 0;
   for (const step of steps) {
     if (step.order < startIdx || step.order > stopIdx) continue;
     const r = runStep(step, opts);
+    // XS1: track health del step para escribir _health.json al final.
+    healthSteps.push({
+      order: step.order,
+      name: step.name,
+      status: r.skipped ? 'skipped' : (r.ok ? 'ok' : 'failed'),
+      durationMs: r.durationMs,
+      error: r.exit ? `exit=${r.exit}` : undefined
+    });
     if (!r.ok) {
       failCount++;
+      // Status del run: si falló el último step y los anteriores
+      // pasaron, es 'partial'. Si no había anteriores que pasaron,
+      // es 'failed'.
+      const anyPriorOk = healthSteps.slice(0, -1).some((s) => s.status === 'ok');
+      const runStatus = anyPriorOk ? 'partial' : 'failed';
+      writeHealthFile({
+        steps: healthSteps,
+        startedAt: t0,
+        finishedAt: Date.now(),
+        runStatus
+      });
       process.exit(1);
     }
     if (r.skipped) skipCount++;
@@ -240,6 +346,15 @@ async function main() {
   const total = fmtDuration(Date.now() - t0);
   console.log('');
   console.log(`${c.bold}Pipeline done.${c.reset} ${c.green}${okCount} ok${c.reset} / ${c.gray}${skipCount} skip${c.reset} / ${failCount > 0 ? c.red : c.gray}${failCount} fail${c.reset} ${c.gray}(total ${total})${c.reset}`);
+
+  // XS1: escribir health al final de una corrida exitosa.
+  writeHealthFile({
+    steps: healthSteps,
+    startedAt: t0,
+    finishedAt: Date.now(),
+    runStatus: 'ok'
+  });
+
   process.exit(0);
 }
 
