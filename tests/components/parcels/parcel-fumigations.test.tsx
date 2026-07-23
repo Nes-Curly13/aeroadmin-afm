@@ -318,6 +318,8 @@ describe("ParcelFumigations — human_notes (Track C v1.4)", () => {
       notes: null, // provenance no presente
       human_notes: "Se atrasó por lluvia matinal, equipo reportó viento fuerte",
       recorded_by: "Juan Pérez",
+      product_registered_ica: null,
+      pilot_license: null,
       recorded_at: "2026-07-15T10:00:00Z",
       source: "manual"
     };
@@ -354,6 +356,8 @@ describe("ParcelFumigations — human_notes (Track C v1.4)", () => {
       notes: JSON.stringify({ backfilled_from: "dji_flights", flight_count: 5 }),
       human_notes: null,
       recorded_by: null,
+      product_registered_ica: null,
+      pilot_license: null,
       recorded_at: "2026-07-10T10:00:00Z",
       source: "djiscraper"
     };

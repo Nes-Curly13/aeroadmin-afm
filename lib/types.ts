@@ -160,6 +160,20 @@ export interface DjiFumigationEvent {
    */
   human_notes: string | null;
   recorded_by: string | null;
+  /**
+   * Compliance metadata (Sprint C — H2, 2026-07-23).
+   *   - product_registered_ica: número de registro ICA del producto
+   *     agroquímico aplicado (formato "ICA-1234-PN"). Lo llena el
+   *     operador fumigador; validado por CHECK constraint.
+   *   - pilot_license: licencia del piloto que operó el dron en
+   *     esta fumigación (formato Aerocivil "PCA-12345" o "PC-1234567").
+   *     Lo llena el operador fumigador; validado por CHECK regex.
+   *
+   * La matrícula del dron (HK-1234-UAV) vive en `dji_drone_models.registration_number`,
+   * no en cada evento de fumigación — es 1 por dron, no 1 por vuelo.
+   */
+  product_registered_ica: string | null;
+  pilot_license: string | null;
   recorded_at: string;
   source: "manual" | "djiscraper" | "import";
 }

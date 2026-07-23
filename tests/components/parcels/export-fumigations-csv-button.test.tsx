@@ -33,6 +33,8 @@ function makeEvent(over: Partial<DjiFumigationEvent> = {}): DjiFumigationEvent {
     notes: "Aplicación normal",
     human_notes: null,
     recorded_by: "Juan Pérez",
+    product_registered_ica: null,
+    pilot_license: null,
     recorded_at: "2026-07-15T15:30:00Z",
     source: "manual",
     ...over

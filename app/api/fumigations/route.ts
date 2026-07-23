@@ -25,6 +25,17 @@ interface CreateFumigationBody {
    */
   human_notes?: string;
   recorded_by?: string;
+  /**
+   * Compliance metadata (Sprint C — H2, 2026-07-23). Texto libre
+   * con formato validado por CHECK constraint en la BD.
+   *   - product_registered_ica: ej "ICA-1234-PN" (registro ICA del producto)
+   *   - pilot_license:            ej "PCA-12345"  (licencia Aerocivil del piloto)
+   *
+   * El server NO re-valida el formato (eso lo hace la BD) — solo valida
+   * tipo y longitud para no tumbar el handler con un input gigante.
+   */
+  product_registered_ica?: string;
+  pilot_license?: string;
 }
 
 // Límites de longitud por campo (sprint Q4 / track C, mejora 3, 2026-07-20).
@@ -34,11 +45,16 @@ interface CreateFumigationBody {
 // Alineado con la convencion del repo: PUT /api/parcels/[id] usa 200
 // para land_name, 64 para field_type. Aca: 200 para product_used,
 // 2000 para notes y human_notes, 100 para recorded_by.
+//
+// Compliance (H2): product_registered_ica max 50 (alineado con CHECK BD),
+// pilot_license max 20 (alineado con CHECK BD `^[A-Z0-9-]{4,20}$`).
 const MAX_LENGTHS = {
   product_used: 200,
   notes: 2000,
   human_notes: 2000,
-  recorded_by: 100
+  recorded_by: 100,
+  product_registered_ica: 50,
+  pilot_license: 20
 } as const;
 
 /**
@@ -126,7 +142,16 @@ export async function POST(request: NextRequest) {
     // primero tipo, despues longitud. Si el campo es null/undefined
     // (opcional) se acepta. `human_notes` se valida junto a los demás
     // (Track C v1.4): misma regla de longitud que `notes` (2000 chars).
-    for (const field of ["product_used", "notes", "human_notes", "recorded_by"] as const) {
+    // Compliance (H2): product_registered_ica + pilot_license con
+    // longitudes alineadas a CHECK constraints de la BD.
+    for (const field of [
+      "product_used",
+      "notes",
+      "human_notes",
+      "recorded_by",
+      "product_registered_ica",
+      "pilot_license"
+    ] as const) {
       const err = validateOptionalString(body[field], field);
       if (err) return err;
     }
@@ -141,7 +166,9 @@ export async function POST(request: NextRequest) {
       duration_minutes: body.duration_minutes,
       notes: body.notes,
       human_notes: body.human_notes,
-      recorded_by: body.recorded_by
+      recorded_by: body.recorded_by,
+      product_registered_ica: body.product_registered_ica,
+      pilot_license: body.pilot_license
     });
     return NextResponse.json({ data: created }, { status: 201 });
   } catch (error) {
@@ -155,6 +182,26 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: "No tiene permisos para registrar fumigaciones." },
         { status: 403 }
+      );
+    }
+    // Sprint C — H2: cuando el INSERT falla por un CHECK constraint
+    // (ej: pilot_license con formato inválido), pg tira un error con
+    // `code: '23514'`. Mapeamos a 400 con un mensaje claro para que
+    // el frontend pueda mostrar el error al operador.
+    const pgCode = (error as { code?: string }).code;
+    const pgMessage = error instanceof Error ? error.message : String(error);
+    if (pgCode === "23514" || /check constraint/i.test(pgMessage)) {
+      // Extraemos el nombre del CHECK del mensaje para ayudar al debug.
+      // Formato típico: 'new row for relation "dji_fumigations" violates
+      // check constraint "dji_fumigations_pilot_license_check"'.
+      const m = pgMessage.match(/check constraint "([^"]+)"/i);
+      const constraint = m ? m[1] : "desconocido";
+      return NextResponse.json(
+        {
+          error: `Valor inválido para un campo de compliance (${constraint}). ` +
+            `Verificá el formato (ej: ICA "ICA-1234-PN", piloto "PCA-12345").`
+        },
+        { status: 400 }
       );
     }
     return NextResponse.json(
