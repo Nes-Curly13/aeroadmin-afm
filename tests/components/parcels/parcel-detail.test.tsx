@@ -135,20 +135,35 @@ describe("ParcelDetail", () => {
     expect(screen.getByTestId("parcel-context-edit-button")).toBeInTheDocument();
   });
 
-  it("al click en 'Editar' de Contexto abre el form (desaparecen los 2 botones y aparece el form)", async () => {
+  it("M8/F1.13: NO muestra el botón 'Editar metadata' duplicado del header", () => {
+    // Antes había DOS botones "Editar" en la misma página (header del
+    // panel y sección Contexto del lote) que abrían el mismo form.
+    // Decisión UX: dejar UNO solo — el del Contexto. Este test fija esa
+    // decisión para que un refactor futuro no revierta la duplicación.
+    render(<ParcelDetail parcel={makeParcel()} />);
+    expect(screen.queryByTestId("parcel-edit-metadata-button")).not.toBeInTheDocument();
+    // El botón del contexto sigue siendo el único entry point.
+    const contextButton = screen.getByTestId("parcel-context-edit-button");
+    expect(contextButton).toBeInTheDocument();
+    expect(contextButton).toHaveTextContent(/editar/i);
+  });
+
+  it("al click en 'Editar' de Contexto abre el form (desaparece el botón y aparece el form)", async () => {
     const user = userEvent.setup();
     render(<ParcelDetail parcel={makeParcel()} />);
-    // Inicialmente: AMBOS botones visibles (header + Contexto).
+    // M8/F1.13: solo hay UN botón "Editar" (el de la sección "Contexto del lote").
+    // El botón "Editar metadata" del header del panel se removió para evitar
+    // confusión. Verificamos que el del Contexto está visible, y que el del
+    // header NO está.
     expect(screen.getByTestId("parcel-context-edit-button")).toBeInTheDocument();
-    expect(screen.getByTestId("parcel-edit-metadata-button")).toBeInTheDocument();
-    // Form NO visible todavia.
+    expect(screen.queryByTestId("parcel-edit-metadata-button")).not.toBeInTheDocument();
+    // Form NO visible todavía.
     expect(screen.queryByPlaceholderText(/caña de azúcar, maíz/i)).not.toBeInTheDocument();
     // Click en el botón de Contexto.
     await user.click(screen.getByTestId("parcel-context-edit-button"));
-    // Ahora: ambos botones desaparecen (estamos en editing), y el form se
-    // renderiza (ParcelEditPanel muestra los inputs).
+    // Ahora: el botón de Contexto desaparece (estamos en editing), y el form
+    // se renderiza (ParcelEditPanel muestra los inputs).
     expect(screen.queryByTestId("parcel-context-edit-button")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("parcel-edit-metadata-button")).not.toBeInTheDocument();
     expect(screen.getByPlaceholderText(/caña de azúcar, maíz/i)).toBeInTheDocument();
   });
 
@@ -164,12 +179,16 @@ describe("ParcelDetail", () => {
     expect(screen.getByText(/1 µm/)).toBeInTheDocument();
   });
 
-  it("incluye links a /map, /history y / en la sección de acciones", () => {
+  it("incluye links a /map, /task-history y / en la sección de acciones", () => {
+    // M9: link "Ver historial operativo" apunta a /task-history (la
+    // vista canónica del historial desde el sprint v1.7). Antes
+    // apuntaba a /history, que es una URL deprecated que redirige via
+    // next.config.js. Actualizamos para que el click vaya directo.
     render(<ParcelDetail parcel={makeParcel({ id: 42 })} />);
     const mapLink = screen.getByRole("link", { name: /ver en mapa completo/i });
     expect(mapLink).toHaveAttribute("href", "/map");
     const historyLink = screen.getByRole("link", { name: /ver historial operativo/i });
-    expect(historyLink).toHaveAttribute("href", "/history");
+    expect(historyLink).toHaveAttribute("href", "/task-history");
     const dashboardLink = screen.getByRole("link", { name: /volver al dashboard/i });
     expect(dashboardLink).toHaveAttribute("href", "/");
   });

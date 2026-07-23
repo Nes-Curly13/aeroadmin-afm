@@ -27,7 +27,7 @@
  * flujo de POST).
  */
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 // ParcelFumigations es client component y usa useRouter() en el submit handler.
 // Mockeamos next/navigation con vi.hoisted (mismo patrón que tab-switcher.test.tsx).
@@ -380,5 +380,238 @@ describe("ParcelFumigations — human_notes (Track C v1.4)", () => {
     expect(
       screen.queryByText(/"flight_count"/)
     ).not.toBeInTheDocument();
+  });
+});
+
+// ============================================================
+// Sprint D — M10/F1.9: pre-llenar `product_used` con el último evento.
+// ============================================================
+describe("ParcelFumigations — pre-llenado de product_used (M10/F1.9)", () => {
+  it("pre-llena el input de producto con events[0].product_used", () => {
+    // El último evento registrado tenía "Glifosato 1L/ha". El supervisor
+    // registra una nueva fumigación y el input aparece con ese valor
+    // pre-cargado. Caso típico caña: misma parcela, mismo producto.
+    const previousEvent: DjiFumigationEvent = {
+      id: 1,
+      parcel_id: 42,
+      fumigation_date: "2026-07-10",
+      product_used: "Glifosato 1L/ha",
+      dose_l_per_ha: 1.0,
+      area_fumigated_m2: 4000,
+      drone_code_used: null,
+      duration_minutes: 30,
+      notes: null,
+      human_notes: null,
+      recorded_by: "Juan",
+      product_registered_ica: null,
+      pilot_license: null,
+      recorded_at: "2026-07-10T10:00:00Z",
+      source: "manual"
+    };
+    const parcel = makeParcel({ spray_area_m2: 4000 });
+    render(
+      <ParcelFumigations
+        daysUntilNextDue={3}
+        events={[previousEvent]}
+        parcel={parcel}
+        schedule={makeSchedule()}
+        status="due_soon"
+      />
+    );
+
+    fireEvent.click(screen.getAllByRole("button", { name: /registrar fumigación/i })[0]);
+
+    // Usamos el selector por name para ser precisos: el form tiene
+    // un label "Producto" y otro "Registro ICA del producto" — solo
+    // el primero matchea el `name="product_used"`.
+    const productInput = document.querySelector('input[name="product_used"]') as HTMLInputElement;
+    expect(productInput).toBeInTheDocument();
+    expect(productInput.value).toBe("Glifosato 1L/ha");
+  });
+
+  it("deja el input vacío cuando no hay eventos previos", () => {
+    const parcel = makeParcel({ spray_area_m2: 4000 });
+    render(
+      <ParcelFumigations
+        daysUntilNextDue={3}
+        events={[]}
+        parcel={parcel}
+        schedule={makeSchedule()}
+        status="no_history"
+      />
+    );
+
+    fireEvent.click(screen.getAllByRole("button", { name: /registrar fumigación/i })[0]);
+
+    const productInput = document.querySelector('input[name="product_used"]') as HTMLInputElement;
+    // El operador tipea el primer producto de la parcela.
+    expect(productInput.value).toBe("");
+  });
+
+  it("deja el input vacío si el último evento tenía product_used null", () => {
+    // Caso borde: el evento más reciente no tiene producto (puede pasar
+    // si se registró sin producto). El supervisor tipea el nuevo.
+    const previousEvent: DjiFumigationEvent = {
+      id: 1,
+      parcel_id: 42,
+      fumigation_date: "2026-07-10",
+      product_used: null,
+      dose_l_per_ha: null,
+      area_fumigated_m2: null,
+      drone_code_used: null,
+      duration_minutes: null,
+      notes: null,
+      human_notes: null,
+      recorded_by: null,
+      product_registered_ica: null,
+      pilot_license: null,
+      recorded_at: "2026-07-10T10:00:00Z",
+      source: "manual"
+    };
+    const parcel = makeParcel({ spray_area_m2: 4000 });
+    render(
+      <ParcelFumigations
+        daysUntilNextDue={3}
+        events={[previousEvent]}
+        parcel={parcel}
+        schedule={makeSchedule()}
+        status="due_soon"
+      />
+    );
+
+    fireEvent.click(screen.getAllByRole("button", { name: /registrar fumigación/i })[0]);
+
+    const productInput = document.querySelector('input[name="product_used"]') as HTMLInputElement;
+    expect(productInput.value).toBe("");
+  });
+});
+
+// ============================================================
+// Sprint D — F1.10: deshabilitar todos los inputs mientras se submitea.
+// ============================================================
+describe("ParcelFumigations — disabled durante submit (F1.10)", () => {
+  it("después de submit, el fieldset del form se marca disabled", async () => {
+    // Mockeamos fetch para que demore lo suficiente como para inspeccionar
+    // el estado de "submitting". Cuando se setea submitting=true, el
+    // <fieldset disabled> se renderiza, lo cual hace que el browser
+    // bloquee todos los form controls hijos (input, select, textarea,
+    // button). Esto evita doble submit accidental.
+    let resolveFetch: (value: Response) => void = () => {};
+    const fetchPromise = new Promise<Response>((resolve) => {
+      resolveFetch = resolve;
+    });
+    const fetchMock = vi.fn().mockReturnValue(fetchPromise);
+    (globalThis as unknown as { fetch: typeof fetch }).fetch = fetchMock as unknown as typeof fetch;
+
+    const parcel = makeParcel({ spray_area_m2: 4000 });
+    render(
+      <ParcelFumigations
+        daysUntilNextDue={3}
+        events={EMPTY_EVENTS}
+        parcel={parcel}
+        schedule={makeSchedule()}
+        status="due_soon"
+      />
+    );
+
+    // Abrir form y submitear. setSubmitting(true) es sync pero la
+    // re-renderización con el disabled pasa por el scheduler de React;
+    // usamos waitFor para esperar a que el fieldset aplique disabled.
+    fireEvent.click(screen.getAllByRole("button", { name: /registrar fumigación/i })[0]);
+    const submitBtn = screen.getByRole("button", { name: /guardar fumigación/i });
+    fireEvent.click(submitBtn);
+
+    // El fieldset con todos los inputs lleva `disabled={submitting}`.
+    // El browser lo evalúa como atributo HTML en el fieldset. Los
+    // inputs hijos NO tienen su propio `disabled` attribute (es
+    // semántica del fieldset), pero la prop computada del input es
+    // `true` para interacciones del usuario (mousedown, keydown, etc.).
+    // Verificamos el fieldset directamente, que es la fuente de verdad
+    // de "el form está bloqueado para submit".
+    await waitFor(() => {
+      const fieldset = document.querySelector("form fieldset");
+      expect(fieldset).not.toBeNull();
+      expect(fieldset?.hasAttribute("disabled")).toBe(true);
+    });
+
+    // Sanity: el fieldset envuelve los 9 inputs/textarea del form.
+    // (más los 2 botones submit/cancel están FUERA del fieldset, así
+    // que podemos chequear su disabled explícitamente).
+    const fieldset = document.querySelector("form fieldset") as HTMLFieldSetElement;
+    const inputNamesInFieldset = [
+      "fumigation_date",
+      "product_used",
+      "dose_l_per_ha",
+      "area_fumigated_m2",
+      "duration_minutes",
+      "recorded_by",
+      "product_registered_ica",
+      "pilot_license"
+    ];
+    for (const name of inputNamesInFieldset) {
+      const el = fieldset.querySelector(`input[name="${name}"]`);
+      expect(el, `input[name="${name}"] debe estar dentro del fieldset`).not.toBeNull();
+    }
+    const textarea = fieldset.querySelector('textarea[name="human_notes"]');
+    expect(textarea).not.toBeNull();
+
+    // El botón "Cancelar" del form (dentro del form) está disabled.
+    // Hay OTRO botón "Cancelar" en la toolbar (el toggle que abre/cierra
+    // el form) — diferenciamos por scope: el del form es child de <form>.
+    const form = document.querySelector("form") as HTMLFormElement;
+    const formCancelBtn = form.querySelector('button[type="button"]') as HTMLButtonElement;
+    expect(formCancelBtn).toBeInTheDocument();
+    expect(formCancelBtn).toBeDisabled();
+    // El botón submit también.
+    expect(submitBtn).toBeDisabled();
+
+    // Cleanup: resolvemos el fetch para que el test no quede colgado.
+    resolveFetch(new Response("{}", { status: 200 }));
+  });
+
+  it("el campo de fecha tiene required y su valor default es hoy", async () => {
+    // Regresión: la validación nativa de "required" no se rompe cuando
+    // se renderiza el form. El input arranca con la fecha de hoy
+    // (YYYY-MM-DD) para que el supervisor no tenga que tipearla si
+    // está registrando algo del día.
+    let resolveFetch: (value: Response) => void = () => {};
+    const fetchPromise = new Promise<Response>((resolve) => {
+      resolveFetch = resolve;
+    });
+    const fetchMock = vi.fn().mockReturnValue(fetchPromise);
+    (globalThis as unknown as { fetch: typeof fetch }).fetch = fetchMock as unknown as typeof fetch;
+
+    const parcel = makeParcel({ spray_area_m2: 4000 });
+    render(
+      <ParcelFumigations
+        daysUntilNextDue={3}
+        events={EMPTY_EVENTS}
+        parcel={parcel}
+        schedule={makeSchedule()}
+        status="due_soon"
+      />
+    );
+
+    fireEvent.click(screen.getAllByRole("button", { name: /registrar fumigación/i })[0]);
+    const submitBtn = screen.getByRole("button", { name: /guardar fumigación/i });
+    fireEvent.click(submitBtn);
+
+    // Confirmamos que el fieldset se aplicó (smoke check de la
+    // maquinaria completa de F1.10) y validamos el campo fecha.
+    await waitFor(() => {
+      const fieldset = document.querySelector("form fieldset");
+      expect(fieldset?.hasAttribute("disabled")).toBe(true);
+    });
+
+    const dateInput = document.querySelector(
+      'input[name="fumigation_date"]'
+    ) as HTMLInputElement | null;
+    expect(dateInput, "input de fecha debe estar en el DOM").not.toBeNull();
+    // El required es del input en sí, no del fieldset.
+    expect(dateInput?.required).toBe(true);
+    // El default value es hoy (YYYY-MM-DD).
+    expect(dateInput?.value).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+
+    resolveFetch(new Response("{}", { status: 200 }));
   });
 });

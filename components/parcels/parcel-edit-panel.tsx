@@ -139,18 +139,16 @@ export function ParcelEditPanel({ parcel, editing: editingProp, onOpen, onClose 
   }
 
   if (!editing) {
-    return (
-      <div className="flex justify-end">
-        <button
-          className="rounded-full border border-[#0b5f2d] px-4 py-1.5 text-xs font-semibold text-[#0b5f2d] transition hover:bg-[#0b5f2d] hover:text-white"
-          data-testid="parcel-edit-metadata-button"
-          onClick={startEdit}
-          type="button"
-        >
-          Editar metadata
-        </button>
-      </div>
-    );
+    // M8/F1.13: este botón "Editar metadata" del header del panel
+    // estaba DUPLICADO con el botón "Editar" de la sección "Contexto
+    // del lote" (ver parcel-detail.tsx). Ambos abrían el mismo
+    // ParcelEditPanel. El supervisor se confundía: ¿son diferentes?
+    // Decisión UX: dejar UNO solo — el del contexto, que es el que el
+    // supervisor espera ver (botón pegado a la metadata que va a
+    // editar). El panel en modo no-edición ahora no renderiza nada;
+    // si el padre quiere abrirlo, le pasa `editing={true}` por prop
+    // controlada (el botón del contexto dispara el lifted state).
+    return null;
   }
 
   return (
