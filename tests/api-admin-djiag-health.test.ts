@@ -10,17 +10,21 @@
 //   - 200 admin con health.partial → status='partial', 1 warning
 //   - 200 admin con health.failed → status='failed', 1 warning
 //   - deriveResponse es puro: null → status='unknown'
+//   - 200 con HEALTH_TOKEN válido (bypass H3b) → no llama requireRole
+//   - 401 con HEALTH_TOKEN inválido → cae al guard de role
+//   - Sin HEALTH_TOKEN server-side, el bearer siempre falla (no bypass)
 //
 // Patrón consistente con tests/api-fumigation-schedule-auth.test.ts:
 // mockear `@/lib/auth/role` con vi.hoisted. La lógica de read+derive
 // está en `lib/djiag-health.ts` y se testea con tmpfiles en disco
 // (sin mockear fs).
 
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { NextRequest } from "next/server";
 
 const authMocks = vi.hoisted(() => ({
   requireRole: vi.fn()
@@ -35,9 +39,25 @@ import {
   type PipelineHealth
 } from "@/lib/djiag-health";
 
+function buildRequest(headers: Record<string, string> = {}, search = ""): NextRequest {
+  const url = `http://localhost:3000/api/admin/djiag-health${search}`;
+  return new NextRequest(url, { method: "GET", headers });
+}
+
 describe("GET /api/admin/djiag-health — guard de role", () => {
+  let savedHealthToken: string | undefined;
+
   beforeEach(() => {
     vi.clearAllMocks();
+    // Limpia HEALTH_TOKEN del ambiente para que estos tests no se vean
+    // afectados por env vars del runner.
+    savedHealthToken = process.env.HEALTH_TOKEN;
+    delete process.env.HEALTH_TOKEN;
+  });
+
+  afterEach(() => {
+    if (savedHealthToken === undefined) delete process.env.HEALTH_TOKEN;
+    else process.env.HEALTH_TOKEN = savedHealthToken;
   });
 
   it("rechaza sin sesion (401 UNAUTHENTICATED)", async () => {
@@ -45,7 +65,7 @@ describe("GET /api/admin/djiag-health — guard de role", () => {
     err.code = "UNAUTHENTICATED";
     authMocks.requireRole.mockRejectedValueOnce(err);
 
-    const response = await GET();
+    const response = await GET(buildRequest());
     expect(response.status).toBe(401);
     const body = (await response.json()) as { error?: string };
     expect(body.error).toBe("No autenticado.");
@@ -56,7 +76,7 @@ describe("GET /api/admin/djiag-health — guard de role", () => {
     err.code = "FORBIDDEN";
     authMocks.requireRole.mockRejectedValueOnce(err);
 
-    const response = await GET();
+    const response = await GET(buildRequest());
     expect(response.status).toBe(403);
     const body = (await response.json()) as { error?: string };
     expect(body.error).toMatch(/administradores/i);
@@ -69,7 +89,7 @@ describe("GET /api/admin/djiag-health — guard de role", () => {
     process.chdir(tmpDir);
     try {
       authMocks.requireRole.mockResolvedValueOnce(undefined);
-      const response = await GET();
+      const response = await GET(buildRequest());
       expect(response.status).toBe(200);
       const body = (await response.json()) as { status: string; warnings: string[] };
       expect(body.status).toBe("unknown");
@@ -77,6 +97,145 @@ describe("GET /api/admin/djiag-health — guard de role", () => {
     } finally {
       process.chdir(originalCwd);
       rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+});
+
+// ============================================================
+// H3b (Sprint C — 2026-07-23): bypass para monitoring externo
+// (GitHub Action watchdog). Si HEALTH_TOKEN está configurada en
+// el server, el endpoint acepta Authorization: Bearer <token>
+// o ?token=<token> en lugar de requireRole("admin").
+// ============================================================
+describe("GET /api/admin/djiag-health — bypass HEALTH_TOKEN (H3b)", () => {
+  let savedHealthToken: string | undefined;
+  const SERVER_TOKEN = "server-side-shared-secret-32chars";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    savedHealthToken = process.env.HEALTH_TOKEN;
+  });
+
+  afterEach(() => {
+    if (savedHealthToken === undefined) delete process.env.HEALTH_TOKEN;
+    else process.env.HEALTH_TOKEN = savedHealthToken;
+  });
+
+  function setupHealthFile() {
+    const tmpDir = mkdtempSync(join(tmpdir(), "djiag-health-bypass-"));
+    const originalCwd = process.cwd();
+    process.chdir(tmpDir);
+    // El endpoint busca el archivo en `djiag_exports/_health.json`
+    // (path.join(process.cwd(), HEALTH_FILE_RELATIVE)). Lo creamos en
+    // el subdirectorio correcto para que `readHealthFile` lo encuentre.
+    const exportsDir = join(tmpDir, "djiag_exports");
+    mkdirSync(exportsDir, { recursive: true });
+    writeFileSync(
+      join(exportsDir, "_health.json"),
+      JSON.stringify({
+        lastRunAt: new Date().toISOString(),
+        lastRunStatus: "ok",
+        lastSuccessfulSyncAt: new Date().toISOString(),
+        steps: [],
+        totals: { flights: 5, fumigations: 2, lands: 1207 },
+        version: 1
+      }),
+      "utf8"
+    );
+    return { tmpDir, originalCwd };
+  }
+
+  function teardownEnv({ tmpDir, originalCwd }: { tmpDir: string; originalCwd: string }) {
+    process.chdir(originalCwd);
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
+
+  it("con HEALTH_TOKEN server-side + Bearer válido → 200, NO llama requireRole", async () => {
+    process.env.HEALTH_TOKEN = SERVER_TOKEN;
+    const env = setupHealthFile();
+    try {
+      const response = await GET(buildRequest({ Authorization: `Bearer ${SERVER_TOKEN}` }));
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as { status: string };
+      expect(body.status).toBe("ok");
+      // CRÍTICO: el guard de role NO se llamó porque el bypass aplicó.
+      expect(authMocks.requireRole).not.toHaveBeenCalled();
+    } finally {
+      teardownEnv(env);
+    }
+  });
+
+  it("con HEALTH_TOKEN server-side + ?token= válido → 200 (alternativa para healthchecks)", async () => {
+    process.env.HEALTH_TOKEN = SERVER_TOKEN;
+    const env = setupHealthFile();
+    try {
+      const response = await GET(buildRequest({}, `?token=${SERVER_TOKEN}`));
+      expect(response.status).toBe(200);
+      expect(authMocks.requireRole).not.toHaveBeenCalled();
+    } finally {
+      teardownEnv(env);
+    }
+  });
+
+  it("con HEALTH_TOKEN server-side + Bearer inválido → cae al guard (401/403)", async () => {
+    process.env.HEALTH_TOKEN = SERVER_TOKEN;
+    const err = new Error("UNAUTHENTICATED") as Error & { code?: string };
+    err.code = "UNAUTHENTICATED";
+    authMocks.requireRole.mockRejectedValueOnce(err);
+    const env = setupHealthFile();
+    try {
+      const response = await GET(buildRequest({ Authorization: "Bearer wrong-token" }));
+      // El bearer inválido NO autoriza, así que cae al guard normal.
+      // El guard lanza 401 porque no hay sesión.
+      expect(response.status).toBe(401);
+      expect(authMocks.requireRole).toHaveBeenCalledTimes(1);
+    } finally {
+      teardownEnv(env);
+    }
+  });
+
+  it("sin HEALTH_TOKEN server-side + Bearer cualquiera → 401 (no hay forma de bypass)", async () => {
+    // process.env.HEALTH_TOKEN ya está borrado en el beforeEach.
+    const err = new Error("UNAUTHENTICATED") as Error & { code?: string };
+    err.code = "UNAUTHENTICATED";
+    authMocks.requireRole.mockRejectedValueOnce(err);
+    const env = setupHealthFile();
+    try {
+      const response = await GET(buildRequest({ Authorization: "Bearer any-token" }));
+      // Sin server-token, el bypass está deshabilitado. El bearer no
+      // autoriza nada (no hay comparación que valide) → cae al guard.
+      expect(response.status).toBe(401);
+      expect(authMocks.requireRole).toHaveBeenCalledTimes(1);
+    } finally {
+      teardownEnv(env);
+    }
+  });
+
+  it("con HEALTH_TOKEN server-side pero sin Authorization → cae al guard (backwards compat)", async () => {
+    process.env.HEALTH_TOKEN = SERVER_TOKEN;
+    authMocks.requireRole.mockResolvedValueOnce(undefined);
+    const env = setupHealthFile();
+    try {
+      // Sin Authorization ni ?token= → no aplica el bypass → usa el guard.
+      const response = await GET(buildRequest());
+      expect(response.status).toBe(200);
+      expect(authMocks.requireRole).toHaveBeenCalledTimes(1);
+    } finally {
+      teardownEnv(env);
+    }
+  });
+
+  it("Authorization con scheme distinto a Bearer → NO aplica bypass", async () => {
+    process.env.HEALTH_TOKEN = SERVER_TOKEN;
+    authMocks.requireRole.mockResolvedValueOnce(undefined);
+    const env = setupHealthFile();
+    try {
+      const response = await GET(buildRequest({ Authorization: `Basic ${SERVER_TOKEN}` }));
+      expect(response.status).toBe(200);
+      // Basic auth no es válido para el bypass → cae al guard normal.
+      expect(authMocks.requireRole).toHaveBeenCalledTimes(1);
+    } finally {
+      teardownEnv(env);
     }
   });
 });

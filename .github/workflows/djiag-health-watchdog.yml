@@ -1,0 +1,89 @@
+name: djiag-health-watchdog
+
+# Watchdog del scraper DJI AG (Sprint C — H3b, audit ops-2026-07 §H3).
+# Falla si el endpoint /api/admin/djiag-health reporta stale (>24h sin
+# update) o cualquier estado != 'ok'. Corre cada 6h y es triggerable
+# a mano para diagnóstico.
+#
+# Ver scripts/health-watchdog.js para el detalle del script.
+# Ver docs/HEALTH-WATCHDOG.md para setup completo + troubleshooting.
+#
+# =====================================================================
+# ACTIVACIÓN (OBLIGATORIO antes de mergear a master):
+#   1. Settings → Secrets and variables → Actions → New repository secret
+#   2. HEALTH_URL:  https://<tu-dominio-vercel>.vercel.app
+#                   (default sugerido: https://aeroadmin-afm.vercel.app)
+#   3. HEALTH_TOKEN: el mismo valor que está en el deploy de Vercel
+#                    (env var HEALTH_TOKEN del proyecto de Vercel).
+#                    Si el server NO tiene HEALTH_TOKEN configurado,
+#                    el endpoint rechaza el bearer y este workflow va
+#                    a fallar con 401 — es esperado, agregar el secret
+#                    y el server var antes de activar.
+#   4. Opcional: HEALTH_STALE_HOURS como variable (default 24).
+# =====================================================================
+
+on:
+  # Cada 6 horas. Menos agresivo que el refresh-fumigations (que es
+  # semanal) porque queremos detectar el scraper roto rápido — un
+  # pipeline de scraping diario que falla un día no es crítico, pero
+  # un pipeline que falla 3+ días sí lo es.
+  schedule:
+    - cron: "0 */6 * * *"
+  # Manual: para diagnóstico o para re-correr después de un fix.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Si un dispatch manual se solapa con un cron, prioriza el dispatch.
+  group: djiag-health-watchdog
+  cancel-in-progress: false
+
+jobs:
+  watchdog:
+    name: check djiag health
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Sin HEALTH_URL secret: el script cae con exit 2 (config
+      # faltante) y el workflow falla con un mensaje claro. No
+      # silenciamos el error — el operador debe ver en los runs que
+      # el watchdog no está activo todavía.
+      - name: Verify required secrets
+        env:
+          HEALTH_URL: ${{ secrets.HEALTH_URL }}
+          HEALTH_TOKEN: ${{ secrets.HEALTH_TOKEN }}
+        run: |
+          if [ -z "$HEALTH_URL" ]; then
+            echo "::error::HEALTH_URL secret is not configured. Add it in repo Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          if [ -z "$HEALTH_TOKEN" ]; then
+            echo "::error::HEALTH_TOKEN secret is not configured. Add it in repo Settings → Secrets and variables → Actions (must match the server-side env var)."
+            exit 1
+          fi
+
+      - name: Run health watchdog
+        env:
+          HEALTH_URL: ${{ secrets.HEALTH_URL }}
+          HEALTH_TOKEN: ${{ secrets.HEALTH_TOKEN }}
+          HEALTH_STALE_HOURS: ${{ vars.HEALTH_STALE_HOURS || '24' }}
+        # Si exit != 0, GitHub Actions marca el step como failed.
+        # El script emite el mensaje de la razón a stderr antes de salir,
+        # así que el run log muestra "STALE: last update hace 27h" o
+        # "ERROR: HTTP 401 (auth inválida)" directamente.
+        run: node scripts/health-watchdog.js
