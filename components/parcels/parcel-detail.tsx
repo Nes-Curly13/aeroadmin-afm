@@ -394,7 +394,7 @@ export function ParcelDetail({ parcel }: { parcel: DjiParcelRecord }) {
             </Link>
             <Link
               className="rounded-full border border-[#cfd8d3] px-4 py-2 text-center text-sm font-semibold text-[#0b5f2d]"
-              href="/history"
+              href="/task-history"
             >
               Ver historial operativo
             </Link>

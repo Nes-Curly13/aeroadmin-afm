@@ -200,117 +200,124 @@ export function ParcelFumigations({
           {error && (
             <p className="rounded bg-[#fff5f3] px-3 py-2 text-xs text-[#a93232]">{error}</p>
           )}
-          <div className="grid grid-cols-2 gap-3 text-sm">
-            <label className="block">
-              <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#587064]">Fecha *</span>
-              <input
-                className="mt-1 w-full rounded border border-[#cfd8d3] px-2 py-1.5"
-                defaultValue={today}
-                name="fumigation_date"
-                required
-                type="date"
-              />
-            </label>
-            <label className="block">
-              <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#587064]">Producto</span>
-              <input
-                className="mt-1 w-full rounded border border-[#cfd8d3] px-2 py-1.5"
-                maxLength={200}
-                name="product_used"
-                placeholder="ej. Glifosato 1L/ha"
-                type="text"
-              />
-            </label>
-            <label className="block">
-              <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#587064]">Dosis (L/ha)</span>
-              <input
-                className="mt-1 w-full rounded border border-[#cfd8d3] px-2 py-1.5"
-                min="0"
-                name="dose_l_per_ha"
-                step="0.1"
-                type="number"
-              />
-            </label>
-            <label className="block">
-              <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#587064]">Área fumigada (m²)</span>
-              <input
-                className="mt-1 w-full rounded border border-[#cfd8d3] px-2 py-1.5"
-                min="0"
-                name="area_fumigated_m2"
-                // Track B v1.1: pre-llenado con `parcel.spray_area_m2` cuando
-                // existe (el sistema ya sabe el área fumigable). El supervisor
-                // puede ajustar si la fumigación real fue menor (obstáculos,
-                // franjas de seguridad, etc.). No pre-llenamos cuando es null/0
-                // para no inducir errores — un valor 0 no es un default razonable.
-                {...(parcel.spray_area_m2 !== null && parcel.spray_area_m2 > 0
-                  ? { defaultValue: String(parcel.spray_area_m2) }
-                  : {})}
-                step="0.01"
-                type="number"
-              />
-              <span className="mt-1 block text-[10px] text-[#587064]">
-                Editable si la fumigación real fue menor al área fumigable.
-              </span>
-            </label>
-            <label className="block">
-              <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#587064]">Duración (min)</span>
-              <input
-                className="mt-1 w-full rounded border border-[#cfd8d3] px-2 py-1.5"
-                min="0"
-                name="duration_minutes"
-                type="number"
-              />
-            </label>
-            <label className="col-span-2 block">
-              <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#587064]">Operador</span>
-              <input
-                className="mt-1 w-full rounded border border-[#cfd8d3] px-2 py-1.5"
-                maxLength={100}
-                name="recorded_by"
-                placeholder="ej. Juan Pérez"
-                type="text"
-              />
-            </label>
-            <label className="block">
-              <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#587064]">Registro ICA del producto</span>
-              <input
-                className="mt-1 w-full rounded border border-[#cfd8d3] px-2 py-1.5"
-                maxLength={50}
-                name="product_registered_ica"
-                placeholder="ej. ICA-1234-PN"
-                type="text"
-              />
-              <span className="mt-1 block text-[10px] text-[#587064]">
-                Requerido para auditoría ICA. 3-50 chars, formato libre.
-              </span>
-            </label>
-            <label className="block">
-              <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#587064]">Licencia del piloto</span>
-              <input
-                className="mt-1 w-full rounded border border-[#cfd8d3] px-2 py-1.5"
-                maxLength={20}
-                name="pilot_license"
-                placeholder="ej. PCA-12345"
-                type="text"
-              />
-              <span className="mt-1 block text-[10px] text-[#587064]">
-                Requerido para auditoría Aerocivil. Mayúsculas, dígitos y guiones.
-              </span>
-            </label>
-            <label className="col-span-2 block">
-              <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#587064]">Agregar nota (opcional)</span>
-              <textarea
-                className="mt-1 w-full rounded border border-[#cfd8d3] px-2 py-1.5"
-                maxLength={2000}
-                name="human_notes"
-                placeholder="ej. Se atrasó por lluvia matinal"
-                rows={2}
-              />
-              <span className="mt-1 block text-[10px] text-[#587064]">
-                Contexto libre sobre esta fumigación. No se mezcla con la metadata técnica del sistema.
-              </span>
-            </label>
-          </div>
+          <fieldset className="contents" disabled={submitting}>
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <label className="block">
+                <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#587064]">Fecha *</span>
+                <input
+                  className="mt-1 w-full rounded border border-[#cfd8d3] px-2 py-1.5 disabled:opacity-50"
+                  defaultValue={today}
+                  name="fumigation_date"
+                  required
+                  type="date"
+                />
+              </label>
+              <label className="block">
+                <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#587064]">Producto</span>
+                <input
+                  className="mt-1 w-full rounded border border-[#cfd8d3] px-2 py-1.5 disabled:opacity-50"
+                  // M10/F1.9: pre-llenar con el último producto usado en esta
+                  // parcela. El caso típico es caña: misma parcela = mismo
+                  // producto casi siempre. Si no hay eventos previos, queda
+                  // vacío (defaultValue="" → el operador tipea el primero).
+                  defaultValue={events[0]?.product_used ?? ""}
+                  maxLength={200}
+                  name="product_used"
+                  placeholder="ej. Glifosato 1L/ha"
+                  type="text"
+                />
+              </label>
+              <label className="block">
+                <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#587064]">Dosis (L/ha)</span>
+                <input
+                  className="mt-1 w-full rounded border border-[#cfd8d3] px-2 py-1.5 disabled:opacity-50"
+                  min="0"
+                  name="dose_l_per_ha"
+                  step="0.1"
+                  type="number"
+                />
+              </label>
+              <label className="block">
+                <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#587064]">Área fumigada (m²)</span>
+                <input
+                  className="mt-1 w-full rounded border border-[#cfd8d3] px-2 py-1.5 disabled:opacity-50"
+                  min="0"
+                  name="area_fumigated_m2"
+                  // Track B v1.1: pre-llenado con `parcel.spray_area_m2` cuando
+                  // existe (el sistema ya sabe el área fumigable). El supervisor
+                  // puede ajustar si la fumigación real fue menor (obstáculos,
+                  // franjas de seguridad, etc.). No pre-llenamos cuando es null/0
+                  // para no inducir errores — un valor 0 no es un default razonable.
+                  {...(parcel.spray_area_m2 !== null && parcel.spray_area_m2 > 0
+                    ? { defaultValue: String(parcel.spray_area_m2) }
+                    : {})}
+                  step="0.01"
+                  type="number"
+                />
+                <span className="mt-1 block text-[10px] text-[#587064]">
+                  Editable si la fumigación real fue menor al área fumigable.
+                </span>
+              </label>
+              <label className="block">
+                <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#587064]">Duración (min)</span>
+                <input
+                  className="mt-1 w-full rounded border border-[#cfd8d3] px-2 py-1.5 disabled:opacity-50"
+                  min="0"
+                  name="duration_minutes"
+                  type="number"
+                />
+              </label>
+              <label className="col-span-2 block">
+                <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#587064]">Operador</span>
+                <input
+                  className="mt-1 w-full rounded border border-[#cfd8d3] px-2 py-1.5 disabled:opacity-50"
+                  maxLength={100}
+                  name="recorded_by"
+                  placeholder="ej. Juan Pérez"
+                  type="text"
+                />
+              </label>
+              <label className="block">
+                <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#587064]">Registro ICA del producto</span>
+                <input
+                  className="mt-1 w-full rounded border border-[#cfd8d3] px-2 py-1.5 disabled:opacity-50"
+                  maxLength={50}
+                  name="product_registered_ica"
+                  placeholder="ej. ICA-1234-PN"
+                  type="text"
+                />
+                <span className="mt-1 block text-[10px] text-[#587064]">
+                  Requerido para auditoría ICA. 3-50 chars, formato libre.
+                </span>
+              </label>
+              <label className="block">
+                <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#587064]">Licencia del piloto</span>
+                <input
+                  className="mt-1 w-full rounded border border-[#cfd8d3] px-2 py-1.5 disabled:opacity-50"
+                  maxLength={20}
+                  name="pilot_license"
+                  placeholder="ej. PCA-12345"
+                  type="text"
+                />
+                <span className="mt-1 block text-[10px] text-[#587064]">
+                  Requerido para auditoría Aerocivil. Mayúsculas, dígitos y guiones.
+                </span>
+              </label>
+              <label className="col-span-2 block">
+                <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#587064]">Agregar nota (opcional)</span>
+                <textarea
+                  className="mt-1 w-full rounded border border-[#cfd8d3] px-2 py-1.5 disabled:opacity-50"
+                  maxLength={2000}
+                  name="human_notes"
+                  placeholder="ej. Se atrasó por lluvia matinal"
+                  rows={2}
+                />
+                <span className="mt-1 block text-[10px] text-[#587064]">
+                  Contexto libre sobre esta fumigación. No se mezcla con la metadata técnica del sistema.
+                </span>
+              </label>
+            </div>
+          </fieldset>
           <div className="flex gap-2">
             <button
               className="rounded-full bg-[#0b5f2d] px-4 py-2 text-xs font-semibold text-white disabled:opacity-50"
@@ -320,7 +327,8 @@ export function ParcelFumigations({
               {submitting ? "Guardando…" : "Guardar fumigación"}
             </button>
             <button
-              className="rounded-full border border-[#cfd8d3] px-4 py-2 text-xs font-semibold text-[#4a5b50]"
+              className="rounded-full border border-[#cfd8d3] px-4 py-2 text-xs font-semibold text-[#4a5b50] disabled:opacity-50"
+              disabled={submitting}
               onClick={() => setShowForm(false)}
               type="button"
             >

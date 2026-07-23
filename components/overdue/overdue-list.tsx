@@ -80,6 +80,44 @@ function SummaryChip({
   );
 }
 
+/**
+ * M7/F1.5 — Indicador pasivo (no clickeable).
+ *
+ * El chip "En fecha" no es un filtro de acción: el supervisor no
+ * necesita ver "solo las que están bien" porque no va a actuar sobre
+ * ellas. Mostrarlo como botón es un click que consume atención sin
+ * valor. Se mantiene el count como contexto pero se renderiza como
+ * <div> sin onClick ni aria-pressed.
+ */
+function SummaryIndicator({
+  label,
+  count,
+  tone
+}: {
+  label: string;
+  count: number;
+  tone: "danger" | "warning" | "success" | "neutral";
+}) {
+  const toneClasses: Record<typeof tone, string> = {
+    danger: "border-[#a93232]/30 text-[#a93232]",
+    warning: "border-[#d4b23c]/40 text-[#7a5f0d]",
+    success: "border-[#0b5f2d]/30 text-[#0b5f2d]",
+    neutral: "border-[#cfd8d3] text-[#4a5b50]"
+  };
+  return (
+    <div
+      aria-label={`${label}: ${count} parcelas (indicador, no filtrable)`}
+      className={`flex flex-col items-start gap-1 rounded-2xl border bg-white px-4 py-3 ${toneClasses[tone]}`}
+      data-testid="overdue-summary-indicator"
+    >
+      <span className="text-[10px] font-bold uppercase tracking-[0.18em]">
+        {label}
+      </span>
+      <span className="text-2xl font-black">{count}</span>
+    </div>
+  );
+}
+
 export function OverdueList({ parcels, summary, totalHa }: OverdueListProps) {
   const [activeSeverity, setActiveSeverity] = useState<Severity | null>(null);
 
@@ -90,7 +128,8 @@ export function OverdueList({ parcels, summary, totalHa }: OverdueListProps) {
 
   return (
     <div className="space-y-5">
-      {/* Summary chips: 4 contadores, click = filter */}
+      {/* Summary chips: 3 filtros clickeables + 1 indicador pasivo (M7).
+          "En fecha" ya no es botón (no requiere acción del supervisor). */}
       <section
         aria-label="Resumen de cadencia"
         className="grid gap-3 md:grid-cols-4"
@@ -107,7 +146,11 @@ export function OverdueList({ parcels, summary, totalHa }: OverdueListProps) {
         <SummaryChip
           active={activeSeverity === "due_soon"}
           count={summary.due_soon}
-          label="Vencen esta semana"
+          // M7/F1.4: copy dinámica al `maxDaysAhead` del URL param.
+          // Si el supervisor cambia la URL a ?maxDaysAhead=7, el label
+          // pasa a "Vence pronto (≤7d)" automáticamente (la server page
+          // re-deriva `summary.max_days_ahead` y lo pasa via props).
+          label={`Vence pronto (≤${summary.max_days_ahead}d)`}
           onClick={() =>
             setActiveSeverity((prev) =>
               prev === "due_soon" ? null : "due_soon"
@@ -115,13 +158,9 @@ export function OverdueList({ parcels, summary, totalHa }: OverdueListProps) {
           }
           tone="warning"
         />
-        <SummaryChip
-          active={activeSeverity === "ok"}
+        <SummaryIndicator
           count={summary.ok}
           label="En fecha"
-          onClick={() =>
-            setActiveSeverity((prev) => (prev === "ok" ? null : "ok"))
-          }
           tone="success"
         />
         <SummaryChip

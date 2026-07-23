@@ -2,12 +2,14 @@
 //
 // TDD para <OverdueList> (M3-M5 Q2).
 // Cubre:
-//   1. Render del summary: 4 chips con counts correctos.
+//   1. Render del summary: 3 chips clickeables + 1 indicador pasivo.
 //   2. Click en chip filtra la lista client-side.
 //   3. Click en "Limpiar filtro" vuelve al set completo.
 //   4. Lista vacía muestra empty state.
 //   5. Cada fila linkea a /parcels/[id].
 //   6. Cada fila muestra el chip de severidad correcto.
+//   7. M7/F1.4: el label del chip "Vence pronto" es dinámico al maxDaysAhead.
+//   8. M7/F1.5: el chip "En fecha" es un indicador <div>, NO es un botón.
 
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
@@ -63,7 +65,7 @@ const PARCELS: OverdueParcel[] = [
 ];
 
 describe("OverdueList", () => {
-  it("renderiza 4 chips de summary con los counts correctos", () => {
+  it("renderiza 3 chips clickeables + 1 indicador pasivo con los counts correctos", () => {
     render(
       <OverdueList
         parcels={PARCELS}
@@ -71,11 +73,51 @@ describe("OverdueList", () => {
         totalHa={20}
       />
     );
-    // Cada chip es un button con aria-label que incluye el count.
+    // M7: el chip de "Vence pronto" muestra el maxDaysAhead en el label
+    // (default 14 → "(≤14d)"). El supervisor ve el alcance del filtro
+    // sin tener que abrir la URL.
     expect(screen.getByRole("button", { name: /Vencidas: 2 parcelas/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Vencen esta semana: 1 parcelas/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /En fecha: 1 parcelas/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Vence pronto \(≤14d\): 1 parcelas/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Sin historial: 0 parcelas/i })).toBeInTheDocument();
+    // M7/F1.5: "En fecha" NO es botón (es indicador pasivo). Buscamos
+    // el indicator por data-testid porque el texto "En fecha" también
+    // aparece en el chip de severidad de la fila (severity="ok" → "En fecha").
+    const indicator = screen.getByTestId("overdue-summary-indicator");
+    expect(indicator).toBeInTheDocument();
+    expect(indicator).toHaveTextContent("En fecha");
+    expect(indicator).toHaveTextContent("1");
+  });
+
+  it("M7/F1.4: el label 'Vence pronto' usa el maxDaysAhead del summary", () => {
+    // El supervisor cambia la URL a ?maxDaysAhead=7; el server re-deriva
+    // summary.max_days_ahead y el label se actualiza automáticamente.
+    const summary7: OverdueSummary = { ...SUMMARY, max_days_ahead: 7 };
+    const summary30: OverdueSummary = { ...SUMMARY, max_days_ahead: 30 };
+    const { rerender } = render(
+      <OverdueList parcels={PARCELS} summary={summary7} totalHa={20} />
+    );
+    expect(
+      screen.getByRole("button", { name: /Vence pronto \(≤7d\)/i })
+    ).toBeInTheDocument();
+    rerender(<OverdueList parcels={PARCELS} summary={summary30} totalHa={20} />);
+    expect(
+      screen.getByRole("button", { name: /Vence pronto \(≤30d\)/i })
+    ).toBeInTheDocument();
+  });
+
+  it("M7/F1.5: 'En fecha' es un indicador <div> (no clickeable)", () => {
+    render(
+      <OverdueList parcels={PARCELS} summary={SUMMARY} totalHa={20} />
+    );
+    // No hay un botón con nombre "En fecha" (era un SummaryChip antes).
+    expect(
+      screen.queryByRole("button", { name: /^En fecha/i })
+    ).not.toBeInTheDocument();
+    // Hay un <div> con data-testid del nuevo SummaryIndicator.
+    const indicator = screen.getByTestId("overdue-summary-indicator");
+    expect(indicator.tagName).toBe("DIV");
+    // aria-label explica que NO es clickeable.
+    expect(indicator.getAttribute("aria-label")).toMatch(/indicador, no filtrable/i);
   });
 
   it("muestra el total de ha fumigables", () => {
@@ -246,7 +288,7 @@ describe("OverdueList", () => {
       />
     );
     const overdueChip = screen.getByRole("button", { name: /Vencidas: 2 parcelas/i });
-    const dueSoonChip = screen.getByRole("button", { name: /Vencen esta semana: 1 parcelas/i });
+    const dueSoonChip = screen.getByRole("button", { name: /Vence pronto \(≤14d\): 1 parcelas/i });
     // Sin filtro activo
     expect(overdueChip).toHaveAttribute("aria-pressed", "false");
     expect(dueSoonChip).toHaveAttribute("aria-pressed", "false");
