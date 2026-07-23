@@ -429,6 +429,8 @@ const fumigationEventsByParcelQuery = `
     notes,
     human_notes,
     recorded_by,
+    product_registered_ica,
+    pilot_license,
     recorded_at,
     source
   FROM dji_fumigations
@@ -635,6 +637,18 @@ export async function createFumigationEvent(event: {
   notes?: string | null;
   human_notes?: string | null;
   recorded_by?: string | null;
+  /**
+   * Compliance metadata (Sprint C — H2, 2026-07-23):
+   *   - product_registered_ica: ej "ICA-1234-PN" (CHECK length 3-50)
+   *   - pilot_license:            ej "PCA-12345"  (CHECK regex `^[A-Z0-9-]{4,20}$`)
+   *
+   * La BD valida el formato final con CHECK constraints. El server
+   * pre-valida longitud para no tirar el handler con inputs gigantes.
+   * Si el valor no pasa el CHECK de la BD, el INSERT falla con un
+   * error de constraint que el route handler mapea a 400.
+   */
+  product_registered_ica?: string | null;
+  pilot_license?: string | null;
 }): Promise<DjiFumigationEvent> {
   const db = getDb();
   return withLocalFallback(
@@ -647,12 +661,14 @@ export async function createFumigationEvent(event: {
             INSERT INTO dji_fumigations
               (parcel_id, fumigation_date, product_used, dose_l_per_ha,
                area_fumigated_m2, drone_code_used, duration_minutes, notes,
-               human_notes, recorded_by, source)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'manual')
+               human_notes, recorded_by, product_registered_ica, pilot_license,
+               source)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'manual')
             RETURNING
               id, parcel_id, fumigation_date, product_used, dose_l_per_ha,
               area_fumigated_m2, drone_code_used, duration_minutes, notes,
-              human_notes, recorded_by, recorded_at, source
+              human_notes, recorded_by, product_registered_ica, pilot_license,
+              recorded_at, source
           `,
           [
             event.parcel_id,
@@ -664,7 +680,9 @@ export async function createFumigationEvent(event: {
             event.duration_minutes ?? null,
             event.notes ?? null,
             event.human_notes ?? null,
-            event.recorded_by ?? null
+            event.recorded_by ?? null,
+            event.product_registered_ica ?? null,
+            event.pilot_license ?? null
           ]
         );
         const created = ins.rows[0];

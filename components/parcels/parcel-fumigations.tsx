@@ -70,7 +70,12 @@ export function ParcelFumigations({
         // setea desde el form). El operador usa `human_notes` para dejar
         // contexto libre (lluvia, producto nuevo, problema del equipo, etc.).
         human_notes: formData.get("human_notes") || null,
-        recorded_by: formData.get("recorded_by") || null
+        recorded_by: formData.get("recorded_by") || null,
+        // Sprint C — H2: compliance metadata (ICA + Aerocivil). Strings
+        // vacíos → null para no mandar strings al server si el operador
+        // deja el campo en blanco.
+        product_registered_ica: formData.get("product_registered_ica") || null,
+        pilot_license: formData.get("pilot_license") || null
       };
       const res = await fetch("/api/fumigations", {
         method: "POST",
@@ -266,6 +271,32 @@ export function ParcelFumigations({
                 type="text"
               />
             </label>
+            <label className="block">
+              <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#587064]">Registro ICA del producto</span>
+              <input
+                className="mt-1 w-full rounded border border-[#cfd8d3] px-2 py-1.5"
+                maxLength={50}
+                name="product_registered_ica"
+                placeholder="ej. ICA-1234-PN"
+                type="text"
+              />
+              <span className="mt-1 block text-[10px] text-[#587064]">
+                Requerido para auditoría ICA. 3-50 chars, formato libre.
+              </span>
+            </label>
+            <label className="block">
+              <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#587064]">Licencia del piloto</span>
+              <input
+                className="mt-1 w-full rounded border border-[#cfd8d3] px-2 py-1.5"
+                maxLength={20}
+                name="pilot_license"
+                placeholder="ej. PCA-12345"
+                type="text"
+              />
+              <span className="mt-1 block text-[10px] text-[#587064]">
+                Requerido para auditoría Aerocivil. Mayúsculas, dígitos y guiones.
+              </span>
+            </label>
             <label className="col-span-2 block">
               <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#587064]">Agregar nota (opcional)</span>
               <textarea
@@ -342,6 +373,24 @@ export function ParcelFumigations({
                     {e.dose_l_per_ha && <span>Dosis: {e.dose_l_per_ha} L/ha</span>}
                     {e.duration_minutes && <span>{e.duration_minutes} min</span>}
                     {e.recorded_by && <span>Por: {e.recorded_by}</span>}
+                    {e.product_registered_ica && (
+                      <span
+                        className="text-[#587064]"
+                        data-testid="fumigation-ica"
+                        title="Registro ICA del producto (auditoría ICA)"
+                      >
+                        ICA: {e.product_registered_ica}
+                      </span>
+                    )}
+                    {e.pilot_license && (
+                      <span
+                        className="text-[#587064]"
+                        data-testid="fumigation-pilot-license"
+                        title="Licencia del piloto (auditoría Aerocivil)"
+                      >
+                        Piloto: {e.pilot_license}
+                      </span>
+                    )}
                   </div>
                   {e.human_notes && (
                     <p className="mt-1 text-[11px] italic text-[#4a5b50]" data-testid="fumigation-human-notes">
