@@ -114,12 +114,15 @@ async function fetchParcelsNormalizedRaw(
 ): Promise<{ data: DjiParcelRecord[]; total: number; page: number; limit: number; totalPages: number }> {
   const db = getDb();
   const offset = (page - 1) * limit;
+  // Sprint B — H1: soft delete. Filtra parcelas borradas de la lista
+  // cacheada. Sin este WHERE, las soft-deleted seguirían apareciendo
+  // en /parcels y /map (la cache de 60s no las escondería).
   const result = await db.query<DjiParcelRecord>(
-    `${djiParcelsQuery} ORDER BY land_name ASC NULLS LAST, id ASC LIMIT $1 OFFSET $2`,
+    `${djiParcelsQuery} WHERE p.deleted_at IS NULL ORDER BY land_name ASC NULLS LAST, id ASC LIMIT $1 OFFSET $2`,
     [limit, offset]
   );
   const countResult = await db.query<{ total: string }>(
-    "SELECT COUNT(*)::int AS total FROM dji_parcels"
+    "SELECT COUNT(*)::int AS total FROM dji_parcels WHERE deleted_at IS NULL"
   );
   const total = Number(countResult.rows[0]?.total ?? 0);
   return {
@@ -150,6 +153,9 @@ interface ParcelsSummaryRow {
 
 async function fetchParcelsSummaryRaw(): Promise<ParcelsSummaryRow[]> {
   const db = getDb();
+  // Sprint B — H1: soft delete. Excluimos parcelas borradas del summary
+  // por tipo de dron — sino los contadores del dashboard ejecutivo
+  // mostrarían counts inflados.
   const result = await db.query<ParcelsSummaryRow>(`
     SELECT
       COUNT(*)::text AS total_parcels,
@@ -161,6 +167,7 @@ async function fetchParcelsSummaryRaw(): Promise<ParcelsSummaryRow[]> {
       drone_model_name,
       COUNT(*)::text AS count_by_drone
     FROM dji_parcels
+    WHERE deleted_at IS NULL
     GROUP BY drone_model_code, drone_model_name
     ORDER BY count_by_drone DESC
   `);
@@ -184,7 +191,9 @@ async function fetchDashboardMetricsRaw(): Promise<DashboardMetrics> {
         FROM dji_flights
         WHERE area_m2 >= 40000 OR duration_seconds >= 28800
       ) AS high_alert_days,
-      (SELECT COUNT(*)::text FROM dji_parcels) AS total_parcels
+      -- Sprint B — H1: soft delete. El contador de parcelas del dashboard
+      -- debe excluir las borradas, sino el campo totalAssets queda inflado.
+      (SELECT COUNT(*)::text FROM dji_parcels WHERE deleted_at IS NULL) AS total_parcels
     FROM dji_flights
   `);
   const row = result.rows[0];
@@ -381,6 +390,7 @@ async function fetchUpcomingFumigationsRaw(limit: number): Promise<UpcomingFumig
     FROM dji_fumigation_schedule s
     JOIN dji_parcels p ON p.id = s.parcel_id
     WHERE s.is_active = true
+      AND p.deleted_at IS NULL
   `);
   const now = new Date();
   const enriched: UpcomingFumigation[] = result.rows.map((row) => {
@@ -438,7 +448,10 @@ export interface FetchOverdueArgs {
 async function fetchOverdueParcelsRaw(args: FetchOverdueArgs): Promise<OverdueParcel[]> {
   const db = getDb();
   const { maxDaysAhead = 14, limit = 200, cropType, isOrchard } = args;
-  const conditions: string[] = ["s.is_active = true", "p.spray_geom IS NOT NULL"];
+  // Sprint B — H1: soft delete. La lista de "Faltan por fumigar" debe
+  // excluir parcelas borradas — sino el operador ve parcelas que ya
+  // no existen en su lista de pendientes.
+  const conditions: string[] = ["s.is_active = true", "p.spray_geom IS NOT NULL", "p.deleted_at IS NULL"];
   const params: unknown[] = [];
   // Filtro de fecha: next_due_date <= today + maxDaysAhead.
   // El cálculo de "today" lo hace el caller (computed today) para que

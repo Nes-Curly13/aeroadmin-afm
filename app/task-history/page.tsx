@@ -184,6 +184,11 @@ async function fetchEnrichedFlights(args: {
   // fumigada. Necesario para el FlightDetailDrawer. Sin parcel_id
   // (NULL), no hay join — el campo queda como null y el drawer
   // muestra "—".
+  // Sprint B — H1: soft delete. Filtramos parcelas soft-deleted para
+  // que el `parcel_name` del JOIN no devuelva nombres de parcelas
+  // borradas. La query principal es sobre dji_flights (no soft-deletable),
+  // pero el lookup del nombre debe respetar el soft delete de parcels.
+  where.push(`p.deleted_at IS NULL`);
   const sql = `
     SELECT f.id, f.flight_id, f.start_at, f.duration_seconds,
            f.area_m2, f.spray_usage_ml,

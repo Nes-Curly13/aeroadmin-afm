@@ -204,6 +204,11 @@ async function getParcelsNormalizedUncached(page: number, limit: number, filter:
     where.push(`field_type = $${p++}`);
     params.push(filter.fieldType);
   }
+  // Sprint B — H1: soft delete. La migration 20260720000000 dejó la columna
+  // `deleted_at` lista; este filtro activa el soft delete en la query de
+  // listado paginado. Sin él, las parcelas "borradas" (deleted_at != NULL)
+  // seguirían apareciendo en el dashboard y el listado de /map.
+  where.push(`p.deleted_at IS NULL`);
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
   return withLocalFallback(
@@ -348,7 +353,13 @@ export async function updateParcelMetadata(
   return withLocalFallback(
     async () => {
       // Verificar existencia primero (devolvemos null vs throw).
-      const existing = await db.query<{ id: number }>(`SELECT id FROM dji_parcels WHERE id = $1`, [id]);
+      // Sprint B — H1: si la parcela está soft-deleted, no se puede editar.
+      // Mismo criterio que `getParcelById` — el detail page y el edit panel
+      // la ocultan, así que updateParcelMetadata tampoco debería escribir.
+      const existing = await db.query<{ id: number }>(
+        `SELECT id FROM dji_parcels WHERE id = $1 AND deleted_at IS NULL`,
+        [id]
+      );
       if (existing.rows.length === 0) return null;
 
       params.push(id);
@@ -376,8 +387,11 @@ export async function getParcelById(id: number): Promise<DjiParcelRecord | null>
   const db = getDb();
   return withLocalFallback(
     async () => {
+      // Sprint B — H1: soft delete. Filtramos por `deleted_at IS NULL`
+      // para que el detail page y el edit panel NO muestren parcelas
+      // borradas (sería confuso para el operador).
       const result = await db.query<DjiParcelRecord>(
-        `${djiParcelsQuery} WHERE id = $1`,
+        `${djiParcelsQuery} WHERE p.id = $1 AND p.deleted_at IS NULL`,
         [id]
       );
       return result.rows[0] ?? null;
@@ -419,6 +433,7 @@ const fumigationEventsByParcelQuery = `
     source
   FROM dji_fumigations
   WHERE parcel_id = $1
+    AND deleted_at IS NULL
   ORDER BY fumigation_date DESC, recorded_at DESC
 `;
 
@@ -493,6 +508,7 @@ export async function getFumigatedParcelIdsSince(since: string): Promise<Set<num
         `SELECT DISTINCT parcel_id
            FROM dji_fumigations
           WHERE parcel_id IS NOT NULL
+            AND deleted_at IS NULL
             AND fumigation_date >= $1::date`,
         [since]
       );
@@ -574,6 +590,7 @@ export async function getFumigationTimelineForParcel(
             ) AS pilot_name
           FROM dji_fumigations f
           WHERE f.parcel_id = $1
+            AND f.deleted_at IS NULL
             AND f.fumigation_date >= $2::date
             AND f.fumigation_date <= $3::date
           ORDER BY f.fumigation_date ASC
