@@ -73,7 +73,14 @@ export const CACHE_TAGS = {
   // Sprint A — F4.0: actividad comparativa "ayer vs hoy" del dashboard.
   // Cacheada con TTL corto (5min) porque cambia intra-día; se invalida
   // junto con `flights` cuando se re-importan vuelos.
-  activityComparison: "afm:activity-comparison"
+  activityComparison: "afm:activity-comparison",
+  // Sprint B — F1.11: reporte PDF de una parcela. Cacheado por 60s
+  // (el costo de generar el PDF con Playwright es ~200-500ms; el
+  // cache evita que un usuario que abre el detail y refresca pague
+  // el costo de nuevo en el mismo minuto). Se invalida junto con
+  // `parcels` + `upcoming` cuando hay mutaciones de fumigación o
+  // metadata de la parcela.
+  parcelReport: "afm:parcel-report"
 } as const;
 
 export const CACHE_TAGS_ALL = Object.values(CACHE_TAGS);
@@ -90,7 +97,11 @@ export const CACHE_TTL = {
   overdue: 60,
   // F4.0: 5min. "Hoy" cambia intra-día; "ayer" es estable, pero el cache
   // key incluye la fecha, así que no hay hit cross-day.
-  activityComparison: 300
+  activityComparison: 300,
+  // F1.11: PDF cacheado 60s. Mismo TTL que `parcels` — el reporte se
+  // beneficia de la cache de parcelas ya activa, y queremos que se
+  // refresque junto con la lista cuando hay cambios.
+  parcelReport: 60
 } as const;
 
 // ============================================================
@@ -756,6 +767,10 @@ export function invalidateAfterFumigationMutation(): void {
   // M3-M5 Q2: invalidar también la lista de "Faltan" — al registrar
   // una fumigación, la cadencia de la parcela afectada se recalcula.
   invalidateTagImmediate(CACHE_TAGS.overdue);
+  // Sprint B — F1.11: el reporte PDF de la parcela afectada debe
+  // regenerarse. Invalidar por tag `parcelReport` — el siguiente
+  // GET al endpoint paga el costo de Playwright.
+  invalidateTagImmediate(CACHE_TAGS.parcelReport);
 }
 
 /**
@@ -766,6 +781,9 @@ export function invalidateAfterParcelMutation(): void {
   invalidateTagImmediate(CACHE_TAGS.parcels);
   invalidateTagImmediate(CACHE_TAGS.parcelsSummary);
   invalidateTagImmediate(CACHE_TAGS.upcoming);
+  // Sprint B — F1.11: cambios de metadata (land_name, crop_type, etc.)
+  // afectan el header del PDF. Invalidar el cache del reporte también.
+  invalidateTagImmediate(CACHE_TAGS.parcelReport);
 }
 
 /**

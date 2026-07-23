@@ -153,28 +153,34 @@ describe("cache wrappers — el callback subyacente se ejecuta", () => {
 // ─── Invalidation helpers ─────────────────────────────────────────────
 
 describe("invalidate* — disparan revalidateTag con profile { expire: 0 }", () => {
-  it("invalidateAfterFumigationMutation afecta upcoming + metrics + alerts + overdue", () => {
+  it("invalidateAfterFumigationMutation afecta upcoming + metrics + alerts + overdue + parcelReport", () => {
     invalidateAfterFumigationMutation();
     // M3-M5 Q2: ahora también invalida `afm:overdue` (lista "Faltan por
     // fumigar") porque la cadencia se recalcula al registrar una fumigación.
-    expect(revalidateTagMock).toHaveBeenCalledTimes(4);
+    // Sprint B — F1.11: también invalida `afm:parcel-report` (PDF de la
+    // parcela afectada se regenera en el próximo GET al endpoint).
+    expect(revalidateTagMock).toHaveBeenCalledTimes(5);
     const tags = revalidateTagMock.mock.calls.map((c) => c[0]);
     expect(tags).toContain(CACHE_TAGS.upcoming);
     expect(tags).toContain(CACHE_TAGS.metrics);
     expect(tags).toContain(CACHE_TAGS.alerts);
     expect(tags).toContain(CACHE_TAGS.overdue);
+    expect(tags).toContain(CACHE_TAGS.parcelReport);
     for (const call of revalidateTagMock.mock.calls) {
       expect(call[1]).toEqual({ expire: 0 });
     }
   });
 
-  it("invalidateAfterParcelMutation afecta parcels + parcels-summary + upcoming", () => {
+  it("invalidateAfterParcelMutation afecta parcels + parcels-summary + upcoming + parcelReport", () => {
     invalidateAfterParcelMutation();
-    expect(revalidateTagMock).toHaveBeenCalledTimes(3);
+    // Sprint B — F1.11: cambios de metadata (land_name, crop_type, etc.)
+    // afectan el header del PDF. Invalidar el cache del reporte también.
+    expect(revalidateTagMock).toHaveBeenCalledTimes(4);
     const tags = revalidateTagMock.mock.calls.map((c) => c[0]);
     expect(tags).toContain(CACHE_TAGS.parcels);
     expect(tags).toContain(CACHE_TAGS.parcelsSummary);
     expect(tags).toContain(CACHE_TAGS.upcoming);
+    expect(tags).toContain(CACHE_TAGS.parcelReport);
   });
 
   it("invalidateAfterFlightMutation afecta flights + metrics + alerts + activity-comparison", () => {
