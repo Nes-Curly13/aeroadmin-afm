@@ -152,6 +152,10 @@ async function runOnlyFumigatedQuery(
      AND f.start_at >= $1::date
      AND f.start_at <  ($2::date + INTERVAL '1 day')
     WHERE p.spray_geom IS NOT NULL
+      -- Sprint B — H1: soft delete. Excluimos parcelas borradas del mapa
+      -- de Task History. Si se borra una parcela, su polígono no debe
+      -- seguir visible para el operador.
+      AND p.deleted_at IS NULL
       ${whereExtras}
     GROUP BY p.id, p.land_name, p.declared_area_ha, p.spray_geom
     ORDER BY p.land_name NULLS LAST, p.id ASC
@@ -205,6 +209,8 @@ async function runAllParcelsQuery(query: PolygonsQuery): Promise<{ rows: Polygon
       ) AS dates_fumigated
     FROM dji_parcels p
     WHERE p.spray_geom IS NOT NULL
+      -- Sprint B — H1: soft delete. Mismo criterio que runOnlyFumigatedQuery.
+      AND p.deleted_at IS NULL
       ${extraFilters}
     ORDER BY p.land_name NULLS LAST, p.id ASC
   `;
