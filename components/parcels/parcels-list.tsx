@@ -183,10 +183,23 @@ export function ParcelsList({ parcels, pageSize = PAGE_SIZE_DEFAULT }: ParcelsLi
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return parcels;
+    // F1.2: el supervisor puede buscar por 5 campos: land_name,
+    // external_id (DJI ID), crop_type, owner_name, drone_model_name.
+    // El OR es inclusivo — matchear CUALQUIERA devuelve la fila.
+    // El case-insensitive es via lowercase() en ambos lados.
     return parcels.filter((p) => {
       const name = (p.land_name ?? "").toLowerCase();
       const external = p.external_id.toLowerCase();
-      return name.includes(q) || external.includes(q);
+      const crop = (p.crop_type ?? "").toLowerCase();
+      const owner = (p.owner_name ?? "").toLowerCase();
+      const drone = (p.drone_model_name ?? "").toLowerCase();
+      return (
+        name.includes(q) ||
+        external.includes(q) ||
+        crop.includes(q) ||
+        owner.includes(q) ||
+        drone.includes(q)
+      );
     });
   }, [parcels, query]);
 
@@ -232,7 +245,7 @@ export function ParcelsList({ parcels, pageSize = PAGE_SIZE_DEFAULT }: ParcelsLi
             Buscar
           </label>
           <input
-            aria-label="Buscar parcela por nombre o ID DJI"
+            aria-label="Buscar parcela por nombre, ID DJI, cultivo o propietario"
             className="rounded-lg border border-[#cfd8d3] bg-white px-3 py-1.5 text-sm text-[#121815] focus:border-[#0b5f2d] focus:outline-none"
             data-testid="parcels-list-search"
             id="parcels-list-search"
@@ -240,7 +253,7 @@ export function ParcelsList({ parcels, pageSize = PAGE_SIZE_DEFAULT }: ParcelsLi
               setQuery(e.target.value);
               setPage(1);
             }}
-            placeholder="Nombre o ID DJI…"
+            placeholder="Buscar por nombre, ID DJI, cultivo o propietario…"
             type="search"
             value={query}
           />

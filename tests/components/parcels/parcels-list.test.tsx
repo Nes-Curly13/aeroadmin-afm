@@ -11,7 +11,7 @@
 // ya lo cubren los tests de repositories y user-story-dashboard-e2e.
 
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 
 // Hoist para que los vi.mock() del describe "ParcelsPage" puedan
 // referenciar el mock state antes de que se ejecute el factory.
@@ -185,6 +185,152 @@ describe("ParcelsList", () => {
     expect(screen.queryByText("Lote 021")).toBeNull();
     // Texto de paginación
     expect(screen.getByText(/página 1 de 3/i)).toBeInTheDocument();
+  });
+
+  // ============================================================
+  // F1.2 — Búsqueda extendida a crop_type, owner_name, drone_model_name.
+  // Antes (pre-F1.2) solo matcheaba land_name + external_id. El supervisor
+  // no podía buscar "las de caña de Carlos" — tenía que entrar a cada
+  // ficha para ver el owner. Ahora el OR es sobre 5 campos.
+  // ============================================================
+  describe("F1.2 — búsqueda extendida (5 campos)", () => {
+    it("matchea por crop_type (ej. 'caña')", () => {
+      const parcels = [
+        makeParcel({ id: 1, land_name: "Porvenir", crop_type: "Caña de azúcar" }),
+        makeParcel({ id: 2, land_name: "Lourdes", crop_type: "Maíz" })
+      ];
+      render(<ParcelsList parcels={parcels} />);
+      // Buscar por crop_type "caña" devuelve SOLO la primera fila.
+      const search = screen.getByTestId("parcels-list-search");
+      fireEvent.change(search, { target: { value: "caña" } });
+      expect(screen.getByText("Porvenir")).toBeInTheDocument();
+      // La de Maíz NO matchea "caña" en ninguno de los 5 campos.
+      expect(screen.queryByText("Lourdes")).not.toBeInTheDocument();
+    });
+
+    it("matchea por owner_name (ej. 'Carlos Arboleda')", () => {
+      const parcels = [
+        makeParcel({ id: 1, land_name: "Porvenir", owner_name: "Carlos Arboleda" }),
+        makeParcel({ id: 2, land_name: "Lourdes", owner_name: "Juan Pérez" })
+      ];
+      render(<ParcelsList parcels={parcels} />);
+      const search = screen.getByTestId("parcels-list-search");
+      fireEvent.change(search, { target: { value: "carlos" } });
+      expect(screen.getByText("Porvenir")).toBeInTheDocument();
+      expect(screen.queryByText("Lourdes")).not.toBeInTheDocument();
+    });
+
+    it("matchea por drone_model_name (ej. 'T40')", () => {
+      const parcels = [
+        makeParcel({ id: 1, land_name: "Porvenir", drone_model_name: "Agras T40 / T50" }),
+        makeParcel({ id: 2, land_name: "Lourdes", drone_model_name: "Agras T16 / T20" })
+      ];
+      render(<ParcelsList parcels={parcels} />);
+      const search = screen.getByTestId("parcels-list-search");
+      // T40 también matchea "Agras T40 / T50" porque T40 es substring.
+      fireEvent.change(search, { target: { value: "t40" } });
+      expect(screen.getByText("Porvenir")).toBeInTheDocument();
+      expect(screen.queryByText("Lourdes")).not.toBeInTheDocument();
+    });
+
+    it("matchea por external_id (DJI ID)", () => {
+      // Pre-existente (no es nuevo en F1.2 pero verificamos regresión).
+      const parcels = [
+        makeParcel({ id: 1, land_name: "Porvenir", external_id: "1268692918907510784-flyer-test-uuid" })
+      ];
+      render(<ParcelsList parcels={parcels} />);
+      const search = screen.getByTestId("parcels-list-search");
+      fireEvent.change(search, { target: { value: "1268692918" } });
+      expect(screen.getByText("Porvenir")).toBeInTheDocument();
+    });
+
+    it("matchea por land_name (pre-existente)", () => {
+      const parcels = [
+        makeParcel({ id: 1, land_name: "Porvenir STE 3" }),
+        makeParcel({ id: 2, land_name: "Lourdes" })
+      ];
+      render(<ParcelsList parcels={parcels} />);
+      const search = screen.getByTestId("parcels-list-search");
+      fireEvent.change(search, { target: { value: "porvenir" } });
+      expect(screen.getByText("Porvenir STE 3")).toBeInTheDocument();
+      expect(screen.queryByText("Lourdes")).not.toBeInTheDocument();
+    });
+
+    it("el OR es inclusivo: una fila matchea si CUALQUIERA de los 5 campos contiene la query", () => {
+      // Una parcela con 5 campos distintos: cada uno matchea una query
+      // diferente. Verificamos que el OR sobre los 5 funciona.
+      const parcelaCompleta = makeParcel({
+        id: 1,
+        land_name: "Lote Norte",
+        external_id: "DJI-XYZ-001",
+        crop_type: "Caña de azúcar",
+        owner_name: "Carlos Arboleda",
+        drone_model_name: "Agras T40"
+      });
+      const parcelaIrrelevante = makeParcel({
+        id: 2,
+        land_name: "Lote Sur",
+        external_id: "DJI-ABC-999",
+        crop_type: "Maíz",
+        owner_name: "Otro Dueño",
+        drone_model_name: "Agras T16"
+      });
+      render(<ParcelsList parcels={[parcelaCompleta, parcelaIrrelevante]} />);
+      const search = screen.getByTestId("parcels-list-search");
+
+      // 5 queries, cada una matchea un campo distinto de la misma fila.
+      for (const query of ["norte", "xyz", "caña", "carlos", "t40"]) {
+        fireEvent.change(search, { target: { value: query } });
+        expect(
+          screen.getByText("Lote Norte"),
+          `query "${query}" debe matchear la fila de id=1`
+        ).toBeInTheDocument();
+        expect(
+          screen.queryByText("Lote Sur"),
+          `query "${query}" NO debe matchear la fila de id=2`
+        ).not.toBeInTheDocument();
+        // Limpiamos para el próximo loop.
+        fireEvent.change(search, { target: { value: "" } });
+      }
+    });
+
+    it("es case-insensitive: 'CAÑA' matchea crop_type='Caña'", () => {
+      // El filtro hace lowercase en ambos lados. 'CAÑA' (uppercase) debe
+      // matchear 'Caña de azúcar' (mixed case).
+      const parcels = [
+        makeParcel({ id: 1, land_name: "Porvenir", crop_type: "Caña de azúcar" })
+      ];
+      render(<ParcelsList parcels={parcels} />);
+      const search = screen.getByTestId("parcels-list-search");
+      fireEvent.change(search, { target: { value: "CAÑA" } });
+      expect(screen.getByText("Porvenir")).toBeInTheDocument();
+    });
+
+    it("no matchea si la query no aparece en NINGUNO de los 5 campos", () => {
+      const parcels = [
+        makeParcel({ id: 1, land_name: "Porvenir", crop_type: "Caña", owner_name: "Carlos" })
+      ];
+      render(<ParcelsList parcels={parcels} />);
+      const search = screen.getByTestId("parcels-list-search");
+      fireEvent.change(search, { target: { value: "zzzzz_no_existe" } });
+      // La fila no se muestra.
+      expect(screen.queryByText("Porvenir")).not.toBeInTheDocument();
+      // Aparece el empty state inline.
+      expect(screen.getByText(/no hay parcelas que coincidan/i)).toBeInTheDocument();
+    });
+
+    it("el placeholder menciona los campos buscables (descubribilidad)", () => {
+      // F1.2: el placeholder antes decía "Nombre o ID DJI…". Ahora
+      // menciona los 4 campos (nombre, ID DJI, cultivo, propietario)
+      // para que el supervisor sepa que puede buscar por más.
+      const parcels = [makeParcel({ id: 1, land_name: "Porvenir" })];
+      render(<ParcelsList parcels={parcels} />);
+      const search = screen.getByTestId("parcels-list-search");
+      expect(search.getAttribute("placeholder")).toMatch(/cultivo/i);
+      expect(search.getAttribute("placeholder")).toMatch(/propietario/i);
+      expect(search.getAttribute("placeholder")).toMatch(/dji/i);
+      expect(search.getAttribute("placeholder")).toMatch(/nombre/i);
+    });
   });
 });
 

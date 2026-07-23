@@ -27,7 +27,7 @@
  * flujo de POST).
  */
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 // ParcelFumigations es client component y usa useRouter() en el submit handler.
 // Mockeamos next/navigation con vi.hoisted (mismo patrón que tab-switcher.test.tsx).
@@ -487,8 +487,235 @@ describe("ParcelFumigations — pre-llenado de product_used (M10/F1.9)", () => {
 });
 
 // ============================================================
-// Sprint D — F1.10: deshabilitar todos los inputs mientras se submitea.
+// Sprint D — M5/F1.8: el form de fumigación es un modal <dialog>,
+// no un bloque inline. Botones primarios siempre visibles en el
+// footer. Cerrar con Escape, click en backdrop, o botón "Cancelar".
+// Mantener el RoleGate (admin + supervisor).
 // ============================================================
+describe("ParcelFumigations — modal (M5/F1.8)", () => {
+  it("el form se renderiza dentro de un <dialog> (no inline)", () => {
+    // Antes (pre-M5) el form era un bloque inline. Ahora vive en un
+    // <dialog data-testid='fumigation-modal'> que solo se monta cuando
+    // showForm=true. El bloque inline ya NO existe — verificamos que
+    // el form NO esté como hijo directo de la <section> principal.
+    const parcel = makeParcel({ spray_area_m2: 4000 });
+    const { container } = render(
+      <ParcelFumigations
+        daysUntilNextDue={3}
+        events={EMPTY_EVENTS}
+        parcel={parcel}
+        schedule={makeSchedule()}
+        status="due_soon"
+      />
+    );
+    // Sin abrir el form: NO hay <dialog> en el DOM (showForm=false).
+    expect(container.querySelector('[data-testid="fumigation-modal"]')).toBeNull();
+
+    // Abrir el form.
+    fireEvent.click(screen.getAllByRole("button", { name: /registrar fumigación/i })[0]);
+
+    // Ahora hay un <dialog> con el form adentro.
+    const dialog = screen.getByTestId("fumigation-modal");
+    expect(dialog.tagName).toBe("DIALOG");
+    expect(dialog.querySelector("form")).toBeInTheDocument();
+  });
+
+  it("el <dialog> tiene título accesible y el nombre de la parcela", () => {
+    const parcel = makeParcel({ id: 42, land_name: "Porvenir STE 3", spray_area_m2: 4000 });
+    render(
+      <ParcelFumigations
+        daysUntilNextDue={3}
+        events={EMPTY_EVENTS}
+        parcel={parcel}
+        schedule={makeSchedule()}
+        status="due_soon"
+      />
+    );
+    fireEvent.click(screen.getAllByRole("button", { name: /registrar fumigación/i })[0]);
+
+    const dialog = screen.getByTestId("fumigation-modal");
+    // El dialog usa aria-labelledby apuntando al <h2> del header.
+    const labelledBy = dialog.getAttribute("aria-labelledby");
+    expect(labelledBy).toBe("fumigation-modal-title");
+    const title = document.getElementById("fumigation-modal-title");
+    expect(title).toHaveTextContent(/registrar fumigación/i);
+    // El subtítulo del header muestra el nombre de la parcela (contexto).
+    expect(dialog).toHaveTextContent(/porvenir ste 3/i);
+  });
+
+  it("Escape cierra el modal (onCancel handler)", () => {
+    // El browser dispara un 'cancel' event sintético cuando el user
+    // aprieta Escape sobre un <dialog> abierto. testing-library no
+    // expone fireEvent.cancel (no es un evento estandard de DOM),
+    // pero podemos dispatcharlo manualmente con bubbles:true para
+    // que el onCancel de React (que escucha 'cancel' en el SyntheticEvent
+    // system) lo reciba.
+    const parcel = makeParcel({ spray_area_m2: 4000 });
+    render(
+      <ParcelFumigations
+        daysUntilNextDue={3}
+        events={EMPTY_EVENTS}
+        parcel={parcel}
+        schedule={makeSchedule()}
+        status="due_soon"
+      />
+    );
+    fireEvent.click(screen.getAllByRole("button", { name: /registrar fumigación/i })[0]);
+    expect(screen.getByTestId("fumigation-modal")).toBeInTheDocument();
+
+    // Disparamos un 'cancel' event como lo haría el browser al apretar
+    // Escape. El onCancel del dialog setea showForm=false y limpia error.
+    const dialog = screen.getByTestId("fumigation-modal") as HTMLDialogElement;
+    fireEvent(
+      dialog,
+      new Event("cancel", { bubbles: false, cancelable: true })
+    );
+
+    // Después de cancelar, el dialog ya no está en el DOM (showForm=false
+    // desmonta el componente condicional).
+    expect(screen.queryByTestId("fumigation-modal")).toBeNull();
+  });
+
+  it("click en el botón 'Cancelar' del footer cierra el modal", () => {
+    const parcel = makeParcel({ spray_area_m2: 4000 });
+    render(
+      <ParcelFumigations
+        daysUntilNextDue={3}
+        events={EMPTY_EVENTS}
+        parcel={parcel}
+        schedule={makeSchedule()}
+        status="due_soon"
+      />
+    );
+    fireEvent.click(screen.getAllByRole("button", { name: /registrar fumigación/i })[0]);
+    expect(screen.getByTestId("fumigation-modal")).toBeInTheDocument();
+
+    // El footer del modal tiene su propio botón "Cancelar" (diferente
+    // del toolbar que también tiene un Cancelar toggle). Lo buscamos
+    // por scope dentro del dialog.
+    const dialog = screen.getByTestId("fumigation-modal") as HTMLDialogElement;
+    const footerCancel = within(dialog).getByRole("button", { name: /^cancelar$/i });
+    fireEvent.click(footerCancel);
+    expect(screen.queryByTestId("fumigation-modal")).toBeNull();
+  });
+
+  it("el botón 'Guardar fumigación' vive en el footer del modal (sticky bottom)", () => {
+    const parcel = makeParcel({ spray_area_m2: 4000 });
+    render(
+      <ParcelFumigations
+        daysUntilNextDue={3}
+        events={EMPTY_EVENTS}
+        parcel={parcel}
+        schedule={makeSchedule()}
+        status="due_soon"
+      />
+    );
+    fireEvent.click(screen.getAllByRole("button", { name: /registrar fumigación/i })[0]);
+
+    const dialog = screen.getByTestId("fumigation-modal");
+    // El submit está dentro de un <footer> con `sticky bottom-0` para
+    // que quede siempre visible en mobile cuando el user scrollea.
+    const footer = dialog.querySelector("footer");
+    expect(footer).not.toBeNull();
+    const submitBtn = footer!.querySelector('button[type="submit"]') as HTMLButtonElement;
+    expect(submitBtn).toBeInTheDocument();
+    expect(submitBtn.className).toMatch(/bg-\[#0b5f2d\]/);
+  });
+
+  it("click en el backdrop (el dialog mismo fuera del contenido) cierra el modal", () => {
+    // El handler onClick del <dialog> verifica `e.target === e.currentTarget`
+    // para detectar clicks en el backdrop. Si el target es un hijo (form,
+    // inputs, etc.) NO cierra — solo el backdrop puro.
+    const parcel = makeParcel({ spray_area_m2: 4000 });
+    render(
+      <ParcelFumigations
+        daysUntilNextDue={3}
+        events={EMPTY_EVENTS}
+        parcel={parcel}
+        schedule={makeSchedule()}
+        status="due_soon"
+      />
+    );
+    fireEvent.click(screen.getAllByRole("button", { name: /registrar fumigación/i })[0]);
+    const dialog = screen.getByTestId("fumigation-modal");
+
+    // Simulamos click en el dialog "vacío" (no en un hijo). Usamos el
+    // elemento dialog directamente como target.
+    fireEvent.click(dialog, { target: dialog });
+    expect(screen.queryByTestId("fumigation-modal")).toBeNull();
+  });
+
+  it("click DENTRO del form (en un input) NO cierra el modal", () => {
+    // Regresión: el handler onClick del dialog solo cierra si target ===
+    // currentTarget. Si el user hace click en un input (un hijo del form),
+    // el modal NO se cierra (el click se propaga al dialog pero el target
+    // NO es el dialog mismo).
+    const parcel = makeParcel({ spray_area_m2: 4000 });
+    render(
+      <ParcelFumigations
+        daysUntilNextDue={3}
+        events={EMPTY_EVENTS}
+        parcel={parcel}
+        schedule={makeSchedule()}
+        status="due_soon"
+      />
+    );
+    fireEvent.click(screen.getAllByRole("button", { name: /registrar fumigación/i })[0]);
+
+    const dialog = screen.getByTestId("fumigation-modal");
+    const productInput = dialog.querySelector('input[name="product_used"]') as HTMLInputElement;
+    expect(productInput).toBeInTheDocument();
+    fireEvent.click(productInput);
+    // El modal sigue abierto.
+    expect(screen.getByTestId("fumigation-modal")).toBeInTheDocument();
+  });
+
+  it("el <dialog> es full-width en mobile y max-w-[600px] en desktop", () => {
+    // Verificamos las clases CSS que controlan el layout responsive.
+    const parcel = makeParcel({ spray_area_m2: 4000 });
+    render(
+      <ParcelFumigations
+        daysUntilNextDue={3}
+        events={EMPTY_EVENTS}
+        parcel={parcel}
+        schedule={makeSchedule()}
+        status="due_soon"
+      />
+    );
+    fireEvent.click(screen.getAllByRole("button", { name: /registrar fumigación/i })[0]);
+
+    const dialog = screen.getByTestId("fumigation-modal");
+    // Mobile: full-width (max-w-full). Desktop: cap a 600px (sm:max-w-[600px]).
+    expect(dialog.className).toMatch(/max-w-full/);
+    expect(dialog.className).toMatch(/sm:max-w-\[600px\]/);
+  });
+
+  it("submit exitoso cierra el modal y refresca la page", async () => {
+    // M5: cuando el POST /api/fumigations responde 200, el componente
+    // setea showForm=false (que desmonta el dialog) y llama a
+    // router.refresh(). Verificamos que el dialog desaparece.
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }));
+    (globalThis as unknown as { fetch: typeof fetch }).fetch = fetchMock as unknown as typeof fetch;
+
+    const parcel = makeParcel({ spray_area_m2: 4000 });
+    render(
+      <ParcelFumigations
+        daysUntilNextDue={3}
+        events={EMPTY_EVENTS}
+        parcel={parcel}
+        schedule={makeSchedule()}
+        status="due_soon"
+      />
+    );
+    fireEvent.click(screen.getAllByRole("button", { name: /registrar fumigación/i })[0]);
+    const submitBtn = screen.getByRole("button", { name: /guardar fumigación/i });
+    fireEvent.click(submitBtn);
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("fumigation-modal")).toBeNull();
+    });
+  });
+});
 describe("ParcelFumigations — disabled durante submit (F1.10)", () => {
   it("después de submit, el fieldset del form se marca disabled", async () => {
     // Mockeamos fetch para que demore lo suficiente como para inspeccionar
