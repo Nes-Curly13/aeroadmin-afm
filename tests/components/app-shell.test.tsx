@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 
 // Track B v1.2: app-shell ahora renderiza <MobileSidebarDrawer> (client
 // component) que usa useRouter. Mockeamos next/navigation para que el
@@ -151,6 +151,114 @@ describe("AppShell", () => {
       );
       expect(screen.getByText("50")).toBeInTheDocument();
       expect(screen.getByText("2")).toBeInTheDocument();
+    });
+
+    // ============================================================
+    // M4/F1.16 — Sidebar chip "Vencidas: N"
+    // ============================================================
+    describe("overdueCount (M4/F1.16)", () => {
+      it("NO muestra el chip 'Vencidas' si overdueCount es undefined (caso default en pages que no son el dashboard)", () => {
+        // El chip solo aparece en el dashboard. Las demás pages pasan
+        // undefined → el chip se oculta. Verificamos que el link NO
+        // está en el DOM.
+        render(
+          <AppShell
+            activeSection="map"
+            eyebrow="x"
+            highAlertsCount={3}
+            title="t"
+          />
+        );
+        expect(screen.queryByTestId("sidebar-overdue-link")).not.toBeInTheDocument();
+        // El status block sí está (highAlertsCount > 0), pero sin el chip vencidas.
+        expect(screen.getByTestId("status-block")).toBeInTheDocument();
+        expect(screen.queryByText("Vencidas")).not.toBeInTheDocument();
+      });
+
+      it("NO muestra el chip 'Vencidas' si overdueCount=0 (nada urgente)", () => {
+        render(
+          <AppShell
+            activeSection="dashboard"
+            eyebrow="x"
+            overdueCount={0}
+            parcelsCount={10}
+            title="t"
+          />
+        );
+        expect(screen.queryByTestId("sidebar-overdue-link")).not.toBeInTheDocument();
+        expect(screen.queryByText("Vencidas")).not.toBeInTheDocument();
+      });
+
+      it("muestra el chip 'Vencidas' con el count cuando overdueCount > 0", () => {
+        render(
+          <AppShell
+            activeSection="dashboard"
+            eyebrow="x"
+            overdueCount={7}
+            parcelsCount={50}
+            title="t"
+          />
+        );
+        // El chip es un Link que navega a /parcels/overdue?severity=overdue
+        const link = screen.getByTestId("sidebar-overdue-link");
+        expect(link).toBeInTheDocument();
+        expect(link).toHaveAttribute("href", "/parcels/overdue?severity=overdue");
+        // El label "Vencidas" y el count "7" son visibles.
+        expect(within(link).getByText("Vencidas")).toBeInTheDocument();
+        expect(within(link).getByText("7")).toBeInTheDocument();
+      });
+
+      it("muestra el chip 'Vencidas' aunque parcelsCount=0 y highAlertsCount=0", () => {
+        // Caso: sistema chico sin alerts pero con 2 parcelas vencidas.
+        // El status block debe aparecer solo por el overdueCount.
+        render(
+          <AppShell
+            activeSection="dashboard"
+            eyebrow="x"
+            overdueCount={2}
+            title="t"
+          />
+        );
+        expect(screen.getByTestId("status-block")).toBeInTheDocument();
+        const link = screen.getByTestId("sidebar-overdue-link");
+        expect(within(link).getByText("2")).toBeInTheDocument();
+      });
+
+      it("el chip se renderiza también en el drawer mobile cuando overdueCount > 0", () => {
+        // El drawer se abre con el botón hamburguesa. El chip "Vencidas"
+        // tiene un testid distinto (sidebar-overdue-link-mobile) para
+        // distinguirlo del desktop sin scope.
+        render(
+          <AppShell
+            activeSection="dashboard"
+            eyebrow="x"
+            overdueCount={3}
+            title="t"
+          />
+        );
+        const burger = screen.getByRole("button", { name: /abrir menú/i });
+        act(() => {
+          burger.click();
+        });
+        const link = screen.getByTestId("sidebar-overdue-link-mobile");
+        expect(link).toBeInTheDocument();
+        expect(link).toHaveAttribute("href", "/parcels/overdue?severity=overdue");
+        expect(within(link).getByText("Vencidas")).toBeInTheDocument();
+        expect(within(link).getByText("3")).toBeInTheDocument();
+      });
+
+      it("el drawer mobile NO muestra el chip si overdueCount=undefined", () => {
+        render(
+          <AppShell activeSection="map" eyebrow="x" parcelsCount={20} title="t" />
+        );
+        const burger = screen.getByRole("button", { name: /abrir menú/i });
+        act(() => {
+          burger.click();
+        });
+        expect(
+          screen.queryByTestId("sidebar-overdue-link-mobile")
+        ).not.toBeInTheDocument();
+      });
     });
   });
 

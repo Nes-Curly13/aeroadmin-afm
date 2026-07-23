@@ -50,6 +50,13 @@ export interface MobileSidebarDrawerProps {
   sidebarNav: readonly MobileSidebarNavItem[];
   parcelsCount: number;
   highAlertsCount: number;
+  /**
+   * M4/F1.16 — Count de parcelas vencidas (severity='overdue'). Mismo
+   * contrato que el `overdueCount` de `AppShell`: si es `undefined`,
+   * el chip se oculta. Solo el dashboard (`app/page.tsx`) pasa este
+   * valor. Ver `app-shell.tsx` para más contexto.
+   */
+  overdueCount?: number;
   activeSection: MobileSidebarSection;
 }
 
@@ -61,6 +68,7 @@ export function MobileSidebarDrawer({
   sidebarNav,
   parcelsCount,
   highAlertsCount,
+  overdueCount,
   activeSection
 }: MobileSidebarDrawerProps) {
   const router = useRouter();
@@ -133,7 +141,8 @@ export function MobileSidebarDrawer({
     router.push(href);
   }
 
-  const showStatus = parcelsCount > 0 || highAlertsCount > 0;
+  const showStatus =
+    parcelsCount > 0 || highAlertsCount > 0 || (overdueCount ?? 0) > 0;
   const burgerLabel = open ? BURGER_LABEL_OPEN : BURGER_LABEL_CLOSED;
 
   return (
@@ -254,6 +263,26 @@ export function MobileSidebarDrawer({
                         {highAlertsCount}
                       </span>
                     </div>
+                  ) : null}
+                  {/* M4/F1.16 — Mismo chip que el sidebar desktop. El
+                      Link en el drawer usa el mismo handler de nav que
+                      los otros items (handleNavClick) para que el
+                      drawer se cierre al navegar. */}
+                  {overdueCount !== undefined && overdueCount > 0 ? (
+                    <Link
+                      aria-label={`Ver ${overdueCount} parcelas vencidas`}
+                      className="flex items-center justify-between rounded-lg bg-white/5 px-4 py-3 transition hover:bg-white/10"
+                      data-testid="sidebar-overdue-link-mobile"
+                      href="/parcels/overdue?severity=overdue"
+                      onClick={() => handleNavClick("/parcels/overdue?severity=overdue")}
+                    >
+                      <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#ced8d0]">
+                        Vencidas
+                      </span>
+                      <span className="rounded-full bg-[#a93232] px-3 py-0.5 text-sm font-bold text-white">
+                        {overdueCount}
+                      </span>
+                    </Link>
                   ) : null}
                 </div>
               </div>

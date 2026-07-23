@@ -39,6 +39,23 @@ export interface AppShellProps {
   parcelsCount?: number;
   highAlertsCount?: number;
   /**
+   * M4/F1.16 — cantidad de parcelas VENCIDAS (`severity === 'overdue'`).
+   *
+   * Se renderiza como chip rojo en el bloque "Estado actual" del sidebar
+   * (debajo de "Alertas altas"). Es la métrica que el supervisor quiere
+   * ver al abrir el panel sin tener que entrar a /parcels/overdue.
+   *
+   * Solo el dashboard (`app/page.tsx`) calcula y pasa este count. Las
+   * demás páginas lo dejan `undefined` para que el chip se oculte
+   * (defensa: no todas las pages tienen el query batch para derivarlo).
+   * Si el valor es 0 o undefined, el chip no se renderiza.
+   *
+   * Fuente: `getOverdueParcels({ maxDaysAhead: 0, limit: 200 })` filtrado
+   * por `severity === 'overdue'`. El cache tag es `afm:overdue` y se
+   * invalida en `invalidateAfterFumigationMutation()`.
+   */
+  overdueCount?: number;
+  /**
    * Role del usuario actual. Si es `supervisor`, los items de
    * `ADMIN_ONLY_HREFS` se ocultan del sidebar (desktop y mobile).
    * `null` o `undefined` = no se sabe (loading, error, not-found),
@@ -62,9 +79,11 @@ export function AppShell({
   activeSection,
   parcelsCount = 0,
   highAlertsCount = 0,
+  overdueCount,
   viewerRole = null
 }: AppShellProps) {
-  const showStatus = parcelsCount > 0 || highAlertsCount > 0;
+  const showStatus =
+    parcelsCount > 0 || highAlertsCount > 0 || (overdueCount ?? 0) > 0;
 
   // Filtrar items admin-only si el viewer es supervisor.
   const visibleNav =
@@ -86,6 +105,7 @@ export function AppShell({
           <MobileSidebarDrawer
             activeSection={activeSection}
             highAlertsCount={highAlertsCount}
+            overdueCount={overdueCount}
             parcelsCount={parcelsCount}
             sidebarNav={visibleNav}
           />
@@ -149,6 +169,25 @@ export function AppShell({
                       {highAlertsCount}
                     </span>
                   </div>
+                ) : null}
+                {/* M4/F1.16 — Chip "Vencidas" en el sidebar.
+                    Solo se renderiza si el caller pasó `overdueCount > 0`.
+                    Las pages que no tienen el query batch (mapa, history,
+                    etc.) NO pasan la prop → undefined → chip oculto. */}
+                {overdueCount !== undefined && overdueCount > 0 ? (
+                  <Link
+                    aria-label={`Ver ${overdueCount} parcelas vencidas`}
+                    className="flex items-center justify-between rounded-lg bg-white/5 px-4 py-3 transition hover:bg-white/10"
+                    data-testid="sidebar-overdue-link"
+                    href="/parcels/overdue?severity=overdue"
+                  >
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#ced8d0]">
+                      Vencidas
+                    </span>
+                    <span className="rounded-full bg-[#a93232] px-3 py-0.5 text-sm font-bold text-white">
+                      {overdueCount}
+                    </span>
+                  </Link>
                 ) : null}
               </div>
             </div>
