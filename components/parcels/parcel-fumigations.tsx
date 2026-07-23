@@ -152,6 +152,17 @@ export function ParcelFumigations({
               events={events}
               parcelDroneName={parcel.drone_model_name}
               parcelName={parcel.land_name ?? parcel.external_id}
+              // Sprint B — F1.11: header de metadata + totales al final.
+              // `process.env.NEXT_PUBLIC_OPERATOR_NAME` se usa para que
+              // el bundle del cliente tenga el nombre del operador sin
+              // hardcodearlo (Next expone las env vars prefixadas con
+              // NEXT_PUBLIC_ al cliente en build time). Fallback a
+              // "AeroAdmin" para dev local.
+              csvMeta={{
+                operatorName: process.env.NEXT_PUBLIC_OPERATOR_NAME ?? "AeroAdmin",
+                generatedAt: new Date().toISOString().slice(0, 10),
+                parcelLabel: `${parcel.id} - ${parcel.land_name ?? parcel.external_id}`
+              }}
             />
           ) : null}
           {/* Track B v1.4: gate por role. Admin y supervisor pueden registrar
