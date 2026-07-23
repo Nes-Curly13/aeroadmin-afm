@@ -80,3 +80,12 @@ playwright-report/
 /tmp-dev-err.log
 /tmp-dev.pid
 /.mavis/
+
+# ============================================================
+# Database backups (Sprint C — H3a)
+# Generados por `node scripts/db-backup.js` (weekly, 7-day rotation).
+# Los dumps son binarios grandes (~5-50 MB gzip) con data del
+# cliente — NUNCA se commitean. Para offsite, copiar manualmente
+# a S3 / Supabase storage / disco externo.
+# ============================================================
+/backups/
