@@ -7,6 +7,7 @@ import { isProvenanceNotes, toDateString } from "@/lib/format";
 import type { DjiFumigationEvent, DjiFumigationSchedule, DjiParcelRecord } from "@/lib/types";
 
 import { CadenceEditor } from "@/components/parcels/cadence-editor";
+import { DownloadPdfReportButton } from "@/components/parcels/download-pdf-report-button";
 import { ExportFumigationsCsvButton } from "@/components/parcels/export-fumigations-csv-button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { RoleGate } from "@/components/auth/role-gate";
@@ -140,6 +141,12 @@ export function ParcelFumigations({
       <div className="mb-3 flex items-center justify-between gap-2">
         <h3 className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#587064]">Historial ({events.length})</h3>
         <div className="flex items-center gap-2">
+          {/* Sprint B — F1.11: reporte PDF server-side. Visible siempre
+              (no depende de tener eventos) — el PDF puede mostrar un
+              header + parcela + "sin fumigaciones" si el rango está
+              vacío. Decisión del PO: preferible que el botón esté
+              siempre visible para no esconder la feature. */}
+          <DownloadPdfReportButton parcelId={parcel.id} />
           {events.length > 0 ? (
             <ExportFumigationsCsvButton
               events={events}
