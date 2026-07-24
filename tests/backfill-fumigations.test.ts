@@ -11,7 +11,7 @@
 // el E2E con la DB.
 
 import { describe, expect, it } from "vitest";
-import { droneCodeFromNickname } from "@/scripts/backfill-fumigations-from-flights";
+import { droneCodeFromNickname } from "@/lib/backfill/fumigations-from-flights";
 
 describe("backfill-fumigations-from-flights — droneCodeFromNickname", () => {
   it("mapea T40 → 201 (T40/T50 family)", () => {
