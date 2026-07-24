@@ -13,6 +13,9 @@
 //   - 200 con HEALTH_TOKEN válido (bypass H3b) → no llama requireRole
 //   - 401 con HEALTH_TOKEN inválido → cae al guard de role
 //   - Sin HEALTH_TOKEN server-side, el bearer siempre falla (no bypass)
+//   - **Sprint E — Task 2**: en serverless (VERCEL=1), el endpoint lee
+//     de la tabla `djiag_health` en vez del filesystem. Si la DB falla,
+//     devuelve status='unknown' sin crashear.
 //
 // Patrón consistente con tests/api-fumigation-schedule-auth.test.ts:
 // mockear `@/lib/auth/role` con vi.hoisted. La lógica de read+derive
@@ -30,7 +33,12 @@ const authMocks = vi.hoisted(() => ({
   requireRole: vi.fn()
 }));
 
+const dbMocks = vi.hoisted(() => ({
+  getDb: vi.fn()
+}));
+
 vi.mock("@/lib/auth/role", () => authMocks);
+vi.mock("@/lib/db", () => dbMocks);
 
 import { GET } from "@/app/api/admin/djiag-health/route";
 import {
@@ -351,5 +359,171 @@ describe("readHealthFile + deriveResponse — lógica pura", () => {
     const r = deriveResponse(health);
     expect(r.status).toBe("failed");
     expect(r.warnings.some((w) => /falló/i.test(w))).toBe(true);
+  });
+});
+
+// ============================================================
+// Sprint E — Task 2: serverless (VERCEL=1) lee de Postgres.
+// ============================================================
+describe("GET /api/admin/djiag-health — serverless (VERCEL=1, lee de DB)", () => {
+  let savedVercel: string | undefined;
+  let savedLambda: string | undefined;
+  let savedHealthToken: string | undefined;
+
+  // Helper: el cliente de DB mockeado que el endpoint va a usar.
+  function makeDbClient(rows: unknown[] | "throw") {
+    if (rows === "throw") {
+      return {
+        query: vi.fn().mockRejectedValue(new Error("ECONNREFUSED"))
+      };
+    }
+    return {
+      query: vi.fn().mockResolvedValue({ rows })
+    };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    savedVercel = process.env.VERCEL;
+    savedLambda = process.env.AWS_LAMBDA_FUNCTION_NAME;
+    savedHealthToken = process.env.HEALTH_TOKEN;
+    // serverless mode
+    process.env.VERCEL = "1";
+    delete process.env.AWS_LAMBDA_FUNCTION_NAME;
+    delete process.env.HEALTH_TOKEN;
+    // Por default, getDb() devuelve un cliente mockeado que devuelve
+    // 0 rows (la tabla vacía → status='unknown'). Los tests
+    // individuales lo sobrescriben.
+    dbMocks.getDb.mockReturnValue(makeDbClient([]));
+    // requireRole no debería ser llamado si somos admin via session
+    // o via token, pero como NO seteamos HEALTH_TOKEN, sí va a
+    // ser llamado. Lo dejamos como default success.
+    authMocks.requireRole.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    if (savedVercel === undefined) delete process.env.VERCEL;
+    else process.env.VERCEL = savedVercel;
+    if (savedLambda === undefined) delete process.env.AWS_LAMBDA_FUNCTION_NAME;
+    else process.env.AWS_LAMBDA_FUNCTION_NAME = savedLambda;
+    if (savedHealthToken === undefined) delete process.env.HEALTH_TOKEN;
+    else process.env.HEALTH_TOKEN = savedHealthToken;
+  });
+
+  it("lee de la DB (no del filesystem) cuando VERCEL=1", async () => {
+    const now = new Date();
+    dbMocks.getDb.mockReturnValue(
+      makeDbClient([
+        {
+          last_run_at: now,
+          last_run_status: "ok",
+          last_successful_sync_at: now,
+          flights_count: 10,
+          fumigations_count: 5,
+          lands_count: 1207,
+          steps: []
+        }
+      ])
+    );
+
+    // Apuntamos process.cwd() a un dir SIN archivo de health — si el
+    // endpoint leyera del filesystem, devolvería 'unknown'. Como
+    // lee de la DB, debe devolver 'ok'.
+    const tmpDir = mkdtempSync(join(tmpdir(), "djiag-health-sls-"));
+    const originalCwd = process.cwd();
+    process.chdir(tmpDir);
+    try {
+      const response = await GET(buildRequest());
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as {
+        status: string;
+        flightsLastSync: number;
+      };
+      expect(body.status).toBe("ok");
+      expect(body.flightsLastSync).toBe(10);
+      // Confirmamos que llamó a la DB (no al fs).
+      expect(dbMocks.getDb).toHaveBeenCalledTimes(1);
+    } finally {
+      process.chdir(originalCwd);
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("devuelve status='unknown' si la DB no tiene la fila (0 rows)", async () => {
+    dbMocks.getDb.mockReturnValue(makeDbClient([]));
+    const response = await GET(buildRequest());
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { status: string; warnings: string[] };
+    expect(body.status).toBe("unknown");
+    expect(body.warnings.length).toBeGreaterThan(0);
+  });
+
+  it("devuelve status='unknown' si la DB tira ECONNREFUSED (no 500)", async () => {
+    dbMocks.getDb.mockReturnValue(makeDbClient("throw"));
+    const response = await GET(buildRequest());
+    // NO 500 — el caller (UI) puede mostrar "Sin datos" sin crashear.
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { status: string };
+    expect(body.status).toBe("unknown");
+  });
+
+  it("lee de DB también cuando AWS_LAMBDA_FUNCTION_NAME está seteada (no solo VERCEL)", async () => {
+    delete process.env.VERCEL;
+    process.env.AWS_LAMBDA_FUNCTION_NAME = "my-lambda-fn";
+    const now = new Date();
+    dbMocks.getDb.mockReturnValue(
+      makeDbClient([
+        {
+          last_run_at: now,
+          last_run_status: "ok",
+          last_successful_sync_at: now,
+          flights_count: 1,
+          fumigations_count: 1,
+          lands_count: 1,
+          steps: []
+        }
+      ])
+    );
+    const response = await GET(buildRequest());
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { status: string };
+    expect(body.status).toBe("ok");
+    expect(dbMocks.getDb).toHaveBeenCalled();
+  });
+
+  it("en local (VERCEL undefined) sigue leyendo del filesystem (backwards compat)", async () => {
+    delete process.env.VERCEL;
+    delete process.env.AWS_LAMBDA_FUNCTION_NAME;
+    // En local, getDb NO debería ser llamado.
+    dbMocks.getDb.mockClear();
+    // Apuntamos a un tmpdir con archivo válido.
+    const tmpDir = mkdtempSync(join(tmpdir(), "djiag-health-local-"));
+    const originalCwd = process.cwd();
+    process.chdir(tmpDir);
+    const exportsDir = join(tmpDir, "djiag_exports");
+    mkdirSync(exportsDir, { recursive: true });
+    writeFileSync(
+      join(exportsDir, "_health.json"),
+      JSON.stringify({
+        lastRunAt: new Date().toISOString(),
+        lastRunStatus: "ok",
+        lastSuccessfulSyncAt: new Date().toISOString(),
+        steps: [],
+        totals: { flights: 1, fumigations: 1, lands: 1 },
+        version: 1
+      }),
+      "utf8"
+    );
+    try {
+      const response = await GET(buildRequest());
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as { status: string };
+      expect(body.status).toBe("ok");
+      // La DB no se llamó en local.
+      expect(dbMocks.getDb).not.toHaveBeenCalled();
+    } finally {
+      process.chdir(originalCwd);
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 });

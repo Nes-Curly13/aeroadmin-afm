@@ -188,69 +188,143 @@ function fmtDuration(ms) {
 
 /**
  * XS1 (audit 2026-07-22, docs/DJIAG_AUDIT.md H1).
+ * Sprint E — Task 2: también escribe a la tabla Postgres
+ * `djiag_health` (singleton row id=1) para que el endpoint admin
+ * pueda leer el health en serverless (Vercel). El filesystem sigue
+ * siendo la fuente en dev local — escribimos a ambos lados
+ * (best-effort, no rompe el pipeline si uno falla).
  *
- * Escribe `djiag_exports/_health.json` con el resumen de la corrida.
- * El endpoint `GET /api/admin/djiag-health` lo lee para reportar
- * visibilidad operacional al admin (sin necesidad de SSH al server).
+ * Estructura del payload: ver interface PipelineHealth en
+ * `app/api/admin/djiag-health/route.ts` (igual para ambos sinks).
  *
- * Estructura: ver interface PipelineHealth en
- * `app/api/admin/djiag-health/route.ts`.
- *
- * Idempotente: solo escribe, no falla el pipeline si el write falla
- * (se loguea warning y se sigue). El health es "best effort".
- *
- * `totals` se estiman a partir de los step names (los steps de
- * upsert-X-from-djiag son los que finalmente dejan data en BD). Si
- * DJI cambia los nombres, este mapeo se desactualiza — acceptable
- * degradation, sigue siendo util.
+ * `totals` se estiman a partir de los step names (heurística: +1
+ * por step "upsert X" OK). Si DJI cambia los nombres, este mapeo
+ * se desactualiza — acceptable degradation, sigue siendo util.
  */
-function writeHealthFile({ steps, startedAt, finishedAt, runStatus }) {
-  const fs = require('fs');
-  const path = require('path');
-  const outDir = path.join(process.cwd(), 'djiag_exports');
-  const outPath = path.join(outDir, '_health.json');
-
+function buildHealthPayload({ steps, finishedAt, runStatus, prevLastSuccessfulSyncAt }) {
   const totals = { flights: 0, fumigations: 0, lands: 0 };
-  // Heurística: los steps que importan data son los que tienen
-  // "upsert" + el nombre de la tabla. Si un step es OK, sumamos 1
-  // como placeholder (no tenemos el count exacto del rowCount del
-  // UPSERT desde acá). El endpoint reporta estos como "último sync"
-  // y son útiles para el "¿se ejecutó?"; el count exacto se puede
-  // leer de la BD si hace falta.
   for (const s of steps) {
     if (s.status !== 'ok') continue;
     if (s.name.includes('upsert flights')) totals.flights += 1;
     else if (s.name.includes('upsert fumigations')) totals.fumigations += 1;
     else if (s.name.includes('upsert lands')) totals.lands += 1;
   }
-
   const lastSuccessfulSyncAt =
-    runStatus === 'ok' ? new Date(finishedAt).toISOString() : readLastSuccessfulSyncAt();
-
-  const payload = {
+    runStatus === 'ok' ? new Date(finishedAt).toISOString() : (prevLastSuccessfulSyncAt ?? null);
+  return {
     lastRunAt: new Date(finishedAt).toISOString(),
-    lastRunStatus: runStatus, // 'ok' | 'partial' | 'failed'
+    lastRunStatus: runStatus,
     lastSuccessfulSyncAt,
     steps: steps.map((s) => ({
       order: s.order,
       name: s.name,
-      status: s.status, // 'ok' | 'failed' | 'skipped'
+      status: s.status,
       durationMs: s.durationMs,
       error: s.error
     })),
     totals,
     version: 1
   };
+}
 
+/**
+ * Escribe `djiag_exports/_health.json` con el resumen de la corrida.
+ * Fuente en dev local y CI. NO funciona en Vercel (filesystem
+ * ephemeral) pero el writeHealthToDb sí.
+ *
+ * Idempotente: no falla el pipeline si el write falla (se loguea
+ * warning y se sigue). El health es "best effort".
+ */
+function writeHealthFile(payload) {
+  const fs = require('fs');
+  const path = require('path');
+  const outDir = path.join(process.cwd(), 'djiag_exports');
+  const outPath = path.join(outDir, '_health.json');
   try {
     fs.mkdirSync(outDir, { recursive: true });
     fs.writeFileSync(outPath, JSON.stringify(payload, null, 2), 'utf8');
     if (process.env.DEBUG_PIPELINE) {
-      console.error(`[health] wrote ${outPath} (status=${runStatus}, steps=${steps.length})`);
+      console.error(`[health] wrote ${outPath} (status=${payload.lastRunStatus}, steps=${payload.steps.length})`);
     }
   } catch (err) {
     // No fallar el pipeline por no poder escribir el health.
     console.warn(`[health] no se pudo escribir ${outPath}: ${err.message}`);
+  }
+}
+
+/**
+ * Escribe el health a la tabla Postgres `djiag_health` (singleton).
+ * Fuente en Vercel serverless (el filesystem es ephemeral).
+ *
+ * Idempotente: usa `INSERT ... ON CONFLICT (id) DO UPDATE` con
+ * `id = 1` (la tabla tiene un CHECK que fuerza singleton).
+ *
+ * Best-effort: si la tabla no existe (migration no aplicada) o
+ * la conexión falla, loguea warning y sigue sin romper el pipeline.
+ * El endpoint admin va a devolver status='unknown' en ese caso,
+ * lo cual es preferible a tirar 500.
+ *
+ * `lastSuccessfulSyncAt` se preserva del valor anterior cuando la
+ * corrida actual fue 'partial' o 'failed' (mismo comportamiento que
+ * el filesystem). El UPSERT usa `COALESCE(EXCLUDED.last_successful_sync_at,
+ * djiag_health.last_successful_sync_at)` para eso.
+ *
+ * Variables: DATABASE_URL (o DATABASE_URL_DIRECT) — misma env var
+ * que el resto de los scripts del pipeline. DATABASE_SSL=true si
+ * la conexión requiere SSL (Supabase prod).
+ */
+async function writeHealthToDb(payload) {
+  const { Pool } = require('pg');
+  const connectionString = process.env.DATABASE_URL ?? process.env.DATABASE_URL_DIRECT;
+  if (!connectionString) {
+    console.warn('[health] DATABASE_URL no configurada — skip DB write.');
+    return;
+  }
+  const useSsl = process.env.DATABASE_SSL === 'true';
+  const pool = new Pool({
+    connectionString,
+    max: 2,
+    idleTimeoutMillis: 10_000,
+    ssl: useSsl ? { rejectUnauthorized: false } : undefined
+  });
+  try {
+    // `last_successful_sync_at` se preserva del valor previo si
+    // EXCLUDED.last_successful_sync_at es null. Eso cubre el caso
+    // "esta corrida fue partial/failed pero la anterior fue ok".
+    await pool.query(
+      `INSERT INTO public.djiag_health (
+        id, last_run_at, last_run_status, last_successful_sync_at,
+        flights_count, fumigations_count, lands_count, steps, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, now())
+      ON CONFLICT (id) DO UPDATE SET
+        last_run_at = EXCLUDED.last_run_at,
+        last_run_status = EXCLUDED.last_run_status,
+        last_successful_sync_at = COALESCE(EXCLUDED.last_successful_sync_at, public.djiag_health.last_successful_sync_at),
+        flights_count = EXCLUDED.flights_count,
+        fumigations_count = EXCLUDED.fumigations_count,
+        lands_count = EXCLUDED.lands_count,
+        steps = EXCLUDED.steps,
+        updated_at = now()`,
+      [
+        1,
+        payload.lastRunAt,
+        payload.lastRunStatus,
+        payload.lastSuccessfulSyncAt,
+        payload.totals.flights,
+        payload.totals.fumigations,
+        payload.totals.lands,
+        JSON.stringify(payload.steps)
+      ]
+    );
+    if (process.env.DEBUG_PIPELINE) {
+      console.error(`[health] wrote djiag_health (status=${payload.lastRunStatus}, steps=${payload.steps.length})`);
+    }
+  } catch (err) {
+    // No fallar el pipeline. La tabla puede no existir todavía
+    // (migration no aplicada) o la conexión puede estar caída.
+    console.warn(`[health] no se pudo escribir djiag_health: ${err.message}`);
+  } finally {
+    await pool.end().catch(() => { /* ignore */ });
   }
 }
 
@@ -270,6 +344,29 @@ function readLastSuccessfulSyncAt() {
   } catch {
     return null;
   }
+}
+
+/**
+ * Orquestador: construye el payload y lo escribe a filesystem + DB.
+ * Si el filesystem write falla, el DB write sigue intentando (y
+ * viceversa). Best-effort, no rompe el pipeline.
+ */
+async function writeHealth({ steps, startedAt, finishedAt, runStatus }) {
+  // `startedAt` se conserva en la firma por compat con callers
+  // previos, pero no se usa en el payload (solo finishedAt importa
+  // para lastRunAt/lastSuccessfulSyncAt).
+  void startedAt;
+  const prevLastSuccessfulSyncAt = readLastSuccessfulSyncAt();
+  const payload = buildHealthPayload({
+    steps,
+    finishedAt,
+    runStatus,
+    prevLastSuccessfulSyncAt
+  });
+  // Filesystem write (síncrono, no puede tirar async).
+  writeHealthFile(payload);
+  // DB write (async, best-effort).
+  await writeHealthToDb(payload);
 }
 
 function runStep(step, opts) {
@@ -332,13 +429,18 @@ async function main() {
       // es 'failed'.
       const anyPriorOk = healthSteps.slice(0, -1).some((s) => s.status === 'ok');
       const runStatus = anyPriorOk ? 'partial' : 'failed';
-      writeHealthFile({
+      // `writeHealth` es async, pero como vamos a hacer `process.exit(1)`
+      // inmediatamente después, esperamos con un catch para no dejar
+      // una promesa colgando que tire "unhandled promise rejection".
+      writeHealth({
         steps: healthSteps,
         startedAt: t0,
         finishedAt: Date.now(),
         runStatus
-      });
-      process.exit(1);
+      })
+        .catch((e) => console.warn(`[health] writeHealth falló: ${e.message}`))
+        .finally(() => process.exit(1));
+      return;
     }
     if (r.skipped) skipCount++;
     else okCount++;
@@ -347,18 +449,42 @@ async function main() {
   console.log('');
   console.log(`${c.bold}Pipeline done.${c.reset} ${c.green}${okCount} ok${c.reset} / ${c.gray}${skipCount} skip${c.reset} / ${failCount > 0 ? c.red : c.gray}${failCount} fail${c.reset} ${c.gray}(total ${total})${c.reset}`);
 
-  // XS1: escribir health al final de una corrida exitosa.
-  writeHealthFile({
+  // XS1: escribir health al final de una corrida exitosa (filesystem
+  // + DB, best-effort). El .catch es defensivo: writeHealth no debería
+  // tirar nunca, pero si lo hace no queremos un unhandled rejection.
+  writeHealth({
     steps: healthSteps,
     startedAt: t0,
     finishedAt: Date.now(),
     runStatus: 'ok'
-  });
-
-  process.exit(0);
+  })
+    .catch((e) => console.warn(`[health] writeHealth falló: ${e.message}`))
+    .finally(() => process.exit(0));
 }
 
-main().catch((e) => {
-  console.error(`${c.red}fatal: ${e.stack || e.message}${c.reset}`);
-  process.exit(1);
-});
+// Solo ejecutar main() si este archivo es el entry point. Si es
+// `require()`-eado por vitest, queremos importar las funciones
+// puras sin disparar la pipeline real.
+if (require.main === module) {
+  main().catch((e) => {
+    console.error(`${c.red}fatal: ${e.stack || e.message}${c.reset}`);
+    process.exit(1);
+  });
+}
+
+// ============================================================
+// Exports para tests (Sprint E — Task 2)
+// ============================================================
+// Solo exportamos cuando NO somos el entry point. Esto permite que
+// `node scripts/run-pipeline.js` siga funcionando exactamente igual,
+// pero también que `require('./run-pipeline.js')` desde vitest
+// pueda importar las funciones puras para testear.
+if (require.main !== module) {
+  module.exports = {
+    buildHealthPayload,
+    writeHealthFile,
+    writeHealthToDb,
+    writeHealth,
+    readLastSuccessfulSyncAt
+  };
+}
