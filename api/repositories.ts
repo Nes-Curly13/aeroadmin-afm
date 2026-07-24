@@ -432,7 +432,12 @@ const fumigationEventsByParcelQuery = `
     product_registered_ica,
     pilot_license,
     recorded_at,
-    source
+    source,
+    -- Sprint G2: array de flight IDs (solo para fumigaciones del import).
+    -- NULL para fumigaciones manuales o pre-G2. Lo necesita el UI de
+    -- trazabilidad (al click en la fumigación, ver qué flights la
+    -- originaron).
+    flight_ids
   FROM dji_fumigations
   WHERE parcel_id = $1
     AND deleted_at IS NULL

@@ -3,13 +3,18 @@ import { notFound } from "next/navigation";
 
 import { AppShell } from "@/components/app-shell";
 import { ParcelDetail } from "@/components/parcels/parcel-detail";
+import { ParcelFumigationHistory } from "@/components/parcels/parcel-fumigation-history";
 import { ParcelFumigations } from "@/components/parcels/parcel-fumigations";
 import {
   getFumigationDbStats,
   getFumigationEventsByParcel,
+  getFumigationFlightTrace,
   getFumigationSchedule,
+  getFumigationYearlySummary,
+  getFumigationYearTotals,
   getParcelById,
-  getParcelsNormalized
+  getParcelsNormalized,
+  getScheduleHistory
 } from "@/api/repositories";
 import { getViewerRole } from "@/lib/auth/role";
 import { daysUntilNextDue, getFumigationStatus } from "@/lib/fumigation-cadence";
@@ -27,20 +32,52 @@ export default async function ParcelPage({
     notFound();
   }
 
-  // Sprint G1 — dbStats para el empty state inteligente. Es una query
-  // agregada (1 round-trip a la BD), barata. La hacemos en paralelo
-  // con el resto.
-  const [parcel, allParcels, schedule, events, dbStats] = await Promise.all([
+  // Sprint G2 — agregamos al Promise.all:
+  //   - summary + totals: resumen anual del año actual
+  //   - scheduleHistory: cambios de cadencia (últimos 10)
+  //   - flightTraces: flights de las fumigaciones con flight_ids
+  //     (solo las del import con trazabilidad)
+  const currentYear = new Date().getUTCFullYear();
+
+  const [
+    parcel,
+    allParcels,
+    schedule,
+    events,
+    dbStats,
+    summary,
+    totals,
+    scheduleHistory
+  ] = await Promise.all([
     getParcelById(id),
     getParcelsNormalized(1, 200),
     getFumigationSchedule(id),
     getFumigationEventsByParcel(id),
-    getFumigationDbStats()
+    getFumigationDbStats(),
+    getFumigationYearlySummary(id, currentYear),
+    getFumigationYearTotals(id, currentYear),
+    getScheduleHistory(id, 10)
   ]);
 
   if (!parcel) {
     notFound();
   }
+
+  // Flight traces: solo para fumigaciones del import con flight_ids.
+  // Hacemos 1 Promise.all con N queries (cada fumigación = 1 query).
+  // N es chico (5-10 fumigaciones por parcela), acceptable.
+  // Si en el futuro esto se vuelve lento (>50 fumigaciones con
+  // flight_ids por parcela), se reemplaza por una sola query
+  // que traiga todos los flights de la parcela en una sola vez.
+  const traceableEvents = events.filter(
+    (e) => e.flight_ids && e.flight_ids.length > 0
+  );
+  const flightTraces: Record<number, Awaited<ReturnType<typeof getFumigationFlightTrace>>> = {};
+  await Promise.all(
+    traceableEvents.map(async (e) => {
+      flightTraces[e.id] = await getFumigationFlightTrace(e.id);
+    })
+  );
 
   const currentIndex = allParcels.data.findIndex((p) => p.id === id);
   const prev = currentIndex > 0 ? allParcels.data[currentIndex - 1] : null;
@@ -104,6 +141,15 @@ export default async function ParcelPage({
           parcel={parcel}
           schedule={schedule}
           status={status}
+        />
+        <ParcelFumigationHistory
+          events={events}
+          initialFlightTraces={flightTraces}
+          initialSummary={summary}
+          initialTotals={totals}
+          initialYear={currentYear}
+          parcel={parcel}
+          scheduleHistory={scheduleHistory}
         />
         <ParcelDetail parcel={parcel} />
       </div>

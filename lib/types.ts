@@ -176,6 +176,14 @@ export interface DjiFumigationEvent {
   pilot_license: string | null;
   recorded_at: string;
   source: "manual" | "djiscraper" | "import";
+  /**
+   * Sprint G2 — array de dji_flights.id que originaron esta fumigación
+   * del import. NULL o undefined para fumigaciones manuales o
+   * pre-Sprint-G2. Lo popula `scripts/backfill-fumigations-from-
+   * flights.js` (commit `eb7924b`). Usado por la sección de
+   * Trazabilidad del UI.
+   */
+  flight_ids?: number[] | null;
 }
 
 /**
