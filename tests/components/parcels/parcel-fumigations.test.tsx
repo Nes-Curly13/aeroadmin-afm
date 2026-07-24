@@ -842,3 +842,141 @@ describe("ParcelFumigations — disabled durante submit (F1.10)", () => {
     resolveFetch(new Response("{}", { status: 200 }));
   });
 });
+
+describe("ParcelFumigations — Sprint G1: source badge + smart empty state", () => {
+  function makeEvent(over: Partial<DjiFumigationEvent> = {}): DjiFumigationEvent {
+    return {
+      id: 100,
+      parcel_id: 42,
+      fumigation_date: "2026-06-15",
+      product_used: "Glifosato 1L/ha",
+      dose_l_per_ha: 1.0,
+      area_fumigated_m2: 4000,
+      drone_code_used: 1,
+      duration_minutes: 25,
+      notes: null,
+      human_notes: null,
+      recorded_by: "Juan",
+      product_registered_ica: "ICA-1234-PN",
+      pilot_license: "PCA-12345",
+      recorded_at: "2026-06-15T12:00:00Z",
+      source: "import",
+      ...over
+    };
+  }
+
+  it("muestra badge 'Manual' para fumigaciones con source=manual", () => {
+    const events = [makeEvent({ id: 1, source: "manual" })];
+    render(
+      <ParcelFumigations
+        daysUntilNextDue={null}
+        events={events}
+        parcel={makeParcel()}
+        schedule={makeSchedule()}
+        status="ok"
+      />
+    );
+    const badges = screen.getAllByTestId("fumigation-source-badge");
+    expect(badges).toHaveLength(1);
+    expect(badges[0]).toHaveTextContent(/manual/i);
+  });
+
+  it("muestra badge 'Import' para fumigaciones con source=import (provenance del backfill)", () => {
+    const events = [makeEvent({ id: 2, source: "import" })];
+    render(
+      <ParcelFumigations
+        daysUntilNextDue={null}
+        events={events}
+        parcel={makeParcel()}
+        schedule={makeSchedule()}
+        status="ok"
+      />
+    );
+    const badges = screen.getAllByTestId("fumigation-source-badge");
+    expect(badges[0]).toHaveTextContent(/import/i);
+  });
+
+  it("muestra badge 'DJI scraper' para fumigaciones con source=djiscraper", () => {
+    const events = [makeEvent({ id: 3, source: "djiscraper" })];
+    render(
+      <ParcelFumigations
+        daysUntilNextDue={null}
+        events={events}
+        parcel={makeParcel()}
+        schedule={makeSchedule()}
+        status="ok"
+      />
+    );
+    const badges = screen.getAllByTestId("fumigation-source-badge");
+    expect(badges[0]).toHaveTextContent(/dji scraper/i);
+  });
+
+  it("empty state: muestra contexto global + link a huérfanas cuando hay huérfanas", () => {
+    render(
+      <ParcelFumigations
+        daysUntilNextDue={null}
+        dbStats={{
+          total: 500,
+          orphan: 30,
+          parcelasConFumigacion: 400,
+          totalParcelas: 1000,
+          coberturaPct: 40
+        }}
+        events={EMPTY_EVENTS}
+        parcel={makeParcel()}
+        schedule={makeSchedule()}
+        status="no_history"
+      />
+    );
+    // El contexto global aparece. Los números se formatean con
+    // toLocaleString("es-CO") → "1.000" para miles. El regex acepta
+    // ambos formatos ("500" o "1.000") para no romperse por locale.
+    const context = screen.getByTestId("parcel-fumigations-empty-context");
+    expect(context).toBeInTheDocument();
+    expect(context.textContent).toMatch(/500/);
+    expect(context.textContent).toMatch(/400/);
+    expect(context.textContent).toMatch(/1[.\s]?000/);
+    // El link a huérfanas aparece con el conteo
+    const orphanLink = screen.getByTestId("parcel-fumigations-empty-orphan-link");
+    expect(orphanLink).toBeInTheDocument();
+    expect(orphanLink).toHaveAttribute("href", "/admin/orphan-fumigations");
+    expect(orphanLink.textContent).toMatch(/30/);
+  });
+
+  it("empty state: NO muestra el link a huérfanas si orphan=0", () => {
+    render(
+      <ParcelFumigations
+        daysUntilNextDue={null}
+        dbStats={{
+          total: 50,
+          orphan: 0,
+          parcelasConFumigacion: 25,
+          totalParcelas: 50,
+          coberturaPct: 50
+        }}
+        events={EMPTY_EVENTS}
+        parcel={makeParcel()}
+        schedule={makeSchedule()}
+        status="no_history"
+      />
+    );
+    const context = screen.getByTestId("parcel-fumigations-empty-context");
+    expect(context).toBeInTheDocument();
+    // Sin huérfanas, no se renderiza el link
+    expect(screen.queryByTestId("parcel-fumigations-empty-orphan-link")).toBeNull();
+  });
+
+  it("empty state: NO muestra el contexto si dbStats no se pasa (backwards compat)", () => {
+    render(
+      <ParcelFumigations
+        daysUntilNextDue={null}
+        events={EMPTY_EVENTS}
+        parcel={makeParcel()}
+        schedule={makeSchedule()}
+        status="no_history"
+      />
+    );
+    expect(screen.queryByTestId("parcel-fumigations-empty-context")).toBeNull();
+  });
+});
+

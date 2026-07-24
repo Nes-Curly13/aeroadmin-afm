@@ -5,6 +5,7 @@ import { AppShell } from "@/components/app-shell";
 import { ParcelDetail } from "@/components/parcels/parcel-detail";
 import { ParcelFumigations } from "@/components/parcels/parcel-fumigations";
 import {
+  getFumigationDbStats,
   getFumigationEventsByParcel,
   getFumigationSchedule,
   getParcelById,
@@ -26,11 +27,15 @@ export default async function ParcelPage({
     notFound();
   }
 
-  const [parcel, allParcels, schedule, events] = await Promise.all([
+  // Sprint G1 — dbStats para el empty state inteligente. Es una query
+  // agregada (1 round-trip a la BD), barata. La hacemos en paralelo
+  // con el resto.
+  const [parcel, allParcels, schedule, events, dbStats] = await Promise.all([
     getParcelById(id),
     getParcelsNormalized(1, 200),
     getFumigationSchedule(id),
-    getFumigationEventsByParcel(id)
+    getFumigationEventsByParcel(id),
+    getFumigationDbStats()
   ]);
 
   if (!parcel) {
@@ -94,6 +99,7 @@ export default async function ParcelPage({
       <div className="space-y-5">
         <ParcelFumigations
           daysUntilNextDue={days}
+          dbStats={dbStats}
           events={events}
           parcel={parcel}
           schedule={schedule}
