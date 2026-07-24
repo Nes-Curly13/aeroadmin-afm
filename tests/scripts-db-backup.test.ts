@@ -169,20 +169,29 @@ describe("db-backup — runPgDump (con exec inyectable)", () => {
     await expect(dbBackup.runPgDump("postgres://bad", exec)).rejects.toBe(fakeErr);
   });
 
-  it("usa execFileP por default si no se inyecta (smoke test — no falla con mock)", async () => {
-    // Sin inyectar: usa el execFileP real, que va a fallar porque pg_dump
-    // no está instalado en el ambiente de test (o sí, depende del runner).
-    // Lo que importa: NO debe tirar TypeError, y el error es un Error de
-    // Node (ENOENT) o un Buffer válido.
+  it("usa execFileP por default si no se inyecta (smoke test — falla rápido con ENOENT, no TypeError)", async () => {
+    // Inyectamos un exec que simula `pg_dump` no instalado en PATH
+    // (mismo error que tiraría el execFileP real en CI Ubuntu sin libpq).
+    // Lo que importa: NO debe tirar TypeError ni colgar 15s esperando DNS
+    // a un Postgres que no existe.
+    const fakeErr = Object.assign(new Error("spawn pg_dump ENOENT"), {
+      code: "ENOENT",
+      stderr: Buffer.from(""),
+    });
+    const exec = vi.fn().mockRejectedValue(fakeErr);
+
     try {
-      const buffer = await dbBackup.runPgDump("postgres://localhost/none");
+      const buffer = await dbBackup.runPgDump("postgres://localhost/none", exec);
+      // Si por algún motivo el mock devolvió un buffer (no debería):
       expect(Buffer.isBuffer(buffer)).toBe(true);
     } catch (err) {
-      // pg_dump no disponible en el ambiente — el catch verifica que
-      // el error es el esperado, no un TypeError de la DI rota.
+      // El error es el esperado, no un TypeError de la DI rota.
       expect(err).toBeInstanceOf(Error);
       expect(String((err as Error).message)).toMatch(/ENOENT|exited|connection/);
     }
+
+    // Sanity: confirmamos que se llamó al exec (no al default execFileP).
+    expect(exec).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -315,7 +324,11 @@ describe("db-backup — pgDumpAvailable (con exec inyectable)", () => {
     const exec = vi.fn().mockResolvedValue({ stdout: "C:\\bin\\pg_dump.EXE", stderr: "" });
     const result = await dbBackup.pgDumpAvailable(exec);
     expect(result).toBe(true);
-    expect(exec).toHaveBeenCalledWith("where", ["pg_dump"], expect.any(Object));
+    // El comando de búsqueda depende del OS: `where` en Windows, `which` en Unix.
+    // El script (db-backup.js) ya detecta process.platform, solo tenemos que
+    // matchear la rama correspondiente en el test.
+    const expectedCmd = process.platform === "win32" ? "where" : "which";
+    expect(exec).toHaveBeenCalledWith(expectedCmd, ["pg_dump"], expect.any(Object));
   });
 
   it("devuelve false si el exec inyectable falla (pg_dump no está en PATH)", async () => {
