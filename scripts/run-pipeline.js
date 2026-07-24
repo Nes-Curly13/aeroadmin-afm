@@ -6,11 +6,22 @@
 //   3. Upsert flights                                         → dji_flights
 //   4. Spatial join flights × parcels (fill parcel_id)        → dji_flights.parcel_id
 //   5. Upsert fumigations aggregate                           → dji_fumigations (source='dji_aggr')
-//   6. Backfill per-parcel fumigations from flights           → dji_fumigations (source='import')
-//   7. Update fumigation schedule (last_fumigation_date / next_due_date)
-//   8. Fetch lands from DJI (GraphQL)                         → djiag_exports/lands.json
-//   9. Download land assets (signed S3, ~12h TTL)            → djiag_exports/land_files/
-//  10. Upsert lands into dji_parcels                          → dji_parcels (API columns)
+//   6. Backfill + schedule via HTTP endpoint (Sprint H2)     → dji_fumigations (source='import') + dji_fumigation_schedule
+//   7. Fetch lands from DJI (GraphQL)                         → djiag_exports/lands.json
+//   8. Download land assets (signed S3, ~12h TTL)            → djiag_exports/land_files/
+//   9. Upsert lands into dji_parcels                          → dji_parcels (API columns)
+//
+// Sprint H2 — full auto:
+//   - El step 6 reemplazó los antiguos steps 6 (backfill) + 7
+//     (update-schedule). Ahora hace UN SOLO HTTP call al endpoint
+//     admin `POST /api/admin/backfill-fumigations` que ejecuta
+//     ambas queries en una sola transacción. Si el Next.js server
+//     está vivo, los datos derivados se mantienen sincronizados
+//     automáticamente — sin necesidad de correr
+//     `refresh-fumigations.js` a mano.
+//   - El script sigue siendo el "trigger" (es el que sabe cuándo
+//     hay flights nuevos); el endpoint es el que hace el trabajo
+//     pesado con auth + transacción atómica.
 //
 // Cada step es idempotente (UPSERT / DELETE WHERE source='import' antes de
 // re-insertar). Re-correr la pipeline completa N veces no duplica filas.
@@ -21,8 +32,8 @@
 //   --skip-fetch-lands  no fetchear lands (solo fumigations + flights)
 //   --skip-download-assets  no descargar land_files (usar los que ya estén)
 //   --tolerance M       metros para spatial join (default 500)
-//   --start-from STEP   arranca desde un step (1-10, nombre también)
-//   --stop-at STEP      para después de un step (1-10, nombre también)
+//   --start-from STEP   arranca desde un step (1-9, nombre también)
+//   --stop-at STEP      para después de un step (1-9, nombre también)
 //   --dry-run           loguea los comandos sin ejecutarlos
 //   --no-color          desactiva colores ANSI
 //
@@ -36,6 +47,14 @@
 // Exit codes:
 //   0 = todos los steps OK
 //   1 = un step falló (imprime cuál, comando, y últimas 30 líneas del output)
+//
+// Variables de entorno para el step 6 (backfill HTTP):
+//   BACKFILL_URL        — base URL del Next.js (default http://localhost:3000)
+//   BACKFILL_TOKEN      — bearer token compartido con el endpoint admin
+//                          (mismo valor en .env.local del server y del CLI)
+//                          Si está ausente, el endpoint rechaza con 401 —
+//                          el CLI falla con un mensaje claro pidiendo
+//                          configurar la env var.
 
 const fs = require('fs');
 const path = require('path');
@@ -74,10 +93,14 @@ function parseArgs(argv) {
   return out;
 }
 
-// Steps. order = 1-based, name = human label, cmd = [script, ...args], optional = skip condition.
+// Steps. order = 1-based, name = human label, cmd = [script, ...args] | null
+// for HTTP-based steps, optional = skip condition.
 //   optional(skipScrape) = true → step se skipea si --skip-scrape.
 //   optional(skipFetchLands) = true → step se skipea si --skip-fetch-lands.
 //   optional(skipDownloadAssets) = true → step se skipea si --skip-download-assets.
+//
+// Sprint H2: step 6 es HTTP-based (no CLI script). El orquestador
+// detecta `cmd === null` y delega a `runHttpStep`. Ver más abajo.
 function buildSteps(opts) {
   return [
     {
@@ -114,32 +137,26 @@ function buildSteps(opts) {
     },
     {
       order: 6,
-      name: 'backfill per-parcel fumigations',
-      cmd: ['scripts/backfill-fumigations-from-flights.js'],
+      name: 'backfill fumigations + schedule (via HTTP)',
+      cmd: null,  // handled by runHttpStep
       skip: () => false,
     },
     {
       order: 7,
-      name: 'update fumigation schedule',
-      cmd: ['scripts/update-fumigation-schedule.js'],
-      skip: () => false,
-    },
-    {
-      order: 8,
       name: 'fetch lands',
       cmd: ['scripts/fetch-lands-from-djiag.js', '--days', String(opts.days)],
       skip: () => opts.skipFetchLands,
       skipReason: () => '--skip-fetch-lands',
     },
     {
-      order: 9,
+      order: 8,
       name: 'download land assets',
       cmd: ['scripts/download-land-assets.js'],
       skip: () => opts.skipDownloadAssets,
       skipReason: () => '--skip-download-assets',
     },
     {
-      order: 10,
+      order: 9,
       name: 'upsert lands',
       cmd: ['scripts/upsert-lands-from-djiag.js'],
       skip: () => opts.skipFetchLands,
@@ -369,12 +386,109 @@ async function writeHealth({ steps, startedAt, finishedAt, runStatus }) {
   await writeHealthToDb(payload);
 }
 
-function runStep(step, opts) {
-  const tag = `${c.cyan}[${step.order}/10]${c.reset} ${c.bold}${step.name}${c.reset}`;
+/**
+ * Steps HTTP (Sprint H2). Steps cuyo `cmd === null` se ejecutan
+ * via HTTP al endpoint admin del Next.js server. Esto centraliza
+ * la lógica del backfill en el código de la app (testable, con
+ * auth, en una sola transacción) en vez de duplicarla en scripts
+ * CLI.
+ *
+ * Patrón:
+ *   - URL: `${BACKFILL_URL}/api/admin/backfill-fumigations` (default
+ *     localhost:3000 para dev)
+ *   - Auth: `Authorization: Bearer ${BACKFILL_TOKEN}` (env var).
+ *     Si BACKFILL_TOKEN no está seteada, el script falla con un
+ *     mensaje claro pidiendo configurarla — NO cae a sesión
+ *     NextAuth (un script CLI no puede mantener sesión).
+ *   - Método: POST
+ *   - Body: vacío (el endpoint recalcula todo)
+ *   - Respuesta OK: { backfilled, deleted, scheduleUpdated, durationMs }
+ *
+ * Por qué no session cookies: el script corre unattended (cron,
+ * GitHub Action o local sin browser). El bearer token es el mismo
+ * patrón que `HEALTH_TOKEN` (Sprint C) para el watchdog.
+ *
+ * Errores:
+ *   - 401/403: auth inválida → fail con mensaje claro
+ *   - 5xx: server error → fail
+ *   - ECONNREFUSED: Next.js no está arriba → fail con "asegurate
+ *     de tener `next dev` corriendo"
+ */
+async function runBackfillHttpStep() {
+  const url = (process.env.BACKFILL_URL ?? 'http://localhost:3000').replace(/\/+$/, '');
+  const token = process.env.BACKFILL_TOKEN ?? '';
+  if (!token) {
+    return {
+      ok: false,
+      error: 'BACKFILL_TOKEN no está configurada. Agregala a .env.local (server) y al entorno del CLI. Ver scripts/run-pipeline.js para el detalle.',
+    };
+  }
+  const endpoint = `${url}/api/admin/backfill-fumigations`;
+  let res;
+  try {
+    res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/json',
+      },
+    });
+  } catch (err) {
+    // ECONNREFUSED / DNS fail / etc. Mensaje claro para que el
+    // operador sepa qué verificar (en dev: ¿está corriendo `next dev`?).
+    return {
+      ok: false,
+      error: `No se pudo conectar a ${endpoint}: ${err.message}. ` +
+        `Asegurate de que el Next.js server esté arriba.`,
+    };
+  }
+  if (res.status === 401 || res.status === 403) {
+    return {
+      ok: false,
+      error: `HTTP ${res.status} (auth inválida). Verificá que BACKFILL_TOKEN coincida con la del server.`,
+    };
+  }
+  if (!res.ok) {
+    let body = '';
+    try { body = await res.text(); } catch { /* ignore */ }
+    return { ok: false, error: `HTTP ${res.status}: ${body.slice(0, 200)}` };
+  }
+  const body = await res.json();
+  return {
+    ok: true,
+    stats: body,
+  };
+}
+
+async function runStep(step, opts) {
+  const total = opts.totalSteps;
+  const tag = `${c.cyan}[${step.order}/${total}]${c.reset} ${c.bold}${step.name}${c.reset}`;
   if (step.skip && step.skip()) {
     console.log(`${tag} ${c.gray}— skip (${step.skipReason ? step.skipReason() : 'flag'})${c.reset}`);
     return { ok: true, skipped: true, durationMs: 0 };
   }
+  // HTTP step (Sprint H2): cmd === null → delegado a runBackfillHttpStep.
+  if (step.cmd === null) {
+    const cmdStr = `${c.dim}POST ${process.env.BACKFILL_URL ?? 'http://localhost:3000'}/api/admin/backfill-fumigations${c.reset}`;
+    console.log(`\n${tag}\n  ${cmdStr}`);
+    if (opts.dryRun) {
+      console.log(`  ${c.yellow}[dry-run] no ejecutado${c.reset}`);
+      return { ok: true, skipped: true, durationMs: 0 };
+    }
+    const t0 = Date.now();
+    const r = await runBackfillHttpStep();
+    const dur = fmtDuration(Date.now() - t0);
+    if (!r.ok) {
+      console.error(`  ${c.red}✗ ${dur}${c.reset}`);
+      console.error(`  ${c.red}${r.error}${c.reset}`);
+      console.error(`  ${c.red}step ${step.order} (${step.name}) falló — pipeline abortada${c.reset}`);
+      return { ok: false, exit: 1, durationMs: Date.now() - t0, error: r.error };
+    }
+    const s = r.stats;
+    console.log(`  ${c.green}✓${c.reset} ${c.gray}(${dur}) backfilled=${s.backfilled} deleted=${s.deleted} scheduleUpdated=${s.scheduleUpdated}${c.reset}`);
+    return { ok: true, durationMs: Date.now() - t0, stats: s };
+  }
+  // CLI step: spawnSync del comando.
   const cmdStr = `${c.dim}node ${step.cmd.join(' ')}${c.reset}`;
   console.log(`\n${tag}\n  ${cmdStr}`);
   if (opts.dryRun) {
@@ -401,6 +515,7 @@ function runStep(step, opts) {
 async function main() {
   const opts = parseArgs(process.argv);
   const steps = buildSteps(opts);
+  opts.totalSteps = steps.length;
   const { startIdx, stopIdx } = resolveRange(steps, opts.startFrom, opts.stopAt);
 
   console.log(`${c.bold}AeroAdmin AFM — DJI pipeline runner${c.reset}`);
@@ -413,7 +528,7 @@ async function main() {
   let okCount = 0, skipCount = 0, failCount = 0;
   for (const step of steps) {
     if (step.order < startIdx || step.order > stopIdx) continue;
-    const r = runStep(step, opts);
+    const r = await runStep(step, opts);
     // XS1: track health del step para escribir _health.json al final.
     healthSteps.push({
       order: step.order,
@@ -485,6 +600,12 @@ if (require.main !== module) {
     writeHealthFile,
     writeHealthToDb,
     writeHealth,
-    readLastSuccessfulSyncAt
+    readLastSuccessfulSyncAt,
+    // Sprint H2: backfill HTTP step. Exportada para tests unitarios.
+    // No se exporta la pipeline completa (`main`, `runStep`) porque
+    // tiene side effects de process.exit y consola difíciles de
+    // mockear; los tests de run-pipeline se enfocan en las funciones
+    // puras.
+    runBackfillHttpStep
   };
 }

@@ -1,4 +1,8 @@
-// Tests para scripts/backfill-fumigations-from-flights.js — backfillFumigationsFromFlights
+// Tests para lib/backfill/fumigations-from-flights.ts — backfillFumigationsFromFlights
+//
+// Sprint H2 — la lógica del backfill se movió del script CLI .js a
+// una lib TS testeable. Este test valida el SQL emitido contra un
+// QueryRunner mockeado (sin tocar la BD real).
 //
 // Cubre:
 //   - DELETE idempotente: borra solo source='import' AND parcel_id IS NOT NULL
@@ -6,14 +10,14 @@
 //     no se tocan).
 //   - INSERT agrupa por (parcel_id, DATE(start_at AT TIME ZONE 'America/Bogota'))
 //   - El CASE de drone_code mapea T40/T50/T16/T20/T70 → 201/201/72/72/210
-//   - Retorna { inserted: rowCount }
+//   - Retorna { inserted, deleted } con conteos de cada paso.
 
 import { describe, expect, it, vi } from "vitest";
 
 import {
   backfillFumigationsFromFlights,
   type QueryRunner
-} from "@/scripts/backfill-fumigations-from-flights";
+} from "@/lib/backfill/fumigations-from-flights";
 
 function makeMockClient(opts: {
   deleteRowCount?: number;
