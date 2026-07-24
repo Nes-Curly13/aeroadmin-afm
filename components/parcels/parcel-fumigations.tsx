@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
@@ -27,12 +28,42 @@ function daysLabel(days: number | null): string {
   return `En ${days} días`;
 }
 
+/**
+ * Sprint G1 — badge de source para que el operador distinga al vuelo
+ * fumigaciones registradas por él vs las que vienen del import.
+ *
+ * Decisión de estilo: chip inline, tamaño `text-[10px]`, color discreto.
+ * El "manual" se resalta en verde (el supervisor la puso, importa);
+ * "import" y "djiscraper" quedan en gris (provenance automática).
+ */
+function sourceBadge(source: "manual" | "djiscraper" | "import") {
+  if (source === "manual") {
+    return { label: "Manual", className: "bg-[#0b5f2d]/10 text-[#0b5f2d]", title: "Registrada por el operador desde la app" };
+  }
+  if (source === "djiscraper") {
+    return { label: "DJI scraper", className: "bg-[#587064]/15 text-[#587064]", title: "Capturada automáticamente del scraper DJI" };
+  }
+  return { label: "Import", className: "bg-[#cfd8d3] text-[#4a5b50]", title: "Generada por el backfill desde flights" };
+}
+
 interface ParcelFumigationsProps {
   parcel: DjiParcelRecord;
   schedule: DjiFumigationSchedule | null;
   events: DjiFumigationEvent[];
   status: "ok" | "due_soon" | "overdue" | "no_history";
   daysUntilNextDue: number | null;
+  /**
+   * Stats globales del módulo de fumigaciones. Si se pasa, se muestra
+   * en el empty state para dar contexto ("hay N huérfanas en la DB").
+   * Opcional — si no, el empty state queda como antes.
+   */
+  dbStats?: {
+    total: number;
+    orphan: number;
+    parcelasConFumigacion: number;
+    totalParcelas: number;
+    coberturaPct: number;
+  };
 }
 
 export function ParcelFumigations({
@@ -40,7 +71,8 @@ export function ParcelFumigations({
   schedule,
   events,
   status,
-  daysUntilNextDue
+  daysUntilNextDue,
+  dbStats
 }: ParcelFumigationsProps) {
   const router = useRouter();
   const [showForm, setShowForm] = useState(false);
@@ -416,25 +448,54 @@ export function ParcelFumigations({
       ) : null}
 
       {events.length === 0 ? (
-        <RoleGate
-          allow={["admin", "supervisor"]}
-          fallback={
+        <div data-testid="parcel-fumigations-empty">
+          <RoleGate
+            allow={["admin", "supervisor"]}
+            fallback={
+              <EmptyState
+                description="Cuando registres la primera fumigación, la cadencia recomendada se calcula automáticamente y el panel se actualiza con la próxima fecha objetivo."
+                size="sm"
+                testId="parcel-fumigations-empty"
+                title="Esta parcela aún no tiene fumigaciones"
+              />
+            }
+          >
             <EmptyState
+              cta={{ label: "Registrar fumigación", onClick: () => setShowForm(true) }}
               description="Cuando registres la primera fumigación, la cadencia recomendada se calcula automáticamente y el panel se actualiza con la próxima fecha objetivo."
               size="sm"
               testId="parcel-fumigations-empty"
               title="Esta parcela aún no tiene fumigaciones"
             />
-          }
-        >
-          <EmptyState
-            cta={{ label: "Registrar fumigación", onClick: () => setShowForm(true) }}
-            description="Cuando registres la primera fumigación, la cadencia recomendada se calcula automáticamente y el panel se actualiza con la próxima fecha objetivo."
-            size="sm"
-            testId="parcel-fumigations-empty"
-            title="Esta parcela aún no tiene fumigaciones"
-          />
-        </RoleGate>
+          </RoleGate>
+          {/* Sprint G1 — contexto global para que el supervisor entienda
+              por qué esta parcela está vacía. Si hay fumigaciones
+              huérfanas en el sistema, le damos una salida clara:
+              "mirá la lista de huérfanas, capaz una de esas es tuya". */}
+          {dbStats && dbStats.total > 0 ? (
+            <p
+              className="mt-3 rounded-lg border border-[#d2ddd6] bg-[#f4f7f4] px-3 py-2 text-[11px] text-[#4a5b50]"
+              data-testid="parcel-fumigations-empty-context"
+            >
+              En todo el sistema hay {dbStats.total.toLocaleString("es-CO")} fumigaciones
+              {" "}({dbStats.parcelasConFumigacion.toLocaleString("es-CO")} de {dbStats.totalParcelas.toLocaleString("es-CO")} parcelas
+              {" "}= {dbStats.coberturaPct.toFixed(1)}% de cobertura).
+              {dbStats.orphan > 0 ? (
+                <>
+                  {" "}
+                  <Link
+                    className="font-semibold text-[#0b5f2d] underline"
+                    data-testid="parcel-fumigations-empty-orphan-link"
+                    href="/admin/orphan-fumigations"
+                  >
+                    {dbStats.orphan.toLocaleString("es-CO")} quedaron sin parcela asignada
+                  </Link>
+                  {" "}y están esperando revisión manual.
+                </>
+              ) : null}
+            </p>
+          ) : null}
+        </div>
       ) : (
         <ol className="space-y-2">
           {events.map((e) => {
@@ -453,6 +514,19 @@ export function ParcelFumigations({
                     {e.product_used && (
                       <span className="text-[#4a5b50]">— {e.product_used}</span>
                     )}
+                    {(() => {
+                      // Sprint G1 — badge de source (manual / import / djiscraper)
+                      const badge = sourceBadge(e.source);
+                      return (
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.12em] ${badge.className}`}
+                          data-testid="fumigation-source-badge"
+                          title={badge.title}
+                        >
+                          {badge.label}
+                        </span>
+                      );
+                    })()}
                   </div>
                   <div className="mt-1 flex flex-wrap gap-3 text-[11px] text-[#4a5b50]">
                     {e.dose_l_per_ha && <span>Dosis: {e.dose_l_per_ha} L/ha</span>}

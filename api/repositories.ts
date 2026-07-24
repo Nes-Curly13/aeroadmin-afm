@@ -914,3 +914,235 @@ export async function getActivityComparison(): Promise<ActivityComparison> {
     })
   );
 }
+
+// ============================================================
+// Sprint G1 — Hoja de vida: huérfanas, link manual, stats globales
+// ============================================================
+
+/**
+ * Stats globales del módulo de fumigaciones.
+ *
+ * Usado por:
+ *   - El empty state inteligente de `ParcelFumigations` (cuando la
+ *     parcela no tiene fumigaciones propias, el contexto "X huérfanas
+ *     en el sistema" le da sentido al admin).
+ *   - La página `/admin/orphan-fumigations` (header con KPIs).
+ *
+ * Decisión: una sola query agregada en vez de 6 queries separadas.
+ * El `withLocalFallback` envuelve para no tumbar la UI si la BD está
+ * caída — devuelve ceros (el empty state sigue funcionando).
+ *
+ * Cobertura: porcentaje redondeado a 1 decimal. No se calcula 0% si
+ * no hay parcelas — en ese caso la cobertura es 0 (no NaN).
+ */
+export interface FumigationDbStats {
+  total: number;
+  orphan: number;
+  manual: number;
+  import: number;
+  djiscraper: number;
+  parcelasConFumigacion: number;
+  totalParcelas: number;
+  coberturaPct: number;
+}
+
+export async function getFumigationDbStats(): Promise<FumigationDbStats> {
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      const r = await db.query<{
+        total: string;
+        orphan: string;
+        manual: string;
+        import_n: string;
+        djiscraper: string;
+        parcelas_con_fum: string;
+        total_parcelas: string;
+      }>(`
+        SELECT
+          (SELECT COUNT(*) FROM dji_fumigations WHERE deleted_at IS NULL) AS total,
+          (SELECT COUNT(*) FROM dji_fumigations WHERE parcel_id IS NULL AND deleted_at IS NULL) AS orphan,
+          (SELECT COUNT(*) FROM dji_fumigations WHERE source = 'manual' AND deleted_at IS NULL) AS manual,
+          (SELECT COUNT(*) FROM dji_fumigations WHERE source = 'import' AND deleted_at IS NULL) AS import_n,
+          (SELECT COUNT(*) FROM dji_fumigations WHERE source = 'djiscraper' AND deleted_at IS NULL) AS djiscraper,
+          (SELECT COUNT(DISTINCT parcel_id) FROM dji_fumigations WHERE parcel_id IS NOT NULL AND deleted_at IS NULL) AS parcelas_con_fum,
+          (SELECT COUNT(*) FROM dji_parcels) AS total_parcelas
+      `);
+      const row = r.rows[0];
+      const total = Number(row.total);
+      const orphan = Number(row.orphan);
+      const parcelasConFumigacion = Number(row.parcelas_con_fum);
+      const totalParcelas = Number(row.total_parcelas);
+      return {
+        total,
+        orphan,
+        manual: Number(row.manual),
+        import: Number(row.import_n),
+        djiscraper: Number(row.djiscraper),
+        parcelasConFumigacion,
+        totalParcelas,
+        coberturaPct:
+          totalParcelas > 0
+            ? Math.round((parcelasConFumigacion / totalParcelas) * 1000) / 10
+            : 0
+      };
+    },
+    async () => ({
+      total: 0,
+      orphan: 0,
+      manual: 0,
+      import: 0,
+      djiscraper: 0,
+      parcelasConFumigacion: 0,
+      totalParcelas: 0,
+      coberturaPct: 0
+    })
+  );
+}
+
+/**
+ * Lista paginada de fumigaciones huérfanas (parcel_id IS NULL).
+ *
+ * Las huérfanas vienen del backfill de flights (source='import') cuando
+ * el spatial join no encontró una parcela para el flight. NO tienen
+ * geometría (no hay flight_id persistido en dji_fumigations), así que
+ * no podemos matchearlas automáticamente — el admin las revisa y las
+ * vincula manualmente via `linkFumigationToParcel`.
+ *
+ * Sprint G1: usadas por `/admin/orphan-fumigations`.
+ */
+export async function getOrphanFumigations(
+  limit: number,
+  offset: number
+): Promise<{ rows: DjiFumigationEvent[]; total: number }> {
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      const totalResult = await db.query<{ n: string }>(
+        `SELECT COUNT(*) AS n FROM dji_fumigations WHERE parcel_id IS NULL AND deleted_at IS NULL`
+      );
+      const total = Number(totalResult.rows[0].n);
+      const result = await db.query<DjiFumigationEvent>(
+        `
+          SELECT
+            id, parcel_id, fumigation_date, product_used, dose_l_per_ha,
+            area_fumigated_m2, drone_code_used, duration_minutes,
+            notes, human_notes, recorded_by,
+            product_registered_ica, pilot_license,
+            recorded_at, source
+          FROM dji_fumigations
+          WHERE parcel_id IS NULL AND deleted_at IS NULL
+          ORDER BY fumigation_date DESC, recorded_at DESC
+          LIMIT $1 OFFSET $2
+        `,
+        [limit, offset]
+      );
+      return {
+        total,
+        rows: result.rows.map((row) => ({
+          ...row,
+          fumigation_date: toDateString(row.fumigation_date) ?? ""
+        }))
+      };
+    },
+    async () => ({ total: 0, rows: [] })
+  );
+}
+
+/**
+ * Vincula una fumigación huérfana a una parcela. El admin decide
+ * manualmente a qué parcela va (no hay spatial join posible — las
+ * huérfanas no tienen geometría).
+ *
+ * Devuelve `null` si:
+ *   - La fumigación no existe o está soft-deleted
+ *   - La fumigación ya estaba asignada a otra parcela (idempotente: no
+ *     hace nada, no tira error; el caller puede mostrar "ya estaba
+ *     asignada")
+ *   - La parcela destino no existe
+ *
+ * Si la vinculación es exitosa, también recalcula `last_fumigation_date`
+ * y `next_due_date` del schedule de la parcela destino (mismo patrón
+ * que `createFumigationEvent`). Invalida el cache via
+ * `invalidateAfterFumigationMutation` (la fumigación ya entra en el
+ * cálculo de cadencia, last_*, etc. del dashboard).
+ */
+export async function linkFumigationToParcel(
+  fumigationId: number,
+  parcelId: number
+): Promise<{ status: "linked" | "already_assigned" | "not_found"; event?: DjiFumigationEvent }> {
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      // 1) Fumigación existe y está huérfana
+      const before = await db.query<{ parcel_id: number | null; fumigation_date: Date }>(
+        `SELECT parcel_id, fumigation_date FROM dji_fumigations WHERE id = $1 AND deleted_at IS NULL`,
+        [fumigationId]
+      );
+      if (before.rows.length === 0) {
+        return { status: "not_found" };
+      }
+      if (before.rows[0].parcel_id !== null) {
+        return { status: "already_assigned" };
+      }
+
+      // 2) Parcela destino existe
+      const parcel = await db.query<{ id: number }>(
+        `SELECT id FROM dji_parcels WHERE id = $1`,
+        [parcelId]
+      );
+      if (parcel.rows.length === 0) {
+        return { status: "not_found" };
+      }
+
+      // 3) UPDATE. La condición `parcel_id IS NULL` en el WHERE evita
+      // race conditions si dos admins vinculan a la vez (el segundo
+      // se queda con 0 rows y devolvemos "already_assigned").
+      const updated = await db.query<DjiFumigationEvent>(
+        `
+          UPDATE dji_fumigations
+          SET parcel_id = $2
+          WHERE id = $1 AND parcel_id IS NULL AND deleted_at IS NULL
+          RETURNING
+            id, parcel_id, fumigation_date, product_used, dose_l_per_ha,
+            area_fumigated_m2, drone_code_used, duration_minutes,
+            notes, human_notes, recorded_by,
+            product_registered_ica, pilot_license,
+            recorded_at, source
+        `,
+        [fumigationId, parcelId]
+      );
+      if (updated.rows.length === 0) {
+        return { status: "already_assigned" };
+      }
+      const linked = updated.rows[0];
+
+      // 4) Recalcular schedule de la parcela destino
+      const sched = await getFumigationSchedule(parcelId);
+      const cadence = sched?.recommended_cadence_days ?? 14;
+      const next = computeNextDueDate(linked.fumigation_date, cadence);
+      await db.query(
+        `
+          UPDATE dji_fumigation_schedule
+          SET last_fumigation_date = $2,
+              next_due_date = $3,
+              updated_at = NOW()
+          WHERE parcel_id = $1
+        `,
+        [parcelId, linked.fumigation_date, next]
+      );
+
+      // 5) Invalidar cache
+      invalidateAfterFumigationMutation();
+
+      return {
+        status: "linked",
+        event: {
+          ...linked,
+          fumigation_date: toDateString(linked.fumigation_date) ?? ""
+        }
+      };
+    },
+    async () => ({ status: "not_found" })
+  );
+}
