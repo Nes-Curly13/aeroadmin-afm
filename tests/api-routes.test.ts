@@ -28,7 +28,7 @@ import { GET as getAlertsRoute } from "@/app/api/alerts/route";
 import { GET as getFlightsRoute } from "@/app/api/flights/route";
 import { GET as getParcelByIdRoute, PUT as putParcelRoute } from "@/app/api/parcels/[id]/route";
 import { POST as postFumigationRoute } from "@/app/api/fumigations/route";
-import { PATCH as patchScheduleRoute } from "@/app/api/fumigation-schedule/[parcelId]/route";
+import { PATCH as patchScheduleRoute } from "@/app/api/fumigation-schedule/[id]/route";
 
 describe("API routes", () => {
   beforeEach(() => {
@@ -226,15 +226,15 @@ describe("API routes", () => {
   });
 
   // ============================================================
-  // PATCH /api/fumigation-schedule/[parcelId] — test rapido
+  // PATCH /api/fumigation-schedule/[id] — test rapido
   // ============================================================
-  describe("PATCH /api/fumigation-schedule/[parcelId]", () => {
+  describe("PATCH /api/fumigation-schedule/[id]", () => {
     it("rechaza sin recommended_cadence_days (400)", async () => {
       const req = new NextRequest("http://localhost:3000/api/fumigation-schedule/1", {
         method: "PATCH",
         body: JSON.stringify({})
       });
-      const response = await patchScheduleRoute(req, { params: Promise.resolve({ parcelId: "1" }) });
+      const response = await patchScheduleRoute(req, { params: Promise.resolve({ id: "1" }) });
       expect(response.status).toBe(400);
     });
 
@@ -244,17 +244,17 @@ describe("API routes", () => {
         method: "PATCH",
         body: JSON.stringify({ recommended_cadence_days: 21 })
       });
-      const response = await patchScheduleRoute(req, { params: Promise.resolve({ parcelId: "1" }) });
+      const response = await patchScheduleRoute(req, { params: Promise.resolve({ id: "1" }) });
       expect(response.status).toBe(200);
       expect(repositoryMocks.setFumigationCadence).toHaveBeenCalledWith(1, 21);
     });
 
-    it("rechaza parcelId invalido (400)", async () => {
+    it("rechaza id invalido (400)", async () => {
       const req = new NextRequest("http://localhost:3000/api/fumigation-schedule/abc", {
         method: "PATCH",
         body: JSON.stringify({ recommended_cadence_days: 14 })
       });
-      const response = await patchScheduleRoute(req, { params: Promise.resolve({ parcelId: "abc" }) });
+      const response = await patchScheduleRoute(req, { params: Promise.resolve({ id: "abc" }) });
       expect(response.status).toBe(400);
     });
   });

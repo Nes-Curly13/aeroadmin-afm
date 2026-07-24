@@ -24,7 +24,7 @@ const repositoryMocks = vi.hoisted(() => ({
 vi.mock("@/lib/auth/role", () => authMocks);
 vi.mock("@/api/repositories", () => repositoryMocks);
 
-import { PATCH as patchScheduleRoute } from "@/app/api/fumigation-schedule/[parcelId]/route";
+import { PATCH as patchScheduleRoute } from "@/app/api/fumigation-schedule/[id]/route";
 
 function buildRequest(body: Record<string, unknown>) {
   return new NextRequest(
@@ -36,7 +36,7 @@ function buildRequest(body: Record<string, unknown>) {
   );
 }
 
-const PARAMS = { params: Promise.resolve({ parcelId: "1" }) };
+const PARAMS = { params: Promise.resolve({ id: "1" }) };
 const VALID_BODY = { recommended_cadence_days: 21 };
 
 describe("PATCH /api/fumigation-schedule — guard de role (v1.5)", () => {

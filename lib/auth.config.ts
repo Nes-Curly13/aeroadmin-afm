@@ -81,6 +81,18 @@ export const authConfig: NextAuthConfig = {
     /**
      * Autorizacion por ruta — edge-safe porque NO toca la BD ni bcrypt.
      * Solo lee `auth?.user.role` que ya viene en el JWT firmado.
+     *
+     * Comportamiento por tipo de path:
+     *   - Paths PUBLIC: siempre pasan (no necesitan sesion)
+     *   - `/api/*` (no PUBLIC): SIEMPRE pasan al route handler. Cada
+     *     route handler hace su propia auth via `requireAuth()` o
+     *     `requireRole()` y devuelve 401/403 JSON. Razon: cuando un
+     *     script CLI llama al endpoint con Bearer token (sin sesion
+     *     NextAuth), queremos que el handler valide el bearer y
+     *     ejecute, no que el middleware lo redirija a /login.
+     *   - `/admin/*` (UI admin): requiere sesion + role=admin. Si no,
+     *     el middleware redirige a /login (comportamiento UI standard).
+     *   - Otros paths: requieren sesion. Si no, redirect a /login.
      */
     async authorized({ auth, request }) {
       const { pathname } = request.nextUrl;
@@ -92,6 +104,14 @@ export const authConfig: NextAuthConfig = {
         "/api/health"
       ];
       if (PUBLIC.some((p) => pathname === p || pathname.startsWith(p + "/"))) {
+        return true;
+      }
+
+      // Los API routes hacen su propia auth (requireAuth/requireRole
+      // en el handler). Dejamos pasar al handler para que pueda
+      // implementar bypasses (e.g. Bearer token para el CLI del
+      // pipeline DJI). Si no hay sesion, el handler devuelve 401.
+      if (pathname.startsWith("/api/")) {
         return true;
       }
 

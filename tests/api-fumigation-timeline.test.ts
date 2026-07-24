@@ -1,10 +1,10 @@
 // tests/api-fumigation-timeline.test.ts
 //
-// Tests para GET /api/fumigations/[parcelId]/timeline (M7 — roadmap).
+// Tests para GET /api/fumigations/[id]/timeline (M7 — roadmap).
 //
 // Cubre (checklist §4.2 de docs/guia/02_TDD_AeroAdmin_AFM.md):
 //   - Caso feliz: 200 con shape FumigationTimelineResult
-//   - 400 con parcelId no numérico, fechas inválidas, from > to
+//   - 400 con id no numérico, fechas inválidas, from > to
 //   - 401 sin sesión
 //   - 404 si la parcela no existe
 //   - Defaults (ventana últimos 6 meses)
@@ -29,7 +29,7 @@ const authMocks = vi.hoisted(() => ({
 vi.mock("@/api/repositories", () => repositoryMocks);
 vi.mock("@/lib/auth", () => authMocks);
 
-import { GET as getTimelineRoute } from "@/app/api/fumigations/[parcelId]/timeline/route";
+import { GET as getTimelineRoute } from "@/app/api/fumigations/[id]/timeline/route";
 
 function makeParcelRow(id = 42) {
   return {
@@ -89,7 +89,7 @@ function makeFumigationRow(over: Partial<{
   };
 }
 
-describe("GET /api/fumigations/[parcelId]/timeline", () => {
+describe("GET /api/fumigations/[id]/timeline", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // Default: hay sesión válida (admin).
@@ -119,7 +119,7 @@ describe("GET /api/fumigations/[parcelId]/timeline", () => {
   it("200 con shape FumigationTimelineResult completo", async () => {
     const response = await getTimelineRoute(
       new NextRequest("http://localhost:3000/api/fumigations/42/timeline?from=2026-01-01&to=2026-06-30"),
-      { params: Promise.resolve({ parcelId: "42" }) }
+      { params: Promise.resolve({ id: "42" }) }
     );
 
     expect(response.status).toBe(200);
@@ -144,7 +144,7 @@ describe("GET /api/fumigations/[parcelId]/timeline", () => {
   it("default: si no se pasan from/to, ventana = últimos 6 meses", async () => {
     const response = await getTimelineRoute(
       new NextRequest("http://localhost:3000/api/fumigations/42/timeline"),
-      { params: Promise.resolve({ parcelId: "42" }) }
+      { params: Promise.resolve({ id: "42" }) }
     );
 
     expect(response.status).toBe(200);
@@ -162,21 +162,21 @@ describe("GET /api/fumigations/[parcelId]/timeline", () => {
   // ============================================================
   // 400 — input inválido
   // ============================================================
-  it("400 con parcelId no numérico", async () => {
+  it("400 con id no numérico", async () => {
     const response = await getTimelineRoute(
       new NextRequest("http://localhost:3000/api/fumigations/abc/timeline"),
-      { params: Promise.resolve({ parcelId: "abc" }) }
+      { params: Promise.resolve({ id: "abc" }) }
     );
 
     expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ error: expect.stringMatching(/parcelId/) });
+    expect(await response.json()).toEqual({ error: expect.stringMatching(/id/) });
     expect(repositoryMocks.getFumigationTimelineForParcel).not.toHaveBeenCalled();
   });
 
   it("400 con from mal formado", async () => {
     const response = await getTimelineRoute(
       new NextRequest("http://localhost:3000/api/fumigations/42/timeline?from=15-01-2026&to=2026-06-30"),
-      { params: Promise.resolve({ parcelId: "42" }) }
+      { params: Promise.resolve({ id: "42" }) }
     );
 
     expect(response.status).toBe(400);
@@ -186,7 +186,7 @@ describe("GET /api/fumigations/[parcelId]/timeline", () => {
   it("400 con to mal formado", async () => {
     const response = await getTimelineRoute(
       new NextRequest("http://localhost:3000/api/fumigations/42/timeline?from=2026-01-01&to=2026-06-31"),
-      { params: Promise.resolve({ parcelId: "42" }) }
+      { params: Promise.resolve({ id: "42" }) }
     );
 
     expect(response.status).toBe(400);
@@ -196,7 +196,7 @@ describe("GET /api/fumigations/[parcelId]/timeline", () => {
   it("400 si from > to", async () => {
     const response = await getTimelineRoute(
       new NextRequest("http://localhost:3000/api/fumigations/42/timeline?from=2026-06-30&to=2026-01-01"),
-      { params: Promise.resolve({ parcelId: "42" }) }
+      { params: Promise.resolve({ id: "42" }) }
     );
 
     expect(response.status).toBe(400);
@@ -217,7 +217,7 @@ describe("GET /api/fumigations/[parcelId]/timeline", () => {
 
     const response = await getTimelineRoute(
       new NextRequest("http://localhost:3000/api/fumigations/42/timeline"),
-      { params: Promise.resolve({ parcelId: "42" }) }
+      { params: Promise.resolve({ id: "42" }) }
     );
 
     expect(response.status).toBe(401);
@@ -232,7 +232,7 @@ describe("GET /api/fumigations/[parcelId]/timeline", () => {
 
     const response = await getTimelineRoute(
       new NextRequest("http://localhost:3000/api/fumigations/9999/timeline"),
-      { params: Promise.resolve({ parcelId: "9999" }) }
+      { params: Promise.resolve({ id: "9999" }) }
     );
 
     expect(response.status).toBe(404);
@@ -247,7 +247,7 @@ describe("GET /api/fumigations/[parcelId]/timeline", () => {
 
     const response = await getTimelineRoute(
       new NextRequest("http://localhost:3000/api/fumigations/42/timeline?from=2026-01-01&to=2026-06-30"),
-      { params: Promise.resolve({ parcelId: "42" }) }
+      { params: Promise.resolve({ id: "42" }) }
     );
 
     expect(response.status).toBe(200);
@@ -264,7 +264,7 @@ describe("GET /api/fumigations/[parcelId]/timeline", () => {
 
     const response = await getTimelineRoute(
       new NextRequest("http://localhost:3000/api/fumigations/42/timeline?from=2026-01-01&to=2026-06-30"),
-      { params: Promise.resolve({ parcelId: "42" }) }
+      { params: Promise.resolve({ id: "42" }) }
     );
 
     expect(response.status).toBe(500);
