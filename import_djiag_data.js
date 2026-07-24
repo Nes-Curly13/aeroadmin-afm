@@ -382,7 +382,7 @@ async function writeDjiParcels(client, batchId, grouped) {
         $22, $23, $24,
         $25::jsonb, $26::jsonb, $27::jsonb
       )
-      ON CONFLICT (batch_id, external_id) DO UPDATE SET
+      ON CONFLICT (external_id) DO UPDATE SET
         land_name = EXCLUDED.land_name,
         field_type = EXCLUDED.field_type,
         declared_area_ha = EXCLUDED.declared_area_ha,
