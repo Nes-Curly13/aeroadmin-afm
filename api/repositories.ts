@@ -1146,3 +1146,294 @@ export async function linkFumigationToParcel(
     async () => ({ status: "not_found" })
   );
 }
+
+// ============================================================
+// Sprint G2 — Hoja de vida completa: resumen, trazabilidad, history
+// ============================================================
+
+/**
+ * Resumen anual de fumigaciones de una parcela: 12 rows (1 por mes)
+ * con count + area_total_m2 + litros_total (calculado a partir de
+ * dose_l_per_ha × area_fumigated_m2 / 10000).
+ *
+ * Usado por `components/parcels/parcel-fumigation-history.tsx` para
+ * el grid mensual "esta parcela tuvo X fumigaciones en enero, Y en
+ * febrero, ...". Selector de año en la UI permite cambiar entre
+ * 2024, 2025, 2026.
+ *
+ * Decisión: en vez de N queries (1 por mes), 1 sola query con
+ * `generate_series` para garantizar 12 rows aunque un mes no tenga
+ * fumigaciones. El UI ya espera 12 cards.
+ */
+export interface MonthlyFumigationSummary {
+  month: number; // 1-12
+  count: number;
+  area_total_m2: number;
+  litros_total: number;
+}
+
+export async function getFumigationYearlySummary(
+  parcelId: number,
+  year: number
+): Promise<MonthlyFumigationSummary[]> {
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      const result = await db.query<{
+        month: number;
+        count: string;
+        area_total_m2: string;
+        litros_total: string;
+      }>(
+        `
+          WITH months AS (
+            SELECT generate_series(1, 12) AS month
+          ),
+          agg AS (
+            SELECT
+              EXTRACT(MONTH FROM f.fumigation_date)::int AS month,
+              COUNT(*)::int AS count,
+              COALESCE(SUM(f.area_fumigated_m2), 0)::numeric AS area_total_m2,
+              COALESCE(
+                SUM(
+                  CASE
+                    WHEN f.dose_l_per_ha IS NOT NULL AND f.area_fumigated_m2 IS NOT NULL
+                    THEN f.dose_l_per_ha * f.area_fumigated_m2 / 10000.0
+                    ELSE 0
+                  END
+                ),
+                0
+              )::numeric AS litros_total
+            FROM dji_fumigations f
+            WHERE f.parcel_id = $1
+              AND EXTRACT(YEAR FROM f.fumigation_date) = $2
+              AND f.deleted_at IS NULL
+            GROUP BY EXTRACT(MONTH FROM f.fumigation_date)
+          )
+          SELECT
+            m.month,
+            COALESCE(a.count, 0) AS count,
+            COALESCE(a.area_total_m2, 0) AS area_total_m2,
+            COALESCE(a.litros_total, 0) AS litros_total
+          FROM months m
+          LEFT JOIN agg a ON a.month = m.month
+          ORDER BY m.month
+        `,
+        [parcelId, year]
+      );
+      return result.rows.map((row) => ({
+        month: Number(row.month),
+        count: Number(row.count),
+        area_total_m2: Number(row.area_total_m2),
+        litros_total: Number(row.litros_total)
+      }));
+    },
+    async () =>
+      Array.from({ length: 12 }, (_, i) => ({
+        month: i + 1,
+        count: 0,
+        area_total_m2: 0,
+        litros_total: 0
+      }))
+  );
+}
+
+/**
+ * Trazabilidad flight → fumigación: devuelve los dji_flights que
+ * originaron una fumigación del import (los IDs están en
+ * dji_fumigations.flight_ids, persistidos por el backfill Sprint G2).
+ *
+ * Devuelve un array vacío si:
+ *   - La fumigación no existe
+ *   - La fumigación es manual (source='manual') o huérfana pre-G2
+ *     (flight_ids=NULL)
+ *
+ * Orden: por start_at asc (los flights del día en orden temporal).
+ */
+export interface FlightTraceRow {
+  id: number;
+  start_at: string | null;
+  end_at: string | null;
+  drone_nickname: string | null;
+  pilot_name: string | null;
+  area_m2: number | null;
+  duration_seconds: number | null;
+}
+
+export async function getFumigationFlightTrace(
+  fumigationId: number
+): Promise<FlightTraceRow[]> {
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      const result = await db.query<{
+        id: number;
+        start_at: Date | null;
+        end_at: Date | null;
+        drone_nickname: string | null;
+        pilot_name: string | null;
+        area_m2: string | number | null;
+        duration_seconds: number | null;
+      }>(
+        `
+          SELECT
+            f.id, f.start_at, f.end_at,
+            f.drone_nickname, f.pilot_name,
+            f.area_m2, f.duration_seconds
+          FROM dji_fumigations fum
+          JOIN dji_flights f ON f.id = ANY(fum.flight_ids)
+          WHERE fum.id = $1
+            AND fum.deleted_at IS NULL
+          ORDER BY f.start_at ASC NULLS LAST
+        `,
+        [fumigationId]
+      );
+      return result.rows.map((row) => ({
+        id: Number(row.id),
+        start_at: row.start_at ? row.start_at.toISOString() : null,
+        end_at: row.end_at ? row.end_at.toISOString() : null,
+        drone_nickname: row.drone_nickname,
+        pilot_name: row.pilot_name,
+        area_m2: row.area_m2 !== null ? Number(row.area_m2) : null,
+        duration_seconds: row.duration_seconds !== null ? Number(row.duration_seconds) : null
+      }));
+    },
+    async () => []
+  );
+}
+
+/**
+ * Historial de cambios de cadencia/cultivo de una parcela. Ordenado
+ * por changed_at DESC (más reciente primero).
+ *
+ * Usado por `components/parcels/parcel-fumigation-history.tsx` para
+ * mostrar la sección "Cambios de cadencia" con diffs antes/después.
+ *
+ * Decisión: limit configurable (default 10). El UI no pagina — son
+ * cambios raros, los últimos 10 alcanzan.
+ */
+export interface ScheduleHistoryEntry {
+  id: number;
+  parcel_id: number;
+  old_cadence_days: number | null;
+  new_cadence_days: number | null;
+  old_crop_type: string | null;
+  new_crop_type: string | null;
+  changed_by: string | null;
+  reason: string | null;
+  commit_sha: string | null;
+  changed_at: string;
+}
+
+export async function getScheduleHistory(
+  parcelId: number,
+  limit: number = 10
+): Promise<ScheduleHistoryEntry[]> {
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      const result = await db.query<{
+        id: string;
+        parcel_id: number;
+        old_cadence_days: number | null;
+        new_cadence_days: number | null;
+        old_crop_type: string | null;
+        new_crop_type: string | null;
+        changed_by: string | null;
+        reason: string | null;
+        commit_sha: string | null;
+        changed_at: Date;
+      }>(
+        `
+          SELECT id, parcel_id,
+                 old_cadence_days, new_cadence_days,
+                 old_crop_type, new_crop_type,
+                 changed_by, reason, commit_sha, changed_at
+            FROM dji_fumigation_schedule_history
+           WHERE parcel_id = $1
+           ORDER BY changed_at DESC
+           LIMIT $2
+        `,
+        [parcelId, limit]
+      );
+      return result.rows.map((row) => ({
+        id: Number(row.id),
+        parcel_id: row.parcel_id,
+        old_cadence_days: row.old_cadence_days,
+        new_cadence_days: row.new_cadence_days,
+        old_crop_type: row.old_crop_type,
+        new_crop_type: row.new_crop_type,
+        changed_by: row.changed_by,
+        reason: row.reason,
+        commit_sha: row.commit_sha,
+        changed_at: row.changed_at.toISOString()
+      }));
+    },
+    async () => []
+  );
+}
+
+/**
+ * Totales anuales de una parcela: cantidad de fumigaciones, área
+ * total fumigada, litros totales, productos únicos usados.
+ *
+ * Diferencia con `getFumigationYearlySummary`: este es UN solo row con
+ * los totales agregados de los 12 meses, para mostrar en el header
+ * del UI ("este año: 14 fumigaciones, 87.500 m², 145 L, 4 productos
+ * distintos").
+ */
+export interface YearTotals {
+  year: number;
+  count: number;
+  area_total_m2: number;
+  litros_total: number;
+  productos_unicos: number;
+}
+
+export async function getFumigationYearTotals(
+  parcelId: number,
+  year: number
+): Promise<YearTotals> {
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      const r = await db.query<{
+        count: string;
+        area_total_m2: string;
+        litros_total: string;
+        productos_unicos: string;
+      }>(
+        `
+          SELECT
+            COUNT(*)::int AS count,
+            COALESCE(SUM(area_fumigated_m2), 0)::numeric AS area_total_m2,
+            COALESCE(
+              SUM(
+                CASE
+                  WHEN dose_l_per_ha IS NOT NULL AND area_fumigated_m2 IS NOT NULL
+                  THEN dose_l_per_ha * area_fumigated_m2 / 10000.0
+                  ELSE 0
+                END
+              ),
+              0
+            )::numeric AS litros_total,
+            COUNT(DISTINCT NULLIF(product_used, ''))::int AS productos_unicos
+          FROM dji_fumigations
+          WHERE parcel_id = $1
+            AND EXTRACT(YEAR FROM fumigation_date) = $2
+            AND deleted_at IS NULL
+        `,
+        [parcelId, year]
+      );
+      const row = r.rows[0];
+      return {
+        year,
+        count: Number(row.count),
+        area_total_m2: Number(row.area_total_m2),
+        litros_total: Number(row.litros_total),
+        productos_unicos: Number(row.productos_unicos)
+      };
+    },
+    async () => ({ year, count: 0, area_total_m2: 0, litros_total: 0, productos_unicos: 0 })
+  );
+}
