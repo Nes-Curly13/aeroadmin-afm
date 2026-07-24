@@ -47,6 +47,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@sparticuz/chromium": "^149.0.0",
     "@types/bcryptjs": "^2.4.6",
     "bcryptjs": "^3.0.3",
     "leaflet": "1.9.4",
