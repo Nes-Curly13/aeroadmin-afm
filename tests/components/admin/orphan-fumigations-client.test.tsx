@@ -46,7 +46,13 @@ const baseParcelOptions = [
 ];
 
 function makeRow(overrides: Partial<DjiFumigationEvent> = {}): DjiFumigationEvent {
-  return {
+  // Las huérfanas tienen `parcel_id: null`, pero el type
+  // `DjiFumigationEvent` declara `parcel_id: number` (porque está
+  // tipado para fumigaciones per-parcel). Hacemos un cast local:
+  // el test es específico para huérfanas y conoce la realidad del
+  // shape que devuelve `getOrphanFumigations`. En el futuro se puede
+  // refinar el type del repository para reflejar la opcionalidad.
+  return ({
     id: 610,
     parcel_id: null,
     fumigation_date: "2026-07-02",
@@ -68,7 +74,7 @@ function makeRow(overrides: Partial<DjiFumigationEvent> = {}): DjiFumigationEven
     recorded_at: "2026-07-03T14:19:19.854Z",
     source: "import",
     ...overrides
-  };
+  } as unknown) as DjiFumigationEvent;
 }
 
 beforeEach(() => {

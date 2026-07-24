@@ -1,6 +1,6 @@
-// app/api/fumigations/[parcelId]/timeline/route.ts
+// app/api/fumigations/[id]/timeline/route.ts
 //
-// GET /api/fumigations/[parcelId]/timeline
+// GET /api/fumigations/[id]/timeline
 //
 // M7 (roadmap mediano plazo) — vista de timeline de fumigaciones por parcela.
 // Devuelve el historial completo de una parcela en un rango de fechas:
@@ -82,7 +82,7 @@ interface TimelineResponse {
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ parcelId: string }> }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     // ---- Auth ----
@@ -99,9 +99,9 @@ export async function GET(
       );
     }
 
-    // ---- Validate parcelId ----
-    const { parcelId: rawId } = await params;
-    const idParsed = parseIntParam(rawId, "parcelId", 1);
+    // ---- Validate id (parcel ID, en este endpoint) ----
+    const { id: rawId } = await params;
+    const idParsed = parseIntParam(rawId, "id", 1);
     if ("error" in idParsed) {
       return NextResponse.json({ error: idParsed.error }, { status: 400 });
     }

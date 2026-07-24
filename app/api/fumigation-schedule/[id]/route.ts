@@ -7,7 +7,7 @@ import { parseIntParam } from "@/lib/request";
 export const dynamic = "force-dynamic";
 
 /**
- * PATCH /api/fumigation-schedule/[parcelId]
+ * PATCH /api/fumigation-schedule/[id]
  * Body: { recommended_cadence_days: number }
  * Crea el schedule si no existe, lo actualiza si existe.
  *
@@ -22,14 +22,14 @@ export const dynamic = "force-dynamic";
  */
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: Promise<{ parcelId: string }> }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     // Guard de role (v1.5). Admin only — la cadencia es decisión de negocio.
     await requireRole("admin");
 
-    const { parcelId: rawId } = await params;
-    const idParsed = parseIntParam(rawId, "parcelId", 1);
+    const { id: rawId } = await params;
+    const idParsed = parseIntParam(rawId, "id", 1);
     if ("error" in idParsed) {
       return NextResponse.json({ error: idParsed.error }, { status: 400 });
     }

@@ -19,6 +19,10 @@ import {
 } from "./fumigations-from-flights";
 import { updateFumigationSchedule } from "./update-fumigation-schedule";
 
+// Re-export para mantener la superficie pública coherente
+// (todos los módulos de `lib/backfill/` exponen QueryRunner).
+export type { QueryRunner };
+
 /**
  * Dependencias inyectables de refreshFumigations. En producción
  * se usan los defaults (las funciones reales). En tests se

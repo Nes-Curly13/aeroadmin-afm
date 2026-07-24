@@ -11,6 +11,12 @@
 import { getDb } from "@/lib/db";
 import type { QueryRunner } from "./fumigations-from-flights";
 
+// Re-export para que los tests (y callers externos) puedan importar
+// QueryRunner desde este módulo sin necesidad de conocer la lib
+// `fumigations-from-flights`. Mantiene la superficie pública coherente
+// (todos los módulos de `lib/backfill/` exponen el mismo tipo).
+export type { QueryRunner };
+
 export interface ScheduleUpdateRow {
   id: number;
   parcel_id: number;
