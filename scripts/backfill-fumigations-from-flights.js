@@ -120,7 +120,13 @@ async function backfillFumigationsFromFlights(client) {
         SUM(f.spray_usage_ml)::int AS total_spray_ml,
         array_agg(DISTINCT f.drone_nickname) AS drones,
         array_agg(DISTINCT f.pilot_name) FILTER (WHERE f.pilot_name IS NOT NULL) AS pilots,
-        (MODE() WITHIN GROUP (ORDER BY f.pilot_name)) AS primary_pilot
+        (MODE() WITHIN GROUP (ORDER BY f.pilot_name)) AS primary_pilot,
+        -- Sprint G2: array de flight IDs que originaron esta fumigación.
+        -- Permite el "ver qué flights usó esta fumigación" en el UI
+        -- de la hoja de vida. array_agg sin DISTINCT porque pueden
+        -- repetirse si el mismo flight_id aparece en varias rows
+        -- (defensa). ORDER BY para que el array sea determinístico.
+        array_agg(f.id ORDER BY f.id) AS flight_ids
       FROM dji_flights f
       WHERE f.parcel_id IS NOT NULL
         AND f.start_at IS NOT NULL
@@ -129,7 +135,7 @@ async function backfillFumigationsFromFlights(client) {
     INSERT INTO dji_fumigations (
       fumigation_date, parcel_id, drone_code_used,
       area_fumigated_m2, duration_minutes, dose_l_per_ha,
-      notes, recorded_by, source
+      notes, recorded_by, source, flight_ids
     )
     SELECT
       fumigation_date, parcel_id, drone_code_used,
@@ -143,7 +149,8 @@ async function backfillFumigationsFromFlights(client) {
         'primary_drone_nickname', primary_drone_nickname
       ),
       primary_pilot,
-      'import'
+      'import',
+      flight_ids
     FROM agg
     RETURNING id, fumigation_date, parcel_id
   `);

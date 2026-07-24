@@ -104,4 +104,15 @@ describe("backfill-fumigations-from-flights — backfillFumigationsFromFlights",
     const stats = await backfillFumigationsFromFlights(client);
     expect(stats.inserted).toBe(130);
   });
+
+  it("Sprint G2: persiste flight_ids array (trazabilidad flight→fumigación)", async () => {
+    const { client, calls } = makeMockClient();
+    await backfillFumigationsFromFlights(client);
+
+    const insertSql = calls.find((c) => c.sql.trim().toUpperCase().startsWith("WITH"))!.sql;
+    // El aggregate agrupa f.id en un array
+    expect(insertSql).toMatch(/array_agg\(f\.id[^)]*\) AS flight_ids/);
+    // El INSERT incluye flight_ids en la lista de columnas
+    expect(insertSql).toMatch(/flight_ids/);
+  });
 });
