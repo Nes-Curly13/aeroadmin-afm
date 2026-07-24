@@ -3,6 +3,8 @@
 // app/admin/orphan-fumigations/orphan-fumigations-client.tsx
 //
 // Sprint G1 — cliente de la página de huérfanas.
+// Sprint H2 — agrega columnas de metadata del scraper
+// (sortieCount, sprayUsageMl, workTimeHours) parseadas de `notes` JSON.
 //
 // Tabla con 1 fila por fumigación huérfana + selector de parcela + botón
 // "Vincular". Al vincular, hace POST al endpoint
@@ -17,6 +19,14 @@
 //     (mantengo el bundle chico y la UX es buena con 200 opciones).
 //   - El botón muestra un spinner mientras la request está en vuelo
 //     y deshabilita para evitar doble submit.
+//   - Las huérfanas son agregaciones diarias del scraper DJI (no
+//     fumigaciones per-parcel). Sus campos `notes` incluyen
+//     `sortieCount`, `sprayUsageMl`, `workTimeSec` (formato
+//     `djiscraper-aggr-by-day`). Las parseamos a columnas visibles
+//     para que el admin entienda qué representa cada fila antes de
+//     vincularla (sigue siendo manual — no hay match automático
+//     viable porque el scraper no expone `parcel_id` ni coords por
+//     vuelo en este formato agregado).
 
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -24,6 +34,7 @@ import { useState, useTransition } from "react";
 
 import { toDateString } from "@/lib/format";
 import type { DjiFumigationEvent } from "@/lib/types";
+import { parseScraperAggrMeta } from "@/lib/scraper-meta";
 
 interface ParcelOption {
   id: number;
@@ -163,6 +174,9 @@ export function OrphanFumigationsClient({
                 <th className="px-3 py-2 text-left">Fecha</th>
                 <th className="px-3 py-2 text-left">Área (m²)</th>
                 <th className="px-3 py-2 text-left">Producto</th>
+                <th className="px-3 py-2 text-left" title="Salidas de drones ese día (agregado)">Salidas</th>
+                <th className="px-3 py-2 text-left" title="Volumen asperjado en mL (agregado)">Aspersión (mL)</th>
+                <th className="px-3 py-2 text-left" title="Horas de trabajo del día (agregado)">Horas</th>
                 <th className="px-3 py-2 text-left">Vincular a</th>
                 <th className="px-3 py-2 text-right">Acción</th>
               </tr>
@@ -171,6 +185,7 @@ export function OrphanFumigationsClient({
               {initialRows.map((row) => {
                 const date = toDateString(row.fumigation_date) ?? "—";
                 const isSubmitting = submittingId === row.id;
+                const meta = parseScraperAggrMeta(row.notes);
                 return (
                   <tr
                     className="border-t border-[#eef2ee] align-top"
@@ -183,6 +198,29 @@ export function OrphanFumigationsClient({
                     </td>
                     <td className="px-3 py-2 text-[#4a5b50]">
                       {row.product_used ?? <span className="italic text-[#587064]">(no registrado)</span>}
+                    </td>
+                    <td className="px-3 py-2 font-mono text-xs text-[#4a5b50]">
+                      {meta ? (
+                        <span data-testid="orphan-fumigations-sortie-count">{meta.sortieCount}</span>
+                      ) : (
+                        <span className="italic text-[#587064]">—</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 font-mono text-xs text-[#4a5b50]">
+                      {meta ? (
+                        <span data-testid="orphan-fumigations-spray-ml">
+                          {meta.sprayUsageMl.toLocaleString("es-CO")}
+                        </span>
+                      ) : (
+                        <span className="italic text-[#587064]">—</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 font-mono text-xs text-[#4a5b50]">
+                      {meta ? (
+                        <span data-testid="orphan-fumigations-work-hours">{meta.workTimeHours}</span>
+                      ) : (
+                        <span className="italic text-[#587064]">—</span>
+                      )}
                     </td>
                     <td className="px-3 py-2">
                       <select
