@@ -1,0 +1,13 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "buildCommand": "next build",
+  "installCommand": "npm ci",
+  "regions": ["iad1"],
+  "functions": {
+    "app/api/parcels/[id]/report.pdf/route.ts": {
+      "maxDuration": 30,
+      "memory": 3008
+    }
+  }
+}
