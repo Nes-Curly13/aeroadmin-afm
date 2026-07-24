@@ -2,28 +2,45 @@
  * lib/djiag-health.ts
  *
  * XS1 (audit 2026-07-22, docs/DJIAG_AUDIT.md H1).
- *
  * Lógica pura de lectura/derivación del health del pipeline DJI AG.
  * Separada del route handler para que sea testeable sin mockear
  * `node:fs` (los dynamic imports en el route handler son difíciles
  * de interceptar limpiamente con vitest).
  *
- * Tres funciones:
- *   - `readHealthFile(filePath)`: lee y parsea el JSON. null si no
- *     existe o está corrupto.
- *   - `deriveResponse(health)`: convierte el JSON crudo en la
- *     respuesta que ve el frontend (con status derivado, warnings,
- *     hoursSinceLastSync, etc.).
- *   - `HealthResponse`: el shape que devuelve el endpoint.
+ * Fuentes del health (Sprint E — Task 2):
+ *   1. **Filesystem** (`djiag_exports/_health.json`) — usado en dev
+ *      local y CI. Escrito por `scripts/run-pipeline.js` con
+ *      `writeHealthFile`. No funciona en Vercel serverless porque
+ *      el filesystem es ephemeral.
+ *   2. **Postgres** (`djiag_health` table, singleton row id=1) —
+ *      la fuente de verdad en serverless. Escrita por
+ *      `scripts/run-pipeline.js` con `writeHealthToDb` (best effort
+ *      — si la tabla no existe o la conexión falla, el pipeline no
+ *      rompe, solo loguea warning).
  *
- * No usa `process.cwd()` ni globals. El caller pasa el path absoluto
- * del archivo. Esto facilita los tests (pasamos un tmpfile) y
- * desacopla del layout del filesystem.
+ * El route handler elige la fuente según el entorno:
+ *   - `process.env.VERCEL` o `AWS_LAMBDA_FUNCTION_NAME` seteada →
+ *     lee de DB.
+ *   - Si no → lee del filesystem.
+ *
+ * Si la fuente preferida falla (tabla no existe, file corrupto,
+ * etc.), `deriveResponse(null)` se encarga de mapear a
+ * `status='unknown'`. NO se intenta fallback cruzado (DB → file o
+ * viceversa) para mantener simple.
+ *
+ * Tres funciones puras (testeables sin mockear `node:fs`/`pg`):
+ *   - `readHealthFile(filePath)`: lee del filesystem.
+ *   - `readHealthFromDb(client)`: lee de la tabla `djiag_health`.
+ *     Acepta un `pg.Client` o `pg.PoolClient` inyectable para tests.
+ *   - `deriveResponse(health)`: convierte el health crudo en la
+ *     respuesta que ve el frontend.
+ *
+ * `HealthResponse` es el shape que devuelve el endpoint.
  */
 
 import { readFile } from "node:fs/promises";
 
-/** Shape del JSON que escribe `scripts/run-pipeline.js`. */
+/** Shape del JSON que escribe `scripts/run-pipeline.js` al filesystem. */
 export interface PipelineHealth {
   lastRunAt: string;
   lastRunStatus: "ok" | "partial" | "failed";
@@ -63,7 +80,7 @@ export interface HealthResponse {
 export const STALE_THRESHOLD_HOURS = 24;
 
 /**
- * Lee el archivo de health. Devuelve `null` si:
+ * Lee el archivo de health del filesystem. Devuelve `null` si:
  *   - el archivo no existe
  *   - el archivo existe pero el JSON está corrupto
  *   - el archivo existe pero no es un objeto
@@ -80,6 +97,89 @@ export async function readHealthFile(filePath: string): Promise<PipelineHealth |
   } catch {
     return null;
   }
+}
+
+/**
+ * Tipo mínimo del cliente de DB que necesitamos. Acepta un
+ * `pg.Client`, `pg.PoolClient`, o cualquier objeto con `.query()`.
+ * No importamos `pg` arriba para mantener este módulo usable desde
+ * entornos donde `pg` no está instalado (e.g. el browser bundle).
+ */
+export interface DbQueryRunner {
+  query: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
+}
+
+/**
+ * Lee el health de la tabla `djiag_health` (singleton row id=1).
+ *
+ * Devuelve `null` si:
+ *   - la tabla no existe (migration no aplicada) → query tira
+ *     `error.code === '42P01'` y devolvemos null.
+ *   - no hay row (improbable: la migration hace seed) → 0 rows.
+ *   - cualquier otro error (conexión, permisos) → null.
+ *
+ * NO tira. El caller mapea `null` a `status='unknown'`.
+ *
+ * Mapea las columnas de la DB al shape `PipelineHealth` que usa
+ * `deriveResponse`. La tabla es 1 sola fila por diseño, así que
+ * `LIMIT 1` es defensivo.
+ */
+export async function readHealthFromDb(
+  client: DbQueryRunner
+): Promise<PipelineHealth | null> {
+  let result: { rows: unknown[] };
+  try {
+    result = await client.query(
+      `SELECT last_run_at, last_run_status, last_successful_sync_at,
+              flights_count, fumigations_count, lands_count, steps
+       FROM djiag_health
+       WHERE id = 1
+       LIMIT 1`
+    );
+  } catch (err) {
+    // Si la tabla no existe (42P01 = undefined_table) o cualquier
+    // otro error de Postgres, devolvemos null. NO queremos que un
+    // error de DB rompa el endpoint admin.
+    // eslint-disable-next-line no-console
+    console.warn(
+      "[djiag-health] readHealthFromDb falló (devolviendo null):",
+      err instanceof Error ? err.message : String(err)
+    );
+    return null;
+  }
+  const row = result.rows[0] as
+    | {
+        last_run_at: Date | string | null;
+        last_run_status: "ok" | "partial" | "failed" | "unknown" | null;
+        last_successful_sync_at: Date | string | null;
+        flights_count: number | null;
+        fumigations_count: number | null;
+        lands_count: number | null;
+        steps: StepHealth[] | null;
+      }
+    | undefined;
+  if (!row) return null;
+  // Mapear columnas DB → shape PipelineHealth.
+  return {
+    lastRunAt: row.last_run_at ? new Date(row.last_run_at).toISOString() : "",
+    lastRunStatus:
+      row.last_run_status === "ok" ||
+      row.last_run_status === "partial" ||
+      row.last_run_status === "failed"
+        ? row.last_run_status
+        : "ok",
+    lastSuccessfulSyncAt: row.last_successful_sync_at
+      ? new Date(row.last_successful_sync_at).toISOString()
+      : null,
+    steps: Array.isArray(row.steps) ? row.steps : [],
+    totals: {
+      flights: typeof row.flights_count === "number" ? row.flights_count : 0,
+      fumigations:
+        typeof row.fumigations_count === "number" ? row.fumigations_count : 0,
+      lands: typeof row.lands_count === "number" ? row.lands_count : 0
+    },
+    version: 1
+  };
 }
 
 /**

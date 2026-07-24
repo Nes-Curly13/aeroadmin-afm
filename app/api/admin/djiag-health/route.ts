@@ -3,9 +3,19 @@
  *
  * XS1 (audit 2026-07-22, docs/DJIAG_AUDIT.md H1).
  *
- * Endpoint de visibilidad operacional del scraper DJI AG. Lee
- * `djiag_exports/_health.json` (escrito por `scripts/run-pipeline.js`
- * al final de cada corrida) y reporta el estado al admin.
+ * Endpoint de visibilidad operacional del scraper DJI AG. Lee el
+ * health del pipeline y lo reporta al admin.
+ *
+ * Fuente del health (Sprint E — Task 2):
+ *   - **Serverless** (VERCEL o AWS_LAMBDA_FUNCTION_NAME): lee de la
+ *     tabla Postgres `djiag_health` (singleton row id=1). El
+ *     filesystem de Vercel es ephemeral y se borra entre deploys.
+ *   - **Local / CI**: lee de `djiag_exports/_health.json` (backwards
+ *     compat con el script del pipeline que ya lo escribe).
+ *
+ * Si la fuente preferida falla (tabla no existe, file corrupto,
+ * conexión caída), devolvemos 200 con `status='unknown'` en vez de
+ * 500. El panel puede mostrar "Sin datos" sin romper.
  *
  * Solo accesible para role 'admin' (gates de seguridad: el archivo
  * expone metadata operacional, no datos del cliente).
@@ -26,10 +36,6 @@
  *     cae al `requireRole('admin')` normal — backwards compatible
  *     con la UI existente.
  *
- * Si el archivo no existe o está corrupto, devolvemos 200 con
- * status='unknown' en vez de 500. El panel puede mostrar "Sin
- * datos" sin romper.
- *
  * Path del archivo: relativo a process.cwd() (mismo que el script).
  *
  * Tests: tests/api-admin-djiag-health.test.ts cubre:
@@ -40,10 +46,11 @@
  *   - 200 admin con archivo ausente
  *   - 200 admin con archivo corrupto
  *   - warnings derivados
+ *   - 200 admin con DB en serverless (VERCEL=1)
  *
  * Logica pura (read + derive) en `lib/djiag-health.ts` para que sea
- * testeable sin mockear `node:fs` (los dynamic imports en el route
- * handler son diffciles de interceptar con vitest).
+ * testeable sin mockear `node:fs` ni `pg` (los dynamic imports en el
+ * route handler son difíciles de interceptar con vitest).
  */
 
 import path from "node:path";
@@ -55,12 +62,20 @@ import { requireRole } from "@/lib/auth/role";
 import {
   deriveResponse,
   readHealthFile,
-  type HealthResponse
+  readHealthFromDb,
+  type HealthResponse,
+  type PipelineHealth
 } from "@/lib/djiag-health";
+import { getDb } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
 const HEALTH_FILE_RELATIVE = "djiag_exports/_health.json";
+
+/** Detecta si estamos en un entorno serverless. */
+function isServerless(): boolean {
+  return Boolean(process.env.VERCEL) || Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME);
+}
 
 /**
  * Bypass opcional para monitoring externo (GitHub Action watchdog).
@@ -146,8 +161,30 @@ export async function GET(
     }
   }
 
-  const filePath = path.join(process.cwd(), HEALTH_FILE_RELATIVE);
-  const health = await readHealthFile(filePath);
+  // Elegir fuente según entorno.
+  //   - Serverless: DB (el filesystem es ephemeral).
+  //   - Local: filesystem (no requiere conexión a DB para ver el health,
+  //     más rápido para dev).
+  // Si la fuente preferida falla, devolvemos status='unknown' (no 500)
+  // para que el panel pueda mostrar "Sin datos" sin romper.
+  let health: PipelineHealth | null = null;
+  if (isServerless()) {
+    try {
+      const db = getDb();
+      health = await readHealthFromDb(db);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        "[djiag-health] readHealthFromDb threw, falling back to unknown:",
+        err instanceof Error ? err.message : String(err)
+      );
+      health = null;
+    }
+  } else {
+    const filePath = path.join(process.cwd(), HEALTH_FILE_RELATIVE);
+    health = await readHealthFile(filePath);
+  }
+
   const response = deriveResponse(health);
   return NextResponse.json(response);
 }
