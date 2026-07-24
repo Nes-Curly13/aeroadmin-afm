@@ -22,6 +22,15 @@
 //     parámetro para que el test smoke pueda usar `vi.mock` sin
 //     levantar un browser real.
 //
+// Serverless (Sprint E — Task 1):
+//   - En Vercel/AWS Lambda, el chromium de Playwright (~300MB en disco)
+//     no está disponible. `@sparticuz/chromium` provee una build
+//     optimizada para serverless (~50MB comprimida) que se infla al
+//     runtime en `/tmp` y devuelve el `executablePath`.
+//   - Detectamos serverless con `VERCEL` o `AWS_LAMBDA_FUNCTION_NAME`.
+//   - Si el import de `@sparticuz/chromium` falla (p.ej. en jsdom o en
+//     CI sin red), caemos al path local sin crashear.
+//
 // Por qué no `@react-pdf` o `pdfkit`:
 //   - El reporte tiene tablas, totales, y formato que se parece MUCHO
 //     al HTML de la UI. Reusar Playwright (que ya está en deps por
@@ -53,6 +62,55 @@ function getPlaywright() {
   return _playwrightModule;
 }
 
+/** Detecta si estamos en un entorno serverless (Vercel / AWS Lambda).
+ *  En serverless, NO usamos el chromium local de Playwright (no está
+ *  instalado en el deploy image) sino el binario de `@sparticuz/chromium`. */
+export function isServerless(): boolean {
+  return Boolean(process.env.VERCEL) || Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME);
+}
+
+/** Tipo del módulo `@sparticuz/chromium` (default export es la clase
+ *  `Chromium` con `executablePath()` + `args`). Lo tipeamos manualmente
+ *  para no requerir el import en tiempo de compilación (es ESM-only y
+ *  este archivo se compila a CJS — usamos dynamic `import()`). */
+interface SparticuzChromium {
+  executablePath: (input?: string) => Promise<string>;
+  args: string[];
+}
+
+/** Módulo `@sparticuz/chromium` cacheado, o `null` si falló el import. */
+let _chromiumModule: { default: SparticuzChromium } | null = null;
+let _chromiumImportAttempted = false;
+
+/** Devuelve el módulo `@sparticuz/chromium`, o `null` si:
+ *    - No estamos en serverless (no tiene sentido importarlo en local).
+ *    - El import falló (p.ej. en jsdom/CI sin binarios disponibles).
+ *  Cachea el resultado para no reintentar en cada request. */
+export async function getSparticuzChromium(): Promise<SparticuzChromium | null> {
+  if (!isServerless()) return null;
+  if (_chromiumModule) return _chromiumModule.default;
+  if (_chromiumImportAttempted) return null;
+  _chromiumImportAttempted = true;
+  try {
+    // Dynamic import: @sparticuz/chromium es ESM-only ("type": "module"
+    // en su package.json), pero este archivo se compila a CJS por
+    // Next.js. `import()` funciona tanto en CJS como ESM.
+    const mod = (await import("@sparticuz/chromium")) as unknown as { default: SparticuzChromium };
+    _chromiumModule = mod;
+    return mod.default;
+  } catch (err) {
+    // Logueamos y caemos al path local. NO throw — el caller va a
+    // intentar `pw.chromium.launch({ headless: true })` que va a
+    // fallar en serverless, pero al menos tenemos un stack trace.
+    // eslint-disable-next-line no-console
+    console.warn(
+      "[render-pdf] @sparticuz/chromium import failed, falling back to local chromium:",
+      err instanceof Error ? err.message : String(err)
+    );
+    return null;
+  }
+}
+
 /** Singleton browser — se reusa entre requests. `null` hasta el primer
  *  `renderHtmlToPdf()` o `launchBrowser()`. */
 let _browser: PlaywrightBrowser | null = null;
@@ -67,7 +125,20 @@ export async function launchBrowser(): Promise<PlaywrightBrowser> {
   if (!pw) {
     throw new Error("playwright module not initialized");
   }
-  _browser = await pw.chromium.launch({ headless: true });
+
+  // En serverless, le pedimos el binario + args a @sparticuz/chromium
+  // y se los pasamos a Playwright vía `executablePath` + `args`.
+  // En local, el chromium de Playwright está en `node_modules/playwright-core/.local-browsers`
+  // y Playwright lo encuentra solo con `headless: true`.
+  const sparticuz = await getSparticuzChromium();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const launchOptions: any = { headless: true };
+  if (sparticuz) {
+    launchOptions.executablePath = await sparticuz.executablePath();
+    launchOptions.args = sparticuz.args;
+  }
+
+  _browser = await pw.chromium.launch(launchOptions);
   if (!_signalsRegistered) {
     _signalsRegistered = true;
     // Cleanup al recibir SIGINT/SIGTERM (ctrl-c, kill). En Next dev server
@@ -101,6 +172,15 @@ export function __setPlaywrightForTest(
   module: { chromium: { launch: (opts?: unknown) => Promise<PlaywrightBrowser> } } | null
 ): void {
   _playwrightModule = module;
+}
+
+/** Inyecta el módulo `@sparticuz/chromium` mockeado (para tests).
+ *  Pasar `null` resetea el cache y desactiva el import real. */
+export function __setSparticuzChromiumForTest(
+  module: { default: SparticuzChromium } | null
+): void {
+  _chromiumModule = module;
+  _chromiumImportAttempted = false;
 }
 
 /** Opciones de `page.pdf()`. Mismas defaults que Playwright. */
