@@ -89,3 +89,4 @@ playwright-report/
 # a S3 / Supabase storage / disco externo.
 # ============================================================
 /backups/
+.vercel
