@@ -7,7 +7,7 @@
   "functions": {
     "app/api/parcels/[id]/report.pdf/route.ts": {
       "maxDuration": 30,
-      "memory": 3008
+      "memory": 2048
     }
   }
 }
