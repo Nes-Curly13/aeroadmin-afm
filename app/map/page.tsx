@@ -6,9 +6,13 @@ import { getViewerRole } from "@/lib/auth/role";
 import { toDateString } from "@/lib/format";
 import type { DjiParcelRecord } from "@/lib/types";
 
-// (Sprint 7) Antes `force-dynamic` — ahora `auto`: el cache de
-// `unstable_cache` con TTL 60s se aplica al listado de parcelas + summary.
-// El mapa siempre lee data fresca al primer click del usuario (CSR).
+// (2026-07-27) Restaurado a `force-dynamic`. La nota de Sprint 7 estaba
+// equivocada: `unstable_cache` (TTL 60s) sigue funcionando dentro de
+// páginas dinámicas — solo deshabilita la prerenderización estática.
+// Sin esto, `next build` intenta prerenderizar /map en build time,
+// ejecuta las queries del critical path, y falla con ENETUNREACH a la
+// DB de Supabase (Vercel resuelve el host a IPv6 y esa ruta no llega).
+export const dynamic = "force-dynamic";
 //
 // v1.3 Track A (2026-07-21): panel de filtros server-side via searchParams.
 // La sidebar de filtros se renderiza junto al mapa (critical path) y

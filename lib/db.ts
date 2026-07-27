@@ -1,3 +1,4 @@
+import dns from "node:dns";
 import { Pool, types } from "pg";
 
 declare global {
@@ -6,6 +7,13 @@ declare global {
   // eslint-disable-next-line no-var
   var __afmPgTypesPatched: boolean | undefined;
 }
+
+// (2026-07-27) Forzar resolución DNS a IPv4. Sin esto, en Vercel el host
+// `db.<ref>.supabase.co` se resuelve primero a una IPv6 (`2600:1f14:...`),
+// y la ruta IPv6 outbound a Supabase NO es reachable desde la build
+// runtime (ENETUNREACH). `setDefaultResultOrder` es global y persistente
+// para todo el proceso — no hace falta llamarlo por cada query. Node 18+.
+dns.setDefaultResultOrder("ipv4first");
 
 /**
  * `pg` por defecto devuelve columnas `NUMERIC` y `INT8 (bigint)` como STRINGS,

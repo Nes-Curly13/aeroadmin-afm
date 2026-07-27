@@ -13,10 +13,13 @@ import {
 import { countHighAlerts } from "@/lib/alerts";
 import { getViewerRole } from "@/lib/auth/role";
 
-// (Sprint 7) Antes `force-dynamic` — eso deshabilitaba el data cache de Next
-// y nuestras `unstable_cache` no se podían usar. Ahora la página usa `auto`:
-// si los tags de `afm:metrics`, `afm:alerts`, `afm:upcoming` están frescos,
-// Next sirve la versión cacheada y gana ~3 queries pesadas por render.
+// (2026-07-27) Restaurado a `force-dynamic`. La nota de Sprint 7 estaba
+// equivocada: `unstable_cache` (TTL 60s) sigue funcionando dentro de
+// páginas dinámicas — solo deshabilita la prerenderización estática.
+// Sin esto, `next build` intenta prerenderizar / en build time, ejecuta
+// las 7+ queries del dashboard, y falla con ENETUNREACH a la DB de
+// Supabase (Vercel resuelve el host a IPv6 y esa ruta no llega).
+export const dynamic = "force-dynamic";
 
 /**
  * Dashboard principal (`/`).
