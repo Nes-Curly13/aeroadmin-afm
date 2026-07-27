@@ -41,6 +41,35 @@ a {
   background: #dfe6ea;
 }
 
+/*
+  v1.8 — Label permanente de parcela (`#11`, `#16`, etc.). Estilo
+  minimalista: badge blanco semi-transparente con texto pequeño en
+  negrita, sin flecha (direction: "center"). El fondo blanco le da
+  legibilidad sobre el verde olivo del polígono y el satélite.
+*/
+.map-parcel-label {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  pointer-events: none; /* no bloquea clicks sobre el polígono */
+}
+.map-parcel-label .parcel-label {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.88);
+  color: #121815;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  border: 1px solid rgba(11, 95, 45, 0.35);
+  white-space: nowrap;
+}
+.map-parcel-label::before {
+  display: none; /* oculta la flecha del tooltip */
+}
+
 .font-display {
   font-family: var(--font-display);
 }

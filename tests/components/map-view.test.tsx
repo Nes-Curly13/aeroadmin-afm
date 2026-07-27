@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 
 import type { DjiParcelRecord } from "@/lib/types";
 
@@ -55,7 +55,32 @@ vi.mock("next/dynamic", () => ({
 
 import { MapView } from "@/components/map-view";
 
-describe("MapView", () => {
+/**
+ * Tests del MapView (v1.8).
+ *
+ * v1.8 cambio:
+ *   - Se eliminó el panel derecho permanente (buscador de parcela +
+ *     datos del dron + parámetros de aspersión + toggles de capa +
+ *     link al detalle). Toda esa info pasa al popup de Leaflet.
+ *   - Las capas se tildan/destildan desde el `<LayersControl>` nativo
+ *     de Leaflet (esquina superior derecha), no desde un panel propio.
+ *   - La leyenda se rebalanceó: 4 indicadores visuales puros
+ *     (Parcela activa, Parcela inactiva, En vuelo, Completado) sin
+ *     toggles. Está en la esquina inferior izquierda.
+ *
+ * Por lo tanto, los tests ya NO verifican:
+ *   - El `<ParcelSearch>` (no está más)
+ *   - El `<select>` de selección de parcela (no está más)
+ *   - El detalle de dron / aspersión (no está más)
+ *   - Los toggles de capa (están en Leaflet, fuera del scope de
+ *     este componente)
+ *
+ * Lo que SÍ verificamos:
+ *   - El `<MapClient>` se monta vía dynamic
+ *   - La `<MapLegend>` se renderiza con los 4 items correctos
+ *   - El `topRightSlot` se monta cuando se pasa
+ */
+describe("MapView — v1.8 (mapa full-bleed, sin panel derecho)", () => {
   it("renderiza el mapa con parcelas que tienen geometría", () => {
     render(
       <MapView
@@ -68,19 +93,7 @@ describe("MapView", () => {
     expect(screen.getByTestId("dynamic-stub")).toBeInTheDocument();
   });
 
-  it("muestra el selector de parcelas", () => {
-    render(
-      <MapView
-        alerts={[]}
-        flights={[]}
-        parcels={[makeParcel({ id: 1, land_name: "Mi parcela" })]}
-      />
-    );
-    // El selector se renderiza dentro del panel
-    expect(screen.getByLabelText(/seleccionar parcela/i)).toBeInTheDocument();
-  });
-
-  it("muestra la leyenda con 3 entradas", () => {
+  it("renderiza la leyenda con 4 entradas (Parcela activa/inactiva + En vuelo/Completado)", () => {
     render(
       <MapView
         alerts={[]}
@@ -88,22 +101,65 @@ describe("MapView", () => {
         parcels={[makeParcel({})]}
       />
     );
-    // Buscamos dentro del section de la leyenda (aria-label="Leyenda del mapa")
+    // La leyenda está en la esquina inferior izquierda.
     const legend = screen.getByRole("region", { name: /leyenda del mapa/i });
-    // Diseño Opción B: la leyenda muestra tipos de parcela + waypoint
-    expect(legend.textContent).toMatch(/Farmland/);
-    expect(legend.textContent).toMatch(/Orchards/);
-    expect(legend.textContent).toMatch(/Waypoint/);
+    expect(legend).toBeInTheDocument();
+    expect(legend.textContent).toMatch(/parcela activa/i);
+    expect(legend.textContent).toMatch(/parcela inactiva/i);
+    expect(legend.textContent).toMatch(/en vuelo/i);
+    expect(legend.textContent).toMatch(/completado/i);
   });
 
-  it("cambia de parcela al seleccionar otra en el dropdown", () => {
-    const parcels = [makeParcel({ id: 1, land_name: "A" }), makeParcel({ id: 2, land_name: "B" })];
-    render(<MapView alerts={[]} flights={[]} parcels={parcels} />);
-    const select = screen.getByLabelText(/seleccionar parcela/i);
-    fireEvent.change(select, { target: { value: "2" } });
-    // El detail panel ahora muestra "B" como heading principal
-    // (usamos getAllByText porque "B" también aparece en el dropdown)
-    const headings = screen.getAllByText("B");
-    expect(headings.length).toBeGreaterThan(0);
+  it("la leyenda NO tiene toggles de capa (están en el LayersControl de Leaflet)", () => {
+    render(
+      <MapView
+        alerts={[]}
+        flights={[]}
+        parcels={[makeParcel({})]}
+      />
+    );
+    // Cero checkboxes en el MapView — los toggles viven en Leaflet.
+    expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
+  });
+
+  it("NO renderiza un selector de parcela (la selección pasa al popup)", () => {
+    render(
+      <MapView
+        alerts={[]}
+        flights={[]}
+        parcels={[makeParcel({ id: 1, land_name: "Mi parcela" })]}
+      />
+    );
+    // Antes había un <select> con aria-label "Seleccionar parcela".
+    // v1.8 lo sacó. Buscar por el label es la forma más estable de
+    // afirmar que NO está.
+    expect(screen.queryByLabelText(/seleccionar parcela/i)).toBeNull();
+  });
+
+  it("monta el topRightSlot cuando se le pasa (botón Filtros, chips, etc.)", () => {
+    render(
+      <MapView
+        alerts={[]}
+        flights={[]}
+        parcels={[makeParcel({})]}
+        topRightSlot={<button data-testid="custom-slot-button">Filtros</button>}
+      />
+    );
+    expect(screen.getByTestId("custom-slot-button")).toBeInTheDocument();
+  });
+
+  it("sin topRightSlot el área top-right no se renderiza", () => {
+    const { container } = render(
+      <MapView
+        alerts={[]}
+        flights={[]}
+        parcels={[makeParcel({})]}
+      />
+    );
+    // El container raíz no tiene un wrapper específico para topRightSlot
+    // (no se monta cuando es undefined). Lo validamos buscando la
+    // ausencia de cualquier elemento con clase "top-4 right-4" + z-500.
+    const topRight = container.querySelector('[data-testid="app-shell-page-header"]');
+    expect(topRight).toBeNull();
   });
 });

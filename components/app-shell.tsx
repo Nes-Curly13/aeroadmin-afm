@@ -39,6 +39,26 @@ export interface AppShellProps {
   parcelsCount?: number;
   highAlertsCount?: number;
   /**
+   * v1.8 — header custom de la página. Si se pasa, REEMPLAZA el bloque
+   * default (eyebrow + h1 + subtítulo + actions). Útil para páginas
+   * tipo "mapa" o "dashboard" que quieren un layout compacto distinto
+   * al patrón vertical del AppShell.
+   *
+   * El `title` y `subtitle` originales siguen usándose para el
+   * `<title>` del document (Next.js metadata) y para la versión
+   * mobile de las actions; el contenido visible del header se
+   * controla 100% con esta prop.
+   */
+  pageHeader?: ReactNode;
+  /**
+   * v1.8 — si `true`, oculta el bloque default de título
+   * (eyebrow + h1 + subtítulo) Y no renderiza ningún `pageHeader`
+   * (aunque se haya pasado). Útil para páginas que renderizan su
+   * propio header DENTRO de `children` (e.g. `/map` con su header
+   * client-side que incluye estado reactivo).
+   */
+  hidePageHeader?: boolean;
+  /**
    * M4/F1.16 — cantidad de parcelas VENCIDAS (`severity === 'overdue'`).
    *
    * Se renderiza como chip rojo en el bloque "Estado actual" del sidebar
@@ -80,7 +100,9 @@ export function AppShell({
   parcelsCount = 0,
   highAlertsCount = 0,
   overdueCount,
-  viewerRole = null
+  viewerRole = null,
+  pageHeader,
+  hidePageHeader = false
 }: AppShellProps) {
   const showStatus =
     parcelsCount > 0 || highAlertsCount > 0 || (overdueCount ?? 0) > 0;
@@ -198,14 +220,21 @@ export function AppShell({
 
         <main className="flex-1 overflow-auto">
           <div className="mx-auto w-full max-w-7xl p-5 lg:p-8">
-            <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-              <div>
-                <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.28em] text-[#2c7f44]">{eyebrow}</p>
-                <h1 className="text-4xl font-black tracking-tight text-[#121815]">{title}</h1>
-                <p className="mt-2 max-w-2xl text-base text-[#4a5b50]">{subtitle}</p>
+            {!hidePageHeader && pageHeader ? (
+              <div className="mb-4" data-testid="app-shell-page-header">
+                {pageHeader}
               </div>
-              <div className="sm:hidden">{actions}</div>
-            </div>
+            ) : null}
+            {!hidePageHeader && !pageHeader ? (
+              <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                <div>
+                  <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.28em] text-[#2c7f44]">{eyebrow}</p>
+                  <h1 className="text-4xl font-black tracking-tight text-[#121815]">{title}</h1>
+                  <p className="mt-2 max-w-2xl text-base text-[#4a5b50]">{subtitle}</p>
+                </div>
+                <div className="sm:hidden">{actions}</div>
+              </div>
+            ) : null}
             {children}
           </div>
         </main>

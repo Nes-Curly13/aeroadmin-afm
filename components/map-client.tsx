@@ -4,14 +4,15 @@ import "leaflet/dist/leaflet.css";
 
 import L from "leaflet";
 import type { Feature, FeatureCollection, GeoJsonProperties } from "geojson";
-import { useEffect, useRef, useState } from "react";
-import { CircleMarker, GeoJSON, LayersControl, MapContainer, Polyline, Popup, TileLayer, useMap } from "react-leaflet";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { CircleMarker, GeoJSON, LayersControl, MapContainer, Polyline, Popup, ScaleControl, TileLayer, useMap } from "react-leaflet";
 
 import { waypointsToFlightPlan } from "@/lib/flight-plan";
 import { getFlightPlanStyle } from "@/lib/flight-plan-styles";
 import { bindParcelLayerInteractions, resolveFeatureStyle, type ParcelContentInput } from "@/lib/map-parcel-content";
-import { getAlertPolygonStyle, getParcelPolygonStyle } from "@/lib/map-styles";
+import { getAlertPolygonStyle } from "@/lib/map-styles";
 import type { DjiAlertRecord, DjiDailySummaryRecord, DjiParcelRecord, FlightPointRecord } from "@/lib/types";
+import { COLORS } from "@/lib/ui-tokens";
 
 const center: [number, number] = [3.4516, -76.532];
 
@@ -27,12 +28,6 @@ const center: [number, number] = [3.4516, -76.532];
  *     (modo privado, sandbox, etc.) — fallback al default.
  *   - Solo se renderiza UN TileLayer activo: si se montaran los dos
  *     se duplicarían los fetch a {z}/{x}/{y} sin beneficio.
- *
- * Atribuciones:
- *   - Esri World Imagery: el wording oficial de Esri exige mantener
- *     la lista de data providers intacta (Esri, i-cubed, USDA, USGS,
- *     etc.) — es parte de los términos de uso del servicio.
- *   - OSM: contributors + link a la página de copyright.
  */
 type Basemap = "satellite" | "streets";
 
@@ -78,19 +73,8 @@ function toggleBasemap(current: Basemap): Basemap {
   return current === "satellite" ? "streets" : "satellite";
 }
 
-/**
- * Badge clickeable que muestra el basemap activo y permite alternar.
- * Verde olivo coherente con el resto del AFM (paleta de lib/ui-tokens.ts).
- * Posición: top-left del wrapper, fuera del MapContainer, para no chocar
- * con el LayersControl (top-right) ni con los zoom controls (que Leaflet
- * renderiza a su top-left interno).
- */
 function BasemapBadge({ basemap, onToggle }: { basemap: Basemap; onToggle: () => void }) {
   const next = toggleBasemap(basemap);
-  // aria-label anuncia el estado ACTUAL primero, después el hint de acción.
-  // Decisión UX: un screen reader debe enterarse de qué basemap está
-  // viendo, no solo de qué click haría. El texto visible ("Satélite" /
-  // "Calles") ya coincide con el prefijo del aria-label.
   return (
     <button
       aria-label={`${BASEMAPS[basemap].label} — click para cambiar a ${BASEMAPS[next].label.toLowerCase()}`}
@@ -123,7 +107,6 @@ function FitBounds({ parcels }: { parcels: DjiParcelRecord[] }) {
   const map = useMap();
   useEffect(() => {
     if (!parcels || parcels.length === 0) return;
-    // Intentar ajustar el mapa al bounding box de las parcelas
     const bounds: [number, number][] = [];
     for (const p of parcels) {
       const geom = p.spray_geometry;
@@ -155,54 +138,65 @@ function FitBounds({ parcels }: { parcels: DjiParcelRecord[] }) {
   return null;
 }
 
+/**
+ * v1.8 — clasifica un flight point en "en vuelo" vs "completado" según
+ * la recencia de su `start_at`. Heurística pragmática:
+ *   - start_at dentro de la última hora → "en vuelo" (azul, COLORS.info)
+ *   - cualquier otro caso              → "completado" (morado, COLORS.completed)
+ *
+ * Razonamiento: el modelo de datos actual (FlightPointRecord) no incluye
+ * `end_at` ni un `status`. La heurística de 1h es el proxy más cercano
+ * a "vuelo en curso" sin necesidad de migración. Si en el futuro se
+ * agrega un campo `status`, esta función se ajusta.
+ */
+const IN_PROGRESS_WINDOW_MS = 60 * 60 * 1000; // 1h
+
+function classifyFlightPoint(pt: FlightPointRecord, nowMs: number = Date.now()): "in_progress" | "completed" {
+  const t = Date.parse(pt.start_at);
+  if (!Number.isFinite(t)) return "completed";
+  return nowMs - t <= IN_PROGRESS_WINDOW_MS ? "in_progress" : "completed";
+}
+
+/**
+ * v1.8 — color de un flight point según su estado. Tokens en
+ * `lib/ui-tokens.ts`:
+ *   - "in_progress" → `info` (#1f4d80 azul)
+ *   - "completed"   → `completed` (#a855f7 morado)
+ */
+const FLIGHT_POINT_COLOR: Record<"in_progress" | "completed", { stroke: string; fill: string }> = {
+  in_progress: { stroke: COLORS.info, fill: "#3b82f6" },
+  completed: { stroke: COLORS.completed, fill: "#c084fc" }
+};
+
+export interface MapClientProps {
+  parcels: DjiParcelRecord[];
+  flights: DjiDailySummaryRecord[];
+  alerts: DjiAlertRecord[];
+  flightPoints?: FlightPointRecord[];
+  fumigatedParcelIds?: Set<number>;
+  selectedParcelId?: number | null;
+  /**
+   * v1.8 — threshold de zoom a partir del cual se muestran los labels
+   * permanentes de parcela (`#11`, `#16`, etc.). Default 14 (es el
+   * zoom inicial del fitBounds; a 14 los polígonos ya son legibles).
+   * A zooms < threshold los labels se ocultan para evitar clutter
+   * (con 1213 parcelas sería ilegible a nivel departamental).
+   */
+  labelMinZoom?: number;
+}
+
 export function MapClient({
   parcels,
   flights,
   alerts,
   flightPoints,
   fumigatedParcelIds,
-  selectedParcelId,
-  layers = { parcels: true, waypoints: true, alerts: true, flights: true, flightPlans: false }
-}: {
-  // (S2 / 2026-07-01) Solo DjiParcelRecord. El legacy DjiAssetRecord (3-rows-per-field)
-  // se eliminó junto con getParcels() y el endpoint /api/parcels.
-  parcels: DjiParcelRecord[];
-  flights: DjiDailySummaryRecord[];
-  alerts: DjiAlertRecord[];
-  // M6: footprint minimo por sortie individual. Si viene undefined la capa
-  // se considera deshabilitada (no falla).
-  flightPoints?: FlightPointRecord[];
-  // M3-M5 Track A: parcel_ids fumigados en los últimos 6m. Si undefined
-  // o parcel no presente en el set, se renderiza como fumigada (compat).
-  fumigatedParcelIds?: Set<number>;
-  // M3-M5 Track C: id de la parcela actualmente seleccionada en el panel
-  // derecho. Se usa para diferenciar visualmente (weight=4 + dashArray
-  // removido) y para centrar el mapa vía MapFocusOn (commit 3).
-  selectedParcelId?: number | null;
-  // M3-M5 Track B: opt-in (default false). Renderiza la geometría del
-  // plan DJI como polilínea dashed. Independiente de `waypoints` (que
-  // muestra los dots sueltos) — decisión: dos capas independientes
-  // para que el operador pueda elegir ver "plan completo" o
-  // "waypoints sueltos" según el caso de uso.
-  layers?: {
-    parcels: boolean;
-    waypoints: boolean;
-    alerts: boolean;
-    flights: boolean;
-    flightPlans: boolean;
-  };
-}) {
-  // Construimos un Map id -> DjiParcelRecord para que el `style` callback
-  // del GeoJSON pueda resolver la parcela original y delegar a
-  // `getParcelPolygonStyle` (lib/map-styles.ts — single source of truth).
+  selectedParcelId = null,
+  labelMinZoom = 14
+}: MapClientProps) {
   const parcelById = new Map<number, DjiParcelRecord>();
   for (const p of parcels) parcelById.set(p.id, p);
 
-  // Track C: Mapa id -> DjiAlertRecord para inyectar el nivel de alerta
-  // en el popup de cada parcela. Una misma parcela puede tener varias
-  // alertas (HIGH por área, MEDIUM por cadencia) — agarramos la primera
-  // para el popup, priorizando HIGH (orden natural del array alerts
-  // viene de la query en repositories).
   const alertByParcelId = new Map<number, DjiAlertRecord>();
   for (const a of alerts) {
     if (!alertByParcelId.has(a.parcel_id)) {
@@ -210,15 +204,9 @@ export function MapClient({
     }
   }
 
-  // Track C: ref al MapContainer para acceder al map instance desde
-  // handlers de mouseover/mouseout (cambio de cursor). useMap() no
-  // funciona acá porque MapClient renderiza <MapContainer> (no es
-  // hijo de él). Usar ref de MapContainer es el patrón estándar.
   const mapRef = useRef<L.Map | null>(null);
 
-  // v1.2 / Track C — basemap activo (satellite | streets). Persistencia
-  // client-side: leer en mount, escribir en cada cambio. Si localStorage
-  // no está disponible, ambos helpers caen al default silenciosamente.
+  // v1.2 / Track C — basemap activo (satellite | streets).
   const [basemap, setBasemap] = useState<Basemap>(DEFAULT_BASEMAP);
 
   useEffect(() => {
@@ -228,6 +216,14 @@ export function MapClient({
   useEffect(() => {
     writeBasemapToStorage(basemap);
   }, [basemap]);
+
+  // v1.8 — estado del zoom para mostrar/ocultar labels. Se inicializa
+  // con el zoom default del MapContainer (14). El <ZoomWatcher> hijo
+  // del MapContainer lo actualiza en cada `zoomend` event.
+  const [currentZoom, setCurrentZoom] = useState<number>(14);
+  const handleZoomEnd = useCallback((z: number) => {
+    setCurrentZoom(z);
+  }, []);
 
   const parcelCollection: FeatureCollection = {
     type: "FeatureCollection",
@@ -251,8 +247,6 @@ export function MapClient({
       )
   };
 
-  // Construimos el MultiPoint para los waypoints: si el parcel tiene
-  // waypoints_geometry (de dji_parcels.waypoints), lo usamos; sino vacío.
   const waypointCollection: FeatureCollection = {
     type: "FeatureCollection",
     features: parcels
@@ -312,8 +306,12 @@ export function MapClient({
     });
   }, []);
 
+  // v1.8 — flag derivado del zoom. Si currentZoom >= labelMinZoom,
+  // los polígonos muestran su label permanente (`#11`, etc.).
+  const showParcelLabels = currentZoom >= labelMinZoom;
+
   return (
-    <div className="relative h-[72vh] overflow-hidden rounded-[24px]">
+    <div className="relative h-full w-full">
       <MapContainer
         center={center}
         className="h-full w-full"
@@ -322,68 +320,76 @@ export function MapClient({
         zoom={14}
       >
         {(() => {
-          // v1.2 / Track C: solo se monta UN TileLayer activo (no se
-          // duplican los fetch a {z}/{x}/{y}). La config vive en
-          // BASEMAPS para que un cambio de URL/attribution sea un
-          // edit único, no dos.
           const config = BASEMAPS[basemap];
           return <TileLayer attribution={config.attribution} url={config.url} />;
         })()}
+
         <LayersControl position="topright">
-          {layers.parcels && (
-            <LayersControl.Overlay checked name="Parcelas">
-              <GeoJSON
-                data={parcelCollection}
-                onEachFeature={(feature, layer) => {
-                  // M3-M5 Track C: bindTooltip (hover preview) + bindPopup
-                  // (click expanded) + cursor change. Todo el contenido se
-                  // delega a los helpers puros de lib/map-parcel-content
-                  // para mantener la lógica testeable sin Leaflet.
-                  const props = (feature.properties ?? {}) as {
-                    id: number;
-                    name: string | null;
-                    declared_area_ha: number | null;
-                  };
-                  const alert = alertByParcelId.get(props.id) ?? null;
-                  const parcelInput: ParcelContentInput = {
-                    name: props.name,
-                    areaHa: props.declared_area_ha ?? null,
-                    // TODO (commit futuro): joinear con dji_fumigation_schedule
-                    // para traer la última fecha de fumigación por parcela.
-                    lastFumigationDate: null,
-                    // TODO (commit futuro): agregación desde dji_flights
-                    // (parcel_id -> COUNT(*)) para el total de sorties.
-                    totalFlights: undefined,
-                    alertLevel: alert?.level ?? null,
-                    alertMessage: alert?.message ?? null
-                  };
-                  bindParcelLayerInteractions(layer, parcelInput, {
-                    onMouseOver: () => {
-                      const map = mapRef.current;
-                      if (map) map.getContainer().style.cursor = "pointer";
-                    },
-                    onMouseOut: () => {
-                      const map = mapRef.current;
-                      if (map) map.getContainer().style.cursor = "";
+          {/*
+            v1.8 — las capas están siempre montadas. El `<LayersControl.Overlay>`
+            expone su propio checkbox; el operador tildá/destilda desde la UI.
+            Antes (v1.7) el `layers` prop de MapView gateaba el render de la
+            capa — bug: si la apagabas no la podías volver a encender.
+          */}
+          <LayersControl.Overlay checked name="Parcelas">
+            <GeoJSON
+              data={parcelCollection}
+              key={`parcels-${showParcelLabels ? "labels" : "no-labels"}`}
+              onEachFeature={(feature, layer) => {
+                const props = (feature.properties ?? {}) as {
+                  id: number;
+                  name: string | null;
+                  declared_area_ha: number | null;
+                };
+                const alert = alertByParcelId.get(props.id) ?? null;
+                const parcelInput: ParcelContentInput = {
+                  name: props.name,
+                  areaHa: props.declared_area_ha ?? null,
+                  lastFumigationDate: null,
+                  totalFlights: undefined,
+                  alertLevel: alert?.level ?? null,
+                  alertMessage: alert?.message ?? null
+                };
+                bindParcelLayerInteractions(layer, parcelInput, {
+                  onMouseOver: () => {
+                    const map = mapRef.current;
+                    if (map) map.getContainer().style.cursor = "pointer";
+                  },
+                  onMouseOut: () => {
+                    const map = mapRef.current;
+                    if (map) map.getContainer().style.cursor = "";
+                  }
+                });
+
+                // v1.8 — label permanente con el id de la parcela. Solo si
+                // el zoom actual está por encima del threshold; react-leaflet
+                // no re-bindea el tooltip cuando cambia el zoom, pero el
+                // `key` del `<GeoJSON>` arriba fuerza un remount cuando
+                // togglea `showParcelLabels`, así que los labels aparecen
+                // o desaparecen al cruzar el threshold.
+                if (showParcelLabels) {
+                  layer.bindTooltip(
+                    `<span class="parcel-label">#${props.id}</span>`,
+                    {
+                      permanent: true,
+                      direction: "center",
+                      className: "map-parcel-label"
                     }
-                  });
-                }}
-                style={(feature) => {
-                  // M3-M5 Track C: dispatch centralizado. Delega en
-                  // lib/map-styles.ts (Track A) para isSelected+hasFumigation
-                  // y aplica el override "seleccionada = línea sólida"
-                  // removiendo dashArray del spread.
-                  return resolveFeatureStyle(
-                    feature,
-                    parcelById,
-                    selectedParcelId ?? null,
-                    fumigatedParcelIds
                   );
-                }}
-              />
-            </LayersControl.Overlay>
-          )}
-          {layers.waypoints && waypointCollection.features.length > 0 && (
+                }
+              }}
+              style={(feature) => {
+                return resolveFeatureStyle(
+                  feature,
+                  parcelById,
+                  selectedParcelId,
+                  fumigatedParcelIds
+                );
+              }}
+            />
+          </LayersControl.Overlay>
+
+          {waypointCollection.features.length > 0 ? (
             <LayersControl.Overlay checked name="Waypoints del plan">
               <GeoJSON
                 data={waypointCollection}
@@ -405,43 +411,35 @@ export function MapClient({
                 }}
               />
             </LayersControl.Overlay>
-          )}
-          {layers.flightPlans &&
-            parcels
-              .filter((parcel) => parcel.waypoints_geometry)
-              .map((parcel) => {
-                // Convertir waypoints_geometry → plan lineal (LineString
-                // o MultiLineString) usando la heurística nearest-neighbor
-                // de lib/flight-plan.ts.
-                const planGeom = waypointsToFlightPlan(parcel.waypoints_geometry);
-                if (!planGeom) return null;
-                // Leaflet <Polyline> acepta positions: LatLngExpression[][]
-                // para MultiLineString o LatLngExpression[] para LineString.
-                const positions: Array<[number, number]> | Array<Array<[number, number]>> =
-                  planGeom.type === "LineString"
-                    ? (planGeom.coordinates as Array<[number, number]>)
-                    : (planGeom.coordinates as Array<Array<[number, number]>>);
-                // isSelected queda false por ahora — MapView no nos pasa
-                // la selección (vive en su state). Si en el futuro se
-                // quiere highlighting del plan de la parcela activa, agregar
-                // prop `selectedParcelId?: number` y pasarlo desde MapView.
-                return (
-                  <Polyline
-                    key={`flightplan-${parcel.id}`}
-                    pathOptions={getFlightPlanStyle()}
-                    positions={positions}
-                  >
-                    <Popup>
-                      <strong>Plan de vuelo</strong>
-                      <br />
-                      Parcela: {parcel.land_name ?? "?"}
-                      <br />
-                      {parcel.waypoint_count ?? "?"} waypoints
-                    </Popup>
-                  </Polyline>
-                );
-              })}
-          {layers.alerts && (
+          ) : null}
+
+          {parcels
+            .filter((parcel) => parcel.waypoints_geometry)
+            .map((parcel) => {
+              const planGeom = waypointsToFlightPlan(parcel.waypoints_geometry);
+              if (!planGeom) return null;
+              const positions: Array<[number, number]> | Array<Array<[number, number]>> =
+                planGeom.type === "LineString"
+                  ? (planGeom.coordinates as Array<[number, number]>)
+                  : (planGeom.coordinates as Array<Array<[number, number]>>);
+              return (
+                <Polyline
+                  key={`flightplan-${parcel.id}`}
+                  pathOptions={getFlightPlanStyle()}
+                  positions={positions}
+                >
+                  <Popup>
+                    <strong>Plan de vuelo</strong>
+                    <br />
+                    Parcela: {parcel.land_name ?? "?"}
+                    <br />
+                    {parcel.waypoint_count ?? "?"} waypoints
+                  </Popup>
+                </Polyline>
+              );
+            })}
+
+          {alerts.length > 0 ? (
             <LayersControl.Overlay checked name="Alertas">
               <GeoJSON
                 data={alertCollection}
@@ -456,8 +454,9 @@ export function MapClient({
                 }}
               />
             </LayersControl.Overlay>
-          )}
-          {layers.flights && flightPoints && flightPoints.length > 0 && (
+          ) : null}
+
+          {flightPoints && flightPoints.length > 0 ? (
             <LayersControl.Overlay checked name={`Vuelos (${flightPoints.length})`}>
               {flightPoints.map((pt) => {
                 const areaHa = pt.area_m2 !== null ? (pt.area_m2 / 10000).toFixed(2) : "?";
@@ -466,15 +465,17 @@ export function MapClient({
                   dateStyle: "short",
                   timeStyle: "short"
                 });
+                const status = classifyFlightPoint(pt);
+                const colors = FLIGHT_POINT_COLOR[status];
                 return (
                   <CircleMarker
                     center={[pt.lat, pt.lng]}
                     key={pt.flight_id}
                     radius={3}
                     pathOptions={{
-                      color: "#0b5f2d",
+                      color: colors.stroke,
                       weight: 1,
-                      fillColor: "#22c55e",
+                      fillColor: colors.fill,
                       fillOpacity: 0.7,
                       opacity: 0.8
                     }}
@@ -491,17 +492,45 @@ export function MapClient({
                       Parcela: {pt.parcel_id ?? "—"}
                       <br />
                       Área: {areaHa} ha · Litros: {liters} L
+                      <br />
+                      Estado: <strong>{status === "in_progress" ? "En vuelo" : "Completado"}</strong>
                     </Popup>
                   </CircleMarker>
                 );
               })}
             </LayersControl.Overlay>
-          )}
+          ) : null}
         </LayersControl>
         <ZoomControls />
+        {/*
+          v1.8 — ScaleControl nativo de Leaflet (barra "1 km" en el
+          bottom-left). `metric: true` para kilómetros, `imperial: false`
+          (Colombia usa sistema métrico). Posición por defecto: bottomleft.
+        */}
+        <ScaleControl imperial={false} metric position="bottomleft" />
+        <ZoomWatcher onZoomEnd={handleZoomEnd} />
         <FitBounds parcels={parcels} />
       </MapContainer>
       <BasemapBadge basemap={basemap} onToggle={() => setBasemap(toggleBasemap)} />
     </div>
   );
+}
+
+/**
+ * v1.8 — listener del zoom del mapa. Se monta DENTRO del MapContainer
+ * (usa `useMap()`) y avisa al padre cuando el zoom cambia para que
+ * togglee los labels de parcela.
+ */
+function ZoomWatcher({ onZoomEnd }: { onZoomEnd: (z: number) => void }) {
+  const map = useMap();
+  useEffect(() => {
+    const handler = () => onZoomEnd(map.getZoom());
+    map.on("zoomend", handler);
+    // Inicializar el state con el zoom actual.
+    onZoomEnd(map.getZoom());
+    return () => {
+      map.off("zoomend", handler);
+    };
+  }, [map, onZoomEnd]);
+  return null;
 }

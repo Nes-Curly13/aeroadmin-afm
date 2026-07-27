@@ -1,108 +1,124 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 
 import { MapLegend } from "@/components/map/map-legend";
 
-describe("MapLegend", () => {
-  const LAYERS = { parcels: true, flights: false, alerts: true };
+/**
+ * Tests del MapLegend (v1.8 — rediseño).
+ *
+ * Cambio respecto a v1.7:
+ *   - v1.7: 3 grupos semánticos (Parcelas/Alertas/Vuelos) con checkboxes
+ *     de toggle de capa + indicadores visuales. El legend mezclaba
+ *     "key visual" con "toggles de capa".
+ *   - v1.8: 4 indicadores visuales puros (Parcela activa, Parcela
+ *     inactiva, En vuelo, Completado) SIN toggles. Los toggles de capa
+ *     viven ahora en el `<LayersControl>` nativo de Leaflet.
+ *   - v1.8: el panel es colapsable (default abierto), con un botón
+ *     chevron en el header.
+ *
+ * Tokens (de `lib/ui-tokens.ts`):
+ *   - Parcela activa    → `primary`   #0b5f2d (verde)
+ *   - Parcela inactiva  → `neutral-medium` #587064 (gris, dashed)
+ *   - En vuelo          → `info`      #1f4d80 (azul)
+ *   - Completado        → `completed` #a855f7 (morado)
+ */
 
-  it("renderiza las 3 entradas con sus labels", () => {
-    render(<MapLegend layers={LAYERS} onToggle={() => {}} />);
-    expect(screen.getByText(/fumigadas/i)).toBeInTheDocument();
-    expect(screen.getByText(/sin fumigar/i)).toBeInTheDocument();
-    expect(screen.getByText(/orchards/i)).toBeInTheDocument();
-    expect(screen.getByText(/alta/i)).toBeInTheDocument();
-    expect(screen.getByText(/media/i)).toBeInTheDocument();
-    expect(screen.getByText(/baja/i)).toBeInTheDocument();
-    expect(screen.getByText(/vuelos/i)).toBeInTheDocument();
+describe("MapLegend — v1.8 (key visual puro)", () => {
+  it("renderiza las 4 entradas con sus labels", () => {
+    render(<MapLegend />);
+    expect(screen.getByText(/parcela activa/i)).toBeInTheDocument();
+    expect(screen.getByText(/parcela inactiva/i)).toBeInTheDocument();
+    expect(screen.getByText(/en vuelo/i)).toBeInTheDocument();
+    expect(screen.getByText(/completado/i)).toBeInTheDocument();
   });
 
-  it("agrupa visualmente con headers 'Parcelas', 'Alertas' y 'Vuelos'", () => {
-    render(<MapLegend layers={LAYERS} onToggle={() => {}} />);
-    // Los headers de grupo son texto en uppercase / eyebrow.
-    expect(screen.getByText(/parcelas/i)).toBeInTheDocument();
-    expect(screen.getByText(/alertas/i)).toBeInTheDocument();
-    expect(screen.getByText(/vuelos/i)).toBeInTheDocument();
-  });
-
-  it("los toggles de capas (parcels, flights, alerts) siguen funcionando", () => {
-    const onToggle = vi.fn();
-    render(<MapLegend layers={LAYERS} onToggle={onToggle} />);
-    const checkboxes = screen.getAllByRole("checkbox");
-    fireEvent.click(checkboxes[0]);
-    expect(onToggle).toHaveBeenCalledWith("parcels");
-    fireEvent.click(checkboxes[1]);
-    expect(onToggle).toHaveBeenCalledWith("flights");
-    fireEvent.click(checkboxes[2]);
-    expect(onToggle).toHaveBeenCalledWith("alerts");
-  });
-
-  it("cada checkbox refleja el estado de su layer", () => {
-    render(<MapLegend layers={LAYERS} onToggle={() => {}} />);
-    const checkboxes = screen.getAllByRole("checkbox");
-    expect(checkboxes[0]).toBeChecked();
-    expect(checkboxes[1]).not.toBeChecked();
-    expect(checkboxes[2]).toBeChecked();
-  });
-
-  it("los indicadores fumigadas/sin fumigar/orchards NO son toggles (sin checkbox)", () => {
-    render(<MapLegend layers={LAYERS} onToggle={() => {}} />);
-    // Solo hay 3 checkboxes (parcels, flights, alerts).
-    // Los indicadores visuales (fumigadas, sin fumigar, orchards, alta, media, baja)
-    // son <span> / <div>, no <input>.
-    const checkboxes = screen.getAllByRole("checkbox");
-    expect(checkboxes.length).toBe(3);
+  it("NO tiene toggles (los checkboxes viven en el LayersControl de Leaflet)", () => {
+    render(<MapLegend />);
+    // Cero checkboxes — el legend es solo key visual.
+    expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
   });
 
   it("tiene aria-label claro en el contenedor principal", () => {
-    render(<MapLegend ariaLabel="Leyenda del mapa" layers={LAYERS} onToggle={() => {}} />);
+    render(<MapLegend ariaLabel="Leyenda del mapa" />);
     expect(screen.getByRole("region", { name: /leyenda del mapa/i })).toBeInTheDocument();
   });
 
-  it("cada grupo tiene aria-label descriptivo", () => {
-    render(<MapLegend layers={LAYERS} onToggle={() => {}} />);
-    expect(screen.getByRole("group", { name: /parcelas/i })).toBeInTheDocument();
-    expect(screen.getByRole("group", { name: /alertas/i })).toBeInTheDocument();
-    expect(screen.getByRole("group", { name: /vuelos/i })).toBeInTheDocument();
+  it("el header tiene un botón colapsable con aria-expanded", () => {
+    render(<MapLegend />);
+    const toggle = screen.getByTestId("map-legend-toggle");
+    expect(toggle).toBeInTheDocument();
+    // Default abierto → aria-expanded="true".
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
   });
 
-  it("indicador fumigadas tiene dot del color primary (verde)", () => {
-    const { container } = render(<MapLegend layers={LAYERS} onToggle={() => {}} />);
-    const group = screen.getByRole("group", { name: /parcelas/i });
-    const fumigadasRow = within(group).getByText(/fumigadas/i).parentElement;
-    const dot = fumigadasRow?.querySelector("[aria-hidden='true']");
+  it("al clickear el toggle el panel se colapsa y oculta los indicadores", () => {
+    render(<MapLegend />);
+    const toggle = screen.getByTestId("map-legend-toggle");
+    // Inicialmente los 4 indicadores están visibles.
+    expect(screen.getByTestId("map-legend-content")).toBeInTheDocument();
+    expect(screen.getByText(/parcela activa/i)).toBeInTheDocument();
+
+    // Click en el toggle.
+    fireEvent.click(toggle);
+
+    // Ahora el panel está colapsado: aria-expanded="false" y el
+    // content está desmontado.
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByTestId("map-legend-content")).toBeNull();
+    expect(screen.queryByText(/parcela activa/i)).toBeNull();
+  });
+
+  it("al clickear el toggle 2 veces, vuelve a estar abierto", () => {
+    render(<MapLegend />);
+    const toggle = screen.getByTestId("map-legend-toggle");
+    fireEvent.click(toggle);
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByTestId("map-legend-content")).toBeInTheDocument();
+  });
+
+  it("defaultCollapsed=true arranca colapsado", () => {
+    render(<MapLegend defaultCollapsed={true} />);
+    const toggle = screen.getByTestId("map-legend-toggle");
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByTestId("map-legend-content")).toBeNull();
+  });
+
+  it("indicador 'Parcela activa' usa color primary (verde)", () => {
+    render(<MapLegend />);
+    const row = screen.getByText(/parcela activa/i).parentElement;
+    const dot = row?.querySelector("[aria-hidden='true']") as HTMLElement;
     expect(dot).toBeTruthy();
-    // Estilo inline: backgroundColor con el color primary
-    expect((dot as HTMLElement).style.backgroundColor).toBe("rgb(11, 95, 45)"); // #0b5f2d
+    expect(dot.style.backgroundColor).toBe("rgb(11, 95, 45)"); // #0b5f2d primary
   });
 
-  it("indicador sin fumigar tiene dot con dashed border (no solido)", () => {
-    const { container } = render(<MapLegend layers={LAYERS} onToggle={() => {}} />);
-    const group = screen.getByRole("group", { name: /parcelas/i });
-    const sinFumigarRow = within(group).getByText(/sin fumigar/i).parentElement;
-    const dot = sinFumigarRow?.querySelector("[aria-hidden='true']") as HTMLElement | null;
+  it("indicador 'Parcela inactiva' usa color gris con dashed border", () => {
+    render(<MapLegend />);
+    const row = screen.getByText(/parcela inactiva/i).parentElement;
+    const dot = row?.querySelector("[aria-hidden='true']") as HTMLElement;
     expect(dot).toBeTruthy();
-    // Indicador visual: dashed border en el dot.
-    expect(dot?.style.borderStyle).toBe("dashed");
+    expect(dot.style.backgroundColor).toBe("rgb(88, 112, 100)"); // #587064 neutral-medium
+    expect(dot.style.borderStyle).toBe("dashed");
   });
 
-  it("indicador orchards tiene dot del color warning (amarillo)", () => {
-    render(<MapLegend layers={LAYERS} onToggle={() => {}} />);
-    const group = screen.getByRole("group", { name: /parcelas/i });
-    const orchardsRow = within(group).getByText(/orchards/i).parentElement;
-    const dot = orchardsRow?.querySelector("[aria-hidden='true']") as HTMLElement | null;
+  it("indicador 'En vuelo' usa color info (azul)", () => {
+    render(<MapLegend />);
+    const row = screen.getByText(/en vuelo/i).parentElement;
+    const dot = row?.querySelector("[aria-hidden='true']") as HTMLElement;
     expect(dot).toBeTruthy();
-    expect(dot?.style.backgroundColor).toBe("rgb(199, 164, 58)"); // #c7a43a
+    expect(dot.style.backgroundColor).toBe("rgb(31, 77, 128)"); // #1f4d80 info
   });
 
-  it("indicadores de alertas alta/media/baja usan tokens danger/warning/success", () => {
-    render(<MapLegend layers={LAYERS} onToggle={() => {}} />);
-    const group = screen.getByRole("group", { name: /alertas/i });
-    const altaDot = within(group).getByText(/alta/i).parentElement?.querySelector("[aria-hidden='true']") as HTMLElement;
-    const mediaDot = within(group).getByText(/media/i).parentElement?.querySelector("[aria-hidden='true']") as HTMLElement;
-    const bajaDot = within(group).getByText(/baja/i).parentElement?.querySelector("[aria-hidden='true']") as HTMLElement;
-    expect(altaDot.style.backgroundColor).toBe("rgb(169, 50, 50)"); // #a93232 danger
-    expect(mediaDot.style.backgroundColor).toBe("rgb(199, 164, 58)"); // #c7a43a warning
-    expect(bajaDot.style.backgroundColor).toBe("rgb(44, 127, 68)"); // #2c7f44 success
+  it("indicador 'Completado' usa color completed (morado)", () => {
+    render(<MapLegend />);
+    const row = screen.getByText(/completado/i).parentElement;
+    const dot = row?.querySelector("[aria-hidden='true']") as HTMLElement;
+    expect(dot).toBeTruthy();
+    expect(dot.style.backgroundColor).toBe("rgb(168, 85, 247)"); // #a855f7 completed
+  });
+
+  it("el contenedor tiene un header con el titulo 'Leyenda'", () => {
+    render(<MapLegend />);
+    expect(screen.getByRole("heading", { name: "Leyenda" })).toBeInTheDocument();
   });
 });

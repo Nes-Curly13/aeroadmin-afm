@@ -24,6 +24,10 @@ export const COLORS = Object.freeze({
   danger: "#a93232",
   "danger-strong": "#7a1d1d",
   "danger-soft": "#fff0ee",
+  // v1.8 — token para "vuelo completado" en la leyenda del mapa.
+  // Mismo tono morado que aparece en el mockup del operador.
+  completed: "#a855f7",
+  "completed-soft": "#f3e8ff",
   info: "#1f4d80",
   neutral: "#4a5b50",
   "neutral-strong": "#121815",

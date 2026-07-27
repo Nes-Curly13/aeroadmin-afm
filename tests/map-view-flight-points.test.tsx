@@ -1,31 +1,39 @@
-// Tests para el MapView component (M6: flightPoints + layers toggle).
+// Tests para el MapView component (v1.8 — flightPoints en leyenda).
 //
 // Strategy:
-//   - Render <MapView> con props mockeadas.
-//   - Verificar que el componente acepta la prop flightPoints + layer toggle.
-//   - Verificar que el legend item "Vuelo" aparece SOLO si flightPoints > 0.
+//   - Render <MapView> con props mockeadas (incluyendo flightPoints).
+//   - Verificar que el componente acepta la prop flightPoints sin error.
+//   - Verificar que la leyenda muestra los items "En vuelo" y "Completado"
+//     cuando hay flightPoints (v1.8 — antes mostraba un único item "Vuelo"
+//     condicional a flightPoints > 0).
 //
 // El MapClient (que carga Leaflet via dynamic) no se renderiza en jsdom
 // (no hay DOM geometrico), asique testeamos los UI bits que SÍ render.
+//
+// v1.8 cambio:
+//   - La leyenda pasó de 3 grupos (Parcelas/Alertas/Vuelos) con toggles
+//     a 4 indicadores visuales puros: Parcela activa, Parcela inactiva,
+//     En vuelo, Completado. Los items "En vuelo" y "Completado" se
+//     muestran SIEMPRE (no son condicionales a flightPoints > 0) — la
+//     leyenda es un "key visual" del mapa, no un toggle de capa.
+//   - Los toggles de capa viven ahora en el <LayersControl> nativo de
+//     Leaflet (esquina superior derecha del mapa), no en el MapView.
 
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 
 import { MapView } from "@/components/map-view";
+import type { DjiParcelRecord, FlightPointRecord } from "@/lib/types";
 
-const sampleParcels = [
+const sampleParcels: DjiParcelRecord[] = [
   {
     id: 1,
     external_id: "ext-001",
     land_name: "Parcela Demo",
-    asset_kind: "parcel",
-    source_url: "",
-    raw_json: null,
-    geometry: null,
     field_type: "Farmland",
     declared_area_ha: null,
     spray_area_m2: 50000,
-    drone_model_code: null,
+    drone_model_code: 201,
     drone_model_name: "T40",
     spray_width_m: 5,
     work_speed_mps: 5,
@@ -50,10 +58,10 @@ const sampleParcels = [
   }
 ];
 
-const sampleFlightPoints = [
+const sampleFlightPoints: FlightPointRecord[] = [
   {
     flight_id: 638640703,
-    start_at: "2026-06-15T10:30:00.000Z",
+    start_at: "2026-07-27T10:30:00.000Z", // reciente → "en vuelo"
     lng: -76.532,
     lat: 3.4516,
     drone_nickname: "AFM T40 1",
@@ -64,10 +72,8 @@ const sampleFlightPoints = [
   }
 ];
 
-describe("MapView — flightPoints (M6)", () => {
-  it("acepta flightPoints sin erro de TypeScript", () => {
-    // El type-checker cubre esto en CI; aqui solo verificamos que el componente
-    // se monta con la prop.
+describe("MapView — v1.8 (flightPoints en leyenda)", () => {
+  it("acepta flightPoints sin error de TypeScript / runtime", () => {
     const { container } = render(
       <MapView
         alerts={[]}
@@ -79,7 +85,21 @@ describe("MapView — flightPoints (M6)", () => {
     expect(container).toBeTruthy();
   });
 
-  it("el toggle 'Vuelos (DJI AG)' aparece en el panel de capas", () => {
+  it("la leyenda muestra SIEMPRE 'En vuelo' y 'Completado' (key visual, no condicional)", () => {
+    render(
+      <MapView
+        alerts={[]}
+        flights={[]}
+        parcels={sampleParcels}
+      />
+    );
+    // Aunque flightPoints no se pase, los items están en la leyenda.
+    // v1.8 — son "key visual" del mapa, no indicadores condicionales.
+    expect(screen.getByText(/en vuelo/i)).toBeInTheDocument();
+    expect(screen.getByText(/completado/i)).toBeInTheDocument();
+  });
+
+  it("la leyenda NO tiene un item 'Vuelo' (el label viejo se renombró a 'En vuelo')", () => {
     render(
       <MapView
         alerts={[]}
@@ -88,72 +108,15 @@ describe("MapView — flightPoints (M6)", () => {
         parcels={sampleParcels}
       />
     );
-    // El label del checkbox para la capa 'flights' incluye el texto custom.
-    expect(screen.getByText("Vuelos (DJI AG)")).toBeInTheDocument();
+    // El test usa el texto exacto "Vuelo" (sin "En "). El nuevo
+    // label es "En vuelo". Si la leyenda tuviera el viejo, el test
+    // pasaría. Como ahora es "En vuelo", el match exacto falla.
+    // Lo validamos buscando el texto que SÍ debe estar.
+    expect(screen.queryByText(/^Vuelo$/)).toBeNull();
+    expect(screen.getByText(/en vuelo/i)).toBeInTheDocument();
   });
 
-  it("los 5 toggles de capas (parcels, waypoints, alerts, flights, flightPlans) estan", () => {
-    render(
-      <MapView
-        alerts={[]}
-        flights={[]}
-        parcels={sampleParcels}
-      />
-    );
-    // Sin flightPoints la leyenda toggle 'flights' existe igual; solo el legend
-    // item 'Vuelo' es condicional.
-    const checkboxes = screen.getAllByRole("checkbox");
-    // 5 toggles de capas (parcels, waypoints, alerts, flights, flightPlans).
-    // M3-M5 Track B agregó 'flightPlans' (Planes de vuelo) como opt-in.
-    expect(checkboxes.length).toBeGreaterThanOrEqual(5);
-  });
-
-  it("toggle 'Planes de vuelo' (M3-M5 Track B) aparece en el panel de capas", () => {
-    render(
-      <MapView
-        alerts={[]}
-        flights={[]}
-        parcels={sampleParcels}
-      />
-    );
-    // El label del checkbox para la nueva capa 'flightPlans' (M3-M5 Track B).
-    expect(screen.getByText("Planes de vuelo")).toBeInTheDocument();
-  });
-
-  it("toggle 'Planes de vuelo' está opt-in por default (unchecked)", () => {
-    // Decisión de producto (M3-M5 Track B): flightPlans default false
-    // para no saturar el mapa al cargar. El operador lo activa si
-    // quiere ver la geometría del plan.
-    render(
-      <MapView
-        alerts={[]}
-        flights={[]}
-        parcels={sampleParcels}
-      />
-    );
-    const planesDeVueloLabel = screen.getByText("Planes de vuelo");
-    // El label contiene el checkbox hermano.
-    const checkbox = planesDeVueloLabel.parentElement?.querySelector(
-      'input[type="checkbox"]'
-    ) as HTMLInputElement | null;
-    expect(checkbox).toBeTruthy();
-    expect(checkbox?.checked).toBe(false);
-  });
-
-  it("flightPoints vacios (undefined) — componente OK y sin legend 'Vuelo'", () => {
-    const { container } = render(
-      <MapView
-        alerts={[]}
-        flights={[]}
-        parcels={sampleParcels}
-      />
-    );
-    expect(container).toBeTruthy();
-    // La leyenda no debe mostrar el dot 'Vuelo' (solo aparece si flightPoints > 0).
-    expect(screen.queryByText("Vuelo")).not.toBeInTheDocument();
-  });
-
-  it("flightPoints con 1 elemento — legend 'Vuelo' aparece", () => {
+  it("NO hay checkboxes en el MapView (los toggles de capa viven en Leaflet)", () => {
     render(
       <MapView
         alerts={[]}
@@ -162,6 +125,8 @@ describe("MapView — flightPoints (M6)", () => {
         parcels={sampleParcels}
       />
     );
-    expect(screen.getByText("Vuelo")).toBeInTheDocument();
+    // Cero checkboxes en el MapView — los toggles están en el
+    // <LayersControl> de Leaflet, fuera del scope de este componente.
+    expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
   });
 });

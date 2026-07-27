@@ -9,39 +9,33 @@ import type { getParcelsSummary } from "@/api/repositories";
 /**
  * components/map/map-filter-sidebar.tsx
  *
- * v1.7 Track B — sidebar de filtros del mapa (mapa a la izquierda, filtros a
- * la derecha).
+ * v1.8 — sidebar de filtros del mapa con **modo colapsable**.
  *
- * Reemplaza a `components/map/map-filters-panel.tsx` (v1.3 Track A),
- * que era un `<form>` horizontal arriba del mapa. La nueva versión
- * envuelve los 3 selects en `<FilterSidebar>` + `<FilterSidebarSection>`
- * (primitives de v1.7) y la page la monta como sidebar a la derecha
- * del mapa en el body de `/map`.
+ * Motivación (mockup usuario 2026-07-27): la sidebar fija a la derecha
+ * (v1.7) ocupa ~320px del viewport aún cuando no se usa. El operador
+ * quiere que el mapa sea la pieza principal de `/map` y que los filtros
+ * vivan en un drawer que se abre/cierra con un botón "Filtros" en el
+ * page header.
+ *
+ * Comportamiento:
+ *   - **collapsed = true** (default): solo se renderiza el trigger button
+ *     "Filtros" en el page header. El componente NO pinta nada en el
+ *     mapa. (El botón que abre vive en app/map/page.tsx.)
+ *   - **collapsed = false**: se renderiza el panel completo (header +
+ *     selects + Limpiar filtros) como overlay `absolute` a la derecha
+ *     del mapa, más un botón "× Cerrar" arriba a la izquierda del panel.
  *
  * Decisiones:
- *   - **Filtros = URL searchParams** (mismo patrón que v1.3). Permite
- *     compartir filtros por link, navegar con back/forward, y la
- *     página es server-rendered: el filtro se aplica en el SQL antes
- *     de mandar los polígonos al cliente.
- *   - **`router.push()` con `scroll: false`**: el mapa del operador
- *     puede tener mucho zoom/pan. Al cambiar filtro, no queremos que
- *     la página salte al top.
- *   - **`onClear` del sidebar** navega a `/map` sin query string. Es
- *     el equivalente del "Limpiar filtros" del v1.3 pero provisto por
- *     el primitive (no por este componente).
- *   - **Deduplicar drones por `drone_model_code`**: `getParcelsSummary`
- *     agrupa por (code, name); si hay lotes con el mismo code pero
- *     nombres distintos, solo dejamos el primero.
- *   - **Omitir drones con `code` null**: no se puede filtrar SQL por
- *     NULL desde un <select> con value="" — se filtra client-side.
- *   - **Conteo del section "Drones"**: usamos el conteo de drones
- *     únicos (post-dedup), no el largo de `summary`, para que el badge
- *     del primitive refleje opciones reales en el select.
- *   - **Conteo del section "Cultivo"**: 2 (Farmland + Orchards),
- *     no el total de tipos en la BD. Es lo que el usuario puede
- *     elegir.
- *   - **Conteo del section "Fumigadas"**: no se pasa `count`, solo
- *     `activeCount` cuando hay filtro activo.
+ *   - **Filtros = URL searchParams** (mismo patrón que v1.3 / v1.7).
+ *     Permite compartir filtros por link y la página es server-rendered.
+ *   - **`router.push()` con `scroll: false`**: no perdemos zoom/pan del mapa.
+ *   - **`onClear` del sidebar** navega a `/map` sin query string.
+ *   - **Deduplicar drones por `drone_model_code`**: misma lógica que v1.7.
+ *   - **Omitir drones con `code` null**: no se puede filtrar SQL por NULL.
+ *   - **El chip "X Parcelas" se movió al page header** (v1.8) — el sidebar
+ *     ya no muestra el conteo internamente. La prop `resultCount` se
+ *     sigue aceptando por compat con callers viejos, pero ya no se
+ *     renderiza acá.
  */
 
 type ParcelsSummaryRow = Awaited<ReturnType<typeof getParcelsSummary>>[number];
@@ -55,10 +49,18 @@ export interface MapFilterSidebarProps {
   summary: ParcelsSummaryRow[];
   /**
    * Conteo de parcelas visibles después de aplicar todos los filtros.
-   * Se muestra en el badge del header del sidebar (a11y: el operador
-   * ve cuántas parcelas pasan el filtro actual).
+   * (v1.8) Ya NO se renderiza dentro del sidebar — el chip "X Parcelas"
+   * se movió al page header. Se mantiene la prop por compat y porque
+   * los tests existentes la siguen pasando.
    */
   resultCount: number;
+  /**
+   * v1.8 — Si `true`, el sidebar está colapsado (no se renderiza el
+   * panel). El componente solo monta el trigger.
+   */
+  collapsed: boolean;
+  /** v1.8 — callback para abrir/cerrar el drawer. */
+  onToggle: () => void;
 }
 
 /**
@@ -91,8 +93,7 @@ export function parseCropParam(raw: string | null | undefined): CropFilter {
 /**
  * Parsea el searchParam `drone` (drone_model_code) a number.
  * Default = null. Validación con regex de dígitos para evitar SQLi
- * si por error el caller lo concatena (no es el caso, pero la
- * defense-in-depth es barata).
+ * si por error el caller lo concatena.
  */
 export function parseDroneParam(raw: string | null | undefined): number | null {
   if (!raw) return null;
@@ -128,7 +129,16 @@ export function buildFiltersQueryString(
   return qs ? `?${qs}` : "";
 }
 
-export function MapFilterSidebar({ summary, resultCount }: MapFilterSidebarProps) {
+export function MapFilterSidebar({
+  summary,
+  // v1.8 — el chip "X Parcelas" se renderiza en el page header, no en
+  // este sidebar. La prop se acepta por compat con tests y callers
+  // existentes, pero el panel del drawer no la usa.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  resultCount: _resultCount,
+  collapsed,
+  onToggle
+}: MapFilterSidebarProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -186,10 +196,15 @@ export function MapFilterSidebar({ summary, resultCount }: MapFilterSidebarProps
   };
 
   // onClear del FilterSidebar: navega a /map sin query string.
-  // Es el equivalente del "Limpiar filtros" del v1.3.
   const handleClear = useCallback(() => {
     router.push("/map", { scroll: false });
   }, [router]);
+
+  // v1.8 — si está colapsado, el componente no pinta NADA en el mapa.
+  // El trigger "Filtros" vive en el page header (app/map/page.tsx).
+  if (collapsed) {
+    return null;
+  }
 
   return (
     <FilterSidebar
@@ -197,7 +212,9 @@ export function MapFilterSidebar({ summary, resultCount }: MapFilterSidebarProps
       className="h-full"
       clearLabel="Limpiar filtros"
       onClear={handleClear}
-      resultCount={resultCount}
+      // v1.8 — el chip "X Parcelas" se movió al page header.
+      // Dejamos resultCount sin pasar para que el header del FilterSidebar
+      // no muestre el badge interno.
       resultLabel="parcelas"
       testId="map-filter-sidebar"
       title="Filtros del mapa"

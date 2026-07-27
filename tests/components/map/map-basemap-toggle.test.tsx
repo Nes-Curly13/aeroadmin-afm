@@ -56,7 +56,17 @@ vi.mock("react-leaflet", () => ({
   Polyline: () => <div data-testid="mock-polyline" />,
   Popup: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   CircleMarker: () => <div data-testid="mock-circle-marker" />,
-  useMap: () => ({ setView: vi.fn(), fitBounds: vi.fn(), zoomIn: vi.fn(), zoomOut: vi.fn() })
+  ScaleControl: () => <div data-testid="mock-scale-control" />,
+  useMap: () => ({
+    setView: vi.fn(),
+    fitBounds: vi.fn(),
+    zoomIn: vi.fn(),
+    zoomOut: vi.fn(),
+    getZoom: vi.fn(() => 14),
+    on: vi.fn(),
+    off: vi.fn(),
+    getContainer: vi.fn(() => ({ style: {} }))
+  })
 }));
 
 // Mock leaflet (L.Icon.Default) — el componente hace un mergeOptions
