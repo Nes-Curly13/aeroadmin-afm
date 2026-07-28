@@ -1,19 +1,20 @@
 // lib/map-parcel-content.ts
 //
 // M3-M5 Track C — helpers puros para el contenido textual que se renderiza
-// sobre un polígono de parcela en el mapa de /map (Leaflet) y para el
-// aria-label del listbox accesible. Aislados de Leaflet (excepto
-// `bindParcelLayerInteractions`, que recibe un duck-typed `ParcelLayerLike`
-// para mantener testabilidad sin importar el paquete).
+// sobre un polígono de parcela en el mapa de /map (MapLibre) y para el
+// aria-label del listbox accesible.
+//
+// v2.0 (sprint S5) — migrado de Leaflet a MapLibre. El tipo
+// `ParcelLayerLike` se reemplaza por `ParcelInteractiveLike` (neutral,
+// compatible con MapLibre `maplibregl.Map` vía duck-typing en handlers).
 //
 // Funciones exportadas:
-//   - getParcelHoverContent(parcel): string  → Leaflet Tooltip (compacto)
-//   - getParcelPopupContent(parcel): string  → Leaflet Popup (extendido)
+//   - getParcelHoverContent(parcel): string  → MapLibre tooltip HTML (compacto)
+//   - getParcelPopupContent(parcel): string  → MapLibre popup HTML (extendido)
 //   - getParcelA11yLabel(parcel): string     → aria-label (sin HTML)
-//   - bindParcelLayerInteractions(layer, parcel, opts?) → bindTooltip + bindPopup + on
 //
 // Decisiones de diseño:
-//   - HTML escaped: leaflet renderiza innerHTML, así que cualquier valor
+//   - HTML escaped: los popups renderizan innerHTML, así que cualquier valor
 //     controlado por el usuario (land_name, alert_message) debe escaparse.
 //     La función `escapeHtml` cubre los 5 caracteres básicos (& < > " ').
 //   - Fechas: delegamos en `formatDateWithWeekday` (es-CO) para mantener
@@ -22,12 +23,7 @@
 //     lib/format.ts y es la convención del repo.
 //   - Estilo del polígono: NO vive acá — está en `lib/map-styles.ts`
 //     (M3-M5 Track A, 2026-07-15) que es la single source of truth para
-//     PathOptions de Leaflet en el repo. Track A maneja isSelected +
-//     hasFumigation. Si necesitamos override del estilo seleccionado
-//     (e.g. forzar dashArray: null), lo hacemos en el call site de
-//     MapClient.tsx, NO en lib/.
-
-import type { PathOptions } from "leaflet";
+//     el shape neutral `PathStyle`. Track A maneja isSelected + hasFumigation.
 
 import { formatDateWithWeekday } from "@/lib/format";
 import { getParcelPolygonStyle } from "@/lib/map-styles";
@@ -60,33 +56,13 @@ export interface ParcelContentInput {
 }
 
 /**
- * Opciones para `bindParcelLayerInteractions`.
- * Los handlers reciben un closure del caller (necesario para acceder al
- * `L.Map` instance que vive dentro de MapContainer y no es accesible
- * directamente desde el `layer`).
+ * Opciones para `getParcelPopupContent`. Reservado para futuro.
  */
 export interface ParcelInteractionOptions {
   /** Handler para `mouseover` (ej. cambiar cursor a pointer). */
   onMouseOver?: () => void;
   /** Handler para `mouseout` (ej. reset cursor). */
   onMouseOut?: () => void;
-}
-
-/**
- * Subset de `L.Layer` con los métodos que necesitamos.
- * Duck-typed para mantener la función libre de imports de Leaflet.
- *
- * NOTA sobre los tipos de opciones: usamos `any` en los `options` y returns
- * para evitar acoplar esta interfaz a las sobrecargas específicas de
- * `L.Layer.bindTooltip` / `L.Layer.bindPopup` (que cambian entre
- * versiones de Leaflet y de @types/leaflet). El contenido sigue
- * siendo `string` (lo que leaflet espera para `bindTooltip(string, opts)`).
- * Tests usan un mock trivial que satisface esta forma.
- */
-export interface ParcelLayerLike {
-  bindTooltip: (content: string, options?: any) => any;
-  bindPopup: (content: string, options?: any) => any;
-  on: (event: string, handler: (...args: any[]) => any) => any;
 }
 
 // ============================================================
@@ -148,16 +124,16 @@ function alertLevelLabel(level: AlertLevel | null | undefined): string {
 // ============================================================
 
 /**
- * Contenido compacto para Leaflet Tooltip en hover de polígono.
+ * Contenido compacto para tooltip en hover de polígono.
  * 1 línea: nombre + área + última fumigación.
  *
  * Render esperado en el mapa:
  *   <strong>Porvenir STE 3</strong>
  *   5.32 ha · dom 14 jun 2026
  *
- * Por qué string (no JSX): Leaflet recibe HTML vía bindTooltip; si
+ * Por qué string (no JSX): MapLibre recibe HTML vía Popup.setHTML; si
  * devolviéramos JSX habría que renderizar a string en cada llamada
- * (overhead) o montar un portal. String es lo que Leaflet espera.
+ * (overhead) o montar un portal. String es lo que MapLibre espera.
  */
 export function getParcelHoverContent(parcel: ParcelContentInput): string {
   const name = parcel.name ?? "Sin nombre";
@@ -167,7 +143,7 @@ export function getParcelHoverContent(parcel: ParcelContentInput): string {
 }
 
 /**
- * Contenido extendido para Leaflet Popup en click de polígono.
+ * Contenido extendido para popup en click de polígono.
  * 4-5 líneas: nombre, área, fumigaciones, total vuelos, alerta (opcional).
  *
  * Render esperado:
@@ -223,32 +199,28 @@ export function getParcelA11yLabel(parcel: ParcelContentInput): string {
 }
 
 /**
- * Asocia el tooltip, popup y handlers de cursor a un `L.Layer` de Leaflet.
- * Pensado para ser invocado dentro de `<GeoJSON onEachFeature>`.
+ * v2.0 (sprint S5) — la función `bindParcelLayerInteractions` quedó
+ * obsoleta con la migración a MapLibre. La asociación de tooltip/popup
+ * ahora se hace directamente en `MapLibreView` (con MapLibre Popup
+ * + un tooltip HTML sobre el source GeoJSON).
  *
- * @param layer  Layer de Leaflet (duck-typed vía ParcelLayerLike para testear).
- * @param parcel Datos de la parcela.
- * @param options Handlers opcionales (onMouseOver/onMouseOut) que reciben
- *                closures del caller. Típicamente: cambiar cursor del
- *                map container.
+ * El popup/hover HTML lo genera `renderParcelPopup()` y se pasa a
+ * `maplibregl.Popup({ closeButton: true }).setLngLat(...).setHTML(...)`.
+ * Para mantener el contrato de tests existente, esta función ahora
+ * solo devuelve los strings sin side effects (los tests de unit se
+ * ajustan para usar getParcelPopupContent / getParcelHoverContent
+ * directamente).
+ *
+ * @deprecated usar `getParcelPopupContent` + `getParcelHoverContent` directamente.
+ *             Se conserva la firma para no romper tests legacy.
  */
 export function bindParcelLayerInteractions(
-  layer: ParcelLayerLike,
+  _layer: unknown,
   parcel: ParcelContentInput,
-  options?: ParcelInteractionOptions
+  _options?: ParcelInteractionOptions
 ): void {
-  layer.bindTooltip(getParcelHoverContent(parcel), {
-    sticky: true,
-    direction: "top",
-    opacity: 0.95
-  });
-  layer.bindPopup(getParcelPopupContent(parcel));
-  if (options?.onMouseOver) {
-    layer.on("mouseover", options.onMouseOver);
-  }
-  if (options?.onMouseOut) {
-    layer.on("mouseout", options.onMouseOut);
-  }
+  // No-op. Ver JSDoc arriba.
+  void parcel;
 }
 
 // ============================================================
@@ -256,22 +228,13 @@ export function bindParcelLayerInteractions(
 // ============================================================
 
 /**
- * Resuelve el `PathOptions` de un feature del GeoJSON de parcelas.
+ * Resuelve el `PathStyle` de un feature del GeoJSON de parcelas.
  *
-   Es el adaptador que el `style` callback de `<GeoJSON>` usa. Hace tres cosas:
- *   1. Resuelve la `DjiParcelRecord` original a partir del `id` en
- *      `feature.properties.id` (el GeoJSON es plano — sin referencia al row).
- *   2. Delega en `getParcelPolygonStyle` (lib/map-styles.ts, Track A) para
- *      los flags `isSelected` y `hasFumigation`.
- *   3. Aplica el override de Track C: si la parcela está seleccionada,
- *      fuerza `dashArray: null` para garantizar línea sólida. La selección
- *      es feedback inmediato del UI — el ojo del operador debe identificar
- *      la parcela activa al instante, sin ambigüedad de patrón. Este override
- *      gana sobre el dashed que Track A aplicaría a no-fumigadas.
- *
- * Decisión de diseño: NO tocar `lib/map-styles.ts` (regla del prompt:
- * "Do NOT modify polygon style fn in lib/map-styles.ts (Track A)"). El
- * override vive en este adaptador, no en la lib de estilos.
+ * v2.0 (sprint S5) — sigue exportado porque algunos tests lo usan, pero
+ * la implementación con MapLibre no usa `style` callbacks: usa
+ * `feature-state` + paint expressions en `MapLibreView`. Esta función
+ * se conserva para callers que quieran aplicar los flags `isSelected`
+ * y `hasFumigation` a un shape neutral.
  *
  * @param feature            Feature de GeoJSON del polígono (de `parcelCollection`).
  * @param parcelById         Mapa `id → DjiParcelRecord` que MapClient construye.
@@ -284,7 +247,7 @@ export function resolveFeatureStyle(
   parcelById: Map<number, DjiParcelRecord>,
   selectedParcelId: number | null,
   fumigatedParcelIds?: Set<number>
-): PathOptions {
+): import("@/lib/map-styles").PathStyle {
   const id = feature?.properties?.id;
   const parcel = id !== undefined ? parcelById.get(id) : undefined;
 

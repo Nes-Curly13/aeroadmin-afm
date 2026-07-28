@@ -1,7 +1,31 @@
-import type { PathOptions } from "leaflet";
+// lib/map-styles.ts
+//
+// Single source of truth para los estilos de polígonos del mapa.
+// v2.0 (sprint S5) — migración Leaflet → MapLibre: ya no devuelve
+// `PathOptions` de Leaflet sino un tipo local `PathStyle` neutral
+// (mismas props que Leaflet usaba). El MapLibreView convierte este
+// shape a paint expressions inline.
+//
+// Regla del repo: los hex viven en `lib/ui-tokens.ts`. Este archivo los
+// referencia — NUNCA inline. Si necesitas un color nuevo, agregalo a
+// `ui-tokens.ts` y referencialo desde acá.
 
 import { COLORS } from "@/lib/ui-tokens";
 import type { AlertLevel, DjiParcelRecord } from "@/lib/types";
+
+/**
+ * PathStyle — tipo neutral (no acoplado a Leaflet) con las props que
+ * el sistema de mapas necesita. Aplicable a cualquier renderer
+ * (Leaflet, MapLibre, deck.gl) que decida cómo interpretar el shape.
+ */
+export interface PathStyle {
+  color: string;
+  weight: number;
+  fillColor: string;
+  fillOpacity: number;
+  opacity?: number;
+  dashArray?: string;
+}
 
 /**
  * lib/map-styles.ts
@@ -59,7 +83,7 @@ const DASH_PATTERN = "4 4";
 export function getParcelPolygonStyle(
   parcel: DjiParcelRecord,
   options: ParcelStyleOptions = {}
-): PathOptions {
+): PathStyle {
   const isOrchard = parcel.is_orchard === true || parcel.field_type === "Orchards";
   const isSelected = options.isSelected === true;
   // Default conservador: si el caller no pasa hasFumigation, asumimos true
@@ -97,7 +121,7 @@ export function getParcelPolygonStyle(
  * Los tokens se aplican tanto al border como al fill para mantener el
  * mismo criterio visual que el resto del UI (no introducimos hex nuevos).
  */
-export function getAlertPolygonStyle(level: AlertLevel): PathOptions {
+export function getAlertPolygonStyle(level: AlertLevel): PathStyle {
   if (level === "HIGH") {
     return {
       color: COLORS.danger,

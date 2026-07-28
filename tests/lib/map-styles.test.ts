@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { PathOptions } from "leaflet";
 
 import { COLORS } from "@/lib/ui-tokens";
 import {
   buildFumigatedParcelSet,
   getAlertPolygonStyle,
-  getParcelPolygonStyle
+  getParcelPolygonStyle,
+  type PathStyle
 } from "@/lib/map-styles";
 import type { DjiAlertRecord, DjiParcelRecord } from "@/lib/types";
 
@@ -49,8 +49,8 @@ function makeParcel(overrides: Partial<DjiParcelRecord> = {}): DjiParcelRecord {
 }
 
 describe("getParcelPolygonStyle", () => {
-  it("devuelve un PathOptions con todas las keys requeridas", () => {
-    const style: PathOptions = getParcelPolygonStyle(makeParcel());
+  it("devuelve un PathStyle con todas las keys requeridas", () => {
+    const style: PathStyle = getParcelPolygonStyle(makeParcel());
     expect(style).toMatchObject({
       color: expect.any(String),
       weight: expect.any(Number),
@@ -127,8 +127,8 @@ describe("getAlertPolygonStyle", () => {
     expect(style.fillColor).toBe(COLORS.success);
   });
 
-  it("devuelve un PathOptions con weight y fillOpacity", () => {
-    const style: PathOptions = getAlertPolygonStyle("HIGH" satisfies DjiAlertRecord["level"]);
+  it("devuelve un PathStyle con weight y fillOpacity", () => {
+    const style: PathStyle = getAlertPolygonStyle("HIGH" satisfies DjiAlertRecord["level"]);
     expect(style.weight).toBeGreaterThan(0);
     expect(style.fillOpacity).toBeGreaterThan(0);
   });

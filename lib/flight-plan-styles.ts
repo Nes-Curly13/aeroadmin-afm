@@ -1,8 +1,10 @@
 // lib/flight-plan-styles.ts
 //
-// M3-M5 Track B (2026-07-17): PathOptions de Leaflet para la capa
-// "Planes de vuelo" (Polyline) que renderiza la geometría del plan
-// DJI como polilínea dashed sobre el mapa.
+// v2.0 (sprint S5) — migración Leaflet → MapLibre: el tipo `PathOptions`
+// de Leaflet se reemplaza por un tipo local `LineStyle` neutral.
+//
+// M3-M5 Track B (2026-07-17): estilos para la capa "Planes de vuelo"
+// que renderiza la geometría del plan DJI como polilínea dashed.
 //
 // Por qué un archivo separado de `lib/map-styles.ts` (Track A owns):
 //   - `map-styles.ts` centraliza estilos de POLÍGONOS (parcelas, alertas).
@@ -14,9 +16,14 @@
 // Regla del repo: los hex viven en `lib/ui-tokens.ts`. Este archivo
 // los referencia — NUNCA inline.
 
-import type { PathOptions } from "leaflet";
-
 import { COLORS } from "@/lib/ui-tokens";
+
+export interface LineStyle {
+  color: string;
+  weight: number;
+  opacity: number;
+  dashArray?: string;
+}
 
 export interface FlightPlanStyleOptions {
   /** Si el plan corresponde a la parcela actualmente seleccionada
@@ -30,7 +37,7 @@ const DEFAULT_OPACITY = 0.7;
 const DASH_PATTERN = "6 4";
 
 /**
- * Devuelve el `PathOptions` para una polilínea de plan de vuelo DJI.
+ * Devuelve el estilo para una polilínea de plan de vuelo DJI.
  *
  * Convenciones visuales:
  *   - Stroke color `info` (cyan/teal): tono distinto de los verdes
@@ -43,7 +50,7 @@ const DASH_PATTERN = "6 4";
  * La función es pura — misma entrada, misma salida. Es segura de
  * cachear y de testear sin mocks.
  */
-export function getFlightPlanStyle(options: FlightPlanStyleOptions = {}): PathOptions {
+export function getFlightPlanStyle(options: FlightPlanStyleOptions = {}): LineStyle {
   const isSelected = options.isSelected === true;
   return {
     color: COLORS.info,

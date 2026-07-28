@@ -3,24 +3,26 @@
 // Tests para el style function del layer de planes de vuelo (Polyline).
 // M3-M5 Track B — commit 2 de 3.
 //
-// Contrato: getFlightPlanStyle devuelve PathOptions que:
+// v2.0 (sprint S5) — migrado de PathOptions de Leaflet a LineStyle
+// (tipo local neutral).
+//
+// Contrato: getFlightPlanStyle devuelve LineStyle que:
 //   - Usa solo colores de lib/ui-tokens (nunca hexes nuevos).
 //   - Distingue "selected" vs default con weight.
 //   - Default usa dashArray para diferenciarse de la fumigación real
 //     (sólido). Es señal visual de "plan, no ejecución".
 
 import { describe, expect, it } from "vitest";
-import type { PathOptions } from "leaflet";
 
 import { COLORS } from "@/lib/ui-tokens";
-import { getFlightPlanStyle } from "@/lib/flight-plan-styles";
+import { getFlightPlanStyle, type LineStyle } from "@/lib/flight-plan-styles";
 
 describe("getFlightPlanStyle", () => {
-  it("devuelve un PathOptions con las keys requeridas para polilíneas", () => {
+  it("devuelve un LineStyle con las keys requeridas para polilíneas", () => {
     // Una Polyline no tiene fill (es 1D, no área), así que NO
-    // exigimos fillOpacity. Sí exigimos color + weight + opacity +
+    // exigemos fillOpacity. Sí exigimos color + weight + opacity +
     // dashArray porque son lo que da la señal visual "plan DJI".
-    const style: PathOptions = getFlightPlanStyle();
+    const style: LineStyle = getFlightPlanStyle();
     expect(style).toMatchObject({
       color: expect.any(String),
       weight: expect.any(Number),
