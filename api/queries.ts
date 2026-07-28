@@ -111,18 +111,19 @@ export const djiParcelsQuery = `
     -- la UNIQUE constraint sobre parcel_id). Null si la parcela no tiene
     -- schedule aún — el caller aplica el fallback (14d Farmland, 10d Orchards).
     s.recommended_cadence_days AS recommended_cadence_days,
-    -- v2.1 (sprint S7.2) - V0 fields (client/farm/municipality/variety) leidos del schema.
-    -- db/migrations/20260728000000_add_v0_fields_to_dji_parcels.sql.
-    -- Antes (S6.1) NULL literal; ahora se leen las columnas reales. Si no se aplico la migration, quedan null.
-    p.client_name,
-    p.farm_name,
-    p.municipality,
-    p.variety
-    -- null (la UI muestra "—").
-    p.client_name,
-    p.farm_name,
-    p.municipality,
-    p.variety
+    -- v2.1 (sprint S7.2) — V0 fields (client/farm/municipality/variety).
+    -- v2.1 (S7.2 hotfix) — TEMPORALMENTE NULL::text hasta que se aplique
+    -- la migration 20260728000000_add_v0_fields_to_dji_parcels.sql a la BD.
+    -- Razón: la BD de Supabase (pooled) NO tiene estas columnas todavía.
+    -- Hasta que se aplique la migration, el caller degrada a null. Cuando
+    -- se aplique:
+    --   1. Aplicar npm run db:migrate contra la BD de Supabase.
+    --   2. Cambiar las 4 lineas de abajo de NULL::text a
+    --      p.client_name, p.farm_name, p.municipality, p.variety.
+    NULL::text AS client_name,
+    NULL::text AS farm_name,
+    NULL::text AS municipality,
+    NULL::text AS variety
   FROM dji_parcels p
   LEFT JOIN LATERAL (
     SELECT fumigation_date

@@ -46,13 +46,12 @@
 
 import { Activity, CircleAlert, CircleCheck, CircleX, type LucideIcon } from "lucide-react";
 
-import { formatAgo } from "@/components/dashboard/sync-banner";
-import { formatNumber } from "@/lib/format";
+import { formatAgo, formatNumber } from "@/lib/format";
 import {
   type HealthResponse,
   type HealthStatus,
   type StepHealth
-} from "@/lib/djiag-health";
+} from "@/lib/djiag-health-types";
 
 /**
  * Mapping de HealthStatus → icono + label + tono visual.

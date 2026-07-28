@@ -24,6 +24,7 @@ import {
   readHealthFile,
   type HealthResponse
 } from "@/lib/djiag-health";
+import { formatAgo } from "@/lib/format";
 
 const HEALTH_FILE_RELATIVE = "djiag_exports/_health.json";
 const WARN_THRESHOLD_HOURS = 12;
@@ -87,21 +88,13 @@ export function deriveSyncTone(response: HealthResponse): SyncTone {
 }
 
 /**
- * Formatea el "hace Xh" en lenguaje humano. Si <1h, muestra minutos.
- * Si >24h, muestra días.
+ * Re-export de `formatAgo` desde `lib/format.ts` para compatibilidad con
+ * imports legacy (`import { formatAgo } from "@/components/dashboard/sync-banner"`).
+ * La fuente de verdad vive en `lib/format.ts` (módulo puro, seguro para
+ * client). NO importar `lib/djiag-health` desde un client component —
+ * eso arrastra `node:fs/promises` al bundle del browser.
  */
-export function formatAgo(hours: number | null): string {
-  if (hours === null) return "—";
-  if (hours < 1) {
-    const minutes = Math.max(1, Math.round(hours * 60));
-    return `hace ${minutes} min`;
-  }
-  if (hours < 24) {
-    return `hace ${Math.round(hours)} h`;
-  }
-  const days = Math.round(hours / 24);
-  return `hace ${days} día${days === 1 ? "" : "s"}`;
-}
+export { formatAgo } from "@/lib/format";
 
 export interface SyncBannerProps {
   response: HealthResponse;

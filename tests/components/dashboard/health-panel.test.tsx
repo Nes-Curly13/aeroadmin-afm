@@ -20,7 +20,7 @@ import { describe, expect, it } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 
 import { HealthPanel } from "@/components/dashboard/health-panel";
-import type { HealthResponse, StepHealth } from "@/lib/djiag-health";
+import type { HealthResponse, StepHealth } from "@/lib/djiag-health-types";
 
 function makeResponse(over: Partial<HealthResponse> = {}): HealthResponse {
   return {

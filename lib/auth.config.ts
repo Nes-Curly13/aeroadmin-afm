@@ -79,6 +79,50 @@ export const authConfig: NextAuthConfig = {
   ],
   callbacks: {
     /**
+     * JWT callback — corre cuando Auth.js crea o refresca un JWT.
+     *
+     * Edge-safe: solo copia `role` y `uid` del `user` (que el
+     * Credentials provider de `lib/auth.ts` devuelve con `authorize`)
+     * al token. NO toca bcrypt ni la BD.
+     *
+     * v2.1 (S7.2 hotfix): movido ACÁ desde `lib/auth.ts` para que
+     * el middleware (Edge runtime) también propague `role` al objeto
+     * `auth` que recibe el callback `authorized`. Si vive solo en
+     * `lib/auth.ts`, el middleware ve `auth.user.role = undefined`
+     * porque su `authorized` se evalúa contra la config edge-safe,
+     * no contra la full.
+     */
+    async jwt({ token, user }) {
+      if (user) {
+        token.role = (user as { role?: AppRole }).role ?? "supervisor";
+        token.uid = (user as { id?: string }).id ?? "";
+      }
+      return token;
+    },
+    /**
+     * Session callback — corre cuando Auth.js construye la Session
+     * expuesta a la app (e.g. `auth()` server-side, `useSession`
+     * client-side, y el `auth` que recibe `authorized`).
+     *
+     * Edge-safe: solo copia `role` y `uid` del JWT a `session.user`.
+     * Por eso DEBE estar en `authConfig` (edge-safe), no solo en
+     * `auth.ts` (Node-only) — el middleware necesita ver el `role`
+     * para gatear `/admin/*`. Ver S7.2 hotfix.
+     *
+     * Default 'supervisor' (no 'admin') para que un JWT emitido
+     * por un bug/edge-case (sin role explicito) NO quede con
+     * permisos de admin. v1.4: el sistema es admin | supervisor.
+     */
+    async session({ session, token }) {
+      if (session.user) {
+        (session.user as { role?: AppRole }).role =
+          (token as { role?: AppRole }).role ?? "supervisor";
+        (session.user as { id?: string }).id =
+          (token as { uid?: string }).uid ?? "";
+      }
+      return session;
+    },
+    /**
      * Autorizacion por ruta — edge-safe porque NO toca la BD ni bcrypt.
      * Solo lee `auth?.user.role` que ya viene en el JWT firmado.
      *

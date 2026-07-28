@@ -145,35 +145,19 @@ const fullAuthConfig: NextAuthConfig = {
   ],
   callbacks: {
     /**
-     * Reusa el `authorized` del edge-safe. El `authorized` corre en
-     * middleware Edge (no recibe user-password), asi que es seguro.
-     */
-    ...authConfig.callbacks,
-    /**
-     * Cada vez que Auth.js crea o refresca el JWT metemos `role` + `uid`
-     * desde el `user` que devolvio `authorize`.
+     * Reusa TODOS los callbacks del `authConfig` (edge-safe). El
+     * `authorized` corre en middleware Edge. El `jwt` y `session`
+     * también los necesitamos acá (no solo en middleware) para que
+     * `auth()` server-side y `useSession` client-side vean el `role`
+     * propagado.
      *
-     * Default: 'supervisor' (no 'admin' ni 'viewer') para que un JWT
-     * emitido por un bug/edge-case (sin role explicito) NO quede con
-     * permisos de admin. v1.4: el sistema es admin | supervisor
-     * (viewer se renombro a supervisor con mas permisos).
+     * v2.1 (S7.2 hotfix): los callbacks `jwt` y `session` se
+     * movieron desde ESTE archivo al `authConfig` para que el
+     * middleware (Edge runtime) también propague `role`. Si vivieran
+     * solo acá, el middleware no vería `role` y la página
+     * `/admin/*` siempre redirigiría a /login.
      */
-    async jwt({ token, user }) {
-      if (user) {
-        token.role = (user as { role?: AppRole }).role ?? "supervisor";
-        token.uid = (user as { id?: string }).id ?? "";
-      }
-      return token;
-    },
-    async session({ session, token }) {
-      if (session.user) {
-        (session.user as { role?: AppRole }).role =
-          (token as { role?: AppRole }).role ?? "supervisor";
-        (session.user as { id?: string }).id =
-          (token as { uid?: string }).uid ?? "";
-      }
-      return session;
-    }
+    ...authConfig.callbacks
   }
 };
 

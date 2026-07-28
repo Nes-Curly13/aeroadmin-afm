@@ -38,6 +38,38 @@ export function formatDate(value: string) {
 }
 
 /**
+ * Formatea una cantidad de horas en lenguaje humano: "hace 5 min", "hace 3 h",
+ * "hace 2 días". Usado por el SyncBanner y el HealthPanel del dashboard
+ * para mostrar "última sync hace X".
+ *
+ * Vive en `lib/format.ts` (puro, sin side effects) porque tanto
+ * `components/dashboard/sync-banner.tsx` (server) como
+ * `components/dashboard/health-panel.tsx` (que se importa desde un
+ * Client Component) lo necesitan. Si viviera en `sync-banner.tsx`,
+ * importar `formatAgo` desde el client arrastraría TODO el módulo
+ * `sync-banner.tsx` (que a su vez arrastra `lib/djiag-health.ts` con
+ * `node:fs/promises`) y rompería el bundle del cliente.
+ *
+ * Reglas:
+ *   - hours === null → "—"
+ *   - hours < 1 → "hace N min" (redondeado, mínimo 1)
+ *   - hours < 24 → "hace N h"
+ *   - hours >= 24 → "hace N día(s)"
+ */
+export function formatAgo(hours: number | null): string {
+  if (hours === null) return "—";
+  if (hours < 1) {
+    const minutes = Math.max(1, Math.round(hours * 60));
+    return `hace ${minutes} min`;
+  }
+  if (hours < 24) {
+    return `hace ${Math.round(hours)} h`;
+  }
+  const days = Math.round(hours / 24);
+  return `hace ${days} día${days === 1 ? "" : "s"}`;
+}
+
+/**
  * Formato de fecha con día de semana para el operador fumigador.
  * Devuelve "lun 15 mar 2026" en español (locale es-CO).
  *

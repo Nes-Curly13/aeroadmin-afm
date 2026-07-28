@@ -1,83 +1,45 @@
-/**
- * lib/djiag-health.ts
- *
- * XS1 (audit 2026-07-22, docs/DJIAG_AUDIT.md H1).
- * Lógica pura de lectura/derivación del health del pipeline DJI AG.
- * Separada del route handler para que sea testeable sin mockear
- * `node:fs` (los dynamic imports en el route handler son difíciles
- * de interceptar limpiamente con vitest).
- *
- * Fuentes del health (Sprint E — Task 2):
- *   1. **Filesystem** (`djiag_exports/_health.json`) — usado en dev
- *      local y CI. Escrito por `scripts/run-pipeline.js` con
- *      `writeHealthFile`. No funciona en Vercel serverless porque
- *      el filesystem es ephemeral.
- *   2. **Postgres** (`djiag_health` table, singleton row id=1) —
- *      la fuente de verdad en serverless. Escrita por
- *      `scripts/run-pipeline.js` con `writeHealthToDb` (best effort
- *      — si la tabla no existe o la conexión falla, el pipeline no
- *      rompe, solo loguea warning).
- *
- * El route handler elige la fuente según el entorno:
- *   - `process.env.VERCEL` o `AWS_LAMBDA_FUNCTION_NAME` seteada →
- *     lee de DB.
- *   - Si no → lee del filesystem.
- *
- * Si la fuente preferida falla (tabla no existe, file corrupto,
- * etc.), `deriveResponse(null)` se encarga de mapear a
- * `status='unknown'`. NO se intenta fallback cruzado (DB → file o
- * viceversa) para mantener simple.
- *
- * Tres funciones puras (testeables sin mockear `node:fs`/`pg`):
- *   - `readHealthFile(filePath)`: lee del filesystem.
- *   - `readHealthFromDb(client)`: lee de la tabla `djiag_health`.
- *     Acepta un `pg.Client` o `pg.PoolClient` inyectable para tests.
- *   - `deriveResponse(health)`: convierte el health crudo en la
- *     respuesta que ve el frontend.
- *
- * `HealthResponse` es el shape que devuelve el endpoint.
- */
+// lib/djiag-health.ts
+//
+// v2.1 (S7.2 hotfix) — este archivo quedó con SOLO las funciones que
+// tocan Node (`readHealthFile`, `readHealthFromDb`). Los types y la
+// función pura `deriveResponse` viven en `lib/djiag-health-types.ts`
+// para que los Client Components puedan importarlos sin bundlear
+// `node:fs/promises`.
+//
+// Por qué el split:
+//
+// `dashboard-v0-client.tsx` ("use client") y `health-panel.tsx`
+// (que se importa desde el client) hacen `import type { HealthResponse,
+// StepHealth } from "@/lib/djiag-health"`. Aunque sea `import type`,
+// Turbopack no puede tree-shakear el `import { readFile } from
+// "node:fs/promises"` de arriba de este archivo (es un side-effect
+// top-level usado por `readHealthFile`). Resultado: el cliente
+// intenta bundlear `node:fs/promises` y revienta con "the chunking
+// context (unknown) does not support external modules".
+//
+// Solución:
+//   - types + `deriveResponse` → `lib/djiag-health-types.ts` (puro,
+//     safe para client).
+//   - `readHealthFile` + `readHealthFromDb` → ACÁ (Node-only).
+//   - Este archivo re-exporta los types desde el nuevo módulo para
+//     no romper los imports server-side existentes (route handler,
+//     scripts, tests).
+//
+// XS1 (audit 2026-07-22, docs/DJIAG_AUDIT.md H1). Ver docstring
+// completo en `lib/djiag-health-types.ts` para la historia de las
+// fuentes del health.
 
 import { readFile } from "node:fs/promises";
 
-/** Shape del JSON que escribe `scripts/run-pipeline.js` al filesystem. */
-export interface PipelineHealth {
-  lastRunAt: string;
-  lastRunStatus: "ok" | "partial" | "failed";
-  lastSuccessfulSyncAt: string | null;
-  steps: StepHealth[];
-  totals: {
-    flights: number;
-    fumigations: number;
-    lands: number;
-  };
-  version: 1;
-}
-
-export interface StepHealth {
-  order: number;
-  name: string;
-  status: "ok" | "failed" | "skipped";
-  durationMs?: number;
-  error?: string;
-}
-
-export type HealthStatus = "ok" | "partial" | "stale" | "unknown" | "failed";
-
-export interface HealthResponse {
-  status: HealthStatus;
-  lastRunAt: string | null;
-  lastRunStatus: PipelineHealth["lastRunStatus"] | "unknown";
-  lastSuccessfulSyncAt: string | null;
-  flightsLastSync: number | null;
-  fumigationsLastSync: number | null;
-  landsLastSync: number | null;
-  hoursSinceLastSync: number | null;
-  warnings: string[];
-  steps: StepHealth[];
-}
-
-export const STALE_THRESHOLD_HOURS = 24;
+// Re-exports para mantener compatibilidad con imports existentes.
+export {
+  deriveResponse,
+  STALE_THRESHOLD_HOURS,
+  type HealthResponse,
+  type HealthStatus,
+  type PipelineHealth,
+  type StepHealth
+} from "@/lib/djiag-health-types";
 
 /**
  * Lee el archivo de health del filesystem. Devuelve `null` si:
@@ -88,12 +50,12 @@ export const STALE_THRESHOLD_HOURS = 24;
  * En cualquier caso, no tira error — el caller mapea `null` a
  * `status: 'unknown'`.
  */
-export async function readHealthFile(filePath: string): Promise<PipelineHealth | null> {
+export async function readHealthFile(filePath: string): Promise<import("@/lib/djiag-health-types").PipelineHealth | null> {
   try {
     const raw = await readFile(filePath, "utf8");
     const parsed = JSON.parse(raw) as unknown;
     if (!parsed || typeof parsed !== "object") return null;
-    return parsed as PipelineHealth;
+    return parsed as import("@/lib/djiag-health-types").PipelineHealth;
   } catch {
     return null;
   }
@@ -126,7 +88,7 @@ export interface DbQueryRunner {
  */
 export async function readHealthFromDb(
   client: DbQueryRunner
-): Promise<PipelineHealth | null> {
+): Promise<import("@/lib/djiag-health-types").PipelineHealth | null> {
   let result: { rows: unknown[] };
   try {
     result = await client.query(
@@ -155,7 +117,7 @@ export async function readHealthFromDb(
         flights_count: number | null;
         fumigations_count: number | null;
         lands_count: number | null;
-        steps: StepHealth[] | null;
+        steps: import("@/lib/djiag-health-types").StepHealth[] | null;
       }
     | undefined;
   if (!row) return null;
@@ -179,79 +141,5 @@ export async function readHealthFromDb(
       lands: typeof row.lands_count === "number" ? row.lands_count : 0
     },
     version: 1
-  };
-}
-
-/**
- * Deriva la respuesta que ve el frontend. Función pura, sin side
- * effects. Toma el JSON crudo (o null) y devuelve el shape final.
- *
- * Reglas:
- *   - Sin health → status='unknown', todo null, 1 warning.
- *   - Health.ok + fresh (<24h) → status='ok'.
- *   - Health.ok + stale (>24h) → status='stale', 1 warning.
- *   - Health.partial → status='partial', 1 warning.
- *   - Health.failed → status='failed', 1 warning.
- */
-export function deriveResponse(health: PipelineHealth | null): HealthResponse {
-  if (!health) {
-    return {
-      status: "unknown",
-      lastRunAt: null,
-      lastRunStatus: "unknown",
-      lastSuccessfulSyncAt: null,
-      flightsLastSync: null,
-      fumigationsLastSync: null,
-      landsLastSync: null,
-      hoursSinceLastSync: null,
-      warnings: ["Archivo _health.json no existe o está corrupto."],
-      steps: []
-    };
-  }
-
-  const lastRunAt = health.lastRunAt ?? null;
-  const lastSuccessfulSyncAt = health.lastSuccessfulSyncAt ?? null;
-  const hoursSinceLastSync =
-    lastSuccessfulSyncAt !== null
-      ? Number(
-          ((Date.now() - new Date(lastSuccessfulSyncAt).getTime()) / 3_600_000).toFixed(2)
-        )
-      : null;
-
-  const warnings: string[] = [];
-  if (
-    hoursSinceLastSync !== null &&
-    hoursSinceLastSync > STALE_THRESHOLD_HOURS
-  ) {
-    warnings.push(
-      `Última sync exitosa hace ${hoursSinceLastSync}h (>${STALE_THRESHOLD_HOURS}h).`
-    );
-  }
-  if (health.lastRunStatus === "failed") {
-    warnings.push("La última corrida del pipeline falló.");
-  }
-  if (health.lastRunStatus === "partial") {
-    warnings.push("La última corrida tuvo steps fallidos.");
-  }
-
-  const status: HealthStatus =
-    health.lastRunStatus === "ok" &&
-    (hoursSinceLastSync === null || hoursSinceLastSync <= STALE_THRESHOLD_HOURS)
-      ? "ok"
-      : health.lastRunStatus === "ok"
-        ? "stale"
-        : health.lastRunStatus;
-
-  return {
-    status,
-    lastRunAt,
-    lastRunStatus: health.lastRunStatus,
-    lastSuccessfulSyncAt,
-    flightsLastSync: health.totals?.flights ?? null,
-    fumigationsLastSync: health.totals?.fumigations ?? null,
-    landsLastSync: health.totals?.lands ?? null,
-    hoursSinceLastSync,
-    warnings,
-    steps: Array.isArray(health.steps) ? health.steps : []
   };
 }

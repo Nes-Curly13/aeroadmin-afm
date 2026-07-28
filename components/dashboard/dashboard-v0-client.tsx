@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { formatArea, formatNumber } from "@/lib/format";
-import type { HealthResponse, StepHealth } from "@/lib/djiag-health";
+import type { HealthResponse, StepHealth } from "@/lib/djiag-health-types";
 import type { DjiFumigationEvent, DjiParcelRecord, OverdueParcel } from "@/lib/types";
 
 /**
