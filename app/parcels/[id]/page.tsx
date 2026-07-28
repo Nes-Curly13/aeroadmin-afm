@@ -2,9 +2,12 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { AppShell } from "@/components/app-shell";
+import { FumigationTimeline } from "@/components/parcels/fumigation-timeline";
+import { IntervalChart, type IntervalPoint } from "@/components/parcels/interval-chart";
 import { ParcelDetail } from "@/components/parcels/parcel-detail";
 import { ParcelFumigationHistory } from "@/components/parcels/parcel-fumigation-history";
 import { ParcelFumigations } from "@/components/parcels/parcel-fumigations";
+import { ParcelMap } from "@/components/parcels/parcel-map";
 import {
   getFumigationDbStats,
   getFumigationEventsByParcel,
@@ -17,7 +20,9 @@ import {
   getScheduleHistory
 } from "@/api/repositories";
 import { getViewerRole } from "@/lib/auth/role";
+import { daysBetween } from "@/lib/format";
 import { daysUntilNextDue, getFumigationStatus } from "@/lib/fumigation-cadence";
+import { COLORS } from "@/lib/ui-tokens";
 
 export const dynamic = "force-dynamic";
 
@@ -90,6 +95,68 @@ export default async function ParcelPage({
   const status = getFumigationStatus(schedule?.last_fumigation_date ?? null, cadence);
   const days = daysUntilNextDue(schedule?.last_fumigation_date ?? null, cadence);
 
+  // v2.1 (sprint S7) — derivaciones para los 3 componentes nuevos del
+  // detalle (FumigationTimeline, IntervalChart, ParcelMap). Se derivan
+  // server-side de los datos que ya tenemos en el critical path
+  // (events, schedule, flightTraces, parcel).
+  //
+  // IntervalChart: pares (fumigacion_anterior, fumigacion_actual)
+  // con la diferencia en días. `events` viene DESC desde el repo
+  // (fumigation_date DESC, recorded_at DESC), así que ordenamos
+  // ascendente para calcular los gaps correctamente.
+  const eventsAsc = [...events].sort((a, b) => a.fumigation_date.localeCompare(b.fumigation_date));
+  const intervalPoints: IntervalPoint[] = eventsAsc.slice(0, -1).map((curr, i) => {
+    const prev = eventsAsc[i];
+    const gap = daysBetween(prev.fumigation_date, curr.fumigation_date) ?? 0;
+    return { date: curr.fumigation_date, gap };
+  });
+
+  // v2.1 — TODO: `FlightTraceRow` no expone `lng`/`lat` (solo el row
+  // de resumen: `start_at`, `drone_nickname`, etc). Para mostrar flights
+  // como markers en el ParcelMap hariamos falta una query que traiga
+  // `FlightPointRecord[]` por parcel (endpoint nuevo). Por ahora el
+  // ParcelMap se renderiza solo con el poligono, sin markers.
+  const parcelFlights: Array<{ id: number; lng: number; lat: number; pilot?: string }> = [];
+
+  // v2.1 — color del polígono según status de cadencia. Reusa el
+  // patron del V0 (geovisor-client.tsx).
+  const parcelColor =
+    status === "overdue"
+      ? COLORS.danger
+      : status === "due_soon"
+        ? COLORS.warning
+        : status === "no_history"
+          ? COLORS["neutral-medium"] ?? "#5a4136"
+          : COLORS.success;
+
+  // FumigationTimeline: aplanamos los flights por evento para que el
+  // componente los muestre por fumigación.
+  // v2.1: `FlightTraceRow` no tiene `started_at` propio — usamos la fecha
+  // de la fumigación como fallback.
+  const timelineFlights: Array<{
+    id: number;
+    date: string;
+    droneNickname: string | null;
+    pilotName: string | null;
+    areaHa: number | null;
+    durationSeconds: number | null;
+  }> = [];
+  for (const [eventIdStr, flights] of Object.entries(flightTraces)) {
+    const eventId = Number(eventIdStr);
+    const ev = events.find((e) => e.id === eventId);
+    if (!ev) continue;
+    for (const f of flights ?? []) {
+      timelineFlights.push({
+        id: f.id,
+        date: f.start_at ? new Date(f.start_at).toISOString().slice(0, 10) : ev.fumigation_date,
+        droneNickname: f.drone_nickname ?? null,
+        pilotName: f.pilot_name ?? null,
+        areaHa: f.area_m2 != null ? f.area_m2 / 10000 : null,
+        durationSeconds: f.duration_seconds ?? null
+      });
+    }
+  }
+
   // v1.5: sidebar gate.
   const viewerRole = await getViewerRole();
 
@@ -151,6 +218,24 @@ export default async function ParcelPage({
           parcel={parcel}
           scheduleHistory={scheduleHistory}
         />
+
+        {/* v2.1 (sprint S7) — componentes del V0 portados al detalle. */}
+        <div className="space-y-4">
+          <FumigationTimeline
+            cadenceDays={cadence}
+            flights={timelineFlights}
+            fumigations={events}
+          />
+          {intervalPoints.length > 0 ? (
+            <IntervalChart cadenceDays={cadence} points={intervalPoints} />
+          ) : null}
+          <ParcelMap
+            color={parcelColor}
+            flights={parcelFlights}
+            geom={parcel.spray_geometry}
+          />
+        </div>
+
         <ParcelDetail parcel={parcel} />
       </div>
     </AppShell>

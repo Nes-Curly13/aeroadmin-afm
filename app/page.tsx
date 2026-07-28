@@ -1,124 +1,195 @@
 import { AppShell } from "@/components/app-shell";
-import { DashboardClient } from "@/components/dashboard/dashboard-client";
+import { DashboardV0Client } from "@/components/dashboard/dashboard-v0-client";
 import { SyncBanner, loadSyncHealth } from "@/components/dashboard/sync-banner";
 import {
-  getActivityComparison,
-  getAlerts,
-  getDashboardMetrics,
-  getFlights,
-  getOverdueParcels,
+  getFumigationsForMap,
+  getFumigationsByMonth,
   getParcelsNormalized,
-  getUpcomingFumigations
+  getRecentFumigations,
+  getOverdueParcels
 } from "@/api/repositories";
-import { countHighAlerts } from "@/lib/alerts";
 import { getViewerRole } from "@/lib/auth/role";
-
-// (2026-07-27) Restaurado a `force-dynamic`. La nota de Sprint 7 estaba
-// equivocada: `unstable_cache` (TTL 60s) sigue funcionando dentro de
-// páginas dinámicas — solo deshabilita la prerenderización estática.
-// Sin esto, `next build` intenta prerenderizar / en build time, ejecuta
-// las 7+ queries del dashboard, y falla con ENETUNREACH a la DB de
-// Supabase (Vercel resuelve el host a IPv6 y esa ruta no llega).
-export const dynamic = "force-dynamic";
+import { toDateString } from "@/lib/format";
+import { COLORS } from "@/lib/ui-tokens";
+import type { MonthlyBar } from "@/components/dashboard/monthly-chart";
+import type { DjiFumigationEvent, DjiParcelRecord, DjiDailySummaryRecord } from "@/lib/types";
 
 /**
  * Dashboard principal (`/`).
  *
- * Sprint v1.7 — Track A (UI overhaul, layout bento):
- *   - El layout vive en `<DashboardClient>` (client component) que
- *     mantiene el state compartido del `alertFilter` (HIGH / MEDIUM /
- *     LOW / ALL) entre `<AlertsPanel>` y `<RecentFlightsList>`.
- *   - Antes (pre-v1.7) esta página renderizaba KPIs en grid 5-col +
- *     2 paneles apilados en `<div className="mt-5">`. Ahora es un
- *     `<BentoGrid>` con: 5 KPIs (mix colSpan=2+3), 2 cards 6×2
- *     (Upcoming + Alerts), 1 card full-width (OperationsPanel).
- *   - El badge "Vista operativa en vivo" que estaba en el slot
- *     `actions` del AppShell se quitó (sprint v1.7 — Track A): ocupaba
- *     un lugar privilegiado en el header pero no aportaba info accionable
- *     para el operador. El slot queda undefined; AppShell ya lo trata
- *     como opcional.
+ * v2.1 (sprint S7) — port del V0 mockup. Reemplaza el `DashboardClient`
+ * bento con el `DashboardV0Client` que replica el dashboard del V0:
+ *   - 4 KPI cards grandes con delta % (ha30 / aplicaciones30 / vuelos30 / volumen30).
+ *   - MonthlyChart 12 meses + Card "Uso de la flota" con progress bars.
+ *   - CompliancePanel + HealthPanel.
+ *   - RecentActivity (12 fumigaciones recientes).
  *
- * Server Component (sin "use client") — fetcha en paralelo y delega.
+ * Decisiones:
+ *   - El banner `SyncBanner` se mantiene arriba del dashboard (urgencia
+ *     operacional: si el sync DJI está caído hace 24h, los datos pueden
+ *     estar stale).
+ *   - El `DashboardClient` viejo queda como archivo legacy (no usado
+ *     por este page). Se puede eliminar en un cleanup futuro.
  */
+export const dynamic = "force-dynamic";
+
+const DAY_MS = 86_400_000;
+
 export default async function DashboardPage() {
+  const now = new Date();
+  const today = toDateString(now) ?? "1970-01-01";
+  const thirtyDaysAgo = toDateString(new Date(now.getTime() - 30 * DAY_MS)) ?? "1970-01-01";
+  const sixtyDaysAgo = toDateString(new Date(now.getTime() - 60 * DAY_MS)) ?? "1970-01-01";
+  const twelveMonthsAgo = toDateString(new Date(now.getTime() - 365 * DAY_MS)) ?? "1970-01-01";
+
+  // 7 queries en paralelo.
   const [
-    metrics,
     parcelsResult,
-    flightsResult,
-    alerts,
-    upcoming,
+    allFumigations,
+    last30,
+    prev30,
+    monthsBuckets,
+    recentFumigations,
     overdue,
-    // M4/F1.16: count exclusivo de parcelas YA vencidas para el chip
-    // "Vencidas: N" del sidebar. Lo separamos del `overdue` de arriba
-    // (maxDaysAhead=14, que también trae las "vence pronto") porque el
-    // chip del sidebar debe mostrar el número URGENTE, no el agregado.
-    // Cacheada con tag `afm:overdue` (mismo TTL 60s) — se invalida en
-    // `invalidateAfterFumigationMutation()`.
-    overdueNow,
-    // Sprint A — F4.0: comparativa ayer/hoy. Cacheada 5min con tag
-    // `afm:activity-comparison`. La incluimos en el Promise.all para
-    // que corra en paralelo con las otras 6 queries del dashboard.
-    activityComparison,
-    // M12 — health del sync DJI para el banner superior. No cacheado
-    // (loadSyncHealth lee el file system directo, ~1ms). Si el archivo
-    // no existe, devuelve status='unknown' sin romper.
-    syncHealth
+    healthRaw
   ] = await Promise.all([
-    getDashboardMetrics(),
-    // (S1.7 / 2026-07-01) Migrado de getParcels() (legacy, lee dji_land_assets shape)
-    // a getParcelsNormalized() — tabla dji_parcels, 1 fila por campo, columnas planas.
-    // Mismo origen de datos que /map, garantiza coherencia entre dashboard y mapa.
     getParcelsNormalized(1, 200),
-    getFlights(),
-    getAlerts(),
-    getUpcomingFumigations(8),
-    // M3-M5 Q2: lista completa de parcelas overdue + due_soon para el
-    // KPI "Atrasadas" del dashboard (UpcomingFumigations + overdueKPI).
-    // Cacheada con TTL 60s (tag `afm:overdue`).
+    // v2.1: total histórico (no por rango) — derivado de un fetch sin
+    // filtros. La página actual NO necesita el total absoluto, pero
+    // el DashboardV0Client sí (description: "N aplicaciones historicas").
+    // Usamos `getFumigationsForMap({})` que trae todas las fumigaciones
+    // ordenadas desc (limit interno del repo). Suficiente para el total.
+    getFumigationsForMap({ parcelIds: [], from: undefined, to: undefined }),
+    getFumigationsForMap({ from: thirtyDaysAgo, to: today }),
+    getFumigationsForMap({ from: sixtyDaysAgo, to: thirtyDaysAgo }),
+    getFumigationsByMonth({ from: twelveMonthsAgo, to: today }),
+    getRecentFumigations(12),
     getOverdueParcels({ maxDaysAhead: 14 }),
-    // M4/F1.16: SOLO las ya vencidas (maxDaysAhead=0). El chip del
-    // sidebar muestra el número que requiere acción inmediata, no
-    // "vencen esta semana". Si la lista está vacía, el chip se oculta.
-    getOverdueParcels({ maxDaysAhead: 0, limit: 200 }),
-    getActivityComparison(),
     loadSyncHealth()
   ]);
 
-  const overdueCount = overdue.filter((p) => p.severity === "overdue").length;
-  // M4/F1.16: overdueNow YA está filtrado a severity='overdue' (por
-  // la condición de fecha maxDaysAhead=0). El .length es el chip count.
-  const overdueSidebarCount = overdueNow.length;
+  const totalParcels = parcelsResult.data.length;
+  const totalHa = parcelsResult.data.reduce(
+    (s, p) => s + (p.declared_area_ha ?? 0),
+    0
+  );
 
-  // v1.5: sidebar gate. Lee el role del JWT (sin DB hit) y filtra
-  // /devices si el viewer es supervisor. Si no hay sesion, devuelve
-  // null y el sidebar muestra todo (acceptable, middleware ya redirige).
+  // KPIs de los últimos 30 días + delta % vs 30 días anteriores.
+  const sumHa = (events: DjiFumigationEvent[]) =>
+    events.reduce((s, e) => s + (e.area_fumigated_m2 ?? 0) / 10000, 0);
+  const sumVol = (events: DjiFumigationEvent[]) =>
+    events.reduce(
+      (s, e) =>
+        s +
+        ((e.dose_l_per_ha ?? 0) * (e.area_fumigated_m2 ?? 0)) / 10000,
+      0
+    );
+  // Flights count: no tenemos el campo directo. Usamos `flight_ids.length`
+  // (sumamos todos los flight_ids únicos). Aproximación — para el V0 era
+  // `flights_count` por evento.
+  const sumFlights = (events: DjiFumigationEvent[]) =>
+    events.reduce((s, e) => s + (e.flight_ids?.length ?? 0), 0);
+
+  // Monthly series (12 meses) — `monthsBuckets` ya viene en el shape
+  // `{ key, label, start, end, count }`. Necesitamos derivar `ha` por
+  // mes cruzando con `allFumigations`.
+  const monthly: MonthlyBar[] = monthsBuckets.map((m) => {
+    const evsInMonth = allFumigations.filter((e) => {
+      const t = new Date(e.fumigation_date).getTime();
+      return t >= m.start && t <= m.end;
+    });
+    return {
+      label: m.label,
+      ha: Math.round(sumHa(evsInMonth) * 10) / 10,
+      flights: sumFlights(evsInMonth)
+    };
+  });
+
+  // Fleet usage — agregamos por modelo de dron. El proyecto tiene 4
+  // modelos de DJI hardcoded en `dji_drone_models` (no hay query — los
+  // modelos se mantienen en el schema, no cambian). Usamos nombres y
+  // tank_l hardcoded.
+  const DRONE_MODELS: Record<number, { name: string; tank_l: number }> = {
+    0: { name: "Sin asignar", tank_l: 0 },
+    72: { name: "Agras T16 / T20", tank_l: 16 },
+    201: { name: "Agras T40 / T50", tank_l: 40 },
+    210: { name: "Agras T70 / similar", tank_l: 70 }
+  };
+  const fleetAgg = new Map<number, { flights: number; ha: number }>();
+  for (const e of allFumigations) {
+    if (e.drone_code_used == null) continue;
+    const cur = fleetAgg.get(e.drone_code_used) ?? { flights: 0, ha: 0 };
+    cur.flights += e.flight_ids?.length ?? 0;
+    cur.ha += (e.area_fumigated_m2 ?? 0) / 10000;
+    fleetAgg.set(e.drone_code_used, cur);
+  }
+  const fleet = Array.from(fleetAgg.entries())
+    .map(([modelId, agg]) => {
+      const model = DRONE_MODELS[modelId] ?? { name: `Drone ${modelId}`, tank_l: 0 };
+      return {
+        modelId,
+        modelName: model.name,
+        tankL: model.tank_l,
+        // v2.1: el `color` del V0 no existe en `dji_drone_models`. Usamos
+        // tokens de `ui-tokens.ts` rotando por modelId (4 colors del
+        // brand palette). Aceptable mientras el schema no agregue el campo.
+        color:
+          [COLORS.primary, COLORS.success, COLORS.warning, COLORS.info, COLORS.completed][
+            modelId % 5
+          ] ?? COLORS.primary,
+        flights: agg.flights,
+        ha: Math.round(agg.ha * 10) / 10
+      };
+    })
+    .filter((f) => f.flights > 0)
+    .sort((a, b) => b.flights - a.flights);
+
+  // Health — `loadSyncHealth` ya devuelve un `HealthResponse` listo
+  // para pasar al `HealthPanel`.
+  const health = healthRaw;
+
+  // Map<id, parcel> para RecentActivity (links).
+  const parcelById = new Map<number, DjiParcelRecord>();
+  for (const p of parcelsResult.data) parcelById.set(p.id, p);
+
+  // v1.5: sidebar gate.
   const viewerRole = await getViewerRole();
 
   return (
     <AppShell
       activeSection="dashboard"
       eyebrow="Panel de Control"
-      highAlertsCount={countHighAlerts(alerts)}
-      overdueCount={overdueSidebarCount}
-      parcelsCount={parcelsResult.data.length}
+      highAlertsCount={0}
+      overdueCount={0}
+      parcelsCount={totalParcels}
       subtitle="Resumen operativo de la fumigación con drones DJI Agras. Trazabilidad por día, alertas y cobertura por dron."
       title="AeroAdmin AFM"
       viewerRole={viewerRole}
     >
       <div className="space-y-5">
-        {/* M12 — banner de salud del sync DJI. Server-rendered para
-            evitar parpadeo cliente-servidor. Va arriba del dashboard
-            porque es info operacional URGENTE (si el sync está caído
-            hace 24h, los datos del panel pueden estar stale). */}
-        <SyncBanner response={syncHealth} />
-        <DashboardClient
-          activityComparison={activityComparison}
-          alerts={alerts}
-          flights={flightsResult.data}
-          metrics={metrics}
-          overdueCount={overdueCount}
-          parcels={parcelsResult.data}
-          upcoming={upcoming}
+        <SyncBanner response={health} />
+        <DashboardV0Client
+          fleet={fleet}
+          health={health}
+          healthSteps={health.steps}
+          kpi30={{
+            ha: Math.round(sumHa(last30) * 10) / 10,
+            haPrev: Math.round(sumHa(prev30) * 10) / 10,
+            count: last30.length,
+            countPrev: prev30.length,
+            flights: sumFlights(last30),
+            flightsPrev: sumFlights(prev30),
+            volume: Math.round(sumVol(last30) * 10) / 10,
+            volumePrev: Math.round(sumVol(prev30) * 10) / 10
+          }}
+          monthly={monthly}
+          overdue={overdue}
+          parcelById={parcelById}
+          recentFumigations={recentFumigations}
+          totalFumigations={allFumigations.length}
+          totalHa={totalHa}
+          totalParcels={totalParcels}
+          totalFlights={allFumigations.reduce((s, e) => s + (e.flight_ids?.length ?? 0), 0)}
         />
       </div>
     </AppShell>

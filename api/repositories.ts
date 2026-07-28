@@ -1691,3 +1691,51 @@ export async function getFumigationYearTotals(
     async () => ({ year, count: 0, area_total_m2: 0, litros_total: 0, productos_unicos: 0 })
   );
 }
+
+/**
+ * v2.1 (sprint S7) — fumigaciones más recientes para alimentar el
+ * `RecentActivity` del dashboard.
+ *
+ * Trae los últimos N eventos (default 12) con `parcel_id` válido
+ * y `deleted_at IS NULL`. Cacheada con TTL 60s y tag
+ * `afm:recent-fumigations` (mismo patrón que el resto del dashboard).
+ */
+export async function getRecentFumigations(
+  limit: number = 12
+): Promise<DjiFumigationEvent[]> {
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      const result = await db.query<DjiFumigationEvent>(
+        `SELECT
+            id,
+            parcel_id,
+            fumigation_date,
+            product_used,
+            dose_l_per_ha,
+            area_fumigated_m2,
+            drone_code_used,
+            duration_minutes,
+            notes,
+            human_notes,
+            recorded_by,
+            product_registered_ica,
+            pilot_license,
+            recorded_at,
+            source,
+            flight_ids
+           FROM dji_fumigations
+          WHERE deleted_at IS NULL
+            AND parcel_id IS NOT NULL
+          ORDER BY fumigation_date DESC, recorded_at DESC
+          LIMIT $1`,
+        [limit]
+      );
+      return result.rows.map((row) => ({
+        ...row,
+        fumigation_date: toDateString(row.fumigation_date) ?? ""
+      }));
+    },
+    async () => []
+  );
+}
