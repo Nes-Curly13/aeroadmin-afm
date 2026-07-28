@@ -9,6 +9,7 @@ import { ParcelFumigationHistory } from "@/components/parcels/parcel-fumigation-
 import { ParcelFumigations } from "@/components/parcels/parcel-fumigations";
 import { ParcelMap } from "@/components/parcels/parcel-map";
 import {
+  getFlightPointsForMap,
   getFumigationDbStats,
   getFumigationEventsByParcel,
   getFumigationFlightTrace,
@@ -52,7 +53,8 @@ export default async function ParcelPage({
     dbStats,
     summary,
     totals,
-    scheduleHistory
+    scheduleHistory,
+    allFlights
   ] = await Promise.all([
     getParcelById(id),
     getParcelsNormalized(1, 200),
@@ -61,7 +63,8 @@ export default async function ParcelPage({
     getFumigationDbStats(),
     getFumigationYearlySummary(id, currentYear),
     getFumigationYearTotals(id, currentYear),
-    getScheduleHistory(id, 10)
+    getScheduleHistory(id, 10),
+    getFlightPointsForMap()
   ]);
 
   if (!parcel) {
@@ -111,12 +114,20 @@ export default async function ParcelPage({
     return { date: curr.fumigation_date, gap };
   });
 
-  // v2.1 — TODO: `FlightTraceRow` no expone `lng`/`lat` (solo el row
-  // de resumen: `start_at`, `drone_nickname`, etc). Para mostrar flights
-  // como markers en el ParcelMap hariamos falta una query que traiga
-  // `FlightPointRecord[]` por parcel (endpoint nuevo). Por ahora el
-  // ParcelMap se renderiza solo con el poligono, sin markers.
-  const parcelFlights: Array<{ id: number; lng: number; lat: number; pilot?: string }> = [];
+  // v2.1 (sprint S7.2) — flights como markers en el ParcelMap.
+  // Filtramos los `allFlights` por el parcelId actual. El batch trae
+  // TODOS los flights (limit 2000); para ~1200 parcelas, el filtro
+  // en memoria es O(1) y la query es O(1). Si el dataset crece a
+  // >100k flights, agregar WHERE parcel_id = ANY en el SQL.
+  const parcelFlights: Array<{ id: number; lng: number; lat: number; pilot?: string }> =
+    allFlights
+      .filter((f) => f.parcel_id === id)
+      .map((f) => ({
+        id: f.flight_id,
+        lng: f.lng,
+        lat: f.lat,
+        pilot: f.pilot_name ?? undefined
+      }));
 
   // v2.1 — color del polígono según status de cadencia. Reusa el
   // patron del V0 (geovisor-client.tsx).

@@ -472,6 +472,40 @@ export async function getFumigationSchedule(parcelId: number): Promise<DjiFumiga
 }
 
 /**
+ * v2.1 (sprint S7.2) — batch query: trae TODAS las schedules de la BD
+ * en una sola query. Usado por el `/admin/parcels` page para alimentar
+ * la `ParcelsTable` con cadencia per-parcela.
+ *
+ * Sin esto, alimentar 1200 filas de la tabla requería 1200 queries
+ * individuales (N+1 problem). Esta query es O(1) y trae ~5KB de data.
+ *
+ * Cacheada con TTL 60s y tag `afm:schedules-all`. Se invalida con
+ * `invalidateAfterFumigationMutation()`.
+ *
+ * Devuelve un `Map<parcelId, DjiFumigationSchedule>` para lookup O(1)
+ * en el caller. La parcela no presente en el map = no tiene schedule
+ * (cadencia por defecto según field_type).
+ */
+export async function getAllFumigationSchedules(): Promise<Map<number, DjiFumigationSchedule>> {
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      const result = await db.query<DjiFumigationSchedule>(fumigationScheduleByParcelQuery);
+      const out = new Map<number, DjiFumigationSchedule>();
+      for (const row of result.rows) {
+        out.set(row.parcel_id, {
+          ...row,
+          last_fumigation_date: toDateString(row.last_fumigation_date),
+          next_due_date: toDateString(row.next_due_date)
+        });
+      }
+      return out;
+    },
+    async () => new Map<number, DjiFumigationSchedule>()
+  );
+}
+
+/**
  * Lista de eventos de fumigación de una parcela, ordenados por fecha desc.
  *
  * Normaliza `fumigation_date` de `Date` (devuelto por `pg`) a `YYYY-MM-DD`.
@@ -1140,6 +1174,25 @@ export async function getDashboardMetrics(): Promise<DashboardMetrics> {
  */
 export async function getFlightPoints(limit = 300): Promise<FlightPointRecord[]> {
   const safeLimit = Math.max(1, Math.min(limit, 2000));
+  return fetchFlightPointsCached(safeLimit);
+}
+
+/**
+ * v2.1 (sprint S7.2) — batch query: trae TODOS los flight points del
+ * dataset en una sola query. Usado por el `<ParcelMap>` del detalle
+ * de parcela para mostrar los flights como markers en el mapa.
+ *
+ * El caller (page server) filtra por `parcelId` con `Array.from` —
+ * eficiente cuando el dataset es chico-mediano (10-200 flights por
+ * parcela). Para datasets grandes (>1k flights por parcela) conviene
+ * agregar `WHERE parcel_id = ANY($1)` cuando se consuma desde un
+ * detail (TODO S7.3).
+ *
+ * Cacheada con TTL 60s y tag `afm:flights-all`. Se invalida con
+ * `invalidateAfterFumigationMutation()`.
+ */
+export async function getFlightPointsForMap(): Promise<FlightPointRecord[]> {
+  const safeLimit = 2000;
   return fetchFlightPointsCached(safeLimit);
 }
 

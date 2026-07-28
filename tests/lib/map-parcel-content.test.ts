@@ -2,26 +2,32 @@
 //
 // TDD rojo→verde para lib/map-parcel-content.ts (M3-M5 Track C).
 // Cubre:
-//   1. getParcelHoverContent  — string compacto para Leaflet Tooltip
-//   2. getParcelPopupContent  — string extendido para Leaflet Popup
+//   1. getParcelHoverContent  — string compacto (reusado por MapLibre Popup HTML)
+//   2. getParcelPopupContent  — string extendido (reusado por MapLibre Popup HTML)
 //   3. getParcelA11yLabel     — aria-label para el listbox accesible
-//   4. bindParcelLayerInteractions — bindTooltip + bindPopup + on('mouseover')
+//   4. resolveFeatureStyle    — paint props para MapLibre (estilo por feature)
+//
+// v2.1 (S7.2): el bloque `bindParcelLayerInteractions` se eliminó — esa
+// función quedó no-op desde el sprint S5 (migración a MapLibre) y sus
+// tests probaban el contrato de Leaflet (bindTooltip/bindPopup/on).
+// El tooltip/popup de MapLibre vive ahora en `MapLibreView` (vía
+// maplibre-gl Popup directamente). Ver `lib/map-styles.ts` y
+// `components/map/maplibre-view.tsx`.
 //
 // Nota: el estilo del polígono (getParcelPolygonStyle) NO vive acá — está
 // en lib/map-styles.ts (Track A, 2026-07-15) y se testea en
 // tests/lib/map-styles.test.ts. Track C solo consume esa función.
 //
 // Patrones:
-//   - Pure functions (sin Leaflet) salvo bindParcelLayerInteractions que
-//     recibe un ParcelLayerLike (duck-typed) — testeable con un mock.
+//   - Pure functions (sin Leaflet, sin MapLibre) — todo es HTML strings
+//     + style objects neutrales que el caller (MapLibreView) renderiza.
 //   - Las funciones que tocan fecha usan formatDateWithWeekday (TZ-fragile
 //     en jsdom). Verificamos con regex flexible `/2026/` + `/jun/i` para
 //     tolerar el shift UTC↔Bogota que ya está documentado en format.ts.
 
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import {
-  bindParcelLayerInteractions,
   getParcelA11yLabel,
   getParcelHoverContent,
   getParcelPopupContent,
@@ -241,75 +247,6 @@ describe("getParcelA11yLabel", () => {
     // Cuando name es null el caller podría pasar external_id; pero la función
     // pura solo conoce 'name'. Aceptamos que diga "parcela sin nombre".
     expect(label).toMatch(/sin nombre/i);
-  });
-});
-
-describe("bindParcelLayerInteractions", () => {
-  function makeMockLayer() {
-    return {
-      bindTooltip: vi.fn(),
-      bindPopup: vi.fn(),
-      on: vi.fn(),
-      getTooltip: vi.fn(() => ({ getContent: () => "tooltip content" }))
-    };
-  }
-
-  it("bindTooltip se llama con contenido del parcel y opciones sticky/top/0.95", () => {
-    const layer = makeMockLayer();
-    bindParcelLayerInteractions(layer, makeParcel());
-    expect(layer.bindTooltip).toHaveBeenCalledTimes(1);
-    const [content, opts] = (layer.bindTooltip as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(content).toContain("Porvenir STE 3");
-    expect(content).toContain("5.32 ha");
-    expect(opts).toEqual(
-      expect.objectContaining({
-        sticky: true,
-        direction: "top",
-        opacity: 0.95
-      })
-    );
-  });
-
-  it("bindPopup se llama con contenido extendido del parcel", () => {
-    const layer = makeMockLayer();
-    bindParcelLayerInteractions(layer, makeParcel());
-    expect(layer.bindPopup).toHaveBeenCalledTimes(1);
-    const [content] = (layer.bindPopup as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(content).toContain("Porvenir STE 3");
-    expect(content).toContain("5.32 ha");
-    expect(content).toContain("12"); // total flights
-  });
-
-  it("registra mouseover handler cuando se pasa onMouseOver", () => {
-    const layer = makeMockLayer();
-    const onMouseOver = vi.fn();
-    bindParcelLayerInteractions(layer, makeParcel(), { onMouseOver });
-    expect(layer.on).toHaveBeenCalledWith("mouseover", onMouseOver);
-  });
-
-  it("registra mouseout handler cuando se pasa onMouseOut", () => {
-    const layer = makeMockLayer();
-    const onMouseOut = vi.fn();
-    bindParcelLayerInteractions(layer, makeParcel(), { onMouseOut });
-    expect(layer.on).toHaveBeenCalledWith("mouseout", onMouseOut);
-  });
-
-  it("NO registra handlers si no se pasan options (test isolation)", () => {
-    const layer = makeMockLayer();
-    bindParcelLayerInteractions(layer, makeParcel());
-    expect(layer.on).not.toHaveBeenCalled();
-  });
-
-  it("el orden es: bindTooltip → bindPopup → on(mouseover) → on(mouseout)", () => {
-    const layer = makeMockLayer();
-    const order: string[] = [];
-    (layer.bindTooltip as ReturnType<typeof vi.fn>).mockImplementation(() => order.push("tooltip"));
-    (layer.bindPopup as ReturnType<typeof vi.fn>).mockImplementation(() => order.push("popup"));
-    (layer.on as ReturnType<typeof vi.fn>).mockImplementation((event: string) => {
-      order.push(`on:${event}`);
-    });
-    bindParcelLayerInteractions(layer, makeParcel(), { onMouseOver: vi.fn(), onMouseOut: vi.fn() });
-    expect(order).toEqual(["tooltip", "popup", "on:mouseover", "on:mouseout"]);
   });
 });
 

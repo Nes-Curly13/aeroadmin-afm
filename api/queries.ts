@@ -111,17 +111,18 @@ export const djiParcelsQuery = `
     -- la UNIQUE constraint sobre parcel_id). Null si la parcela no tiene
     -- schedule aún — el caller aplica el fallback (14d Farmland, 10d Orchards).
     s.recommended_cadence_days AS recommended_cadence_days,
-    -- v2.1 (sprint S6.1 — V0 events map) — campos del V0 que nuestro schema
-    -- todavía no tiene. Se proyectan como NULL literal para que el
-    -- DjiParcelRecord los incluya (opcionales) y el render del mapa
-    -- degrade a "—" en vez de romper. Cuando se agreguen las tablas /
-    -- columnas correspondientes, se reemplazan los NULL por la columna
-    -- real. Ver lib/map-filter-logic.ts#toMapParcelView para el orden
-    -- de precedencia y MapParcelView para el shape público.
-    NULL::text AS client_name,
-    NULL::text AS farm_name,
-    NULL::text AS municipality,
-    NULL::text AS variety
+    -- v2.1 (sprint S7.2) - V0 fields (client/farm/municipality/variety) leidos del schema.
+    -- db/migrations/20260728000000_add_v0_fields_to_dji_parcels.sql.
+    -- Antes (S6.1) NULL literal; ahora se leen las columnas reales. Si no se aplico la migration, quedan null.
+    p.client_name,
+    p.farm_name,
+    p.municipality,
+    p.variety
+    -- null (la UI muestra "—").
+    p.client_name,
+    p.farm_name,
+    p.municipality,
+    p.variety
   FROM dji_parcels p
   LEFT JOIN LATERAL (
     SELECT fumigation_date
