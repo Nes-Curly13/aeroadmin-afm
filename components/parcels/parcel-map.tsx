@@ -77,26 +77,29 @@ export interface ParcelMapProps {
 
 const STREETS_STYLE: import("maplibre-gl").StyleSpecification = {
   version: 8,
-  glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
-  sources: {
-    // v2.2.2 (S7.2 hotfix): OSM raster en lugar de Esri imagery.
-    // Razon: en localhost el fetch a `server.arcgisonline.com` falla
-    // (firewall/red del operador) y el operador ve el mapa en blanco
-    // con errores `AJAXError: Failed to fetch`. OSM anda en dev local
-    // y en prod (vía el mismo dominio). El V0 mockup usaba Esri para
-    // tener vista satelital, pero el V0 nunca corrió contra una red
-    // restringida. Trade-off aceptado: perdemos vista satelital en
-    // prod a cambio de que el mapa renderice siempre. Si en el futuro
-    // se quiere satelital, considerar mapbox o un proxy de tiles.
-    osm: {
-      type: "raster",
-      tiles: ["https://a.tile.openstreetmap.org/{z}/{x}/{y}.png"],
-      tileSize: 256,
-      maxzoom: 19,
-      attribution: "&copy; OpenStreetMap contributors"
+  // v2.2.4 (S7.2 hotfix #2): style sin tiles externos.
+  // Razon: el operador fumigador tiene una red corporativa que bloquea
+  // TODOS los dominios externos de tiles (Esri + OSM). El mapa quedaba
+  // con fondo gris + errores `AJAXError: Failed to fetch` en cada tile.
+  // Solución: style con un `background` layer de color sólido — renderiza
+  // el polígono de la parcela + los markers de flights sin fetch
+  // externo. El operador ve el mapa en modo "outline" (estilo mapa
+  // técnico GIS), no satelital. Es la única forma de que el mapa
+  // funcione en su red. Si en el futuro se quiere imagery, hay que
+  // configurar un proxy interno de tiles (no factible hoy).
+  sources: {},
+  layers: [
+    {
+      id: "background",
+      type: "background",
+      paint: {
+        // Verde-claro AeroAdmin (mismo que bg-muted/30 del UI).
+        // Outline mode: el operador ve claramente la geometria de
+        // la parcela y los markers de flights sobre un fondo limpio.
+        "background-color": "#f4f7f4"
+      }
     }
-  },
-  layers: [{ id: "osm-base", type: "raster", source: "osm" }]
+  ]
 };
 
 const FALLBACK_CENTER: [number, number] = [-76.532, 3.4516]; // Valle del Cauca

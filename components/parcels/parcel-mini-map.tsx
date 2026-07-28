@@ -28,19 +28,22 @@ import { useEffect, useRef } from "react";
 
 import type { DjiParcelRecord } from "@/lib/types";
 
+// v2.2.4 (S7.2 hotfix #2): style sin tiles externos. El operador
+// fumigador tiene una red corporativa que bloquea TODOS los tiles
+// externos (Esri, OSM). Usamos `background` solid con verde-claro
+// AeroAdmin. El polígono + flights se siguen dibujando. Si en el
+// futuro se quiere imagery, hay que configurar un proxy interno
+// de tiles.
 const STREETS_STYLE: import("maplibre-gl").StyleSpecification = {
   version: 8,
-  glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
-  sources: {
-    osm: {
-      type: "raster",
-      tiles: ["https://a.tile.openstreetmap.org/{z}/{x}/{y}.png"],
-      tileSize: 256,
-      maxzoom: 19,
-      attribution: "&copy; OpenStreetMap contributors"
+  sources: {},
+  layers: [
+    {
+      id: "background",
+      type: "background",
+      paint: { "background-color": "#f4f7f4" }
     }
-  },
-  layers: [{ id: "osm-base", type: "raster", source: "osm" }]
+  ]
 };
 
 function buildCollection(parcel: DjiParcelRecord) {

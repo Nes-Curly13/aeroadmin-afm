@@ -63,38 +63,39 @@ const BASEMAP_STORAGE_KEY = "afm:map:basemap";
 const DEFAULT_BASEMAP: Basemap = "satellite";
 
 const BASEMAPS: Record<Basemap, { label: string; style: StyleSpecification }> = {
+  // v2.2.4 (S7.2 hotfix #2): los 2 basemaps ahora son `background` solid
+  // en lugar de tiles externos (Esri/OSM). La red del operador fumigador
+  // bloquea TODO dominio externo de tiles. El mapa renderiza con
+  // fondo de color, manteniendo el toggle "Satélite" / "Calles" para
+  // que el operador pueda cambiar entre los 2 estilos visuales (sin
+  // imagery real, pero el toggle sigue siendo funcional). El polígono
+  // de la parcela + los markers de flights se siguen dibujando.
   satellite: {
     label: "Satélite",
     style: {
       version: 8,
-      glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
-      sources: {
-        esri: {
-          type: "raster",
-          tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"],
-          tileSize: 256,
-          maxzoom: 19,
-          attribution: "Tiles &copy; Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community"
+      sources: {},
+      layers: [
+        {
+          id: "background",
+          type: "background",
+          paint: { "background-color": "#1f2922" } // verde oscuro AeroAdmin
         }
-      },
-      layers: [{ id: "esri-base", type: "raster", source: "esri" }]
+      ]
     }
   },
   streets: {
     label: "Calles",
     style: {
       version: 8,
-      glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
-      sources: {
-        osm: {
-          type: "raster",
-          tiles: ["https://a.tile.openstreetmap.org/{z}/{x}/{y}.png"],
-          tileSize: 256,
-          maxzoom: 19,
-          attribution: "&copy; OpenStreetMap contributors"
+      sources: {},
+      layers: [
+        {
+          id: "background",
+          type: "background",
+          paint: { "background-color": "#f4f7f4" } // verde claro AeroAdmin
         }
-      },
-      layers: [{ id: "osm-base", type: "raster", source: "osm" }]
+      ]
     }
   }
 } as const;
