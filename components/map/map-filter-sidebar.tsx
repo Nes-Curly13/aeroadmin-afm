@@ -3,6 +3,7 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useMemo } from "react";
 
+import { FieldSelect } from "@/components/ui/field-select";
 import { FilterSidebar, FilterSidebarSection } from "@/components/ui/filter-sidebar";
 import type { getParcelsSummary } from "@/api/repositories";
 
@@ -225,11 +226,10 @@ export function MapFilterSidebar({
         testId="map-filter-section-drones"
         title="Drones"
       >
-        <select
-          aria-label="Filtrar por modelo de drone"
-          className="rounded-lg border border-[#cfd8d3] bg-white px-3 py-2 text-sm font-semibold text-[#121815] focus:border-[#0b5f2d] focus:outline-none focus:ring-2 focus:ring-[#0b5f2d]/30"
+        <FieldSelect
           data-testid="map-filter-drone"
           id="map-filter-drone"
+          label="Modelo de drone"
           onChange={onChangeDrone}
           value={currentDrone}
         >
@@ -239,7 +239,7 @@ export function MapFilterSidebar({
               {d.name}
             </option>
           ))}
-        </select>
+        </FieldSelect>
       </FilterSidebarSection>
 
       <FilterSidebarSection
@@ -248,18 +248,17 @@ export function MapFilterSidebar({
         testId="map-filter-section-crop"
         title="Cultivo"
       >
-        <select
-          aria-label="Filtrar por tipo de cultivo"
-          className="rounded-lg border border-[#cfd8d3] bg-white px-3 py-2 text-sm font-semibold text-[#121815] focus:border-[#0b5f2d] focus:outline-none focus:ring-2 focus:ring-[#0b5f2d]/30"
+        <FieldSelect
           data-testid="map-filter-crop"
           id="map-filter-crop"
+          label="Tipo de cultivo"
           onChange={onChangeCrop}
           value={currentCrop}
         >
           <option value="">Todos</option>
           <option value="Farmland">Farmland</option>
           <option value="Orchards">Orchards</option>
-        </select>
+        </FieldSelect>
       </FilterSidebarSection>
 
       <FilterSidebarSection
@@ -267,18 +266,17 @@ export function MapFilterSidebar({
         testId="map-filter-section-fumigated"
         title="Fumigadas (6m)"
       >
-        <select
-          aria-label="Filtrar por fumigación reciente (últimos 6 meses)"
-          className="rounded-lg border border-[#cfd8d3] bg-white px-3 py-2 text-sm font-semibold text-[#121815] focus:border-[#0b5f2d] focus:outline-none focus:ring-2 focus:ring-[#0b5f2d]/30"
+        <FieldSelect
           data-testid="map-filter-fumigated"
           id="map-filter-fumigated"
+          label="Fumigación reciente"
           onChange={onChangeFumigated}
           value={currentFumigated}
         >
           <option value="">Todos</option>
           <option value="yes">Con fumigación</option>
           <option value="no">Sin fumigación</option>
-        </select>
+        </FieldSelect>
       </FilterSidebarSection>
     </FilterSidebar>
   );

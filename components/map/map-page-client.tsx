@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { KpiPill } from "@/components/ui/kpi-pill";
 import { MapFilterSidebar } from "@/components/map/map-filter-sidebar";
 import { MapView } from "@/components/map-view";
+import { ParcelsList } from "@/components/map/parcels-list";
 import { TimeRange, type MonthBucket } from "@/components/map/time-range";
 import { getFumigationsSummary, type FumigationsSummary } from "@/api/repositories";
 import type { DjiAlertRecord, DjiDailySummaryRecord, DjiParcelRecord, FlightPointRecord } from "@/lib/types";
@@ -115,6 +116,10 @@ export function MapPageClient({
   );
   const [summaryLoading, setSummaryLoading] = useState(false);
 
+  // v2.0 — estado de la parcela seleccionada. Se pasa al MapView
+  // (que hace flyTo + highlight) y al ParcelsList (que muestra el detalle).
+  const [selectedParcelId, setSelectedParcelId] = useState<number | null>(null);
+
   // Cuando cambia el time range, fetch del summary filtrado.
   // Debounce 200ms para no martillar el endpoint durante el autoplay.
   useEffect(() => {
@@ -209,20 +214,22 @@ export function MapPageClient({
       </div>
 
       {/*
-        Body: contenedor relativo. El mapa es full-bleed, el drawer
-        es overlay absoluto a la derecha cuando está abierto.
+        Body: layout flex-row. El mapa ocupa flex-1 (se ajusta al espacio
+        restante), el rail derecho (ParcelsList) tiene ancho fijo w-84.
+        En mobile el rail pasa abajo del mapa (flex-col).
       */}
-      <div className="relative lg:h-[calc(100vh-220px)]">
-        {/* Mapa — siempre ocupa todo el ancho */}
-        <div className="h-full min-h-[60vh] w-full lg:min-h-0">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-stretch lg:h-[calc(100vh-220px)]">
+        <div className="relative min-h-[60vh] flex-1 lg:min-h-0">
+          {/* Mapa — ocupa todo el ancho disponible del container izquierdo */}
           <MapView
             alerts={alerts}
             flightPoints={flightPoints}
             flights={flights}
             fumigatedParcelIds={fumigatedParcelIds}
+            onSelect={setSelectedParcelId}
             parcels={parcels}
+            selectedParcelId={selectedParcelId}
           />
-        </div>
 
         {/*
           v2.0 (sprint S5) — KPIs overlay pill. Se monta en la esquina
@@ -303,6 +310,25 @@ export function MapPageClient({
             </div>
           </div>
         ) : null}
+        </div>
+
+        {/*
+          v2.0 (sprint S5) — Rail derecho con lista de parcelas.
+          Patrón del V0 (docs/fumigation-management-dashboard/components/geovisor/geovisor-client.tsx):
+          el operador ve cada parcela con su status de cadencia, nombre,
+          área y count de aplicaciones. Click selecciona → MapView
+          hace flyTo + highlight.
+
+          En mobile (lg-) el rail se apila debajo del mapa; en desktop
+          (lg+) es una columna fija a la derecha.
+        */}
+        <div className="lg:w-84 lg:shrink-0 lg:overflow-hidden">
+          <ParcelsList
+            parcels={parcels}
+            selectedId={selectedParcelId}
+            onSelect={setSelectedParcelId}
+          />
+        </div>
       </div>
     </div>
   );
