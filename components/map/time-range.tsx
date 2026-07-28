@@ -3,6 +3,9 @@
 import { Pause, Play, RotateCcw } from "lucide-react";
 import { useEffect } from "react";
 
+import { Button } from "@/components/ui/button";
+import { Slider } from "@/components/ui/slider";
+
 /**
  * TimeRange — slider doble con histograma de actividad y play/pause.
  *
@@ -31,9 +34,9 @@ import { useEffect } from "react";
  *   - `prefers-reduced-motion`: el autoplay respeta el media query
  *     (no se inicia si el user lo prefiere reducir).
  *
- * Decisión de scope: implementación con 2 sliders HTML nativos (no
- * @base-ui Slider) por simplicidad. El slider doble accesible de
- * verdad se puede migrar a @base-ui en un sprint futuro.
+ * Decisión de scope: usa el primitive `<Slider>` de @base-ui/react
+ * (creado en S6.1 por el sprint de primitives). Slider doble
+ * accesible de verdad (doble thumb, navegación con teclado, ARIA).
  */
 
 export interface MonthBucket {
@@ -118,38 +121,32 @@ export function TimeRange({
           </span>
         </div>
         <div className="flex items-center gap-1">
-          <button
-            type="button"
+          <Button
             aria-label={playing ? "Pausar animación temporal" : "Reproducir animación temporal"}
             aria-pressed={playing}
-            className={
-              "flex h-8 w-8 items-center justify-center rounded-md border outline-none transition-colors " +
-              "focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 " +
-              (playing
-                ? "border-primary bg-primary text-primary-foreground"
-                : "border-border bg-card hover:bg-muted")
-            }
             data-testid="time-range-play"
             onClick={() => onPlayingChange(!playing)}
+            size="icon"
+            variant={playing ? "default" : "outline"}
           >
             {playing ? (
-              <Pause className="size-4" aria-hidden />
+              <Pause aria-hidden className="size-4" />
             ) : (
-              <Play className="size-4" aria-hidden />
+              <Play aria-hidden className="size-4" />
             )}
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
             aria-label="Restablecer al histórico completo"
-            className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-card outline-none transition-colors hover:bg-muted focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
             data-testid="time-range-reset"
             onClick={() => {
               onPlayingChange(false);
               onRangeChange([0, max]);
             }}
+            size="icon"
+            variant="outline"
           >
-            <RotateCcw className="size-4" aria-hidden />
-          </button>
+            <RotateCcw aria-hidden className="size-4" />
+          </Button>
         </div>
       </div>
 
@@ -175,43 +172,20 @@ export function TimeRange({
         })}
       </div>
 
-      {/* Slider doble (2 inputs HTML nativos) */}
-      <div className="flex items-center gap-3">
-        <label className="flex flex-1 flex-col gap-1 text-[10px] uppercase tracking-wider text-muted-foreground">
-          Desde
-          <input
-            aria-label="Mes de inicio"
-            className="h-2 w-full cursor-pointer appearance-none rounded-full bg-muted accent-primary outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-            data-testid="time-range-min"
-            max={range[1]}
-            min={0}
-            onChange={(e) => {
-              onPlayingChange(false);
-              const v = Math.min(Number(e.target.value), range[1]);
-              onRangeChange([v, range[1]]);
-            }}
-            type="range"
-            value={range[0]}
-          />
-        </label>
-        <label className="flex flex-1 flex-col gap-1 text-[10px] uppercase tracking-wider text-muted-foreground">
-          Hasta
-          <input
-            aria-label="Mes de fin"
-            className="h-2 w-full cursor-pointer appearance-none rounded-full bg-muted accent-primary outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-            data-testid="time-range-max"
-            max={max}
-            min={range[0]}
-            onChange={(e) => {
-              onPlayingChange(false);
-              const v = Math.max(Number(e.target.value), range[0]);
-              onRangeChange([range[0], v]);
-            }}
-            type="range"
-            value={range[1]}
-          />
-        </label>
-      </div>
+      {/* Slider doble (Slider primitive, @base-ui/react) */}
+      <Slider
+        aria-label="Rango de meses"
+        data-testid="time-range-slider"
+        max={max}
+        min={0}
+        onValueChange={(v) => {
+          onPlayingChange(false);
+          const arr = Array.isArray(v) ? v : [v, v];
+          onRangeChange([arr[0], arr[1] ?? arr[0]] as [number, number]);
+        }}
+        step={1}
+        value={range}
+      />
     </div>
   );
 }

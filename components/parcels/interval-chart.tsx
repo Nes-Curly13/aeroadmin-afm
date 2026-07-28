@@ -67,6 +67,7 @@ const PLOT_H = VIEWBOX_H - MARGIN_TOP - MARGIN_BOTTOM;
 const COLOR_GREEN = "#0b5f2d"; // en ventana
 const COLOR_YELLOW = "#d4b23c"; // atraso leve
 const COLOR_RED = "#a93232"; // atraso severo
+const COLOR_THRESHOLD = "#587064"; // línea de cadencia (gris-verdoso, distinto del verde "en ventana")
 
 /**
  * Mapea un gap a un color según la regla de 3 niveles (spec del PO).
@@ -150,10 +151,12 @@ export function IntervalChart({ points, cadenceDays }: IntervalChartProps) {
           y2={VIEWBOX_H - MARGIN_BOTTOM}
         />
 
-        {/* Línea horizontal de cadencia (umbral) */}
+        {/* Línea horizontal de cadencia (umbral). Color distinto del
+            verde "en ventana" para que se distinga visualmente de las
+            barras (V0 usa chart-2, equivalente a este gris-verdoso). */}
         <line
           data-testid="interval-chart-threshold"
-          stroke={COLOR_GREEN}
+          stroke={COLOR_THRESHOLD}
           strokeDasharray="4 4"
           strokeWidth={1.5}
           x1={0}
@@ -161,13 +164,23 @@ export function IntervalChart({ points, cadenceDays }: IntervalChartProps) {
           y1={cadenceY}
           y2={cadenceY}
         />
+        {/* Chip de fondo para el label (efecto "badge" sobre la línea). */}
+        <rect
+          fill="var(--card)"
+          fillOpacity={0.9}
+          height={14}
+          rx={2}
+          x={VIEWBOX_W - 88}
+          y={cadenceY - 13}
+        />
         <text
-          fill={COLOR_GREEN}
+          fill={COLOR_THRESHOLD}
           fontFamily="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
-          fontSize={11}
+          fontSize={10}
+          fontWeight={500}
           textAnchor="end"
           x={VIEWBOX_W - 4}
-          y={cadenceY - 4}
+          y={cadenceY - 3}
         >
           {`cadencia ${cadenceDays} d`}
         </text>
