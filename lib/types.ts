@@ -345,3 +345,178 @@ export interface OverdueParcel {
   /** Precomputado: area_fumigable_m2 / 10000. null si m2 es null. */
   area_fumigable_ha: number | null;
 }
+
+// ---------------------------------------------------------------------------
+// V0 types — port del mockup docs/fumigation-management-dashboard.
+// El adapter en `lib/data.ts` (V0) traduce los rows del proyecto a estos
+// shapes para que los componentes del V0 (dashboard, geovisor, parcelas)
+// funcionen sin cambios.
+// ---------------------------------------------------------------------------
+
+export type DroneModelId = 0 | 72 | 201 | 210;
+
+export interface DjiDroneModel {
+  id: DroneModelId;
+  name: string;
+  /** litros de tanque nominal */
+  tank_l: number;
+  color: string;
+}
+
+export type FumigationSource = "manual" | "import" | "djiscraper";
+
+/** dji_parcels — 1 fila por campo, columnas planas + geometría (V0 shape). */
+export interface DjiParcel {
+  id: string;
+  dji_land_id: string;
+  name: string;
+  farm_name: string;
+  client_name: string;
+  municipality: string;
+  area_ha: number;
+  variety: string;
+  drone_model_id: DroneModelId;
+  centroid_lng: number;
+  centroid_lat: number;
+  /** geometry(Polygon, 4326) serializada como GeoJSON */
+  geom: { type: "Polygon"; coordinates: [number, number][][] };
+  created_at: string;
+  is_active: boolean;
+}
+
+/** dji_fumigation_schedule — cadencia esperada (1:1 con dji_parcels). */
+export interface DjiFumigationScheduleV0 {
+  parcel_id: string;
+  cadence_days: number;
+  product: string;
+  dose_l_ha: number;
+  window_start_hour: number;
+  window_end_hour: number;
+  updated_at: string;
+}
+
+/** dji_fumigations — eventos realizados por parcela (V0 shape). */
+export interface DjiFumigationV0 {
+  id: string;
+  parcel_id: string;
+  executed_at: string;
+  source: FumigationSource;
+  area_treated_ha: number;
+  product: string;
+  volume_l: number;
+  operator: string;
+  flights_count: number;
+  notes: string | null;
+}
+
+/** Alias del V0 (los components V0 importan `DjiFumigation`). */
+export type DjiFumigation = DjiFumigationV0;
+
+/** dji_flights — sortie individual de dron (V0 shape). */
+export interface DjiFlightV0 {
+  id: string;
+  fumigation_id: string;
+  parcel_id: string;
+  drone_model_id: DroneModelId;
+  drone_sn: string;
+  pilot: string;
+  started_at: string;
+  duration_min: number;
+  area_ha: number;
+  volume_l: number;
+  lng: number;
+  lat: number;
+  battery_cycles: number;
+}
+
+/** Alias del V0 (los components V0 importan `DjiFlight`). */
+export type DjiFlight = DjiFlightV0;
+
+/** dji_fumigation_schedule_history — historial de cambios de cadencia. */
+export interface DjiScheduleHistory {
+  id: string;
+  parcel_id: string;
+  changed_at: string;
+  old_cadence_days: number | null;
+  new_cadence_days: number;
+  changed_by: string;
+  reason: string;
+}
+
+/** dji_import_batches — auditoría de scraping. */
+export interface DjiImportBatch {
+  id: string;
+  started_at: string;
+  finished_at: string;
+  status: "ok" | "partial" | "error";
+  parcels_upserted: number;
+  flights_upserted: number;
+  fumigations_upserted: number;
+  message: string | null;
+}
+
+/** djiag_health — singleton con health del último pipeline run. */
+export interface DjiAgHealth {
+  last_run_at: string;
+  next_run_at: string;
+  status: "ok" | "partial" | "error";
+  duration_ms: number;
+  parcels_synced: number;
+  flights_synced: number;
+  api_latency_ms: number;
+  token_expires_at: string;
+  consecutive_failures: number;
+}
+
+/** Estado de cumplimiento derivado de schedule + última fumigación */
+export type ComplianceStatus = "al_dia" | "por_vencer" | "vencido" | "critico";
+
+export interface ParcelSummary {
+  parcel: DjiParcel;
+  schedule: DjiFumigationScheduleV0;
+  last_fumigation_at: string | null;
+  next_due_at: string | null;
+  days_since_last: number | null;
+  days_to_due: number | null;
+  status: ComplianceStatus;
+  fumigations_count: number;
+  flights_count: number;
+  total_area_treated_ha: number;
+  total_volume_l: number;
+  avg_interval_days: number | null;
+}
+
+/** Payload compacto que `app/geovisor/page.tsx` envía al client component. */
+export interface GeovisorPayload {
+  parcels: {
+    id: string;
+    name: string;
+    farm_name: string;
+    client_name: string;
+    municipality: string;
+    variety: string;
+    area_ha: number;
+    drone_model_id: DroneModelId;
+    centroid_lng: number;
+    centroid_lat: number;
+    geom: DjiParcel["geom"];
+    status: ComplianceStatus;
+    last_fumigation_at: string | null;
+    next_due_at: string | null;
+    cadence_days: number;
+    fumigations_count: number;
+  }[];
+  events: {
+    id: string;
+    parcel_id: string;
+    executed_at: string;
+    source: FumigationSource;
+    area_treated_ha: number;
+    volume_l: number;
+    flights_count: number;
+    product: string;
+    operator: string;
+    lng: number;
+    lat: number;
+  }[];
+}
