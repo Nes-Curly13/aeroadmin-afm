@@ -58,10 +58,12 @@ function parseIsOrchard(value: string | undefined): boolean | undefined {
 }
 
 export default async function OverduePage({ searchParams }: PageProps) {
-  const severityFilter = parseSeverityFilter(getSingleParam(searchParams.severity));
-  const cropType = getSingleParam(searchParams.cropType);
-  const isOrchard = parseIsOrchard(getSingleParam(searchParams.isOrchard));
-  const maxDaysAhead = parseMaxDaysAhead(getSingleParam(searchParams.maxDaysAhead));
+  // v2.2.2 (S7.2 hotfix): Next.js 16 — `searchParams` es Promise.
+  const params = await searchParams;
+  const severityFilter = parseSeverityFilter(getSingleParam(params.severity));
+  const cropType = getSingleParam(params.cropType);
+  const isOrchard = parseIsOrchard(getSingleParam(params.isOrchard));
+  const maxDaysAhead = parseMaxDaysAhead(getSingleParam(params.maxDaysAhead));
 
   const allParcels: OverdueParcel[] = await getOverdueParcels({
     maxDaysAhead,

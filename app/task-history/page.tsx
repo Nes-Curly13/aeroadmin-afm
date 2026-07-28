@@ -449,20 +449,22 @@ function computeTotalsLocal(days: DayCardData[]): TaskHistoryTotals {
 }
 
 export default async function TaskHistoryPage({ searchParams }: PageProps) {
-  const from = toIsoDate(searchParams.from, daysAgoIso(DEFAULT_WINDOW_DAYS));
-  const to = toIsoDate(searchParams.to, todayIso());
-  const parcelIdRaw = Array.isArray(searchParams.parcelId)
-    ? searchParams.parcelId[0]
-    : searchParams.parcelId;
+  // v2.2.2 (S7.2 hotfix): Next.js 16 — `searchParams` es Promise.
+  const params = await searchParams;
+  const from = toIsoDate(params.from, daysAgoIso(DEFAULT_WINDOW_DAYS));
+  const to = toIsoDate(params.to, todayIso());
+  const parcelIdRaw = Array.isArray(params.parcelId)
+    ? params.parcelId[0]
+    : params.parcelId;
   const parcelId =
     parcelIdRaw && /^\d+$/.test(parcelIdRaw) ? Number(parcelIdRaw) : undefined;
   const droneSerial = (
-    Array.isArray(searchParams.droneSerial)
-      ? searchParams.droneSerial[0]
-      : searchParams.droneSerial
+    Array.isArray(params.droneSerial)
+      ? params.droneSerial[0]
+      : params.droneSerial
   )?.trim() || undefined;
   const pilot = (
-    Array.isArray(searchParams.pilot) ? searchParams.pilot[0] : searchParams.pilot
+    Array.isArray(params.pilot) ? params.pilot[0] : params.pilot
   )?.trim() || undefined;
 
   // Enriquecer: rollup + sub-lista en una sola pasada server-side.

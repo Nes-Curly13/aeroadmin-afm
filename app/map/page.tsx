@@ -80,9 +80,13 @@ function applyFumigatedFilter(
 }
 
 export default async function MapPage({ searchParams }: PageProps) {
-  const droneCode = parseDroneParam(searchParams.drone);
-  const crop = parseCropParam(searchParams.crop);
-  const fumigated = parseFumigatedParam(searchParams.fumigated);
+  // v2.2.2 (S7.2 hotfix): Next.js 16 cambió `searchParams` a Promise
+  // (era sync en versiones anteriores). Hay que unwrap con await
+  // antes de acceder a las propiedades.
+  const params = await searchParams;
+  const droneCode = parseDroneParam(params.drone);
+  const crop = parseCropParam(params.crop);
+  const fumigated = parseFumigatedParam(params.fumigated);
 
   const sixMonthsAgo = toDateString(new Date(Date.now() - 1000 * 60 * 60 * 24 * 30 * 6)) ?? "1970-01-01";
 

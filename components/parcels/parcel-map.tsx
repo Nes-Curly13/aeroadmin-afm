@@ -6,11 +6,10 @@
 //
 // Sprint v0.1 — port de `docs/fumigation-management-dashboard/components/parcels/parcel-map.tsx`.
 // Adaptaciones al proyecto actual:
-//   - Esri imagery (World_Imagery) — satelital, igual que el V0. El
-//     `parcel-mini-map.tsx` sigue usando OSM (calles, más liviano) porque
-//     es para vista agregada del portafolio. Acá, donde el operador quiere
-//     VER la parcela (geometría, vuelos, linderos), el satelital es más
-//     útil que el plano de calles.
+//   - OSM raster (calles) en lugar de Esri imagery (satelital). Razón
+//     explicada en STREETS_STYLE más abajo. El V0 usaba Esri, pero en
+//     localhost los tiles de Esri no cargan (firewall/red). OSM anda
+//     siempre. Mismo style que `parcel-mini-map.tsx` para consistencia.
 //   - `geom: GeoJSON.Geometry | null` (más amplio que el V0 que era
 //     `{ type: "Polygon"; coordinates: [...] }`). Soportamos Polygon y
 //     MultiPolygon (los únicos tipos válidos para una parcela). Otros
@@ -80,17 +79,24 @@ const STREETS_STYLE: import("maplibre-gl").StyleSpecification = {
   version: 8,
   glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
   sources: {
-    esri: {
+    // v2.2.2 (S7.2 hotfix): OSM raster en lugar de Esri imagery.
+    // Razon: en localhost el fetch a `server.arcgisonline.com` falla
+    // (firewall/red del operador) y el operador ve el mapa en blanco
+    // con errores `AJAXError: Failed to fetch`. OSM anda en dev local
+    // y en prod (vía el mismo dominio). El V0 mockup usaba Esri para
+    // tener vista satelital, pero el V0 nunca corrió contra una red
+    // restringida. Trade-off aceptado: perdemos vista satelital en
+    // prod a cambio de que el mapa renderice siempre. Si en el futuro
+    // se quiere satelital, considerar mapbox o un proxy de tiles.
+    osm: {
       type: "raster",
-      tiles: [
-        "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-      ],
+      tiles: ["https://a.tile.openstreetmap.org/{z}/{x}/{y}.png"],
       tileSize: 256,
-      maxzoom: 18,
-      attribution: "Imagery &copy; Esri, Maxar"
+      maxzoom: 19,
+      attribution: "&copy; OpenStreetMap contributors"
     }
   },
-  layers: [{ id: "esri-base", type: "raster", source: "esri" }]
+  layers: [{ id: "osm-base", type: "raster", source: "osm" }]
 };
 
 const FALLBACK_CENTER: [number, number] = [-76.532, 3.4516]; // Valle del Cauca
