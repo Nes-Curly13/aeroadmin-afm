@@ -5,14 +5,32 @@ import dynamic from "next/dynamic";
 import { MapLegend } from "@/components/map/map-legend";
 import type { DjiAlertRecord, DjiDailySummaryRecord, DjiParcelRecord, FlightPointRecord } from "@/lib/types";
 
-const MapClient = dynamic(() => import("@/components/map-client").then((module) => module.MapClient), {
-  ssr: false,
-  loading: () => (
-    <div className="flex h-full min-h-[60vh] items-center justify-center rounded-2xl bg-[#f4f7f4] text-sm font-semibold uppercase tracking-[0.2em] text-[#587064]">
-      Cargando mapa
-    </div>
-  )
-});
+/**
+ * v2.0 (2026-07-28) — migración Leaflet → MapLibre.
+ *
+ * El wrapper dinámico de `MapClient` (Leaflet) se reemplaza por
+ * `MapLibreView` (MapLibre GL JS). El contrato de props se mantiene
+ * 1:1 para no tocar los callers (`app/map/page.tsx`,
+ * `app/map/map-page-client.tsx`).
+ *
+ * Próximos pasos del sprint (no en este commit):
+ *   - Eliminar `components/map-client.tsx` y `react-leaflet`/`leaflet` deps.
+ *   - Migrar `components/parcels/parcel-mini-map.tsx` a MapLibre.
+ *   - Reemplazar Leaflet `<LayersControl>` por panel de toggles propio
+ *     en `MapPageClient` (los props `showParcels`, `showWaypoints`, etc.
+ *     ya están en `MapLibreView`).
+ */
+const MapLibreView = dynamic(
+  () => import("@/components/map/maplibre-view").then((m) => m.MapLibreView),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-full min-h-[60vh] items-center justify-center rounded-2xl bg-[#f4f7f4] text-sm font-semibold uppercase tracking-[0.2em] text-[#587064]">
+        Cargando mapa
+      </div>
+    )
+  }
+);
 
 export interface MapViewProps {
   // (S2 / 2026-07-01) Solo DjiParcelRecord. El legacy DjiAssetRecord (3-rows-per-field)
@@ -21,7 +39,7 @@ export interface MapViewProps {
   parcels: DjiParcelRecord[];
   flights: DjiDailySummaryRecord[];
   alerts: DjiAlertRecord[];
-  // M6: footprints minimos de sorties. Plot se hace en MapClient.
+  // M6: footprints minimos de sorties. Plot se hace en MapLibreView.
   flightPoints?: FlightPointRecord[];
   // M3-M5 Track A: Set<number> de parcel_ids fumigados en los últimos 6m.
   // Si undefined o vacío, todas se ven como fumigadas (backwards compat).
@@ -30,29 +48,18 @@ export interface MapViewProps {
   // esquina superior derecha del mapa. Usado por app/map/page.tsx para
   // montar el botón "Filtros" cuando el sidebar está colapsado.
   topRightSlot?: React.ReactNode;
+  // v2.0 — parcel seleccionada (opcional). MapLibreView hace fly-to + highlight.
+  selectedParcelId?: number | null;
+  onSelect?: (id: number | null) => void;
 }
 
 /**
- * MapView — wrapper client-side del Leaflet MapContainer.
+ * MapView — wrapper client-side del MapLibre GL JS map.
  *
- * v1.8 (2026-07-27) — **simplificación de layout** según mockup del
- * operador:
- *   - Antes (v1.7): el componente renderizaba un panel permanente a la
- *     derecha con buscador, datos del dron, parámetros de aspersión,
- *     toggles de capa y link al detalle. Ocupaba ~384px de ancho
- *     constante y ensuciaba el viewport.
- *   - Ahora (v1.8): la pieza es **solo el mapa + leyenda abajo-izquierda**.
- *     El detalle de la parcela se ve en el popup de Leaflet al hacer
- *     click en el polígono (con un link "Ver detalle completo →" al
- *     `/parcels/[id]`). Los toggles de capa viven en el `<LayersControl>`
- *     nativo de Leaflet (esquina superior derecha).
- *   - El page (`app/map/page.tsx`) monta ahora el `topRightSlot` con
- *     el botón "Filtros" y el chip "X Parcelas", que aparecen sobre
- *     el mapa como overlay absoluto (en vez de vivir en una sidebar).
- *
- * El estado de layers y la parcela seleccionada se removieron — ya no
- * hay panel que los muestre. La "selección" ahora es implícita via
- * el popup que Leaflet abre al click.
+ * v2.0 (2026-07-28) — swap Leaflet → MapLibre. Layout y UX intactos:
+ *   - Mapa + leyenda abajo-izquierda.
+ *   - topRightSlot para filtros/chips del page header.
+ *   - Click en polígono → popup con detalle + onSelect (v2.0 nuevo).
  */
 export function MapView({
   parcels,
@@ -60,17 +67,21 @@ export function MapView({
   alerts,
   flightPoints,
   fumigatedParcelIds,
-  topRightSlot
+  topRightSlot,
+  selectedParcelId,
+  onSelect
 }: MapViewProps) {
   return (
     <div className="relative h-full w-full overflow-hidden rounded-2xl border border-[#d2ddd6] bg-white shadow-[0px_18px_40px_rgba(15,23,42,0.08)]">
       <div className="absolute inset-0">
-        <MapClient
+        <MapLibreView
           alerts={alerts}
           flightPoints={flightPoints}
           flights={flights}
           fumigatedParcelIds={fumigatedParcelIds}
+          onSelect={onSelect}
           parcels={parcels}
+          selectedParcelId={selectedParcelId}
         />
       </div>
 
