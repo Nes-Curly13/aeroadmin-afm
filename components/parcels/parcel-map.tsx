@@ -6,8 +6,11 @@
 //
 // Sprint v0.1 — port de `docs/fumigation-management-dashboard/components/parcels/parcel-map.tsx`.
 // Adaptaciones al proyecto actual:
-//   - Street style (OSM raster tiles) en lugar de Esri imagery. Mismo
-//     style que `components/parcels/parcel-mini-map.tsx` para consistencia.
+//   - Esri imagery (World_Imagery) — satelital, igual que el V0. El
+//     `parcel-mini-map.tsx` sigue usando OSM (calles, más liviano) porque
+//     es para vista agregada del portafolio. Acá, donde el operador quiere
+//     VER la parcela (geometría, vuelos, linderos), el satelital es más
+//     útil que el plano de calles.
 //   - `geom: GeoJSON.Geometry | null` (más amplio que el V0 que era
 //     `{ type: "Polygon"; coordinates: [...] }`). Soportamos Polygon y
 //     MultiPolygon (los únicos tipos válidos para una parcela). Otros
@@ -77,15 +80,17 @@ const STREETS_STYLE: import("maplibre-gl").StyleSpecification = {
   version: 8,
   glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
   sources: {
-    osm: {
+    esri: {
       type: "raster",
-      tiles: ["https://a.tile.openstreetmap.org/{z}/{x}/{y}.png"],
+      tiles: [
+        "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+      ],
       tileSize: 256,
-      maxzoom: 19,
-      attribution: "&copy; OpenStreetMap contributors"
+      maxzoom: 18,
+      attribution: "Imagery &copy; Esri, Maxar"
     }
   },
-  layers: [{ id: "osm-base", type: "raster", source: "osm" }]
+  layers: [{ id: "esri-base", type: "raster", source: "esri" }]
 };
 
 const FALLBACK_CENTER: [number, number] = [-76.532, 3.4516]; // Valle del Cauca
@@ -225,6 +230,7 @@ function ParcelMapInner({ geom, color, flights }: ParcelMapProps) {
         // posicionó el mapa, este fitBounds es esencialmente un no-op
         // (idénticos bounds), así que es idempotente.
         mapOptions.bounds = bounds;
+        mapOptions.fitBoundsOptions = { padding: 34 };
       } else {
         mapOptions.center = FALLBACK_CENTER;
         mapOptions.zoom = FALLBACK_ZOOM;

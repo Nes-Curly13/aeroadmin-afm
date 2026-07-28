@@ -93,7 +93,7 @@ export function MonthlyChart({ data }: MonthlyChartProps) {
       <CardHeader>
         <CardTitle>Hectáreas tratadas por mes</CardTitle>
         <CardDescription>
-          {`Últimos ${data.length} meses · barra = ha aplicadas, marcador = vuelos ejecutados`}
+          {`Últimos ${data.length} meses · barra = ha aplicadas, línea = vuelos ejecutados`}
         </CardDescription>
       </CardHeader>
       <CardContent>

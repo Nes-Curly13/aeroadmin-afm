@@ -37,6 +37,7 @@
 
 import { Droplets, Plane, User } from "lucide-react";
 
+import { Badge } from "@/components/ui/badge";
 import { daysBetween, isProvenanceNotes, m2ToHa, toDateString } from "@/lib/format";
 import type { DjiFumigationEvent } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -194,9 +195,9 @@ export function FumigationTimeline({ fumigations, flights, cadenceDays }: Fumiga
                     ) : null}
                   </span>
                 ) : null}
-                <span
+                <Badge
                   className={cn(
-                    "rounded-full border px-2 py-0.5 text-[10px] font-medium",
+                    "rounded-full px-2 py-0.5 text-[10px] font-medium",
                     SOURCE_STYLE[fumigation.source] ?? "border-border bg-muted text-muted-foreground"
                   )}
                   data-testid={`fumigation-timeline-source-${fumigation.id}`}
@@ -207,9 +208,10 @@ export function FumigationTimeline({ fumigations, flights, cadenceDays }: Fumiga
                         ? "Capturada automáticamente del scraper DJI"
                         : "Generada por el backfill desde flights"
                   }
+                  variant="outline"
                 >
                   {SOURCE_LABEL[fumigation.source] ?? fumigation.source}
-                </span>
+                </Badge>
                 {windowChip ? (
                   <span
                     className={cn(

@@ -196,7 +196,10 @@ describe("<CompliancePanel />", () => {
       })
     ];
     render(<CompliancePanel summaries={summaries} />);
-    expect(screen.getByText("ext-99")).toBeInTheDocument();
+    // El label ahora incluye "land_name · area_ha" en una sola línea.
+    // Buscamos por texto parcial para que el test no rompa si cambia
+    // el formato (ej: "ext-99 · 5.30 ha" o "ext-99").
+    expect(screen.getByText(/ext-99/)).toBeInTheDocument();
   });
 
   it("oculta 'X.X ha ·' si area_fumigable_ha es null", () => {

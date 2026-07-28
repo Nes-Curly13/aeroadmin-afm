@@ -53,6 +53,7 @@ import { useMemo, useState } from "react";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { FieldSelect } from "@/components/ui/field-select";
+import { Input } from "@/components/ui/input";
 import { statusLabel, type FumigationStatus } from "@/lib/fumigation-cadence";
 import { formatArea, formatDate, toDateString } from "@/lib/format";
 import type { DjiFumigationSchedule, DjiParcelRecord } from "@/lib/types";
@@ -231,13 +232,13 @@ export function ParcelsTable({ summaries }: ParcelsTableProps) {
             className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
             aria-hidden
           />
-          <input
+          <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Buscar parcela, hacienda, municipio o variedad…"
             aria-label="Buscar parcela"
             data-testid="parcels-table-search"
-            className="h-9 w-full rounded-md border border-input bg-card pl-8 pr-3 text-sm text-foreground outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
+            className="pl-8"
           />
         </div>
         <FieldSelect

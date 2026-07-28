@@ -244,11 +244,13 @@ export function CompliancePanel({ summaries }: CompliancePanelProps) {
                         style={{ backgroundColor: CADENCE_STATUS_META[cadStatus].color }}
                       />
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-semibold">{parcelLabel}</span>
-                        <span className="block text-[11px] text-muted-foreground">
+                        <span className="block truncate text-sm font-semibold">
+                          {parcelLabel}
                           {s.area_fumigable_ha !== null
-                            ? `${fmtDec(s.area_fumigable_ha)} ha · `
+                            ? ` · ${fmtDec(s.area_fumigable_ha)} ha`
                             : ""}
+                        </span>
+                        <span className="block text-[11px] text-muted-foreground">
                           cadencia {s.recommended_cadence_days} d
                           {s.last_fumigation_date
                             ? ` · última aplicación ${fmtRelative(s.last_fumigation_date)}`

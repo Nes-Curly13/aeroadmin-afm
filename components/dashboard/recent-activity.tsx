@@ -230,7 +230,8 @@ export function RecentActivity({ fumigations, parcelById }: RecentActivityProps)
             Sin fumigaciones registradas todavía.
           </p>
         ) : (
-          <Table>
+          <div className="overflow-x-auto">
+            <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Fecha</TableHead>
@@ -243,7 +244,9 @@ export function RecentActivity({ fumigations, parcelById }: RecentActivityProps)
               </TableRow>
             </TableHeader>
             <TableBody data-testid="recent-activity-list">
-              {items.map((f) => (
+              {items.map((f) => {
+                const parcel = parcelById.get(f.parcelId);
+                return (
                 <TableRow data-fumigation-id={f.id} data-testid={`recent-activity-item-${f.id}`} key={f.id}>
                   <TableCell
                     className="whitespace-nowrap font-mono text-xs"
@@ -259,6 +262,11 @@ export function RecentActivity({ fumigations, parcelById }: RecentActivityProps)
                     >
                       {f.parcelLabel}
                     </Link>
+                    {parcel?.location_label ? (
+                      <span className="block text-[11px] text-muted-foreground">
+                        {parcel.location_label}
+                      </span>
+                    ) : null}
                   </TableCell>
                   <TableCell
                     className="max-w-56 truncate text-xs"
@@ -278,7 +286,7 @@ export function RecentActivity({ fumigations, parcelById }: RecentActivityProps)
                   >
                     {f.volumeL === null ? "—" : fmtLiters(f.volumeL)}
                   </TableCell>
-                  <TableCell className="text-right font-mono text-xs">
+                  <TableCell className="whitespace-nowrap text-right font-mono text-xs tabular-nums">
                     {f.flightsCount}
                   </TableCell>
                   <TableCell data-testid={`recent-activity-source-${f.id}`}>
@@ -290,9 +298,11 @@ export function RecentActivity({ fumigations, parcelById }: RecentActivityProps)
                     </Badge>
                   </TableCell>
                 </TableRow>
-              ))}
+                );
+              })}
             </TableBody>
-          </Table>
+            </Table>
+          </div>
         )}
       </CardContent>
     </Card>
