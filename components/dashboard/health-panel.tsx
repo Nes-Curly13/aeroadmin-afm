@@ -1,51 +1,64 @@
 // components/dashboard/health-panel.tsx
 //
-// Sprint S6 (V0 port) — Panel de salud del pipeline DJI AG.
-// Adaptado del mockup V0 (docs/fumigation-management-dashboard/components/
-// dashboard/health-panel.tsx) al proyecto real.
+// Sprint S6 (V0 port v2) — Panel de salud del pipeline DJI AG.
+// Port 1:1 del mockup V0 (`docs/fumigation-management-dashboard/components/
+// dashboard/health-panel.tsx`) al proyecto real, con adaptación del shape
+// de datos.
 //
 // Decisiones de adaptación:
 //
-//   1. TIPO DE HEALTH:
-//      V0 usaba `DjiAgHealth` (status: ok | partial | error, duration_ms,
-//      parcels_synced, flights_synced, api_latency_ms, next_run_at,
-//      token_expires_at, consecutive_failures, last_run_at, ...).
-//      El proyecto real expone `HealthResponse` (lib/djiag-health.ts) con
-//      5 estados (ok | partial | stale | unknown | failed) y un set de
-//      campos distinto: hoursSinceLastSync, flightsLastSync,
-//      fumigationsLastSync, landsLastSync, warnings, steps, etc.
-//      Por eso `health: HealthResponse`.
+//   1. SHAPE DE HEALTH — el V0 usaba `DjiAgHealth` (status: "ok"|"partial"|
+//      "error", duration_ms, parcels_synced, flights_synced, api_latency_ms,
+//      next_run_at, token_expires_at, consecutive_failures, last_run_at).
+//      El proyecto expone `HealthResponse` (5 estados: "ok"|"partial"|
+//      "stale"|"unknown"|"failed") con un set de campos distinto:
+//      lastRunAt, lastRunStatus, flightsLastSync, fumigationsLastSync,
+//      landsLastSync, hoursSinceLastSync, warnings, steps. Por eso
+//      `health: HealthResponse`.
 //
-//   2. TIPO DE BATCHES:
-//      V0 usaba `DjiImportBatch[]` con id, status, started_at,
-//      parcels_upserted, flights_upserted, fumigations_upserted, message.
-//      El proyecto NO expone una tabla "import batches" — lo más cercano
-//      es `HealthResponse.steps: StepHealth[]` (cada step es una fase del
-//      pipeline: flights, fumigations, lands). Por eso:
-//        `batches?: StepHealth[]` (opcional, default = `health.steps`).
-//      El componente renderiza los campos disponibles: name, status,
-//      durationMs, error. Si en el futuro se agrega una tabla real
-//      `dji_import_batches`, solo cambia el tipo del prop.
+//      Campos no disponibles que el V0 mostraba (api_latency_ms,
+//      next_run_at, token_expires_at, consecutive_failures) se omiten del
+//      grid de metrics. En su lugar usamos los 4 campos que sí tenemos.
 //
-//   3. CAMPOS NO DISPONIBLES:
-//      - `duration_ms` del run total → no se muestra. En su lugar,
-//        mostramos "Última sync hace X" (hoursSinceLastSync).
-//      - `api_latency_ms`, `next_run_at`, `token_expires_at`,
-//        `consecutive_failures` → no se exponen en HealthResponse.
-//        Los omitimos del grid de 6 metrics. El grid queda con 4 metrics
-//        derivados de los datos que sí tenemos.
+//   2. SHAPE DE BATCHES — el V0 usaba `DjiImportBatch[]` con id, status,
+//      started_at, parcels_upserted, flights_upserted, fumigations_upserted,
+//      message. El proyecto no tiene una tabla `dji_import_batches`;
+//      usa `StepHealth[]` (cada step es una fase del pipeline). El
+//      prop se llama `batches?: StepHealth[]` (default = `health.steps`).
+//      Esto preserva el shape del V0 (lista de runs) sin requerir una
+//      tabla nueva.
 //
-//   4. BANNER ROJO si status !== "ok":
-//      V0 pintaba rojo si status !== "ok". En nuestro caso, "stale" no es
-//      un fallo del pipeline sino solo "el último run exitoso fue hace
-//      mucho". Mantenemos el banner rojo solo para los estados realmente
-//      críticos: `partial`, `failed`. `stale` se renderiza con amarillo
-//      (warning). `unknown` se renderiza con gris (neutro).
+//   3. CARD / BADGE — el V0 usa `<Card>`, `<CardHeader>`, etc. + `<Badge>`.
+//      Card existe en el proyecto. Badge AÚN NO EXISTE — usamos un span
+//      con las clases equivalentes al Badge "outline" del V0, y un TODO
+//      para que el agente de primitives lo reemplace por `<Badge
+//      variant="outline">` cuando esté listo.
 //
-//   5. CARD / BADGE / TABLE: no usados — solo divs + Tailwind.
+//   4. BANNER ROJO si status !== "ok" — el V0 pintaba rojo si status no
+//      era "ok". En nuestro caso, "stale" no es un fallo del pipeline
+//      sino solo "el último run exitoso fue hace mucho". Mantenemos
+//      el banner rojo solo para `partial` y `failed` (críticos). `stale`
+//      se renderiza con amarillo (warning). `unknown` se renderiza con
+//      gris (neutro). Es la misma lógica que la versión previa.
+//
+//   5. HELPERS — el V0 importa `fmtDateTime`, `fmtInt`, `fmtRelative`
+//      desde `@/lib/format`. El proyecto tiene `formatAgo`, `formatNumber`
+//      pero no `fmtDateTime`, `fmtInt`, ni `fmtRelative` (excepto el que
+//      definimos en `recent-activity.tsx`). Definimos los helpers
+//      faltantes localmente. Si en el futuro se usan en otros lados, se
+//      promueven a `lib/format.ts`.
+//
+// Accesibilidad:
+//   - `data-slot="health-panel"` para identificación externa.
+//   - `data-tone` en el banner para que el caller pueda aplicar styling
+//     compuesto (e.g. según el tono, ocultar el flights badge).
+//   - Banner tiene `aria-label` con el estado textual para screen
+//     readers (los iconos son decorativos).
 
 import { Activity, CircleAlert, CircleCheck, CircleX, type LucideIcon } from "lucide-react";
 
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { formatAgo, formatNumber } from "@/lib/format";
 import {
   type HealthResponse,
@@ -56,11 +69,14 @@ import {
 /**
  * Mapping de HealthStatus → icono + label + tono visual.
  *
- * "stale" y "partial" comparten icono CircleAlert (alerta) pero diferente
- * clase CSS (warning vs destructive). "unknown" usa CircleAlert también
- * (no es un error, es falta de info) pero en muted.
- *
- * "ok" usa CircleCheck (verde). "failed" usa CircleX (rojo).
+ * Tonos:
+ *   - "ok"       → verde (CircleCheck).
+ *   - "partial"  → amarillo (CircleAlert). El último run tuvo steps
+ *                  fallidos pero no es un fallo total.
+ *   - "stale"    → amarillo (CircleAlert). El último run fue ok pero
+ *                  hace >24h. No es un fallo, es un atraso.
+ *   - "failed"   → rojo (CircleX). El último run falló.
+ *   - "unknown"  → gris (CircleAlert). No hay info disponible.
  */
 const STATUS_UI: Record<
   HealthStatus,
@@ -73,20 +89,6 @@ const STATUS_UI: Record<
   unknown: { icon: CircleAlert, label: "Sin datos", className: "text-muted-foreground", tone: "unknown" }
 };
 
-export interface HealthPanelProps {
-  /** Estado del pipeline DJI (cargado vía loadSyncHealth() en el page). */
-  health: HealthResponse;
-  /**
-   * Lotes / steps recientes del pipeline. Si se omite, usa
-   * `health.steps` (default).
-   *
-   * En el proyecto no hay tabla `dji_import_batches`; usamos
-   * `StepHealth[]` como equivalente: cada step es una fase del
-   * pipeline (flights, fumigations, lands).
-   */
-  batches?: StepHealth[];
-}
-
 const TONE_BANNER: Record<"ok" | "warn" | "danger" | "unknown", { bg: string; border: string; text: string }> = {
   ok: { bg: "bg-[#e9f5ed]", border: "border-[#0b5f2d]/20", text: "text-[#0b5f2d]" },
   warn: { bg: "bg-[#fff7e0]", border: "border-[#d4b23c]/40", text: "text-[#7a5f0d]" },
@@ -94,25 +96,59 @@ const TONE_BANNER: Record<"ok" | "warn" | "danger" | "unknown", { bg: string; bo
   unknown: { bg: "bg-[#f4f7f4]", border: "border-[#cfd8d3]", text: "text-[#4a5b50]" }
 };
 
+export interface HealthPanelProps {
+  /** Estado del pipeline DJI (cargado vía `loadSyncHealth()` en el page). */
+  health: HealthResponse;
+  /**
+   * Lotes / steps recientes del pipeline. Si se omite, usa
+   * `health.steps` (default).
+   *
+   * El proyecto no tiene una tabla `dji_import_batches`; usa los
+   * `StepHealth[]` del pipeline (flights, fumigations, lands) como
+   * equivalente.
+   */
+  batches?: StepHealth[];
+}
+
+// ---------------------------------------------------------------------------
+// Helpers locales (espejo del V0 `lib/format.ts`).
+// ---------------------------------------------------------------------------
+
+/** Formato de fecha completa con hora: "23 jul 2026, 10:00" en es-CO. */
+function fmtDateTime(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return new Intl.DateTimeFormat("es-CO", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(d);
+}
+
+/** Formato entero (es-CO, sin decimales). Espejo de `fmtInt` V0. */
+function fmtInt(n: number | null | undefined): string {
+  if (n === null || n === undefined) return "—";
+  return new Intl.NumberFormat("es-CO", { maximumFractionDigits: 0 }).format(n);
+}
+
 export function HealthPanel({ health, batches }: HealthPanelProps) {
   const Ui = STATUS_UI[health.status];
   const bannerStyles = TONE_BANNER[Ui.tone];
   const listBatches = batches ?? health.steps;
 
   return (
-    <div
-      className="rounded-md border border-border bg-card p-4"
-      data-slot="health-panel"
-    >
-      <div className="mb-3 flex items-center gap-2">
-        <Activity aria-hidden className="size-4 text-primary" />
-        <h3 className="text-sm font-semibold">Salud del pipeline DJI AG</h3>
-      </div>
-      <p className="mb-3 text-[11px] text-muted-foreground">
-        djiag_health + últimos pasos del pipeline
-      </p>
-
-      <div className="flex flex-col gap-4">
+    <Card data-slot="health-panel">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Activity aria-hidden className="size-4 text-primary" />
+          Salud del pipeline DJI AG
+        </CardTitle>
+        <CardDescription>djiag_health + últimos pasos del pipeline</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
         {/* Banner de estado. Tono derivado del status. */}
         <div
           aria-label={`Estado del pipeline: ${Ui.label}`}
@@ -133,7 +169,7 @@ export function HealthPanel({ health, batches }: HealthPanelProps) {
                 className={`truncate font-mono text-[11px] ${bannerStyles.text}`}
                 data-testid="health-last-run-at"
               >
-                {new Date(health.lastRunAt).toISOString()}
+                {fmtDateTime(health.lastRunAt)}
               </p>
             ) : (
               <p
@@ -145,25 +181,24 @@ export function HealthPanel({ health, batches }: HealthPanelProps) {
             )}
           </div>
           {health.flightsLastSync !== null ? (
-            <span
-              className={`shrink-0 rounded-md border px-2 py-1 font-mono text-[11px] ${bannerStyles.text} ${bannerStyles.border} bg-white/40`}
-              data-testid="health-flights-badge"
-            >
-              {`${formatNumber(health.flightsLastSync)} vuelos`}
+            <span data-testid="health-flights-badge">
+              <Badge
+                className={`font-mono text-[11px] ${bannerStyles.text} ${bannerStyles.border} bg-white/40`}
+                variant="outline"
+              >
+                {`${formatNumber(health.flightsLastSync)} vuelos`}
+              </Badge>
             </span>
           ) : null}
         </div>
 
         {/* Grid de 4 metrics derivados de HealthResponse. */}
-        <dl
-          className="grid grid-cols-2 gap-2"
-          data-testid="health-metrics"
-        >
+        <dl className="grid grid-cols-2 gap-2" data-testid="health-metrics">
           {(
             [
-              ["Parcelas sincronizadas", formatNumber(health.landsLastSync ?? 0)],
-              ["Vuelos del último run", formatNumber(health.flightsLastSync ?? 0)],
-              ["Fumigaciones del último run", formatNumber(health.fumigationsLastSync ?? 0)],
+              ["Parcelas sincronizadas", fmtInt(health.landsLastSync ?? 0)],
+              ["Vuelos del último run", fmtInt(health.flightsLastSync ?? 0)],
+              ["Fumigaciones del último run", fmtInt(health.fumigationsLastSync ?? 0)],
               [
                 "Última sync hace",
                 health.hoursSinceLastSync !== null ? formatAgo(health.hoursSinceLastSync) : "—"
@@ -171,9 +206,7 @@ export function HealthPanel({ health, batches }: HealthPanelProps) {
             ] as const
           ).map(([k, v]) => (
             <div className="rounded-md border border-border px-2.5 py-2" key={k}>
-              <dt className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                {k}
-              </dt>
+              <dt className="text-[10px] uppercase tracking-wider text-muted-foreground">{k}</dt>
               <dd className="font-mono text-sm font-semibold tabular-nums">{v}</dd>
             </div>
           ))}
@@ -192,7 +225,7 @@ export function HealthPanel({ health, batches }: HealthPanelProps) {
           </ul>
         ) : null}
 
-        {/* Lista de steps / batches. */}
+        {/* Lista de steps / batches (top 5). */}
         <div className="flex flex-col gap-1">
           <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             Lotes recientes
@@ -205,10 +238,7 @@ export function HealthPanel({ health, batches }: HealthPanelProps) {
               No hay corridas registradas.
             </p>
           ) : (
-            <ul
-              className="divide-y divide-border"
-              data-testid="health-batches"
-            >
+            <ul className="divide-y divide-border" data-testid="health-batches">
               {listBatches.slice(0, 5).map((b) => {
                 const stepTone = STATUS_UI[b.status === "skipped" ? "stale" : b.status] ?? STATUS_UI.unknown;
                 return (
@@ -242,7 +272,7 @@ export function HealthPanel({ health, batches }: HealthPanelProps) {
             </ul>
           )}
         </div>
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }

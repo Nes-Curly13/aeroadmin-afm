@@ -116,14 +116,26 @@ describe("<HealthPanel />", () => {
     expect(metrics).toHaveTextContent("Última sync hace");
   });
 
-  it("muestra el último run at en formato ISO (legible para el operador)", () => {
+  it("muestra el último run at en formato es-CO (espejo V0 fmtDateTime)", () => {
     render(
       <HealthPanel
         health={makeResponse({ lastRunAt: "2026-07-23T10:00:00Z" })}
       />
     );
     const lastRunEl = screen.getByTestId("health-last-run-at");
-    expect(lastRunEl.textContent).toMatch(/2026-07-23T10:00:00/);
+    // V0 usa `fmtDateTime` que produce "23 de jul de 2026, HH:MM" en
+    // es-CO (legible para el operador fumigador). La versión previa
+    // del proyecto mostraba ISO (debug-friendly, no user-friendly);
+    // matcheamos V0 porque el panel es user-facing.
+    // Verificamos los componentes de fecha en lugar de string equality
+    // porque la hora exacta depende del TZ del runtime (Bogota -05:00
+    // mostraría "05:00", no "10:00").
+    const text = lastRunEl.textContent ?? "";
+    expect(text).toMatch(/2026/);
+    expect(text).toMatch(/23/);
+    expect(text).toMatch(/jul/i);
+    // La hora debe aparecer como HH:MM (cualquier valor HH:MM válido)
+    expect(text).toMatch(/\d{1,2}:\d{2}/);
   });
 
   it("renderiza la lista de batches (steps) con icono según status", () => {

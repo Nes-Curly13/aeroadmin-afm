@@ -276,8 +276,12 @@ describe("<RecentActivity />", () => {
     expect(screen.getByTestId("recent-activity-volume-1").textContent).toBe("—");
   });
 
-  it("renderiza volume_l = ha * dose_l_per_ha con 1 decimal", () => {
-    // 1.25 ha * 3 L/ha = 3.75 L
+  it("renderiza volume_l = ha * dose_l_per_ha con redondeo a entero (espejo V0 fmtLiters)", () => {
+    // 1.25 ha * 3 L/ha = 3.75 L → V0 `fmtLiters` redondea a entero
+    // porque solo usa decimales para >= 1000 L (ahí muestra "X.X m³").
+    // La versión previa del proyecto usaba `.toFixed(1)`; el V0 usa
+    // `Math.round` para mantener el formato simple en escala
+    // operativa. Matcheamos el V0.
     const events = [makeEvent({ area_fumigated_m2: 12_500, dose_l_per_ha: 3 })];
     render(
       <RecentActivity
@@ -285,7 +289,19 @@ describe("<RecentActivity />", () => {
         parcelById={new Map([[100, makeParcel()]])}
       />
     );
-    expect(screen.getByTestId("recent-activity-volume-1").textContent).toBe("3.8 L");
+    expect(screen.getByTestId("recent-activity-volume-1").textContent).toBe("4 L");
+  });
+
+  it("renderiza volume_l en m³ si supera 1000 L (espejo V0 fmtLiters)", () => {
+    // 50 ha * 25 L/ha = 1250 L → V0 convierte a "1.3 m³" (1 decimal).
+    const events = [makeEvent({ area_fumigated_m2: 500_000, dose_l_per_ha: 25 })];
+    render(
+      <RecentActivity
+        fumigations={events}
+        parcelById={new Map([[100, makeParcel()]])}
+      />
+    );
+    expect(screen.getByTestId("recent-activity-volume-1").textContent).toBe("1.3 m³");
   });
 
   it("source label: 'manual' → 'Manual'", () => {
@@ -299,7 +315,7 @@ describe("<RecentActivity />", () => {
     expect(screen.getByTestId("recent-activity-source-1").textContent).toBe("Manual");
   });
 
-  it("source label: 'djiscraper' → 'DJI'", () => {
+  it("source label: 'djiscraper' → 'DJI Scraper' (espejo V0 SOURCE_LABEL)", () => {
     const events = [makeEvent({ source: "djiscraper" })];
     render(
       <RecentActivity
@@ -307,7 +323,9 @@ describe("<RecentActivity />", () => {
         parcelById={new Map<number, DjiParcelRecord>([[100, makeParcel()]])}
       />
     );
-    expect(screen.getByTestId("recent-activity-source-1").textContent).toBe("DJI");
+    // V0 usa "DJI Scraper" para distinguir del import (también desde
+    // DJI, pero vía CSV legacy). Matcheamos V0.
+    expect(screen.getByTestId("recent-activity-source-1").textContent).toBe("DJI Scraper");
   });
 
   it("source label: 'import' → 'Import'", () => {

@@ -1,43 +1,6 @@
-import * as React from "react";
+import * as React from "react"
 
-import { cn } from "@/lib/utils";
-
-/**
- * Card + subcomponents — primitive de card con grid pattern de V0.
- *
- * Patrón copiado del V0 (`docs/fumigation-management-dashboard/components/ui/card.tsx`):
- *   - `Card` es el contenedor. Soporta variant de tamaño `default` (p-4) o `sm` (p-3).
- *   - Espaciado interno controlado por CSS var `--card-spacing` (no hardcodeado
- *     en cada subcomponente → un solo lugar para tunear).
- *   - `CardHeader` es un grid auto-rows-min; si tiene `CardAction` se vuelve
- *     2 cols (1fr + auto). Si tiene `CardDescription` se vuelve 2 rows.
- *   - `CardFooter` con border-top + bg-muted/50, anula el padding-bottom
- *     del Card (has-data-[slot=card-footer]:pb-0).
- *   - Si la card arranca con un `<img>`, se quita el padding-top
- *     (has-[>img:first-child]:pt-0) y la imagen se redondea
- *     (*:[img:first-child]:rounded-t-xl).
- *
- * Accesibilidad:
- *   - `<div>` semánticamente neutro (no usamos `<article>` a propósito:
- *     la card es un agrupador visual, no un item de feed).
- *   - `data-slot` en cada subcomponente para que styles compound via
- *     `has-data-[slot=...]` (no necesitamos variant de padding en cada
- *     sitio que usa Card).
- *
- * @example
- *   <Card size="sm">
- *     <CardHeader>
- *       <CardTitle>Fumigación 1234</CardTitle>
- *       <CardDescription>Lote 5 — 12.4 ha</CardDescription>
- *       <CardAction><Button size="icon-sm">×</Button></CardAction>
- *     </CardHeader>
- *     <CardContent>...</CardContent>
- *     <CardFooter>
- *       <span>Hace 3 días</span>
- *       <Button size="sm">Ver detalle</Button>
- *     </CardFooter>
- *   </Card>
- */
+import { cn } from "@/lib/utils"
 
 function Card({
   className,
@@ -54,7 +17,7 @@ function Card({
       )}
       {...props}
     />
-  );
+  )
 }
 
 function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
@@ -67,7 +30,7 @@ function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
       )}
       {...props}
     />
-  );
+  )
 }
 
 function CardTitle({ className, ...props }: React.ComponentProps<"div">) {
@@ -80,7 +43,7 @@ function CardTitle({ className, ...props }: React.ComponentProps<"div">) {
       )}
       {...props}
     />
-  );
+  )
 }
 
 function CardDescription({ className, ...props }: React.ComponentProps<"div">) {
@@ -90,7 +53,7 @@ function CardDescription({ className, ...props }: React.ComponentProps<"div">) {
       className={cn("text-sm text-muted-foreground", className)}
       {...props}
     />
-  );
+  )
 }
 
 function CardAction({ className, ...props }: React.ComponentProps<"div">) {
@@ -103,7 +66,7 @@ function CardAction({ className, ...props }: React.ComponentProps<"div">) {
       )}
       {...props}
     />
-  );
+  )
 }
 
 function CardContent({ className, ...props }: React.ComponentProps<"div">) {
@@ -113,7 +76,7 @@ function CardContent({ className, ...props }: React.ComponentProps<"div">) {
       className={cn("px-(--card-spacing)", className)}
       {...props}
     />
-  );
+  )
 }
 
 function CardFooter({ className, ...props }: React.ComponentProps<"div">) {
@@ -126,7 +89,7 @@ function CardFooter({ className, ...props }: React.ComponentProps<"div">) {
       )}
       {...props}
     />
-  );
+  )
 }
 
 export {
@@ -136,5 +99,5 @@ export {
   CardTitle,
   CardAction,
   CardDescription,
-  CardContent
-};
+  CardContent,
+}

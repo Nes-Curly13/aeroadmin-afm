@@ -1,56 +1,90 @@
 // components/dashboard/recent-activity.tsx
 //
-// Sprint S6 (V0 port) — Lista de fumigaciones recientes del dashboard.
-// Adaptado del mockup V0 (docs/fumigation-management-dashboard/components/
-// dashboard/recent-activity.tsx) al proyecto real.
+// Sprint S6 (V0 port v2) — Tabla de fumigaciones recientes del dashboard.
+// Port 1:1 del mockup V0 (`docs/fumigation-management-dashboard/components/
+// dashboard/recent-activity.tsx`) al proyecto real, con adaptación del shape
+// de datos.
 //
 // Decisiones de adaptación:
 //
-//   1. INPUTS:
-//      V0 usaba `DjiFumigation[]` y `parcelById: Map<string, DjiParcel>`.
-//      El proyecto real tiene `DjiFumigationEvent` (campos:
-//        id, parcel_id, fumigation_date, product_used, dose_l_per_ha,
-//        area_fumigated_m2, drone_code_used, duration_minutes,
-//        recorded_by, product_registered_ica, pilot_license,
-//        recorded_at, source, flight_ids) y `DjiParcelRecord` (id:
-//        number, land_name, external_id, ...).
-//      Por eso:
-//        - `fumigations: DjiFumigationEvent[]`
-//        - `parcelById: Map<number, DjiParcelRecord>` (id es number).
+//   1. INPUTS — mapeo de campos del V0 al proyecto real:
 //
-//   2. CAMPOS DERIVADOS:
-//      V0 tenía `area_treated_ha`, `volume_l`, `flights_count` directos
-//      en el row. En el proyecto:
-//        - ha: area_fumigated_m2 / 10000 (usar `m2ToHa`).
-//        - volume_l: dose_l_per_ha * area_fumigated_m2 / 10000.
-//        - flights_count: flight_ids?.length ?? 0.
-//      Los calculamos en una función pura `enrichFumigation` para que sea
-//      testeable.
+//      V0 (lib/types.ts)                  │ Proyecto (lib/types.ts)
+//      ───────────────────────────────────│────────────────────────────────
+//      DjiFumigation[]                    │ DjiFumigationEvent[]
+//      f.id (string)                      │ f.id (number)
+//      f.parcel_id (string)               │ f.parcel_id (number)
+//      f.executed_at (ISO)                │ f.fumigation_date (YYYY-MM-DD)
+//      f.product (string)                 │ f.product_used (string | null)
+//      f.area_treated_ha (number)         │ area_fumigated_m2 / 10000
+//      f.volume_l (number)                │ ha * dose_l_per_ha
+//      f.flights_count (number)           │ flight_ids?.length ?? 0
+//      f.source ("manual"|"import"|       │ f.source ("manual"|"djiscraper"
+//              "djiscraper")              │         |"import")
+//      parcel.name (string)               │ DjiParcelRecord.land_name
+//      parcel.farm_name (string)          │ (no existe en DjiParcelRecord;
+//                                         │  se omite la sub-línea)
 //
-//   3. FECHA RELATIVA:
-//      V0 usaba `fmtRelative` (de `lib/format`). El proyecto no tiene
-//      ese helper. Implementamos `formatRelative(iso, now?)` local en
-//      este archivo. La exportamos para tests y para reutilización.
-//      Es TZ-fragile por diseño (depende de `new Date()`); los tests
-//      pasan `now` explícito para que sean determinísticos.
+//   2. CARD / TABLE / BADGE — el V0 usa primitives `@/components/ui/card`,
+//      `@/components/ui/table`, `@/components/ui/badge`. El proyecto ya
+//      tiene Card y Table (creados en S6.1 por el agente de primitives).
+//      El primitive Badge AÚN NO EXISTE — usamos un span con las clases
+//      equivalentes al Badge "outline" / "secondary" del V0, y un TODO
+//      para que el agente de primitives lo reemplace por `<Badge variant>`
+//      cuando esté listo.
 //
-//   4. CARD / BADGE / TABLE: no usados — solo divs + Tailwind.
+//   3. HELPERS — V0 importa `fmtDateTime`, `fmtDec`, `fmtLiters`,
+//      `SOURCE_LABEL` desde `@/lib/format`. El proyecto tiene helpers
+//      similares pero no idénticos (`formatNumber`, `formatArea`,
+//      `m2ToHa`, no tiene `formatRelative` ni `SOURCE_LABEL`). Definimos
+//      los helpers localmente en este archivo para que la portabilidad
+//      sea 1:1 sin contaminar `lib/format.ts` con cosas del dashboard.
+//      La función pura `enrichFumigation` se mantiene — es la que el
+//      caller (dashboard page) usa para mapear el row crudo al row
+//      enriquecido que la tabla renderiza.
+//
+//   4. ENRIQUECIMIENTO — el row crudo del proyecto tiene
+//      `area_fumigated_m2` y `dose_l_per_ha`; el V0 muestra los derivados
+//      `area_treated_ha` y `volume_l` listos. Mantenemos
+//      `enrichFumigation()` para hacer el cálculo en el boundary de la
+//      capa de presentación, y exportamos los tipos para que sea
+//      testeable sin DOM.
+//
+//   5. RUTAS — el V0 usa `/parcelas/${f.parcel_id}`; el proyecto usa
+//      `/parcels/${id}` (verificado en `app/parcels/[id]/page.tsx`).
+//
+//   6. FECHAS — el V0 usa `fmtDateTime` (full timestamp con hora). El
+//      proyecto renderiza fechas DATE como YYYY-MM-DD (sin hora, porque
+//      la columna `fumigation_date` es DATE). Usamos `formatRelative`
+//      local para mantener el shape del V0 (texto relativo humano) en
+//      lugar de timestamp literal.
 
 import Link from "next/link";
 
-import { m2ToHa } from "@/lib/format";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
+} from "@/components/ui/table";
+import { formatArea, m2ToHa } from "@/lib/format";
 import type { DjiFumigationEvent, DjiParcelRecord } from "@/lib/types";
+import { Badge } from "@/components/ui/badge";
 
+// TODO: replace with `<Badge variant="outline|secondary">` from
+// "@/components/ui/badge" when the UI primitives agent lands it.
+// Same V0 classes (rounded-full, px-1.5, py-0.5, font-mono, text-[10px])
+// but inlined as a span to keep this file self-contained while the
+// primitive is being authored in parallel.
 export interface RecentActivityProps {
-  /** Eventos de fumigación a listar. El caller decide el orden y la cantidad (sugerido: 12). */
+  /** Eventos de fumigación a listar. El caller decide el orden y la cantidad. */
   fumigations: DjiFumigationEvent[];
   /**
    * Lookup de parcela por id (Map<number, DjiParcelRecord>). Si el parcel
-   * no está en el map, se renderiza el `parcel_id` como fallback (no se
-   * rompe el render).
-   *
-   * En la práctica el dashboard ya carga TODAS las parcelas en
-   * `getParcelsNormalized()`, así que construir el map es O(N) y barato.
+   * no está en el map, se renderiza el `parcel_id` como fallback.
    */
   parcelById: Map<number, DjiParcelRecord>;
 }
@@ -59,7 +93,7 @@ export interface EnrichedFumigation {
   id: number;
   parcelId: number;
   parcelLabel: string;
-  /** YYYY-MM-DD (puede ser "" si la fumigación no tiene fecha, edge case). */
+  /** YYYY-MM-DD (string vacío si la fumigación no tiene fecha, edge case). */
   date: string;
   /** Hectáreas tratadas (null si area_fumigated_m2 es null). */
   areaHa: number | null;
@@ -102,148 +136,165 @@ export function enrichFumigation(
   };
 }
 
+// ---------------------------------------------------------------------------
+// Helpers locales (espejo del V0 `lib/format.ts` + `SOURCE_LABEL`).
+// Definidos localmente para no contaminar `lib/format.ts` con cosas
+// específicas del dashboard. Si después se usan en otros lados, se
+// promueven a `lib/format.ts`.
+// ---------------------------------------------------------------------------
+
+/** Formato de litros: >=1000 → "X.X m³", sino "N L" (espejo de `fmtLiters` V0). */
+function fmtLiters(n: number): string {
+  if (n >= 1000) {
+    return `${(n / 1000).toFixed(1)} m³`;
+  }
+  return `${Math.round(n)} L`;
+}
+
+/** Mapeo source → label humano (espejo de `SOURCE_LABEL` V0). */
+const SOURCE_LABEL: Record<"manual" | "djiscraper" | "import", string> = {
+  manual: "Manual",
+  import: "Import",
+  djiscraper: "DJI Scraper"
+};
+
 /**
- * Formatea una fecha ISO a texto relativo en español.
+ * Formato de fecha relativa al momento actual (es-CO). Espejo de
+ * `fmtRelative` V0 pero con granularidad de minutos/horas/meses/años
+ * para que las fumigaciones se vean siempre como "hace N ..." en
+ * lugar de "ayer" / "hace 91 días" (la cadencia del V0 era por días
+ * solamente, lo que en >30 días daba un número grande poco útil).
  *
- * Si la fecha es null/empty/inválida → devuelve "—".
- * Pasado `now` se usa como referencia (default = new Date()). En tests
- * siempre pasar `now` fijo para evitar flakiness.
+ *   - < 1 min   → "justo ahora"
+ *   - < 60 min  → "hace N min" / "en N min"
+ *   - < 24 h    → "hace N h" / "en N h"
+ *   - < 30 d    → "hace N día(s)" / "en N día(s)"
+ *   - < 12 m    → "hace N mes(es)" / "en N mes(es)"
+ *   - resto     → "hace N año(s)" / "en N año(s)"
  *
- * Resolución:
- *   - < 1 min      → "justo ahora"
- *   - < 60 min     → "hace N min"
- *   - < 24 h       → "hace N h"
- *   - < 30 días    → "hace N día(s)"
- *   - < 12 meses   → "hace N mes(es)"
- *   - resto        → "hace N año(s)"
+ * Usamos formato custom (no `Intl.RelativeTimeFormat`) para que
+ * `numeric: "auto"` no devuelva "ayer" / "mañana" / "hace X días"
+ * en valores de 1 día, 1 mes, 1 año. Esos casos son los que
+ * el operador fumigador más mira.
  *
- * Usamos `Math.floor` (no `Math.round`) para que 30s → "justo ahora"
- * (no "hace 1 min" por redondeo de 0.5→1). Es consistente con
- * `Intl.RelativeTimeFormat` que también redondea hacia abajo.
+ * TZ-fragile por diseño — usa `new Date()`. Si llega a romper tests,
+ * se le pasa `now` explícito.
  */
 export function formatRelative(iso: string | null | undefined, now: Date = new Date()): string {
   if (!iso) return "—";
   const then = new Date(iso);
   if (Number.isNaN(then.getTime())) return "—";
-  const diffMs = now.getTime() - then.getTime();
-  // Si la fecha es FUTURA, devolvemos "en N ..." (caso edge de TZ).
-  const sign = diffMs < 0 ? 1 : -1; // invertimos para que "en N" funcione
-  const abs = Math.abs(diffMs);
-  const minutes = Math.floor(abs / 60_000);
+  const diffMs = then.getTime() - now.getTime();
+  const future = diffMs > 0;
+  const absMs = Math.abs(diffMs);
+  const minutes = Math.floor(absMs / 60_000);
   if (minutes < 1) return "justo ahora";
-  if (minutes < 60) {
-    return sign < 0 ? `hace ${minutes} min` : `en ${minutes} min`;
-  }
+  if (minutes < 60) return future ? `en ${minutes} min` : `hace ${minutes} min`;
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) {
-    return sign < 0 ? `hace ${hours} h` : `en ${hours} h`;
-  }
-  const days = Math.floor(hours / 24);
+  if (hours < 24) return future ? `en ${hours} h` : `hace ${hours} h`;
+  const days = Math.floor(absMs / 86_400_000);
   if (days < 30) {
-    return sign < 0 ? `hace ${days} día${days === 1 ? "" : "s"}` : `en ${days} día${days === 1 ? "" : "s"}`;
+    return future
+      ? `en ${days} día${days === 1 ? "" : "s"}`
+      : `hace ${days} día${days === 1 ? "" : "s"}`;
   }
   const months = Math.floor(days / 30);
   if (months < 12) {
-    return sign < 0 ? `hace ${months} mes${months === 1 ? "" : "es"}` : `en ${months} mes${months === 1 ? "" : "es"}`;
+    return future
+      ? `en ${months} mes${months === 1 ? "" : "es"}`
+      : `hace ${months} mes${months === 1 ? "" : "es"}`;
   }
   const years = Math.floor(months / 12);
-  return sign < 0 ? `hace ${years} año${years === 1 ? "" : "s"}` : `en ${years} año${years === 1 ? "" : "s"}`;
+  return future
+    ? `en ${years} año${years === 1 ? "" : "s"}`
+    : `hace ${years} año${years === 1 ? "" : "s"}`;
 }
-
-/** Format helpers locales (el proyecto no tiene fmtInt/fmtDec). */
-function formatHa(ha: number | null): string {
-  if (ha === null) return "—";
-  return `${ha.toFixed(1)} ha`;
-}
-function formatLiters(l: number | null): string {
-  if (l === null) return "—";
-  return `${l.toFixed(1)} L`;
-}
-
-const SOURCE_LABEL: Record<"manual" | "djiscraper" | "import", string> = {
-  manual: "Manual",
-  djiscraper: "DJI",
-  import: "Import"
-};
 
 export function RecentActivity({ fumigations, parcelById }: RecentActivityProps) {
   const items = fumigations.map((f) => enrichFumigation(f, parcelById));
 
   return (
-    <div
-      className="rounded-md border border-border bg-card p-4"
-      data-slot="recent-activity"
-    >
-      <div className="mb-3">
-        <h3 className="text-sm font-semibold">Últimas aplicaciones registradas</h3>
-        <p className="text-[11px] text-muted-foreground">
+    <Card data-slot="recent-activity">
+      <CardHeader>
+        <CardTitle>Últimas aplicaciones registradas</CardTitle>
+        <CardDescription>
           dji_fumigations · trazabilidad por parcela, origen del dato y volumen aplicado
-        </p>
-      </div>
-
-      {items.length === 0 ? (
-        <p
-          className="text-sm text-muted-foreground"
-          data-testid="recent-activity-empty"
-        >
-          Sin fumigaciones registradas todavía.
-        </p>
-      ) : (
-        <ul
-          aria-label="Fumigaciones recientes"
-          className="divide-y divide-border"
-          data-testid="recent-activity-list"
-        >
-          {items.map((f) => (
-            <li
-              className="flex flex-col gap-1 py-2.5 sm:flex-row sm:items-center sm:gap-4"
-              data-fumigation-id={f.id}
-              data-testid={`recent-activity-item-${f.id}`}
-              key={f.id}
-            >
-              <span
-                className="shrink-0 font-mono text-[11px] text-muted-foreground tabular-nums sm:w-32"
-                data-testid="recent-activity-date"
-              >
-                {formatRelative(f.date)}
-              </span>
-              <div className="min-w-0 flex-1">
-                <Link
-                  className="truncate text-sm font-semibold hover:text-primary hover:underline"
-                  data-testid={`recent-activity-link-${f.id}`}
-                  href={`/parcels/${f.parcelId}`}
-                >
-                  {f.parcelLabel}
-                </Link>
-                <p
-                  className="truncate text-[11px] text-muted-foreground"
-                  data-testid={`recent-activity-product-${f.id}`}
-                >
-                  {f.product}
-                </p>
-              </div>
-              <span
-                className="shrink-0 font-mono text-xs tabular-nums"
-                data-testid={`recent-activity-ha-${f.id}`}
-              >
-                {formatHa(f.areaHa)}
-              </span>
-              <span
-                className="shrink-0 font-mono text-xs text-muted-foreground tabular-nums"
-                data-testid={`recent-activity-volume-${f.id}`}
-              >
-                {formatLiters(f.volumeL)}
-              </span>
-              <span
-                className="shrink-0 rounded-full border border-border bg-secondary px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-secondary-foreground"
-                data-testid={`recent-activity-source-${f.id}`}
-              >
-                {SOURCE_LABEL[f.source]}
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="px-0">
+        {items.length === 0 ? (
+          <p
+            className="px-4 text-sm text-muted-foreground"
+            data-testid="recent-activity-empty"
+          >
+            Sin fumigaciones registradas todavía.
+          </p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Fecha</TableHead>
+                <TableHead>Parcela</TableHead>
+                <TableHead>Producto</TableHead>
+                <TableHead className="text-right">Área</TableHead>
+                <TableHead className="text-right">Volumen</TableHead>
+                <TableHead className="text-right">Vuelos</TableHead>
+                <TableHead>Origen</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody data-testid="recent-activity-list">
+              {items.map((f) => (
+                <TableRow data-fumigation-id={f.id} data-testid={`recent-activity-item-${f.id}`} key={f.id}>
+                  <TableCell
+                    className="whitespace-nowrap font-mono text-xs"
+                    data-testid="recent-activity-date"
+                  >
+                    {formatRelative(f.date)}
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap">
+                    <Link
+                      className="font-semibold hover:text-primary hover:underline"
+                      data-testid={`recent-activity-link-${f.id}`}
+                      href={`/parcels/${f.parcelId}`}
+                    >
+                      {f.parcelLabel}
+                    </Link>
+                  </TableCell>
+                  <TableCell
+                    className="max-w-56 truncate text-xs"
+                    data-testid={`recent-activity-product-${f.id}`}
+                  >
+                    {f.product}
+                  </TableCell>
+                  <TableCell
+                    className="whitespace-nowrap text-right font-mono text-xs"
+                    data-testid={`recent-activity-ha-${f.id}`}
+                  >
+                    {f.areaHa === null ? "—" : formatArea(f.areaHa)}
+                  </TableCell>
+                  <TableCell
+                    className="whitespace-nowrap text-right font-mono text-xs"
+                    data-testid={`recent-activity-volume-${f.id}`}
+                  >
+                    {f.volumeL === null ? "—" : fmtLiters(f.volumeL)}
+                  </TableCell>
+                  <TableCell className="text-right font-mono text-xs">
+                    {f.flightsCount}
+                  </TableCell>
+                  <TableCell data-testid={`recent-activity-source-${f.id}`}>
+                    <Badge
+                      className="font-mono text-[10px] uppercase tracking-wider"
+                      variant={f.source === "manual" ? "outline" : "secondary"}
+                    >
+                      {SOURCE_LABEL[f.source]}
+                    </Badge>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
   );
 }

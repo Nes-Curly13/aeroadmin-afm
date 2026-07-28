@@ -233,6 +233,10 @@ function ParcelMapInner({ geom, color, flights }: ParcelMapProps) {
       map = new maplibregl.Map(mapOptions);
       const initialBounds = bounds;
 
+      // Navigation control (V0 1:1). Compass off — el mini-mapa es
+      // informativo, no un navegador interactivo completo.
+      map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
+
       map.on("load", () => {
         const m = map;
         if (!m) return;
