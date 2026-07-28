@@ -78,7 +78,7 @@ function BasemapBadge({ basemap, onToggle }: { basemap: Basemap; onToggle: () =>
   return (
     <button
       aria-label={`${BASEMAPS[basemap].label} — click para cambiar a ${BASEMAPS[next].label.toLowerCase()}`}
-      className="pointer-events-auto absolute top-3 left-3 z-[1000] flex items-center gap-2 rounded-full border border-[#0b5f2d]/30 bg-white px-3 py-1.5 text-[12px] font-bold uppercase tracking-[0.12em] text-[#0b5f2d] shadow-lg transition hover:bg-[#f4f7f4] focus:outline-none focus:ring-2 focus:ring-[#0b5f2d]"
+      className="pointer-events-auto absolute bottom-12 right-3 z-[1000] flex items-center gap-2 rounded-full border border-[#0b5f2d]/30 bg-white px-3 py-1.5 text-[12px] font-bold uppercase tracking-[0.12em] text-[#0b5f2d] shadow-lg transition hover:bg-[#f4f7f4] focus:outline-none focus:ring-2 focus:ring-[#0b5f2d]"
       onClick={onToggle}
       type="button"
     >
@@ -177,10 +177,12 @@ export interface MapClientProps {
   selectedParcelId?: number | null;
   /**
    * v1.8 — threshold de zoom a partir del cual se muestran los labels
-   * permanentes de parcela (`#11`, `#16`, etc.). Default 14 (es el
-   * zoom inicial del fitBounds; a 14 los polígonos ya son legibles).
+   * permanentes de parcela (`#11`, `#16`, etc.). Default 13.
    * A zooms < threshold los labels se ocultan para evitar clutter
    * (con 1213 parcelas sería ilegible a nivel departamental).
+   * El mockup del operador muestra labels visibles al cargar, así que
+   * 13 es un threshold razonable (zoom inicial = 14 por el MapContainer,
+   * fitBounds puede ajustar).
    */
   labelMinZoom?: number;
 }
@@ -192,7 +194,7 @@ export function MapClient({
   flightPoints,
   fumigatedParcelIds,
   selectedParcelId = null,
-  labelMinZoom = 14
+  labelMinZoom = 13
 }: MapClientProps) {
   const parcelById = new Map<number, DjiParcelRecord>();
   for (const p of parcels) parcelById.set(p.id, p);
@@ -218,8 +220,9 @@ export function MapClient({
   }, [basemap]);
 
   // v1.8 — estado del zoom para mostrar/ocultar labels. Se inicializa
-  // con el zoom default del MapContainer (14). El <ZoomWatcher> hijo
-  // del MapContainer lo actualiza en cada `zoomend` event.
+  // con un valor por encima del threshold (13) para que el primer
+  // render ya incluya los labels, y luego el <ZoomWatcher> lo
+  // sincroniza con el zoom real del mapa.
   const [currentZoom, setCurrentZoom] = useState<number>(14);
   const handleZoomEnd = useCallback((z: number) => {
     setCurrentZoom(z);
