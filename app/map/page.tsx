@@ -1,12 +1,27 @@
 import { AppShell } from "@/components/app-shell";
 import { MapPageClient } from "@/components/map/map-page-client";
-import { getFumigatedParcelIdsSince, getParcelsNormalized, getParcelsSummary } from "@/api/repositories";
+import {
+  getFumigatedParcelIdsSince,
+  getFumigationsSummary,
+  getParcelsNormalized,
+  getParcelsSummary
+} from "@/api/repositories";
 import { getViewerRole } from "@/lib/auth/role";
 import { toDateString } from "@/lib/format";
 import type { DjiParcelRecord } from "@/lib/types";
 
 /**
  * /map — vista espacial principal.
+ *
+ * v2.0 (2026-07-28) — sprint S5, adaptación del mockup V0:
+ *   - **KPIs overlay** sobre el mapa (Aplicaciones / Hectáreas / Volumen /
+ *     Vuelos) usando el nuevo `KpiPill` (components/ui/kpi-pill.tsx).
+ *     El summary se calcula server-side con `getFumigationsSummary()`
+ *     sobre el set de parcels visibles y se pasa al client.
+ *   - Migración Leaflet → MapLibre ya integrada en `MapView` (no toca
+ *     este page).
+ *   - (Pendiente sprint S5) rail derecho con lista de parcelas, toggles
+ *     accesibles para capas, time-range slider con animación.
  *
  * v1.8 (2026-07-27) — refactor de layout según mockup del operador:
  *   - El page header y el drawer de filtros pasan a vivir en un
@@ -19,13 +34,6 @@ import type { DjiParcelRecord } from "@/lib/types";
  *   - El layout del body (mapa + drawer) también vive en
  *     `MapPageClient`, no en la page server-side. La page sigue
  *     siendo la que ejecuta las queries paralelas del critical path.
- *
- * Decisiones heredadas (no se cambian en v1.8):
- *   - `force-dynamic` por el bug IPv6 de Supabase en Vercel build
- *     time (mismo motivo que /dashboard).
- *   - Filtros como URL searchParams (server-side filtering).
- *   - Fumigated filter aplicado in-memory sobre el resultado del SQL
- *     (el Set ya está en memoria del critical path).
  */
 export const dynamic = "force-dynamic";
 
@@ -75,27 +83,35 @@ export default async function MapPage({ searchParams }: PageProps) {
 
   const sixMonthsAgo = toDateString(new Date(Date.now() - 1000 * 60 * 60 * 24 * 30 * 6)) ?? "1970-01-01";
 
-  const [parcelsResult, fumigatedIds, summary] = await Promise.all([
+  const [parcelsResult, fumigatedIds, summary, fumigationsSummary] = await Promise.all([
     getParcelsNormalized(1, 200, {
       droneModelCode: droneCode ?? undefined,
       fieldType: crop || undefined
     }),
     getFumigatedParcelIdsSince(sixMonthsAgo),
-    getParcelsSummary()
+    getParcelsSummary(),
+    // v2.0: agregados para el KpiPill overlay. Calculamos sobre el set
+    // filtrado de parcelas (no sobre todo el dataset) para que el KPI
+    // refleje lo que el operador está viendo. El `from` no se pasa (sin
+    // time-range por ahora) — es el total historico de los parcels visibles.
+    getFumigationsSummary({}) // se computa después con visibleParcels
   ]);
 
   const visibleParcels = applyFumigatedFilter(parcelsResult.data, fumigatedIds, fumigated);
+
+  // v2.0: recalculamos el summary sobre el set visible (post-fumigated filter).
+  // Es una query chica (set de N parcel_ids), vale el round-trip.
+  const summaryVisible = await getFumigationsSummary({
+    parcelIds: visibleParcels.map((p) => p.id)
+  });
 
   const viewerRole = await getViewerRole();
 
   return (
     <AppShell
-      // v1.8 — el header (logo + título + subtítulo + chip + Filtros)
-      // vive en MapPageClient (client-side, reactivo a filtros). No
-      // pintamos el bloque default de AppShell.
       hidePageHeader
       activeSection="map"
-      eyebrow="" // unused (hidePageHeader=true)
+      eyebrow=""
       highAlertsCount={0}
       parcelsCount={visibleParcels.length}
       subtitle="Mapa operativo de parcelas DJI con geometría y configuración de vuelo"
@@ -106,6 +122,7 @@ export default async function MapPage({ searchParams }: PageProps) {
         alerts={[]}
         flights={[]}
         fumigatedParcelIds={fumigatedIds}
+        fumigationsSummary={summaryVisible}
         parcels={visibleParcels}
         resultCount={visibleParcels.length}
         summary={summary as Parameters<typeof MapPageClient>[0]["summary"]}

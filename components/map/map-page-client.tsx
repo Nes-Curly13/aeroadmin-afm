@@ -2,9 +2,11 @@
 
 import { useCallback, useState } from "react";
 
+import { KpiPill } from "@/components/ui/kpi-pill";
 import { MapFilterSidebar } from "@/components/map/map-filter-sidebar";
 import { MapView } from "@/components/map-view";
 import type { DjiAlertRecord, DjiDailySummaryRecord, DjiParcelRecord, FlightPointRecord } from "@/lib/types";
+import type { FumigationsSummary } from "@/api/repositories";
 
 /**
  * components/map/map-page-client.tsx
@@ -66,6 +68,12 @@ export interface MapPageClientProps {
   fumigatedParcelIds: Set<number>;
   summary: ParcelsSummaryRow[];
   resultCount: number;
+  /**
+   * v2.0 — agregados de fumigaciones sobre el set visible de parcelas.
+   * Se renderizan como overlay pill (KpiPill) en la esquina superior
+   * izquierda del mapa, junto al botón "Filtros".
+   */
+  fumigationsSummary?: FumigationsSummary;
 }
 
 export function MapPageClient({
@@ -75,7 +83,8 @@ export function MapPageClient({
   flightPoints,
   fumigatedParcelIds,
   summary,
-  resultCount
+  resultCount,
+  fumigationsSummary
 }: MapPageClientProps) {
   // v1.8 — estado del drawer de filtros. Default CERRADO para que el
   // mapa ocupe todo el viewport en la carga inicial.
@@ -148,6 +157,29 @@ export function MapPageClient({
             parcels={parcels}
           />
         </div>
+
+        {/*
+          v2.0 (sprint S5) — KPIs overlay pill. Se monta en la esquina
+          superior izquierda del mapa (no choca con el basemap badge que
+          está bottom-right). Es `pointer-events-auto` para que el cursor
+          no atraviese la pill; `flex-wrap` para que en mobile los items
+          salten de línea.
+        */}
+        {fumigationsSummary ? (
+          <div
+            className="pointer-events-none absolute left-3 top-3 z-[500] flex max-w-[calc(100%-1.5rem)] flex-wrap gap-2"
+            data-testid="map-kpi-overlay"
+          >
+            <KpiPill
+              items={[
+                { kind: "aplicaciones", value: fumigationsSummary.count },
+                { kind: "hectareas", value: `${fumigationsSummary.areaHa.toFixed(1)} ha` },
+                { kind: "volumen", value: `${fumigationsSummary.volumeL.toFixed(1)} L` },
+                { kind: "vuelos", value: fumigationsSummary.flights }
+              ]}
+            />
+          </div>
+        ) : null}
 
         {/*
           Drawer de filtros (overlay absoluto a la derecha).

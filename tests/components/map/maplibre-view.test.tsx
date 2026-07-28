@@ -56,6 +56,8 @@ vi.mock("maplibre-gl", () => {
 import { MapLibreView } from "@/components/map/maplibre-view";
 import type { DjiParcelRecord } from "@/lib/types";
 
+// Fixture mínima válida de DjiParcelRecord para los tests. Los campos
+// que el componente NO usa quedan en null/default.
 const baseParcel: DjiParcelRecord = {
   id: 1,
   external_id: "ext-1",
@@ -76,7 +78,26 @@ const baseParcel: DjiParcelRecord = {
   },
   spray_area_m2: 50000,
   declared_area_ha: 5,
-  waypoint_count: 0
+  drone_model_code: null,
+  drone_model_name: null,
+  spray_width_m: null,
+  work_speed_mps: null,
+  optimal_heading_deg: null,
+  radar_height_m: null,
+  edge_offset_m: null,
+  obstacle_offset_m: null,
+  climb_height_m: null,
+  no_spray_zone_m2: null,
+  droplet_size: null,
+  sweep_direction: null,
+  uses_side_spray: null,
+  waypoints_geometry: null,
+  waypoint_count: 0,
+  source_url_geometry: null,
+  source_url_parameter: null,
+  source_url_waypoint: null,
+  fetched_at: null,
+  reference_point: null
 };
 
 beforeEach(() => {
