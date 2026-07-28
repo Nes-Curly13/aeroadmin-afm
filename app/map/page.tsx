@@ -2,6 +2,7 @@ import { AppShell } from "@/components/app-shell";
 import { MapPageClient } from "@/components/map/map-page-client";
 import {
   getFumigatedParcelIdsSince,
+  getFumigationsByMonth,
   getFumigationsSummary,
   getParcelsNormalized,
   getParcelsSummary
@@ -83,27 +84,28 @@ export default async function MapPage({ searchParams }: PageProps) {
 
   const sixMonthsAgo = toDateString(new Date(Date.now() - 1000 * 60 * 60 * 24 * 30 * 6)) ?? "1970-01-01";
 
-  const [parcelsResult, fumigatedIds, summary, fumigationsSummary] = await Promise.all([
+  const [parcelsResult, fumigatedIds, summary, months] = await Promise.all([
     getParcelsNormalized(1, 200, {
       droneModelCode: droneCode ?? undefined,
       fieldType: crop || undefined
     }),
     getFumigatedParcelIdsSince(sixMonthsAgo),
     getParcelsSummary(),
-    // v2.0: agregados para el KpiPill overlay. Calculamos sobre el set
-    // filtrado de parcelas (no sobre todo el dataset) para que el KPI
-    // refleje lo que el operador está viendo. El `from` no se pasa (sin
-    // time-range por ahora) — es el total historico de los parcels visibles.
-    getFumigationsSummary({}) // se computa después con visibleParcels
+    // v2.0: histograma mensual de fumigaciones para el TimeRange slider.
+    // Computamos sobre el set visible post-fumigated filter (idem summary).
+    // getFumigationsByMonth({}) corre primero; recalculamos con parcelIds
+    // visibles abajo para evitar pagar 2 round-trips cuando no hay visible.
+    getFumigationsByMonth({})
   ]);
 
   const visibleParcels = applyFumigatedFilter(parcelsResult.data, fumigatedIds, fumigated);
 
-  // v2.0: recalculamos el summary sobre el set visible (post-fumigated filter).
-  // Es una query chica (set de N parcel_ids), vale el round-trip.
-  const summaryVisible = await getFumigationsSummary({
-    parcelIds: visibleParcels.map((p) => p.id)
-  });
+  // v2.0: recalculamos summary + months sobre el set visible.
+  // 2 queries chicas en paralelo (set de N parcel_ids). Vale los round-trips.
+  const [summaryVisible, monthsVisible] = await Promise.all([
+    getFumigationsSummary({ parcelIds: visibleParcels.map((p) => p.id) }),
+    getFumigationsByMonth({ parcelIds: visibleParcels.map((p) => p.id) })
+  ]);
 
   const viewerRole = await getViewerRole();
 
@@ -122,6 +124,7 @@ export default async function MapPage({ searchParams }: PageProps) {
         alerts={[]}
         flights={[]}
         fumigatedParcelIds={fumigatedIds}
+        fumigationsByMonth={monthsVisible}
         fumigationsSummary={summaryVisible}
         parcels={visibleParcels}
         resultCount={visibleParcels.length}

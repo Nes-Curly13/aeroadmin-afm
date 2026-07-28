@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { KpiPill } from "@/components/ui/kpi-pill";
 import { MapFilterSidebar } from "@/components/map/map-filter-sidebar";
 import { MapView } from "@/components/map-view";
+import { TimeRange, type MonthBucket } from "@/components/map/time-range";
+import { getFumigationsSummary, type FumigationsSummary } from "@/api/repositories";
 import type { DjiAlertRecord, DjiDailySummaryRecord, DjiParcelRecord, FlightPointRecord } from "@/lib/types";
-import type { FumigationsSummary } from "@/api/repositories";
 
 /**
  * components/map/map-page-client.tsx
@@ -74,6 +75,12 @@ export interface MapPageClientProps {
    * izquierda del mapa, junto al botón "Filtros".
    */
   fumigationsSummary?: FumigationsSummary;
+  /**
+   * v2.0 — histograma mensual de fumigaciones para alimentar el
+   * `<TimeRange>` slider (abajo del mapa). Si se omite, no se
+   * renderiza el slider.
+   */
+  fumigationsByMonth?: MonthBucket[];
 }
 
 export function MapPageClient({
@@ -84,7 +91,8 @@ export function MapPageClient({
   fumigatedParcelIds,
   summary,
   resultCount,
-  fumigationsSummary
+  fumigationsSummary,
+  fumigationsByMonth = []
 }: MapPageClientProps) {
   // v1.8 — estado del drawer de filtros. Default CERRADO para que el
   // mapa ocupe todo el viewport en la carga inicial.
@@ -92,6 +100,64 @@ export function MapPageClient({
   const toggleFilters = useCallback(() => {
     setFilterCollapsed((c) => !c);
   }, []);
+
+  // v2.0 — estado del TimeRange slider. Default = todo el rango.
+  // El KPI overlay se recalcula contra el endpoint /api/map/summary
+  // cuando cambia el rango (ver useEffect abajo).
+  const [timeRange, setTimeRange] = useState<[number, number]>(() => [
+    0,
+    Math.max(0, fumigationsByMonth.length - 1)
+  ]);
+  const [playing, setPlaying] = useState(false);
+  // Summary reactivo al time range. Inicia con el del server (full history).
+  const [liveSummary, setLiveSummary] = useState<FumigationsSummary | null>(
+    fumigationsSummary ?? null
+  );
+  const [summaryLoading, setSummaryLoading] = useState(false);
+
+  // Cuando cambia el time range, fetch del summary filtrado.
+  // Debounce 200ms para no martillar el endpoint durante el autoplay.
+  useEffect(() => {
+    if (fumigationsByMonth.length === 0) {
+      setLiveSummary(fumigationsSummary ?? null);
+      return;
+    }
+    if (timeRange[0] === 0 && timeRange[1] >= fumigationsByMonth.length - 1) {
+      // Rango completo → usar el summary del server (sin round-trip).
+      setLiveSummary(fumigationsSummary ?? null);
+      return;
+    }
+    const fromBucket = fumigationsByMonth[timeRange[0]];
+    const toBucket = fumigationsByMonth[timeRange[1]];
+    if (!fromBucket || !toBucket) return;
+    const fromIso = fromBucket.key + "-01";
+    // end of month: primer día del mes siguiente - 1 día
+    const [yStr, mStr] = toBucket.key.split("-");
+    const toIso = `${yStr}-${mStr}-${new Date(Number(yStr), Number(mStr), 0).getUTCDate()}`;
+
+    setSummaryLoading(true);
+    const ctrl = new AbortController();
+    const handle = setTimeout(() => {
+      const parcelIds = parcels.map((p) => p.id).join(",");
+      const url = `/api/map/summary?parcelIds=${parcelIds}&from=${fromIso}&to=${toIso}`;
+      fetch(url, { signal: ctrl.signal })
+        .then((r) => r.json())
+        .then((data: FumigationsSummary) => {
+          setLiveSummary(data);
+          setSummaryLoading(false);
+        })
+        .catch((err) => {
+          if (err.name !== "AbortError") {
+            setSummaryLoading(false);
+          }
+        });
+    }, 200);
+    return () => {
+      ctrl.abort();
+      clearTimeout(handle);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timeRange, fumigationsByMonth, parcels]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -164,19 +230,45 @@ export function MapPageClient({
           está bottom-right). Es `pointer-events-auto` para que el cursor
           no atraviese la pill; `flex-wrap` para que en mobile los items
           salten de línea.
+
+          Usa `liveSummary` (state) en vez de `fumigationsSummary` (prop
+          inicial) para que se actualice cuando el TimeRange cambia.
+          Si está cargando, baja opacidad para feedback visual.
         */}
-        {fumigationsSummary ? (
+        {liveSummary ? (
           <div
             className="pointer-events-none absolute left-3 top-3 z-[500] flex max-w-[calc(100%-1.5rem)] flex-wrap gap-2"
             data-testid="map-kpi-overlay"
           >
-            <KpiPill
-              items={[
-                { kind: "aplicaciones", value: fumigationsSummary.count },
-                { kind: "hectareas", value: `${fumigationsSummary.areaHa.toFixed(1)} ha` },
-                { kind: "volumen", value: `${fumigationsSummary.volumeL.toFixed(1)} L` },
-                { kind: "vuelos", value: fumigationsSummary.flights }
-              ]}
+            <div className={summaryLoading ? "opacity-60" : ""}>
+              <KpiPill
+                items={[
+                  { kind: "aplicaciones", value: liveSummary.count },
+                  { kind: "hectareas", value: `${liveSummary.areaHa.toFixed(1)} ha` },
+                  { kind: "volumen", value: `${liveSummary.volumeL.toFixed(1)} L` },
+                  { kind: "vuelos", value: liveSummary.flights }
+                ]}
+              />
+            </div>
+          </div>
+        ) : null}
+
+        {/*
+          v2.0 (sprint S5) — TimeRange slider. Se monta en la parte
+          inferior del mapa, encima del basemap badge. Es el equivalente
+          del slider del V0 (docs/fumigation-management-dashboard/components/geovisor/time-range.tsx).
+        */}
+        {fumigationsByMonth.length > 0 ? (
+          <div
+            className="absolute inset-x-3 bottom-3 z-[500] rounded-md border border-border bg-card/95 p-3 shadow-sm backdrop-blur"
+            data-testid="map-time-range-container"
+          >
+            <TimeRange
+              months={fumigationsByMonth}
+              playing={playing}
+              range={timeRange}
+              onPlayingChange={setPlaying}
+              onRangeChange={setTimeRange}
             />
           </div>
         ) : null}
