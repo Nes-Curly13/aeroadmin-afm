@@ -64,11 +64,17 @@ export interface MapViewProps {
    */
   onMapReady?: (map: MlMap) => void;
   /**
-   * v2.1 (sprint S6) — eventos de fumigación aplanados para el data
-   * plumbing del V0 port. El render de markers en el mapa es TODO
-   * (sprint S6.1); en este commit la prop se acepta pero no se usa.
+   * v2.1 (sprint S6.1 — V0 events map) — eventos de fumigación aplanados
+   * que se renderean como markers circulares en el mapa. Color por
+   * source (djiscraper/import/manual), click → popup con detalle.
    */
   fumigationEvents?: MapFumigationEvent[];
+  /**
+   * v2.1 (sprint S6.1 — V0 events map) — toggle de visibilidad de la
+   * capa de eventos de fumigación. Default: true. Sincronizado con el
+   * switch "Aplicaciones en el rango" del `V0FilterRail`.
+   */
+  showEvents?: boolean;
 }
 
 /**
@@ -92,7 +98,8 @@ export function MapView({
   selectedParcelId,
   onSelect,
   onMapReady,
-  fumigationEvents
+  fumigationEvents,
+  showEvents
 }: MapViewProps) {
   return (
     <div className="relative h-full w-full overflow-hidden rounded-2xl border border-[#d2ddd6] bg-white shadow-[0px_18px_40px_rgba(15,23,42,0.08)]">
@@ -107,6 +114,7 @@ export function MapView({
           onSelect={onSelect}
           parcels={parcels}
           selectedParcelId={selectedParcelId}
+          showEvents={showEvents}
         />
       </div>
 

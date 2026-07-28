@@ -105,7 +105,23 @@ export const djiParcelsQuery = `
     CASE
       WHEN last_fum.fumigation_date IS NULL THEN NULL
       ELSE (CURRENT_DATE - last_fum.fumigation_date)
-    END AS days_since_last_fumigation
+    END AS days_since_last_fumigation,
+    -- v2.1 (sprint S6.1 — V0 events map) — cadencia esperada por parcela.
+    -- LEFT JOIN simple a dji_fumigation_schedule (1:1 con dji_parcels por
+    -- la UNIQUE constraint sobre parcel_id). Null si la parcela no tiene
+    -- schedule aún — el caller aplica el fallback (14d Farmland, 10d Orchards).
+    s.recommended_cadence_days AS recommended_cadence_days,
+    -- v2.1 (sprint S6.1 — V0 events map) — campos del V0 que nuestro schema
+    -- todavía no tiene. Se proyectan como NULL literal para que el
+    -- DjiParcelRecord los incluya (opcionales) y el render del mapa
+    -- degrade a "—" en vez de romper. Cuando se agreguen las tablas /
+    -- columnas correspondientes, se reemplazan los NULL por la columna
+    -- real. Ver lib/map-filter-logic.ts#toMapParcelView para el orden
+    -- de precedencia y MapParcelView para el shape público.
+    NULL::text AS client_name,
+    NULL::text AS farm_name,
+    NULL::text AS municipality,
+    NULL::text AS variety
   FROM dji_parcels p
   LEFT JOIN LATERAL (
     SELECT fumigation_date
@@ -115,4 +131,5 @@ export const djiParcelsQuery = `
      ORDER BY fumigation_date DESC
      LIMIT 1
   ) last_fum ON true
+  LEFT JOIN dji_fumigation_schedule s ON s.parcel_id = p.id
 `;

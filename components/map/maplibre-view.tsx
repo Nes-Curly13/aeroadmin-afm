@@ -51,6 +51,7 @@ import type { MapFumigationEvent } from "@/lib/map-filter-types";
 import { COLORS } from "@/lib/ui-tokens";
 import type { DjiAlertRecord, DjiDailySummaryRecord, DjiParcelRecord, FlightPointRecord } from "@/lib/types";
 import { getParcelA11yLabel, getParcelPopupContent } from "@/lib/map-parcel-content";
+import { formatDateWithWeekday } from "@/lib/format";
 
 const DEFAULT_CENTER: [number, number] = [-76.532, 3.4516]; // [lng, lat] Valle del Cauca
 const DEFAULT_ZOOM = 14;
@@ -207,6 +208,39 @@ function flightPointsToFeatureCollection(points: FlightPointRecord[]): FeatureCo
   };
 }
 
+/**
+ * v2.1 (sprint S6.1 — V0 events map) — convierte eventos de fumigación
+ * a un FeatureCollection de puntos. Los eventos sin `lng`/`lat` se
+ * descartan (no podemos plotearlos en el mapa sin coords; el caller
+ * debería haberlas resuelto del centroide de la parcela en
+ * `toMapFumigationEvent`).
+ *
+ * La estructura de properties está alineada con lo que el popup
+ * (`renderFumigationEventPopup`) espera leer.
+ */
+function fumigationEventsToFeatureCollection(events: MapFumigationEvent[]): FeatureCollection {
+  return {
+    type: "FeatureCollection",
+    features: events
+      .filter((e) => e.lng !== null && e.lat !== null)
+      .map(
+        (e): Feature => ({
+          type: "Feature",
+          properties: {
+            id: e.id,
+            parcel_id: e.parcel_id,
+            executed_at: e.executed_at,
+            source: e.source,
+            area_treated_ha: e.area_treated_ha,
+            volume_l: e.volume_l,
+            flights_count: e.flights_count
+          },
+          geometry: { type: "Point", coordinates: [e.lng as number, e.lat as number] }
+        })
+      )
+  };
+}
+
 // ============================================================
 // Helpers: flight point classification (idéntico a map-client.tsx)
 // ============================================================
@@ -296,14 +330,21 @@ export interface MapLibreViewProps {
   /** Si true, oculta todos los controles UI propios (basemap badge). Default: false. */
   hideControls?: boolean;
   /**
-   * v2.1 (sprint S6) — eventos de fumigación aplanados, en el shape
-   * que produce `lib/map-filter-logic.ts#toMapFumigationEvent`. La
-   * información ya está disponible para el caller; el render de
-   * markers en el mapa es TODO (no implementado en este commit —
-   * ver AGENTS.md sprint backlog). Se acepta la prop para que el
-   * data flow quede listo cuando entre el render.
+   * v2.1 (sprint S6.1 — V0 events map) — eventos de fumigación aplanados
+   * en el shape que produce `lib/map-filter-logic.ts#toMapFumigationEvent`.
+   * Se renderean como markers circulares en la capa
+   * `fumigation-events-circle`, con paint expression de color por
+   * `source` (djiscraper=azul, import=morado, manual=amarillo) y
+   * radio interpolado por zoom. Click → popup con detalle, hover →
+   * cursor pointer.
    */
   fumigationEvents?: MapFumigationEvent[];
+  /**
+   * v2.1 (sprint S6.1 — V0 events map) — toggle de visibilidad de la
+   * capa de fumigaciones. Default: true. Sincronizado con el switch
+   * "Aplicaciones en el rango" del `MapPageClient` (V0FilterRail).
+   */
+  showEvents?: boolean;
   /**
    * v2.1 (sprint S6) — callback invocado una vez cuando el map está
    * listo (`map.on("load")` ya disparó). El padre guarda la ref y
@@ -332,8 +373,9 @@ export function MapLibreView({
   showFlightPlan = true,
   showAlerts = true,
   showFlightPoints = true,
+  showEvents = true,
   hideControls = false,
-  fumigationEvents: _fumigationEvents,
+  fumigationEvents,
   onMapReady
 }: MapLibreViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -549,6 +591,46 @@ export function MapLibreView({
           "circle-stroke-opacity": 0.8
         }
       });
+
+      // v2.1 (sprint S6.1 — V0 events map) — eventos de fumigación
+      // como markers circulares. El data effect de abajo actualiza
+      // el source cuando cambia `fumigationEvents`. Color por source:
+      //   - djiscraper → azul (#3b82f6)
+      //   - import     → morado (#a855f7)
+      //   - manual     → amarillo (#fbbf24)
+      // El radio se interpola por zoom (3 → 12 px) para que se vea
+      // prominente en vistas regionales y compacto en zoom bajo.
+      map.addSource("fumigation-events", {
+        type: "geojson",
+        data: fumigationEventsToFeatureCollection([])
+      });
+      map.addLayer({
+        id: "fumigation-events-circle",
+        type: "circle",
+        source: "fumigation-events",
+        paint: {
+          "circle-color": [
+            "match",
+            ["get", "source"],
+            "djiscraper", "#3b82f6",
+            "import", "#a855f7",
+            "manual", "#fbbf24",
+            "#94a3b8" // fallback gris para sources desconocidas
+          ],
+          "circle-radius": [
+            "interpolate",
+            ["linear"],
+            ["zoom"],
+            10, 3,
+            14, 6,
+            18, 12
+          ],
+          "circle-stroke-color": "#ffffff",
+          "circle-stroke-width": 1.5,
+          "circle-opacity": 0.85,
+          "circle-stroke-opacity": 0.95
+        }
+      });
     }
 
     function bindInteractions(map: MlMap) {
@@ -614,6 +696,28 @@ export function MapLibreView({
       map.on("mouseleave", "flight-points-circle", () => {
         map.getCanvas().style.cursor = "";
       });
+
+      // v2.1 (sprint S6.1 — V0 events map) — click en event de fumigación
+      // abre popup con detalle (id, parcel_id, fecha es-CO, source label,
+      // área tratada, volumen, # de vuelos). Hover cambia el cursor.
+      // El evento NO emite onSelect (no selecciona parcela — es un marker
+      // de actividad histórica, no un polígono navegable).
+      map.on("click", "fumigation-events-circle", (e) => {
+        const feat = e.features?.[0];
+        if (!feat) return;
+        const p = feat.properties ?? {};
+        const html = renderFumigationEventPopup(p);
+        new (window as unknown as { maplibregl: typeof import("maplibre-gl") }).maplibregl.Popup({ closeButton: true })
+          .setLngLat(e.lngLat)
+          .setHTML(html)
+          .addTo(map);
+      });
+      map.on("mouseenter", "fumigation-events-circle", () => {
+        map.getCanvas().style.cursor = "pointer";
+      });
+      map.on("mouseleave", "fumigation-events-circle", () => {
+        map.getCanvas().style.cursor = "";
+      });
     }
 
     init();
@@ -669,6 +773,19 @@ export function MapLibreView({
     setGeoJSONSource(map, "flight-points", flightPointsToFeatureCollection(flightPoints));
   }, [flightPoints, ready]);
 
+  // v2.1 (sprint S6.1 — V0 events map) — actualizar el source
+  // `fumigation-events` cuando cambia la prop. Mismo patrón que
+  // flight-points: si la prop es undefined no tocamos el source
+  // (caso "sin eventos disponibles en el cliente" — el layer queda
+  // visible pero vacío). Misma caveat que el resto: tras un
+  // setStyle, este effect no re-dispara automáticamente (pre-existente
+  // en el código, ver `addLayersToExistingMap`).
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready || !fumigationEvents) return;
+    setGeoJSONSource(map, "fumigation-events", fumigationEventsToFeatureCollection(fumigationEvents));
+  }, [fumigationEvents, ready]);
+
   // === Fumigated flag (computed from fumigatedParcelIds) ===
   // Reinyectamos el flag en los properties del source parcels en lugar
   // de mantener un Map separado, así MapLibre puede evaluarlo en el
@@ -701,7 +818,10 @@ export function MapLibreView({
     toggleLayer(map, ["flight-plan-line"], showFlightPlan);
     toggleLayer(map, ["alerts-fill", "alerts-line"], showAlerts);
     toggleLayer(map, ["flight-points-circle"], showFlightPoints);
-  }, [showParcels, showWaypoints, showFlightPlan, showAlerts, showFlightPoints, ready]);
+    // v2.1 (sprint S6.1) — capa de fumigaciones, sincronizada con el
+    // switch "Aplicaciones en el rango" del V0FilterRail.
+    toggleLayer(map, ["fumigation-events-circle"], showEvents);
+  }, [showParcels, showWaypoints, showFlightPlan, showAlerts, showFlightPoints, showEvents, ready]);
 
   // === Auto fitBounds ===
   useEffect(() => {
@@ -855,6 +975,50 @@ function renderParcelPopup(props: Record<string, unknown>): string {
   return `<div role="dialog" aria-label="${escapeHtml(aria)}">${content}</div>`;
 }
 
+/**
+ * v2.1 (sprint S6.1 — V0 events map) — HTML del popup de un evento
+ * de fumigación. Espejo del popup de flight-points pero con los campos
+ * del `MapFumigationEvent`:
+ *   - id (interno, útil para debug / deep link futuro)
+ *   - parcel_id
+ *   - executed_at (formateado es-CO via `formatDateWithWeekday`)
+ *   - source (label humano)
+ *   - area_treated_ha
+ *   - volume_l
+ *   - flights_count
+ *
+ * Mismo patrón de `escapeHtml` que el resto de popups del componente.
+ */
+const FUMIGATION_SOURCE_LABELS: Record<string, string> = {
+  manual: "Manual",
+  import: "Import",
+  djiscraper: "DJI Scraper"
+};
+
+function renderFumigationEventPopup(props: Record<string, unknown>): string {
+  const id = props.id;
+  const parcelId = props.parcel_id;
+  const executedAt = String(props.executed_at ?? "");
+  const source = String(props.source ?? "");
+  const sourceLabel = FUMIGATION_SOURCE_LABELS[source] ?? source;
+  const areaHa = Number(props.area_treated_ha);
+  const volumeL = Number(props.volume_l);
+  const flights = Number(props.flights_count);
+  const dateLabel = /^\d{4}-\d{2}-\d{2}$/.test(executedAt) ? formatDateWithWeekday(executedAt) : executedAt;
+  const aria = `Aplicación #${id} sobre parcela ${parcelId} el ${dateLabel}`;
+  return (
+    `<div role="dialog" aria-label="${escapeHtml(aria)}">` +
+    `<strong>Aplicación #${escapeHtml(String(id))}</strong><br/>` +
+    `Fecha: ${escapeHtml(dateLabel)}<br/>` +
+    `Parcela: ${escapeHtml(String(parcelId))}<br/>` +
+    `Origen: ${escapeHtml(sourceLabel)}<br/>` +
+    `Área tratada: ${escapeHtml(Number.isFinite(areaHa) ? areaHa.toFixed(2) : "0.00")} ha<br/>` +
+    `Volumen: ${escapeHtml(Number.isFinite(volumeL) ? volumeL.toFixed(1) : "0.0")} L<br/>` +
+    `Vuelos: ${escapeHtml(Number.isFinite(flights) ? String(flights) : "0")}` +
+    `</div>`
+  );
+}
+
 function addLayersToExistingMap(map: MlMap) {
   // Re-add sources and layers después de un setStyle. MapLibre limpia
   // todo al cambiar el style. Esta función es la misma que addSourcesAndLayers
@@ -1002,6 +1166,39 @@ function addLayersToExistingMap(map: MlMap) {
         COLORS.completed
       ],
       "circle-stroke-width": 1
+    }
+  });
+  // v2.1 (sprint S6.1 — V0 events map) — re-add del source+layer de
+  // eventos de fumigación después de un setStyle (que borra todo).
+  // Mantiene el contrato de paint expression idéntico al init en
+  // `addSourcesAndLayers`.
+  map.addSource("fumigation-events", {
+    type: "geojson",
+    data: fumigationEventsToFeatureCollection([])
+  });
+  map.addLayer({
+    id: "fumigation-events-circle",
+    type: "circle",
+    source: "fumigation-events",
+    paint: {
+      "circle-color": [
+        "match",
+        ["get", "source"],
+        "djiscraper", "#3b82f6",
+        "import", "#a855f7",
+        "manual", "#fbbf24",
+        "#94a3b8"
+      ],
+      "circle-radius": [
+        "interpolate",
+        ["linear"],
+        ["zoom"],
+        10, 3,
+        14, 6,
+        18, 12
+      ],
+      "circle-stroke-color": "#ffffff",
+      "circle-stroke-width": 1.5
     }
   });
 }

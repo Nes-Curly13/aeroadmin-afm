@@ -546,6 +546,7 @@ export function MapPageClient({
             onSelect={setSelectedParcelId}
             parcels={parcels}
             selectedParcelId={selectedParcelId}
+            showEvents={layers.showEvents}
           />
 
           {/*

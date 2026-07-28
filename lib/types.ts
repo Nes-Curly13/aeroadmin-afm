@@ -62,6 +62,29 @@ export interface DjiParcelRecord {
   // "nunca fumigada" (null) — son dos alertas distintas para el operador.
   last_fumigation_date?: string | null;
   days_since_last_fumigation?: number | null;
+  // v2.1 (sprint S6.1 — V0 events map) — cadencia esperada por parcela.
+  // Viene de la tabla `dji_fumigation_schedule` (LEFT JOIN en
+  // `djiParcelsQuery`). Null si la parcela todavía no tiene schedule
+  // creado — el caller (`toMapParcelView`) cae al default
+  // Farmland=14d / Orchards=10d.
+  recommended_cadence_days?: number | null;
+  // v2.1 (sprint S6.1 — V0 events map) — campos del V0 que nuestro schema
+  // NO tiene. La query los proyecta como `NULL` literal hasta que se
+  // agreguen las tablas/columnas correspondientes. Opcionales y siempre
+  // null por ahora — el `toMapParcelView` los pasa tal cual a
+  // `MapParcelView` y los filtros (`uniqueClients`, `uniqueFarms`) los
+  // ignoran. Cuando los datos estén disponibles, el caller (filtros
+  // client-side) se "despierta" sin cambios de UI.
+  //
+  // Mapeo previsto (ver `MapParcelView` para el shape público):
+  //   - client_name   →  clients.name        (no existe aún)
+  //   - farm_name     →  farms.name          (no existe aún)
+  //   - municipality  →  reverse-geocoding   (no existe aún)
+  //   - variety       →  crop_type detail    (parcial: `crop_type` ya existe)
+  client_name?: string | null;
+  farm_name?: string | null;
+  municipality?: string | null;
+  variety?: string | null;
 }
 
 export interface DjiDailySummaryRecord {

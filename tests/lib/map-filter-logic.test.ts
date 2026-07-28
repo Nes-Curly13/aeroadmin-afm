@@ -171,6 +171,52 @@ describe("toMapParcelView", () => {
     expect(view.events_in_range).toBe(0);
     expect(view.ha_in_range).toBe(0);
   });
+
+  // v2.1 (sprint S6.1 — V0 events map) — los 4 campos del V0 ahora se
+  // propagan desde `DjiParcelRecord` si están presentes. Si no, null
+  // (no rompe). Estos tests cubren el contrato del sprint.
+  it("propaga client_name/farm_name/municipality/variety si vienen en el parcel", () => {
+    const view = toMapParcelView(
+      makeParcel({
+        client_name: "Manuelita",
+        farm_name: "Esperanza",
+        municipality: "Palmira",
+        variety: "CC 01-1940",
+        crop_type: "CC 85-92" // se ignora porque variety tiene precedencia
+      })
+    );
+    expect(view.client_name).toBe("Manuelita");
+    expect(view.farm_name).toBe("Esperanza");
+    expect(view.municipality).toBe("Palmira");
+    expect(view.variety).toBe("CC 01-1940");
+  });
+
+  it("degrada a null cuando los campos V0 no están seteados (no rompe)", () => {
+    const view = toMapParcelView(makeParcel({ crop_type: null }));
+    expect(view.client_name).toBeNull();
+    expect(view.farm_name).toBeNull();
+    expect(view.municipality).toBeNull();
+    expect(view.variety).toBeNull();
+  });
+
+  it("usa recommended_cadence_days del schedule si está set y > 0", () => {
+    // Schedule dice 7 días, pero el field_type es Farmland (default 14).
+    // El del schedule gana porque es la cadencia OPERATIVA que el
+    // supervisor ajustó manualmente.
+    const view = toMapParcelView(
+      makeParcel({ field_type: "Farmland", recommended_cadence_days: 7 })
+    );
+    expect(view.cadence_days).toBe(7);
+  });
+
+  it("cae al default por field_type cuando recommended_cadence_days es null/0", () => {
+    expect(
+      toMapParcelView(makeParcel({ field_type: "Farmland", recommended_cadence_days: null })).cadence_days
+    ).toBe(14);
+    expect(
+      toMapParcelView(makeParcel({ field_type: "Orchards", recommended_cadence_days: 0 })).cadence_days
+    ).toBe(10);
+  });
 });
 
 describe("toMapFumigationEvent", () => {

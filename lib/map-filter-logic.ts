@@ -58,11 +58,25 @@ export function toCadenceStatus(s: FumigationStatus): CadenceStatus {
 }
 
 /**
- * Devuelve la cadencia por defecto para una parcela según su `field_type`.
- * Si no hay `field_type` o no está en los defaults, devuelve
- * `FALLBACK_CADENCE_DAYS`.
+ * Devuelve la cadencia esperada para una parcela.
+ *
+ * Orden de precedencia (v2.1 — sprint S6.1 / V0 events map):
+ *   1. `parcel.recommended_cadence_days` (de `dji_fumigation_schedule`,
+ *      LEFT JOIN en `djiParcelsQuery`) si está set y > 0.
+ *   2. Default por `field_type` (Farmland=14, Orchards=10).
+ *   3. `FALLBACK_CADENCE_DAYS` (14) si el field_type es null o
+ *      desconocido.
+ *
+ * Antes de S6.1 solo existía (2) → (3). La nueva ruta (1) refleja la
+ * cadencia OPERATIVA que el supervisor ajusta manualmente (ver
+ * `setFumigationCadence` en `api/repositories.ts`) — es la fuente
+ * de verdad para "vencida / al día" en el dot de cadencia del mapa.
  */
 export function getCadenceDays(parcel: DjiParcelRecord): number {
+  const fromSchedule = parcel.recommended_cadence_days;
+  if (fromSchedule !== undefined && fromSchedule !== null && fromSchedule > 0) {
+    return fromSchedule;
+  }
   if (!parcel.field_type) return FALLBACK_CADENCE_DAYS;
   return CADENCE_DEFAULTS[parcel.field_type] ?? FALLBACK_CADENCE_DAYS;
 }
@@ -115,6 +129,16 @@ export function computeParcelCentroid(
  * Enriquece un `DjiParcelRecord` al shape `MapParcelView` con su status
  * de cadencia computado y metadata derivada. Mantiene la separación
  * `null` vs "ausente" para que el render del lado UI pueda decidir.
+ *
+ * v2.1 (sprint S6.1 / V0 events map) — los 4 campos del V0
+ * (`client_name`/`farm_name`/`municipality`/`variety`) se proyectan desde
+ * el `DjiParcelRecord` extendido (ver `api/queries.ts#djiParcelsQuery`).
+ * Mientras el schema no los provea, la query los devuelve como `NULL`
+ * y el render del mapa cae a "—" automáticamente — no se rompe nada.
+ *
+ * `variety` tiene precedencia `parcel.variety ?? parcel.crop_type` para
+ * soportar tanto el caso "V0 column directo" como el fallback
+ * pragmático al `crop_type` que ya teníamos en S5.
  */
 export function toMapParcelView(parcel: DjiParcelRecord): MapParcelView {
   const cadence = getCadenceDays(parcel);
@@ -123,10 +147,10 @@ export function toMapParcelView(parcel: DjiParcelRecord): MapParcelView {
   return {
     id: parcel.id,
     name: parcel.land_name ?? `(Parcela #${parcel.id})`,
-    farm_name: null, // TODO: DjiParcelRecord no tiene farm_name
-    client_name: null, // TODO: DjiParcelRecord no tiene client_name
-    municipality: null, // TODO: DjiParcelRecord no tiene municipality
-    variety: parcel.crop_type ?? null, // map crop_type → variety
+    farm_name: parcel.farm_name ?? null,
+    client_name: parcel.client_name ?? null,
+    municipality: parcel.municipality ?? null,
+    variety: parcel.variety ?? parcel.crop_type ?? null,
     area_ha: parcel.declared_area_ha,
     drone_model_code: parcel.drone_model_code,
     drone_model_name: parcel.drone_model_name,
