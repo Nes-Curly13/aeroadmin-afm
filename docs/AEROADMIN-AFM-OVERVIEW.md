@@ -1,7 +1,7 @@
 # AeroAdmin AFM — Overview General
 
 > Documento de referencia para entender, **replicar y mejorar** el proyecto en **V0.dev** (u otra IA generativa de UI).
-> Stack actual: **Next.js 16 + React 19 + TypeScript + Tailwind v4 + Leaflet + NextAuth v5 + PostGIS/Supabase + Playwright/Vitest**.
+> Stack actual: **Next.js 16 + React 19 + TypeScript + Tailwind v4 + MapLibre GL JS 6.0 + NextAuth v5 + PostGIS/Supabase + Playwright/Vitest**.
 > Idioma de UI: **español** (locución: operador cañero del Valle del Cauca, Colombia).
 
 ---
@@ -99,14 +99,14 @@ Cada página es un **Server Component** (salvo `/login` y los clientes interacti
 
 ### 3.3 `/map` — Mapa de Operaciones
 
-- **Tipo**: Server Component que pasa a `MapPageClient` (cliente Leaflet).
+- **Tipo**: Server Component que pasa a `MapPageClient` (cliente MapLibre).
 - **Queries paralelas (3)**:
   1. `getParcelsNormalized(1, 200, { droneModelCode?, fieldType? })` → geometrías `spray_geom` para polígonos.
   2. `getFumigatedParcelIdsSince(6 meses)` → Set de IDs fumigados (para filtro "Sí fumigada / No fumigada").
   3. `getParcelsSummary()` → agregado por dron.
 - **Filtros via URL searchParams**: `?drone=72&crop=Farmland&fumigated=yes|no`.
-- **Capas Leaflet**:
-  - Polígonos de parcelas (verde claro si fumigada, gris si no).
+- **Capas MapLibre** (GeoJSON sources + paint expressions):
+  - Polígonos de parcelas (verde brand si fumigada, dashed gris si no).
   - Polígono de "reference_point" + waypoints (cluster on click).
   - (Opcional futuro) Capa de vuelos con `CircleMarker` por `dji_flights.lng/lat`.
 - **Drawer lateral**: filtros + lista de parcelas, click → abre `parcels/[id]`.
@@ -303,7 +303,7 @@ Cuando le pidas a V0.dev que mejore o replique pantallas:
    - El shape JSON de ejemplo (ver sección 4 — endpoints API).
    - El status visual (colores de chips, íconos).
 
-3. **El mapa SIG** es la pieza más difícil para V0. Mejor estrategia: armá un mapa estático con `<Map>` de una librería (Mapbox/Leaflet) y después pedí que V0 le agregue capas. Si V0 no entiende PostGIS, pasale un JSON de ejemplo con `FeatureCollection` de GeoJSON.
+3. **El mapa SIG** es la pieza más difícil para V0. Mejor estrategia: armá un mapa estático con `<Map>` de una librería (Mapbox/MapLibre) y después pedí que V0 le agregue capas. Si V0 no entiende PostGIS, pasale un JSON de ejemplo con `FeatureCollection` de GeoJSON.
 
 4. **Las alertas** son siempre:
    - `HIGH` (rojo) — fumigación vencida hace >30 días o sin historial.
@@ -369,7 +369,7 @@ HEALTH_TOKEN=...
 2. **Replicar `/` Dashboard** con un BentoGrid de 5 metric cards + 2 cards medianas + 1 card full-width. Datos mockeados si V0 no puede leer de Supabase.
 3. **Replicar `/parcels`** con tabla sort/filter. Chips de cadencia.
 4. **Replicar `/parcels/[id]`** con 3 paneles apilados (Fumigaciones, Historial, Detalle).
-5. **Replicar `/map`** con un layout 60/40, mapa Leaflet y drawer de filtros.
+5. **Replicar `/map`** con un layout 60/40, mapa MapLibre y drawer de filtros.
 6. **Replicar `/task-history`** (la más compleja — layout 60/40 con mapa + sidebar de días).
 7. **Replicar `/parcels/overdue`** (la más simple después de /devices — tabla con 4 chips de resumen).
 8. **Replicar `/admin/orphan-fumigations`** solo si vas a mantener el panel admin.
@@ -378,6 +378,6 @@ Si V0 no puede generar el mapa SIG completo en una sola pasada, generá primero 
 
 ---
 
-**Última actualización**: 2026-07-27
+**Última actualización**: 2026-07-28 (sprint S5 cerrado — MapLibre + V0 port; S6 en curso)
 **Mantenedor**: AeroAdmin AFM — single contributor
-**Stack**: Next.js 16.2.4 · React 19.2.5 · TypeScript 5.9.3 · Tailwind 4.2.4 · Leaflet 1.9.4 · NextAuth 5.0 beta · PostGIS/Supabase
+**Stack**: Next.js 16.2.4 · React 19.2.5 · TypeScript 5.9.3 · Tailwind 4.2.4 · MapLibre GL JS 6.0 · NextAuth 5.0 beta · PostGIS/Supabase

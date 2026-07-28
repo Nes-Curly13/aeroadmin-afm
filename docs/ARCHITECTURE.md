@@ -119,7 +119,9 @@ AeroAdmin AFM **no es un scraper HTML** y **no está enlazado oficialmente a DJI
    │   • bcryptjs para passwords│
    │  UI components:            │
    │   • Bento dashboard         │
-   │   • Leaflet map + filters   │
+   │   • MapLibre map + filters  │
+   │   • KpiPill + TimeRange     │
+   │   • ParcelsList rail        │
    │   • Mobile sidebar drawer   │
    │   • CSV export (Excel-es)   │
    │   • Empty state pattern     │
@@ -252,7 +254,7 @@ Lógica en `lib/djiag-health.ts`, route en `app/api/admin/djiag-health/route.ts`
 | Capa | Tech | Versión |
 |---|---|---|
 | Frontend | Next.js + React | 16.2.4 + 19.2.5 |
-| Map | Leaflet + react-leaflet | 1.9.4 + 5.0.0 |
+| Map | **MapLibre GL JS** | 6.0.0 |
 | DB driver | pg | 8.20.0 |
 | Auth | NextAuth v5 (beta) | 5.0.0-beta.31 |
 | Passwords | bcryptjs (puro JS) | 3.0.3 |

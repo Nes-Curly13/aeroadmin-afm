@@ -55,6 +55,13 @@ export interface ParcelsListProps {
    * muestra "—" en el contador.
    */
   countsByParcel?: Map<number, number>;
+  /**
+   * v2.1 (sprint S6) — Map<parcelId, ha> de hectáreas fumigadas en el
+   * rango activo. Se muestra en el header expandido de la parcela
+   * seleccionada (no en cada item del listado — sería ruido). Si se
+   * omite, el header muestra "—".
+   */
+  haInRangeByParcel?: Map<number, number>;
   /** Cadencia por defecto si la parcela no tiene `cadence_days` propio. */
   defaultCadenceDays?: number;
 }
@@ -64,6 +71,7 @@ export function ParcelsList({
   selectedId,
   onSelect,
   countsByParcel,
+  haInRangeByParcel,
   defaultCadenceDays = 14
 }: ParcelsListProps) {
   // Decorar parcelas con status + count + última fumigación.
@@ -77,7 +85,8 @@ export function ParcelsList({
       return {
         parcel: p,
         status,
-        count: countsByParcel?.get(p.id) ?? null
+        count: countsByParcel?.get(p.id) ?? null,
+        haInRange: haInRangeByParcel?.get(p.id) ?? null
       };
     })
     // Orden: status de mayor urgencia primero, después por id estable.
@@ -89,6 +98,7 @@ export function ParcelsList({
     });
 
   const selectedItem = items.find((i) => i.parcel.id === selectedId) ?? null;
+  const selectedHaInRange = selectedItem?.haInRange ?? null;
 
   return (
     <aside
@@ -139,6 +149,12 @@ export function ParcelsList({
               <dt className="text-[10px] uppercase tracking-wider text-muted-foreground">En el rango</dt>
               <dd className="font-mono font-medium">
                 {selectedItem.count !== null ? `${selectedItem.count} aplic.` : "—"}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[10px] uppercase tracking-wider text-muted-foreground">Ha en el rango</dt>
+              <dd className="font-mono font-medium">
+                {selectedHaInRange !== null ? `${selectedHaInRange.toFixed(1)} ha` : "—"}
               </dd>
             </div>
           </dl>

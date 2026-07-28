@@ -5,6 +5,8 @@
 
 AeroAdmin AFM es la plataforma admin para el operador de drones cañero en Valle del Cauca, Colombia. Lee datos de la nube de DJI SmartFarm, los persiste en PostGIS, y los expone vía Next.js. Cliente: 1 piloto, ~1200 parcelas, ~16k vuelos, ~17k fumigaciones. Single contributor (1 dev).
 
+**Estado actual (2026-07-28)**: sprint **S5 cerrado** (migración a MapLibre + port del mockup V0: primitives UI accesibles, KpiPill overlay, TimeRange slider, ParcelsList rail, drawer de filtros colapsable). Sprint **S6 en curso** (polish del MapPageClient + sidebar de salud del pipeline DJI). Ver `docs/V0_ADAPTATION.md` para la bitácora completa.
+
 ---
 
 ## 1. Mapa rápido del repo
@@ -15,6 +17,8 @@ AeroAdmin AFM es la plataforma admin para el operador de drones cañero en Valle
 | `api/` | Capa de data access. `api/repositories.ts` (CRUD genérico) + `api/queries.ts` (queries pre-armadas). **Único punto permitido para queries de BD desde `app/`.** |
 | `lib/` | Lógica de negocio pura, framework-agnostic. Aquí viven alertas, cadencia, agregaciones, parsers. |
 | `components/` | React components. Reciben datos por props. **No importan `api/**` ni `lib/db.ts`.** |
+| `components/ui/` | Primitives accesibles propios (patrón shadcn-style): `page-header`, `field-select`, `toggle-button`, `switch`, `kpi-pill`, `filter-sidebar`, `metric-card`, `bento-grid`, `empty-state`, `pagination`, `scrollable-panel`. Ver `docs/TDD.md` §2. |
+| `components/map/` | Wrappers del mapa (MapLibre) y derivados de la adaptación V0: `map-page-client`, `maplibre-view`, `map-filter-sidebar`, `map-legend`, `map-stats-island`, `parcels-list`, `parcel-detail-panel`, `parcel-search`, `parcel-selector`, `time-range`. |
 | `scripts/` | CLI del pipeline DJI (scrape, upsert, backfill, refresh). Se ejecutan vía `npm run`. |
 | `db/` | Migrations SQL. |
 | `supabase/` | Config de Supabase (si aplica). |
@@ -24,15 +28,18 @@ AeroAdmin AFM es la plataforma admin para el operador de drones cañero en Valle
 
 **Documentos clave que tenés que leer antes de tocar nada:**
 
-1. `docs/ARCHITECTURE.md` — de dónde vienen los datos, cómo fluyen, qué hace cada capa.
-2. `docs/SPEC.md` — qué hace el producto, roles, vistas, KPIs.
-3. `docs/STACK.md` — versiones, decisiones de stack, gotchas.
-4. `docs/FUMIGATION_CADENCE.md` — la regla de negocio más sensible (cuándo una parcela necesita fumigación).
-5. `docs/files_TDD/04_GAUNTLET_DE_CALIDAD.md` — la metodología de calidad (7 compuertas).
-6. `docs/files_TDD/ADOPTION.md` — estado actual de adopción de las compuertas, qué está activo, qué falta.
-7. `docs/DJI_SCRAPER.md` + `docs/DJI_CLOUD_API.md` — el scraper (la parte más frágil).
+1. `docs/SDD.md` — diseño de producto (qué es, para quién, qué no es). **Sustituye al SDD implícito que vivía acá.**
+2. `docs/TDD.md` — diseño técnico (cómo está implementado, patrones de UI, MapLibre setup, state derivado).
+3. `docs/ARCHITECTURE.md` — de dónde vienen los datos, cómo fluyen, qué hace cada capa.
+4. `docs/SPEC.md` — qué hace el producto, roles, vistas, KPIs.
+5. `docs/STACK.md` — versiones, decisiones de stack, gotchas.
+6. `docs/V0_ADAPTATION.md` — bitácora del sprint S5/S6 (qué se copió del mockup V0, qué se decidió distinto).
+7. `docs/FUMIGATION_CADENCE.md` — la regla de negocio más sensible (cuándo una parcela necesita fumigación).
+8. `docs/files_TDD/04_GAUNTLET_DE_CALIDAD.md` — la metodología de calidad (7 compuertas).
+9. `docs/files_TDD/ADOPTION.md` — estado actual de adopción de las compuertas, qué está activo, qué falta.
+10. `docs/DJI_SCRAPER.md` + `docs/DJI_CLOUD_API.md` — el scraper (la parte más frágil).
 
-> **Próximamente (cuando estén escritos):** `01_SDD.md`, `02_TDD.md`, `03_MEJORES_PRACTICAS_AGENTES.md` — la serie completa que el Gauntlet referencia. Por ahora, este AGENTS.md hace de `03` (prácticas para agentes) y `docs/ARCHITECTURE.md` + `docs/SPEC.md` hacen de `01` (SDD implícito).
+> Este AGENTS.md hace de `03_MEJORES_PRACTICAS_AGENTES.md` (prácticas para agentes). `docs/SDD.md` y `docs/TDD.md` son los `01` y `02` formales (escritos en el sprint S5, 2026-07-28).
 
 ---
 
@@ -142,7 +149,8 @@ Verificado por: `dependency-cruiser` (fitness function de arquitectura). Comando
 - **Framework**: Next.js 16.2.4 + React 19.2.5
 - **DB**: Postgres 16 + PostGIS 3.4 (local: docker; prod: Supabase pooled URL puerto 6543)
 - **Auth**: NextAuth v5 (beta.31)
-- **Maps**: Leaflet 1.9.4 + react-leaflet 5.0.0
+- **Maps**: **MapLibre GL JS 6.0** (Leaflet + react-leaflet eliminados en S5)
+- **Primitives UI**: propios en `components/ui/`, patrón shadcn-style con `cn()` (clsx + tailwind-merge). `@base-ui/react 1.6` instalado pero reservado, aún no usado en runtime.
 - **Tests**: Vitest 3.2.4 + @vitest/coverage-v8 + Playwright 1.61.1
 - **TypeScript**: 5.9.3, `strict: true`, sin `any` explícito
 - **Scraper**: Playwright headless contra DJI SmartFarm Web (Coreano via `accept-language: zh-CN,zh`)
@@ -177,5 +185,5 @@ Un PR de un agente está listo para merge cuando:
 
 ---
 
-**Última actualización:** 2026-07-28 (sprint de adopción del Quality Gauntlet).
+**Última actualización:** 2026-07-28 (sprint S5 cerrado — MapLibre + V0 port; S6 en curso).
 **Mantenedor:** @agFab (single contributor).

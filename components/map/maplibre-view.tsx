@@ -47,6 +47,7 @@ import type { Feature, FeatureCollection } from "geojson";
 import type { Map as MlMap, StyleSpecification } from "maplibre-gl";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getParcelPolygonStyle } from "@/lib/map-styles";
+import type { MapFumigationEvent } from "@/lib/map-filter-types";
 import { COLORS } from "@/lib/ui-tokens";
 import type { DjiAlertRecord, DjiDailySummaryRecord, DjiParcelRecord, FlightPointRecord } from "@/lib/types";
 import { getParcelA11yLabel, getParcelPopupContent } from "@/lib/map-parcel-content";
@@ -294,6 +295,26 @@ export interface MapLibreViewProps {
   showFlightPoints?: boolean;
   /** Si true, oculta todos los controles UI propios (basemap badge). Default: false. */
   hideControls?: boolean;
+  /**
+   * v2.1 (sprint S6) — eventos de fumigación aplanados, en el shape
+   * que produce `lib/map-filter-logic.ts#toMapFumigationEvent`. La
+   * información ya está disponible para el caller; el render de
+   * markers en el mapa es TODO (no implementado en este commit —
+   * ver AGENTS.md sprint backlog). Se acepta la prop para que el
+   * data flow quede listo cuando entre el render.
+   */
+  fumigationEvents?: MapFumigationEvent[];
+  /**
+   * v2.1 (sprint S6) — callback invocado una vez cuando el map está
+   * listo (`map.on("load")` ya disparó). El padre guarda la ref y
+   * puede llamar `map.flyTo({ bounds })` / `map.fitBounds(...)` desde
+   * sus propios useEffect (típicamente cuando cambia el filtro de
+   * parcels y queremos re-encuadrar).
+   *
+   * El callback se llama UNA VEZ. Si el padre necesita re-llamarlo
+   * (p.ej. tras un setStyle), debe manejar su propia state.
+   */
+  onMapReady?: (map: MlMap) => void;
 }
 
 export function MapLibreView({
@@ -311,7 +332,9 @@ export function MapLibreView({
   showFlightPlan = true,
   showAlerts = true,
   showFlightPoints = true,
-  hideControls = false
+  hideControls = false,
+  fumigationEvents: _fumigationEvents,
+  onMapReady
 }: MapLibreViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MlMap | null>(null);
@@ -354,6 +377,11 @@ export function MapLibreView({
         addSourcesAndLayers(m);
         bindInteractions(m);
         setReady(true);
+        // v2.1 (sprint S6) — avisarle al padre que el map está listo,
+        // para que pueda hacer fitBounds / flyTo programático cuando
+        // cambien los filtros. Solo se llama una vez (el padre
+        // mantiene su propia ref de la map instance).
+        onMapReady?.(m);
       });
 
       map.on("zoomend", () => {

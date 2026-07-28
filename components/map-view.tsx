@@ -1,9 +1,11 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import type { Map as MlMap } from "maplibre-gl";
 
 import { MapLegend } from "@/components/map/map-legend";
 import type { DjiAlertRecord, DjiDailySummaryRecord, DjiParcelRecord, FlightPointRecord } from "@/lib/types";
+import type { MapFumigationEvent } from "@/lib/map-filter-types";
 
 /**
  * v2.0 (2026-07-28) — migración Leaflet → MapLibre.
@@ -19,6 +21,10 @@ import type { DjiAlertRecord, DjiDailySummaryRecord, DjiParcelRecord, FlightPoin
  *   - Reemplazar Leaflet `<LayersControl>` por panel de toggles propio
  *     en `MapPageClient` (los props `showParcels`, `showWaypoints`, etc.
  *     ya están en `MapLibreView`).
+ *
+ * v2.1 (sprint S6) — se agregan las props `onMapReady` y `fumigationEvents`
+ * para que el padre pueda hacer fitBounds programático y para plumbrar
+ * los eventos de fumigación (render de markers en el mapa es TODO S6.1).
  */
 const MapLibreView = dynamic(
   () => import("@/components/map/maplibre-view").then((m) => m.MapLibreView),
@@ -51,6 +57,18 @@ export interface MapViewProps {
   // v2.0 — parcel seleccionada (opcional). MapLibreView hace fly-to + highlight.
   selectedParcelId?: number | null;
   onSelect?: (id: number | null) => void;
+  /**
+   * v2.1 (sprint S6) — callback invocado una vez cuando el map está listo.
+   * El padre guarda la ref y puede llamar `map.flyTo({ bounds })` /
+   * `map.fitBounds(...)` desde sus propios useEffect.
+   */
+  onMapReady?: (map: MlMap) => void;
+  /**
+   * v2.1 (sprint S6) — eventos de fumigación aplanados para el data
+   * plumbing del V0 port. El render de markers en el mapa es TODO
+   * (sprint S6.1); en este commit la prop se acepta pero no se usa.
+   */
+  fumigationEvents?: MapFumigationEvent[];
 }
 
 /**
@@ -60,6 +78,9 @@ export interface MapViewProps {
  *   - Mapa + leyenda abajo-izquierda.
  *   - topRightSlot para filtros/chips del page header.
  *   - Click en polígono → popup con detalle + onSelect (v2.0 nuevo).
+ *
+ * v2.1 (2026-07-28) — agrega forward de `onMapReady` y `fumigationEvents`
+ * al MapLibreView.
  */
 export function MapView({
   parcels,
@@ -69,7 +90,9 @@ export function MapView({
   fumigatedParcelIds,
   topRightSlot,
   selectedParcelId,
-  onSelect
+  onSelect,
+  onMapReady,
+  fumigationEvents
 }: MapViewProps) {
   return (
     <div className="relative h-full w-full overflow-hidden rounded-2xl border border-[#d2ddd6] bg-white shadow-[0px_18px_40px_rgba(15,23,42,0.08)]">
@@ -79,6 +102,8 @@ export function MapView({
           flightPoints={flightPoints}
           flights={flights}
           fumigatedParcelIds={fumigatedParcelIds}
+          fumigationEvents={fumigationEvents}
+          onMapReady={onMapReady}
           onSelect={onSelect}
           parcels={parcels}
           selectedParcelId={selectedParcelId}
@@ -99,3 +124,4 @@ export function MapView({
     </div>
   );
 }
+

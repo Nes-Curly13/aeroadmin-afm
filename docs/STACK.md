@@ -1,6 +1,6 @@
 # AeroAdmin AFM — Resumen técnico del stack y features
 
-> Documento vivo. Snapshot al 2026-07-15.
+> Documento vivo. Snapshot al 2026-07-28 (post-S5: MapLibre + V0 port).
 > Repo: `C:\dev\DroneFlightAFM` (movido fuera de OneDrive el 2026-07-13).
 > Rama: `main`. Sin remote (riesgo histórico; ver `docs/audit/BITACORA.md`).
 
@@ -35,9 +35,11 @@ Panel administrativo / SIG interno para un operador de fumigación con drones
 | UI runtime | **React** | `19.2.5` | Client components solo cuando hay interactividad |
 | Lenguaje | **TypeScript** | `5.9.3` | `strict`, sin `any` en código de producto |
 | Estilos | **Tailwind CSS v4** + PostCSS | `4.2.4` | Hex inline + tokens semánticos en `lib/ui-tokens.ts` |
+| **Primitives UI** | **propios en `components/ui/`** (shadcn-style) | – | Patrón shadcn replicado a mano: `cn()` (clsx + tailwind-merge), `data-slot`, `useId()`, CVA cuando hace falta. Primitives: `PageHeader`, `FieldSelect`, `ToggleButton`, `Switch`, `KpiPill`, `FilterSidebar` + `FilterSidebarSection`, `MetricCard`, `BentoGrid`, `EmptyState`, `Pagination`, `ScrollablePanel`. Ver `docs/TDD.md` §2. |
+| **Primitives reservado** | **@base-ui/react** | `^1.6.0` | Instalado pero **no usado en runtime** todavía. Reservado para primitives no triviales (Slider doble, Combobox, Dialog con focus trap). Decisión: NO adoptar shadcn CLI (ver `docs/V0_ADAPTATION.md` §4.1). |
 | Tipografía | **Inter** (Google Fonts) | – | Pesos 400/500/600/700/800/900 |
-| Mapa | **Leaflet** + `react-leaflet` | `1.9.4` / `5.0.0` | Render en cliente (`components/map-client.tsx`) |
-| Iconos | SVG inline (sin librería) | – | `NavIcon` en `components/app-shell.tsx` |
+| Iconos | `lucide-react` | `^1.27.0` | Tree-shakeable, `aria-hidden` en decorativos |
+| Mapa | **MapLibre GL JS** | `6.0.0` | **Sustituye a Leaflet desde S5** (Leaflet + react-leaflet eliminados). Wrapper en `components/map/maplibre-view.tsx` (cargado via `next/dynamic` con `ssr: false`). Patrón shadcn-style con paint expressions inline, `feature-state` para selección, `setStyle` re-add layers. Migración de mini-mapa y task-history también cubiertas. |
 | Auth cliente | **NextAuth v5** (beta) | `5.0.0-beta.31` | JWT strategy, cookie `afm.session` |
 
 ### 2.2 Backend (Next.js route handlers + scripts)
@@ -104,9 +106,10 @@ DroneFlightAFM/
 │   │   ├── fumigations/upcoming/ # Próximas fumigaciones (cadencia)
 │   │   ├── fumigation-schedule/[parcelId]/
 │   │   ├── task-history/         # Snapshot rollup por día + polygons
+│   │   ├── map/summary/          # v2.0: summary live (KpiPill) para TimeRange
 │   │   └── alerts/
 │   ├── page.tsx                  # Dashboard
-│   ├── map/page.tsx              # Mapa Leaflet
+│   ├── map/page.tsx              # Mapa (orquesta data + renderiza MapPageClient)
 │   ├── history/page.tsx          # Historial plano
 │   ├── task-history/             # Task History (Figma frame B)
 │   │   ├── page.tsx              # Server component, orquesta data
@@ -120,23 +123,30 @@ DroneFlightAFM/
 │   └── not-found.tsx
 ├── components/                   # React components
 │   ├── app-shell.tsx             # Sidebar + header (server)
-│   ├── map-view.tsx, map-client.tsx
+│   ├── map-view.tsx              # Wrapper next/dynamic de MapLibreView (ssr:false)
+│   ├── metric-card.tsx           # Shim deprecado que re-exporta ui/metric-card
 │   ├── dashboard/                # alerts-panel, operations-panel,
 │   │                             # operations-summary, recent-flights-list,
 │   │                             # upcoming-fumigations
-│   ├── map/                      # map-legend, parcel-detail-panel,
-│   │                             # parcel-selector
+│   ├── map/                      # v2.0 (S5): map-page-client (orquestador),
+│   │                             # maplibre-view (WebGL), map-filter-sidebar
+│   │                             # (drawer colapsable), map-legend, parcels-list
+│   │                             # (rail), parcel-detail-panel, parcel-selector,
+│   │                             # parcel-search, time-range (slider+histograma),
+│   │                             # map-stats-island, map-stats-skeleton
 │   ├── history/history-table.tsx
 │   ├── parcels/                  # parcel-detail, parcel-edit-panel,
-│   │                             # parcel-fumigations, parcel-mini-map,
+│   │                             # parcel-fumigations, parcel-mini-map (MapLibre),
 │   │                             # cadence-editor
 │   ├── devices/device-grid.tsx
 │   ├── task-history/             # date-range-picker, day-card, day-list,
-│   │                             # filter-button, header-card, map-view,
+│   │                             # filter-button, header-card, map-view (MapLibre),
 │   │                             # metrics-grid, screenshot-button, tab-switcher
-│   ├── ui/                       # metric-card, badge, empty-state,
-│   │                             # section-card (reutilizables)
-│   └── metric-card.tsx           # Shim deprecado que re-exporta ui/metric-card
+│   ├── ui/                       # Primitives accesibles (shadcn-style):
+│   │                             # page-header, field-select, toggle-button,
+│   │                             # switch, kpi-pill, filter-sidebar (+ section),
+│   │                             # metric-card, bento-grid, empty-state,
+│   │                             # pagination, scrollable-panel
 ├── lib/                          # Lógica de negocio y helpers
 │   ├── db.ts                     # Pool pg + type parsers
 │   ├── auth.ts, auth.config.ts   # NextAuth (Node + edge)
@@ -324,34 +334,72 @@ Server component que renderiza:
 
 ### 5.2 Mapa (`/map`)
 
-Server component con `MapView` (Leaflet) + panel de detalle.
-- Lista selectora de **parcelas normalizadas** (`land_name` + `field_type` + `declared_area_ha` +
-  `drone_model_name`).
-- `MapLegend` reutilizable con 3 grupos semánticos (`role="group"` + `aria-label`):
-  Parcelas / Vuelos / Alertas. Los indicadores visuales (fumigadas, sin fumigar, orchards,
-  alta/media/baja) NO son toggles — son reference visual de color/patrón.
-- 5 capas toggleables (todas `true` excepto `flightPlans` opt-in):
-  - `parcels` — polígonos fumigados (sólido si fumigadas, dashed si no — M3-M5).
-  - `waypoints` — puntos del plan DJI (geometría cruda).
-  - `alerts` — polígonos con severidad (rojo/amarillo/verde).
-  - `flights` — CircleMarker de cada sortie georreferenciado (M6 footprint).
-  - `flightPlans` — polilínea dashed del plan DJI, contraste con fumigación real
-    (intención vs ejecución, M3-M5).
-- `MapClient` consume helpers puros de estilo (sin hex inline):
-  - `lib/map-styles.ts` — `getParcelPolygonStyle(parcel, {hasFumigation, isSelected})` +
-    `getAlertPolygonStyle(level)`. Usa `lib/ui-tokens.ts` siempre.
-  - `lib/flight-plan.ts` — `waypointsToFlightPlan(geom)` heurística nearest-neighbor
-    (MultiPoint → LineString, >500m gap → MultiLineString).
-  - `lib/flight-plan-styles.ts` — `getFlightPlanStyle(isSelected?)` color info dashed.
-  - `lib/map-parcel-content.ts` — `getParcelHoverContent`, `getParcelPopupContent`,
-    `getParcelA11yLabel`, `bindParcelLayerInteractions`, `resolveFeatureStyle`
-    (adaptador GeoJSON → `getParcelPolygonStyle` con override de selección).
-- `ParcelDetailPanel` (compact max-w-xs) con: nombre, área, dron, cadencia, próximo vuelo,
-  fumigaciones recientes.
-- **Sin iframe de DJI** (decisión explícita, ver `docs/SPEC.md` §2.4).
-- Fumigadas vs no fumigadas se calcula server-side en `app/map/page.tsx` vía
-  `getFumigatedParcelIdsSince(sixMonthsAgo)` (`api/repositories.ts`) y se pasa al
-  client como `Set<number>` (serializable, no más de 1207 ids en 6 meses).
+Server component (`app/map/page.tsx`) que orquesta data y delega a
+`components/map/map-page-client.tsx` ("use client", v2.0 — sprint S5).
+Layout: header compacto (logo + título + chip "X Parcelas" + botón "Filtros") + body
+flex-row (mobile → flex-col) con mapa a la izquierda y rail derecho con `ParcelsList`.
+
+**Mapa (MapLibre GL JS 6.0 — sustituye a Leaflet desde S5)**:
+- Wrapper `components/map-view.tsx` carga `MapLibreView` via `next/dynamic` con
+  `ssr: false` (MapLibre usa WebGL, es client-only).
+- Setup: `import("maplibre-gl")` dinámico, `addControl` Navigation + Scale,
+  `style.load` para agregar sources/layers.
+- **5 capas toggleables** (todas visibles por default; flags via props):
+  - `parcels` — fill + line + label (symbol). `feature-state.selected` para
+    highlight. `fumigated` property computada de `fumigatedParcelIds` (Set<number>).
+  - `waypoints` — circle de cada waypoint del plan DJI.
+  - `flight-plan` — line dashed conectando waypoints en orden.
+  - `alerts` — fill + line con color por `level` (HIGH/MEDIUM/LOW).
+  - `flight-points` — circle por sortie, color por `status` (in_progress / completed).
+- **Basemap toggle** (Satélite / Calles) persistido en `localStorage` (`afm:map:basemap`).
+  El `setStyle` borra sources/layers → re-add via `addLayersToExistingMap()` en
+  `style.load` callback.
+- **Selección**: `map.setFeatureState({ source: "parcels", id }, { selected: true })` +
+  `map.flyTo({ center, zoom: 15 })` en `maplibre-view.tsx`. Limpieza previa con
+  `map.removeFeatureState({ source: "parcels" })`.
+- **Popups HTML sanitizados** (`escapeHtml` en `maplibre-view.tsx`).
+- **fitBounds automático** al cargar si `autoFit=true` (default).
+- **a11y**: `<div role="application" tabIndex={0} aria-label="Mapa de parcelas de caña">`.
+
+**KPI overlay pill** (`components/ui/kpi-pill.tsx`, sobre el mapa, esquina sup. izq.):
+- 4 KPIs en una pill horizontal dividida: Aplicaciones / Hectáreas tratadas / Volumen / Vuelos.
+- Usa `liveSummary` (state) en vez del summary inicial (prop) para actualizarse
+  cuando el TimeRange cambia. Si el rango es el completo, evita roundtrip
+  usando el `fumigationsSummary` server-side.
+- `role="group"` + `aria-label="Resumen del filtro actual"`.
+
+**TimeRange slider** (`components/map/time-range.tsx`, bottom-center del mapa):
+- Histograma de actividad por mes (alto = count de fumigaciones).
+- 2 inputs HTML nativos para el rango (decisión de scope: no se migró a
+  @base-ui Slider por simplicidad — ver §"Riesgos").
+- Autoplay con `prefers-reduced-motion` respetado (no inicia si el usuario
+  lo prefiere reducir). Play/pause + reset con `aria-label` específico.
+- `aria-hidden` en el histograma (decorativo, el valor se anuncia via el label
+  del header "ene 26 — jul 26").
+
+**Filtros** (`components/map/map-filter-sidebar.tsx`, drawer colapsable a la derecha):
+- URL searchParams (`drone`, `crop`, `fumigated`) → `router.push` con `scroll: false`.
+- Botón "Filtros" en el page header abre/cierra el drawer. Default CERRADO
+  (mapa full bleed en la carga inicial).
+- `FieldSelect` (primitive) para drone/crop/fumigated.
+- `FilterSidebar` + `FilterSidebarSection` (primitives) para agrupación colapsable.
+- "Limpiar filtros" navega a `/map` sin query string.
+
+**ParcelsList (rail derecho, `components/map/parcels-list.tsx`)**:
+- Lista ordenada por status de cadencia (overdue > due_soon > no_history > ok).
+- Click selecciona → highlight en mapa + flyTo.
+- Header expandido con `<dl>` (definición) cuando hay selección: Área / Cadencia /
+  Última aplic. / En el rango + botón "Ver hoja de vida" a `/parcels/[id]`.
+- `aria-pressed` en cada item (NO listbox — el highlight visual es suficiente,
+  listbox + aria-activedescendant es over-engineering para este caso).
+- Empty state: "No hay parcelas que cumplan los filtros."
+
+**Sin iframe de DJI** (decisión explícita, ver `docs/SPEC.md` §2.4).
+**Fumigadas vs no fumigadas** se calcula server-side en `app/map/page.tsx` vía
+`getFumigatedParcelIdsSince(sixMonthsAgo)` (`api/repositories.ts`) y se pasa al
+client como `Set<number>` (serializable, no más de 1207 ids en 6 meses).
+
+Bitácora completa del V0 → nuestra implementación: `docs/V0_ADAPTATION.md`.
 
 ### 5.3 Historial plano (`/history`)
 
@@ -517,6 +565,17 @@ Crítico:
 - **Server components por defecto**; `"use client"` solo con interactividad.
 - Componentes `PascalCase`, **named exports** (no default).
 - Props tipados con `interface ComponentNameProps` exportado solo si lo usan otros.
+- **Primitives UI en `components/ui/`** siguen el patrón shadcn-style:
+  `cn()` (clsx + tailwind-merge) en `lib/utils.ts`, `data-slot` para utility
+  targeting, `useId()` para ids autogenerados, `forwardRef` cuando envuelven
+  un elemento HTML, controlled-only (sin state interno). Variants con CVA
+  solo cuando haga falta. Ver `docs/TDD.md` §2.
+- **Accesibilidad**: `aria-pressed` para ToggleButton, `role=switch` +
+  `aria-checked` para Switch, `aria-current="page"` en nav, `aria-hidden` en
+  iconos decorativos, `sr-only` para texto screen-reader-only, `<dl>/<dt>/<dd>`
+  para fichas técnicas, `<fieldset>/<legend>` para grupos de filtros, `<div
+  role="application" tabIndex={0} aria-label="...">` para el mapa. Ver
+  `docs/TDD.md` §3.
 - Tailwind 4 con hex inline (estilo actual); tokens en `lib/ui-tokens.ts` para
   referencia y validación. Sin CSS modules / styled-components / Emotion.
 - Sin `any` en código de producto.
@@ -608,9 +667,22 @@ npm run seed:cadences               # cadencias desde config/*.json
   scraper defects §2.2/§2.3/§2.5, storage state 7 días, scroll helper.
 - **Post-sprint cleanup (master `7696ba4`)**: AppShell sidebar link,
   audit doc, verifier-contract tests, gitignore.
+- **S4 cerrado (2026-07-28)**: Quality Gauntlet setup — AGENTS.md canónico,
+  `dependency-cruiser` con 6 reglas, `vitest --coverage` con umbral 75/70,
+  workflow semanal `quality-gauntlet-weekly.yml` (jobs fase 4-5 desactivados).
+- **S5 cerrado (2026-07-28)**: migración Leaflet → **MapLibre GL JS 6.0** +
+  port del mockup V0 — primitives UI accesibles (PageHeader, FieldSelect,
+  ToggleButton, Switch, KpiPill, FilterSidebar), MapPageClient v2.0 con
+  KpiPill overlay + TimeRange slider + ParcelsList rail + drawer de
+  filtros colapsable. Bitácora en `docs/V0_ADAPTATION.md`. Decisión
+  arquitectónica: NO se adoptó shadcn CLI (se replican los patrones
+  con primitives propios).
+- **S6 en curso**: polish del MapPageClient, sidebar de salud del
+  pipeline DJI (M3), migración Task History a MapLibre.
 - **Quick wins QW1-QW7**: en progreso.
-- **Roadmap abierto**: S5-S7 (cort plazo), M1-M7 (mediano), L1-L5 (largo).
+- **Roadmap abierto**: S7 (cort plazo), M1-M7 (mediano), L1-L5 (largo).
 - **Tests**: 588/604 verde (16 DB-dependent skipped, Docker apagado).
+  Umbral global 75/70 — subir a 80/75 es fase 2 del Gauntlet.
 - **Riesgo**: sin remote. Si se pierde `.git/`, el historial se va. Push pendiente.
 
 ---
@@ -620,7 +692,11 @@ npm run seed:cadences               # cadencias desde config/*.json
 | Doc | Contenido |
 |---|---|
 | `README.md` | Setup, comandos de DB, pipeline DJI, migración a Supabase |
-| `ARCHITECTURE.md` | Topología de directorios, decisión DB pooled/direct |
+| `AGENTS.md` | Índice canónico para agentes, reglas operativas |
+| `docs/SDD.md` | Diseño de producto (escrito S5, 2026-07-28) |
+| `docs/TDD.md` | Diseño técnico (escrito S5, 2026-07-28) |
+| `docs/V0_ADAPTATION.md` | Bitácora del sprint S5/S6 (V0 port) |
+| `docs/ARCHITECTURE.md` | Topología de directorios, decisión DB pooled/direct, data flow DJI → BD → UI |
 | `docs/SPEC.md` | Decisiones de producto del refactor front-end (qué/qué no) |
 | `docs/DJI_SCRAPER.md` | Gotchas del scraper DJI (4 conocidos) |
 | `docs/SCRAPER_DEFECTS.md` | Bitácora de defectos resueltos |
