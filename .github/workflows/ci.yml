@@ -15,10 +15,35 @@ permissions:
   contents: read
 
 jobs:
+  # --- Compuerta 2: Fitness functions de arquitectura (depcruise) ---
+  # Barato (segundos), corre primero y en paralelo con TS check. Si una
+  # regla de arquitectura se rompe, ni siquiera tiene sentido gastar
+  # tiempo en build/tests.
+  architecture-fitness:
+    name: arch:check (depcruise)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci
+      - name: Architecture fitness check
+        run: npm run arch:check
+        # arch:check usa --output-type err-long que incluye las 3
+        # severidades (error/warn/info). Por ahora el `error: 1` real
+        # es solo la regla "no-pg-from-app-or-components". Las otras
+        # reglas (warn) se reportan pero no rompen (ver ADOPTION.md).
+
   ci:
     name: lint + types + tests + build
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    needs: [architecture-fitness]
+    # Si architecture-fitness falla, no tiene sentido gastar 15 min en
+    # build/tests. El check barato tiene que pasar primero.
 
     # Service de PostGIS — necesario para los tests E2E (tests/user-story-dashboard-e2e)
     # y para tests que tocan la BD. Misma imagen que docker-compose.yml local.
@@ -73,11 +98,24 @@ jobs:
         # Si falla (ej. conexión), continuar — el smoke test dirá si las tablas están.
         continue-on-error: false
 
-      - name: Run tests
-        run: npm test
+      # Compuerta 3: tests + coverage con thresholds.
+      # Usa test:coverage en vez de test para activar el gate de umbrales
+      # definido en vitest.config.ts. El umbral global (75/70) bloquea
+      # el merge si baja.
+      - name: Run tests with coverage
+        run: npm run test:coverage
         # Algunos tests unitarios son flaky en concurrencia alta — vitest ya
         # tiene timeouts configurados (15s). Si fallan, re-correr con
         # --bail=1 para aislar.
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 7
+          if-no-files-found: ignore
 
       - name: Build
         run: npm run build

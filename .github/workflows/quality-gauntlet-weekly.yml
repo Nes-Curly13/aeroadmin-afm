@@ -1,0 +1,84 @@
+# Quality Gauntlet — workflow semanal para compuertas fase 4-5.
+# No corre por-PR (son lentas y más útiles como señal de tendencia).
+# Ver docs/files_TDD/04_GAUNTLET_DE_CALIDAD.md §6, §8 y §9 (rollout).
+#
+# Trigger: lunes 6am Colombia + workflow_dispatch para correr manual.
+# Fases representadas:
+#   - Fase 4: mutation testing sobre los 5 módulos críticos.
+#   - Fase 5: knip (código muerto) + jscpd (duplicación) — chequeo semanal.
+#
+# Estado actual (2026-07-28): fase 1+2 activas (lint+arch+coverage).
+# Las fases 4-5 se activan después de tener mutation testing instalado
+# y los umbrales por archivo estables.
+
+name: Quality Gauntlet — weekly
+
+on:
+  schedule:
+    # Lunes 11:00 UTC = 06:00 Colombia. Después del sprint de lunes.
+    - cron: "0 11 * * 1"
+  workflow_dispatch:
+    # Permite correr manual: Actions → Quality Gauntlet — weekly → Run workflow
+
+permissions:
+  contents: read
+
+jobs:
+  # ===================================================================
+  # FASE 4 — Mutation testing (StrykerJS)
+  # ===================================================================
+  # Solo sobre los 5 módulos críticos. NO sobre todo el repo (caro).
+  # Activar DESPUÉS de tener los umbrales de coverage por archivo
+  # estables (ver ADOPTION.md).
+  mutation-testing:
+    name: stryker (mutation)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # Por ahora deshabilitado — Stryker + Vitest runner requieren
+    # @stryker-mutator/core y @stryker-mutator/vitest-runner instalados
+    # + stryker.config.mjs en raíz. Activar en sprint siguiente.
+    if: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci
+      - run: npm install --save-dev @stryker-mutator/core @stryker-mutator/vitest-runner
+      - run: npx stryker run
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mutation-report
+          path: reports/mutation/
+          retention-days: 30
+          if-no-files-found: ignore
+
+  # ===================================================================
+  # FASE 5 — Métricas de calidad continua (knip + jscpd)
+  # ===================================================================
+  # Informativo, no bloqueante (continue-on-error). Sirve para detectar
+  # tendencia — código muerto, duplicación, exports sin usar.
+  quality-metrics:
+    name: knip + jscpd
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci
+      - name: knip (código muerto)
+        run: npx knip
+        continue-on-error: true
+      - name: jscpd (duplicación)
+        run: npx jscpd . --min-lines 15 --min-tokens 50 --reporters text --output ./reports/jscpd
+        continue-on-error: true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: quality-metrics
+          path: reports/
+          retention-days: 30
+          if-no-files-found: ignore

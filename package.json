@@ -44,7 +44,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:watch": "vitest watch",
+    "arch:check": "depcruise --config dependency-cruiser.config.cjs --output-type err-long app lib components api scripts",
+    "arch:report": "depcruise --config dependency-cruiser.config.cjs app lib components api scripts"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
