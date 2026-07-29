@@ -59,8 +59,8 @@ async function main() {
   if (password.length < 10) {
     throw new Error('Password debe tener al menos 10 caracteres.');
   }
-  if (!['admin', 'viewer'].includes(role)) {
-    throw new Error(`Role debe ser 'admin' o 'viewer' (recibido: '${role}').`);
+  if (!['admin', 'supervisor'].includes(role)) {
+    throw new Error(`Role debe ser 'admin' o 'supervisor' (recibido: '${role}').`);
   }
 
   const hash = await bcrypt.hash(password, 10);

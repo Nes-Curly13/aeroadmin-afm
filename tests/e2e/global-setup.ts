@@ -1,5 +1,5 @@
 /**
- * Global setup para Playwright — M1 (2026-06-28).
+ * Global setup para Playwright — Sprint S8.2 (2026-07-29).
  *
  * Crea (o resetea) el usuario E2E en `app_users` antes de que la suite arranque.
  * Idempotente: si ya existe, el UPSERT del seed script actualiza password +
@@ -12,6 +12,11 @@
  * Si la BD no está disponible, el test suite falla en el primer login —
  * el error es claro (no se pudo autenticar) y dejamos que el caller
  * sepa que necesita `npm run db:init` + `npm run auth:seed` primero.
+ *
+ * Sprint S8.2: este setup es compartido con auth-and-dashboard.spec.ts
+ * (test 7 /admin/parcels) y admin-parcels.spec.ts (PATCH /api/admin/
+ * parcels/[id]/metadata). El usuario E2E debe ser role=admin para
+ * ambos.
  */
 
 import { execSync } from "node:child_process";
