@@ -174,6 +174,52 @@ function adaptFlight(f: FlightPointRecord, idx: number, parcelId: number): DjiFl
 }
 
 // ---------------------------------------------------------------------------
+// Health-only loader (liviano, sin parcelas/fumigaciones/flights).
+//
+// Sprint S8.2 (2026-07-29): antes `getHealth()` llamaba `loadDataset()`
+// (cacheado con unstable_cache, 60s TTL) que cargaba las 2000 parcels + 2000
+// fumigations + 2000 flight points. El layout (app/layout.tsx) llama
+// getHealth() en CADA request (incluso /login que no necesita data), y el
+// cache layer de Next.js no liberaba la memoria entre requests → leak de
+// ~4-8 MB/request que tumbaba el dev server en ~30-40 requests.
+//
+// Fix: separar la lectura del health file del dataset completo. Health es
+// liviano (lee 1 archivo JSON, deriva 1 objeto). Lo cacheamos por 30s
+// porque el `_health.json` solo se actualiza cuando corre el pipeline
+// (`scripts/run-pipeline.js`), no en cada request.
+// ---------------------------------------------------------------------------
+
+const HEALTH_FILE_PATH = "./djiag_exports/_health.json";
+
+const _loadHealthCached = unstable_cache(
+  async (): Promise<DjiAgHealth> => {
+    const healthRaw = await readHealthFile(HEALTH_FILE_PATH);
+    const healthResponse = deriveResponse(healthRaw);
+    return {
+      last_run_at: healthResponse.lastRunAt ?? new Date().toISOString(),
+      next_run_at: new Date(Date.now() + 24 * 3_600_000).toISOString(),
+      status: mapHealthStatus(healthResponse.status),
+      duration_ms: 0,
+      parcels_synced: healthResponse.landsLastSync ?? 0,
+      flights_synced: healthResponse.flightsLastSync ?? 0,
+      api_latency_ms: 0,
+      token_expires_at: new Date(Date.now() + 7 * 86_400_000).toISOString(),
+      consecutive_failures:
+        healthResponse.status === "failed" || healthResponse.status === "stale" ? 1 : 0
+    };
+  },
+  ["v0-health"],
+  {
+    revalidate: 30,
+    tags: ["afm:v0-health"]
+  }
+);
+
+async function loadHealth(): Promise<DjiAgHealth> {
+  return _loadHealthCached();
+}
+
+// ---------------------------------------------------------------------------
 // Carga unificada de datos (cacheada).
 // ---------------------------------------------------------------------------
 
@@ -183,7 +229,6 @@ interface Dataset {
   schedulesByParcelId: Record<number, DjiFumigationSchedule>;
   fumigationEvents: DjiFumigationEvent[];
   flightPoints: FlightPointRecord[];
-  health: DjiAgHealth;
   importBatches: DjiImportBatch[];
   scheduleHistory: Record<string, DjiScheduleHistory[]>;
   fetchedAt: string;
@@ -206,21 +251,10 @@ const _loadDatasetCached = unstable_cache(
     // 3) Flight points (max 2000 por la cache).
     const flightPoints = await getFlightPoints(2000);
 
-    // 4) Health (lee el _health.json del filesystem).
-    const healthRaw = await readHealthFile("./djiag_exports/_health.json");
+    // 4) Health (leído del _health.json en `loadHealth()` aparte, ver arriba).
+    //    Acá solo necesitamos los import batches derivados del health raw.
+    const healthRaw = await readHealthFile(HEALTH_FILE_PATH);
     const healthResponse = deriveResponse(healthRaw);
-    const health: DjiAgHealth = {
-      last_run_at: healthResponse.lastRunAt ?? new Date().toISOString(),
-      next_run_at: new Date(Date.now() + 24 * 3_600_000).toISOString(),
-      status: mapHealthStatus(healthResponse.status),
-      duration_ms: 0,
-      parcels_synced: healthResponse.landsLastSync ?? 0,
-      flights_synced: healthResponse.flightsLastSync ?? 0,
-      api_latency_ms: 0,
-      token_expires_at: new Date(Date.now() + 7 * 86_400_000).toISOString(),
-      consecutive_failures:
-        healthResponse.status === "failed" || healthResponse.status === "stale" ? 1 : 0
-    };
 
     // 5) Import batches — derivamos de health.steps como un solo batch.
     const importBatches: DjiImportBatch[] = healthRaw
@@ -239,7 +273,7 @@ const _loadDatasetCached = unstable_cache(
       : [];
 
     // 6) Schedule history — vacío por ahora (el proyecto no tiene tabla
-    // `dji_fumigation_schedule_history` aún).
+    //    `dji_fumigation_schedule_history` aún).
     const scheduleHistory: Record<string, DjiScheduleHistory[]> = {};
 
     // 7) Adaptar parcels.
@@ -247,13 +281,14 @@ const _loadDatasetCached = unstable_cache(
       adaptParcel(p, schedulesByParcelId[p.id] ?? null)
     );
 
+    // NOTA: `health` ya no se devuelve desde acá. Está en `loadHealth()`
+    // que se llama independiente (sin cargar parcels/fumigations/flights).
     return {
       parcels,
       schedules,
       schedulesByParcelId,
       fumigationEvents,
       flightPoints,
-      health,
       importBatches,
       scheduleHistory,
       fetchedAt: new Date().toISOString()
@@ -468,8 +503,9 @@ export async function getImportBatches(): Promise<DjiImportBatch[]> {
 }
 
 export async function getHealth(): Promise<DjiAgHealth> {
-  const ds = await loadDataset();
-  return ds.health;
+  // Sprint S8.2: este ya no carga el dataset completo — solo el _health.json.
+  // Ver docstring de `loadHealth()` arriba para el por qué.
+  return loadHealth();
 }
 
 export async function getClients(): Promise<string[]> {

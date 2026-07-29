@@ -13,20 +13,26 @@ import { NavLinks } from "./nav-links"
  * un Client Component → "the chunking context (unknown) does not support
  * external modules".
  *
- * El layout server (app/layout.tsx) llama `getHealth()` y lo pasa como
- * prop. Así AppShell queda libre de imports Node-only y los Client
- * Components (geovisor-client, parcels-table) pueden vivir como hijos
- * sin arrastrar nada.
+ * v2.3.2 (S8.2 — leak fix): `health` ahora es OPCIONAL. El layout NO
+ * llama `getHealth()` en cada request (causaba leak de ~3MB/req que
+ * tumbaba el dev server en ~30 reqs). Si el caller (e.g. un page
+ * server que sí necesita health) lo pasa por prop, se muestra el
+ * badge; si no, el sidebar oculta el indicador de pipeline.
+ *
+ * Para el dashboard `/admin/djiag-health` (donde el health ES el
+ * contenido de la pagina), el page server debe llamar `getHealth()`
+ * y pasarlo a `<AppShell health={h}>`.
  */
 export function AppShell({
   children,
   health
 }: {
   children: React.ReactNode;
-  health: DjiAgHealth;
+  health?: DjiAgHealth;
 }) {
+  const status = health?.status ?? "unknown";
   const statusColor =
-    health.status === "ok" ? "bg-chart-1" : health.status === "partial" ? "bg-chart-4" : "bg-destructive"
+    status === "ok" ? "bg-chart-1" : status === "partial" ? "bg-chart-4" : status === "unknown" ? "bg-muted-foreground/30" : "bg-destructive";
 
   return (
     <div className="flex min-h-svh flex-col lg:flex-row">
@@ -43,26 +49,28 @@ export function AppShell({
           </div>
           <div className="lg:hidden">
             <span className={`inline-block size-2 rounded-full ${statusColor}`} aria-hidden />
-            <span className="sr-only">{`Estado del pipeline: ${health.status}`}</span>
+            <span className="sr-only">{`Estado del pipeline: ${status}`}</span>
           </div>
         </div>
 
         <NavLinks />
 
-        <div className="mt-auto hidden rounded-md border border-sidebar-border bg-sidebar-accent/60 p-3 lg:block">
-          <div className="flex items-center gap-2">
-            <span className={`inline-block size-2 rounded-full ${statusColor}`} aria-hidden />
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/70">
-              Pipeline DJI AG
-            </span>
+        {health ? (
+          <div className="mt-auto hidden rounded-md border border-sidebar-border bg-sidebar-accent/60 p-3 lg:block">
+            <div className="flex items-center gap-2">
+              <span className={`inline-block size-2 rounded-full ${statusColor}`} aria-hidden />
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/70">
+                Pipeline DJI AG
+              </span>
+            </div>
+            <p className="mt-2 font-mono text-xs text-sidebar-foreground/80">
+              Último run {fmtRelative(health.last_run_at)}
+            </p>
+            <p className="font-mono text-xs text-sidebar-foreground/60">
+              {health.parcels_synced} parcelas · {health.flights_synced} vuelos
+            </p>
           </div>
-          <p className="mt-2 font-mono text-xs text-sidebar-foreground/80">
-            Último run {fmtRelative(health.last_run_at)}
-          </p>
-          <p className="font-mono text-xs text-sidebar-foreground/60">
-            {health.parcels_synced} parcelas · {health.flights_synced} vuelos
-          </p>
-        </div>
+        ) : null}
       </aside>
 
       <main className="min-w-0 flex-1">{children}</main>
