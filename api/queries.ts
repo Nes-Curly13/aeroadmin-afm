@@ -112,18 +112,18 @@ export const djiParcelsQuery = `
     -- schedule aún — el caller aplica el fallback (14d Farmland, 10d Orchards).
     s.recommended_cadence_days AS recommended_cadence_days,
     -- v2.1 (sprint S7.2) — V0 fields (client/farm/municipality/variety).
-    -- v2.1 (S7.2 hotfix) — TEMPORALMENTE NULL::text hasta que se aplique
-    -- la migration 20260728000000_add_v0_fields_to_dji_parcels.sql a la BD.
-    -- Razón: la BD de Supabase (pooled) NO tiene estas columnas todavía.
-    -- Hasta que se aplique la migration, el caller degrada a null. Cuando
-    -- se aplique:
-    --   1. Aplicar npm run db:migrate contra la BD de Supabase.
-    --   2. Cambiar las 4 lineas de abajo de NULL::text a
-    --      p.client_name, p.farm_name, p.municipality, p.variety.
-    NULL::text AS client_name,
-    NULL::text AS farm_name,
-    NULL::text AS municipality,
-    NULL::text AS variety
+    -- v2.3 (sprint S8.2, 2026-07-29) — aplicadas via migration
+    -- 20260728000000_add_v0_fields_to_dji_parcels.sql (commit 4ef376d).
+    -- Las 4 columnas existen fisicamente en la BD de Supabase y se
+    -- proyectan aca. Si la migration no se aplico (e.g. dev local con
+    -- BD fresca), el query falla con column client_name does not exist.
+    -- Solucion: correr node scripts/apply-pending-migrations.js o el
+    -- script tmp-apply-migration.js. El caller (lib/data.ts) ya no
+    -- necesita fallback porque la migration se aplica en CI/dev.
+    p.client_name AS client_name,
+    p.farm_name AS farm_name,
+    p.municipality AS municipality,
+    p.variety AS variety
   FROM dji_parcels p
   LEFT JOIN LATERAL (
     SELECT fumigation_date
