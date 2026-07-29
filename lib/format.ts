@@ -1,3 +1,76 @@
+// ---------------------------------------------------------------------------
+// V0 formatters (es-CO) — port del mockup de V0. Usados por componentes
+// adaptados del V0 (dashboard, geovisor, parcelas). Conviven con los
+// formatters del proyecto (en-US) en este módulo.
+// ---------------------------------------------------------------------------
+
+const _esInt = new Intl.NumberFormat("es-CO", { maximumFractionDigits: 0 });
+const _esDec = new Intl.NumberFormat("es-CO", {
+  maximumFractionDigits: 1,
+  minimumFractionDigits: 1
+});
+
+export const fmtInt = (n: number) => _esInt.format(n);
+export const fmtDec = (n: number) => _esDec.format(n);
+
+export function fmtHa(n: number) {
+  return `${n >= 1000 ? _esInt.format(Math.round(n)) : _esDec.format(n)} ha`;
+}
+
+export function fmtLiters(n: number) {
+  if (n >= 1000) return `${_esDec.format(n / 1000)} m³`;
+  return `${_esInt.format(Math.round(n))} L`;
+}
+
+export function fmtDate(iso: string | null, opts?: Intl.DateTimeFormatOptions) {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleDateString("es-CO", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    ...opts
+  });
+}
+
+export function fmtDateTime(iso: string | null) {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleString("es-CO", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
+export function fmtTime(iso: string) {
+  return new Date(iso).toLocaleTimeString("es-CO", {
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
+export function fmtRelative(iso: string | null, refDate?: Date) {
+  if (!iso) return "sin registro";
+  const ref = refDate ?? new Date();
+  const diffDays = Math.round((new Date(iso).getTime() - ref.getTime()) / 86_400_000);
+  const rtf = new Intl.RelativeTimeFormat("es-CO", { numeric: "auto" });
+  if (Math.abs(diffDays) >= 30) return rtf.format(Math.round(diffDays / 30), "month");
+  return rtf.format(diffDays, "day");
+}
+
+export const SOURCE_LABEL: Record<string, string> = {
+  manual: "Manual",
+  import: "Import",
+  djiscraper: "DJI Scraper"
+};
+
+export const toISODate = (d: Date) => d.toISOString().slice(0, 10);
+
+// ---------------------------------------------------------------------------
+// Formatters originales del proyecto (en-US).
+// ---------------------------------------------------------------------------
+
 export function formatNumber(value: number) {
   return new Intl.NumberFormat("en-US").format(value);
 }

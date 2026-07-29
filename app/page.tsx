@@ -1,197 +1,169 @@
-import { AppShell } from "@/components/app-shell";
-import { DashboardV0Client } from "@/components/dashboard/dashboard-v0-client";
-import { SyncBanner, loadSyncHealth } from "@/components/dashboard/sync-banner";
+import { Droplets, Map as MapIcon, Plane, Sprout } from "lucide-react"
+import Link from "next/link"
+import { CompliancePanel } from "@/components/dashboard/compliance-panel"
+import { HealthPanel } from "@/components/dashboard/health-panel"
+import { KpiCard } from "@/components/dashboard/kpi-card"
+import { type MonthlyBar, MonthlyChart } from "@/components/dashboard/monthly-chart"
+import { RecentActivity } from "@/components/dashboard/recent-activity"
+import { PageHeader } from "@/components/page-header"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
-  getFumigationsForMap,
-  getFumigationsByMonth,
-  getParcelsNormalized,
-  getRecentFumigations,
-  getOverdueParcels
-} from "@/api/repositories";
-import { getViewerRole } from "@/lib/auth/role";
-import { toDateString } from "@/lib/format";
-import { COLORS } from "@/lib/ui-tokens";
-import type { MonthlyBar } from "@/components/dashboard/monthly-chart";
-import type { DjiFumigationEvent, DjiParcelRecord, DjiDailySummaryRecord } from "@/lib/types";
+  DRONE_MODELS,
+  getFlights,
+  getFumigations,
+  getHealth,
+  getImportBatches,
+  getParcelSummaries,
+  getParcels,
+  NOW,
+} from "@/lib/data"
+import { fmtDec, fmtInt, fmtLiters } from "@/lib/format"
 
-/**
- * Dashboard principal (`/`).
- *
- * v2.1 (sprint S7) — port del V0 mockup. Reemplaza el `DashboardClient`
- * bento con el `DashboardV0Client` que replica el dashboard del V0:
- *   - 4 KPI cards grandes con delta % (ha30 / aplicaciones30 / vuelos30 / volumen30).
- *   - MonthlyChart 12 meses + Card "Uso de la flota" con progress bars.
- *   - CompliancePanel + HealthPanel.
- *   - RecentActivity (12 fumigaciones recientes).
- *
- * Decisiones:
- *   - El banner `SyncBanner` se mantiene arriba del dashboard (urgencia
- *     operacional: si el sync DJI está caído hace 24h, los datos pueden
- *     estar stale).
- *   - El `DashboardClient` viejo queda como archivo legacy (no usado
- *     por este page). Se puede eliminar en un cleanup futuro.
- */
-export const dynamic = "force-dynamic";
+// `app/page.tsx` consulta la BD (Supabase) en cada request vía los repos
+// del proyecto. Sin `force-dynamic`, Next.js intenta resolver las queries
+// en build-time y revienta con ENETUNREACH contra Supabase (la build
+// corre en el runner, no en el runtime con la red del operador).
+export const dynamic = "force-dynamic"
 
-const DAY_MS = 86_400_000;
+const DAY = 86400000
 
 export default async function DashboardPage() {
-  const now = new Date();
-  const today = toDateString(now) ?? "1970-01-01";
-  const thirtyDaysAgo = toDateString(new Date(now.getTime() - 30 * DAY_MS)) ?? "1970-01-01";
-  const sixtyDaysAgo = toDateString(new Date(now.getTime() - 60 * DAY_MS)) ?? "1970-01-01";
-  const twelveMonthsAgo = toDateString(new Date(now.getTime() - 365 * DAY_MS)) ?? "1970-01-01";
+  const parcels = await getParcels()
+  const summaries = await getParcelSummaries()
+  const fumigations = await getFumigations()
+  const flights = await getFlights()
+  const health = await getHealth()
+  const batches = await getImportBatches()
+  const parcelById = new Map(parcels.map((p) => [p.id, p]))
 
-  // 7 queries en paralelo.
-  const [
-    parcelsResult,
-    allFumigations,
-    last30,
-    prev30,
-    monthsBuckets,
-    recentFumigations,
-    overdue,
-    healthRaw
-  ] = await Promise.all([
-    getParcelsNormalized(1, 200),
-    // v2.1: total histórico (no por rango) — derivado de un fetch sin
-    // filtros. La página actual NO necesita el total absoluto, pero
-    // el DashboardV0Client sí (description: "N aplicaciones historicas").
-    // Usamos `getFumigationsForMap({})` que trae todas las fumigaciones
-    // ordenadas desc (limit interno del repo). Suficiente para el total.
-    getFumigationsForMap({ parcelIds: [], from: undefined, to: undefined }),
-    getFumigationsForMap({ from: thirtyDaysAgo, to: today }),
-    getFumigationsForMap({ from: sixtyDaysAgo, to: thirtyDaysAgo }),
-    getFumigationsByMonth({ from: twelveMonthsAgo, to: today }),
-    getRecentFumigations(12),
-    getOverdueParcels({ maxDaysAhead: 14 }),
-    loadSyncHealth()
-  ]);
-
-  const totalParcels = parcelsResult.data.length;
-  const totalHa = parcelsResult.data.reduce(
-    (s, p) => s + (p.declared_area_ha ?? 0),
-    0
-  );
-
-  // KPIs de los últimos 30 días + delta % vs 30 días anteriores.
-  const sumHa = (events: DjiFumigationEvent[]) =>
-    events.reduce((s, e) => s + (e.area_fumigated_m2 ?? 0) / 10000, 0);
-  const sumVol = (events: DjiFumigationEvent[]) =>
-    events.reduce(
-      (s, e) =>
-        s +
-        ((e.dose_l_per_ha ?? 0) * (e.area_fumigated_m2 ?? 0)) / 10000,
-      0
-    );
-  // Flights count: no tenemos el campo directo. Usamos `flight_ids.length`
-  // (sumamos todos los flight_ids únicos). Aproximación — para el V0 era
-  // `flights_count` por evento.
-  const sumFlights = (events: DjiFumigationEvent[]) =>
-    events.reduce((s, e) => s + (e.flight_ids?.length ?? 0), 0);
-
-  // Monthly series (12 meses) — `monthsBuckets` ya viene en el shape
-  // `{ key, label, start, end, count }`. Necesitamos derivar `ha` por
-  // mes cruzando con `allFumigations`.
-  const monthly: MonthlyBar[] = monthsBuckets.map((m) => {
-    const evsInMonth = allFumigations.filter((e) => {
-      const t = new Date(e.fumigation_date).getTime();
-      return t >= m.start && t <= m.end;
-    });
-    return {
-      label: m.label,
-      ha: Math.round(sumHa(evsInMonth) * 10) / 10,
-      flights: sumFlights(evsInMonth)
-    };
-  });
-
-  // Fleet usage — agregamos por modelo de dron. El proyecto tiene 4
-  // modelos de DJI hardcoded en `dji_drone_models` (no hay query — los
-  // modelos se mantienen en el schema, no cambian). Usamos nombres y
-  // tank_l hardcoded.
-  const DRONE_MODELS: Record<number, { name: string; tank_l: number }> = {
-    0: { name: "Sin asignar", tank_l: 0 },
-    72: { name: "Agras T16 / T20", tank_l: 16 },
-    201: { name: "Agras T40 / T50", tank_l: 40 },
-    210: { name: "Agras T70 / similar", tank_l: 70 }
-  };
-  const fleetAgg = new Map<number, { flights: number; ha: number }>();
-  for (const e of allFumigations) {
-    if (e.drone_code_used == null) continue;
-    const cur = fleetAgg.get(e.drone_code_used) ?? { flights: 0, ha: 0 };
-    cur.flights += e.flight_ids?.length ?? 0;
-    cur.ha += (e.area_fumigated_m2 ?? 0) / 10000;
-    fleetAgg.set(e.drone_code_used, cur);
+  const inWindow = (iso: string, fromDays: number, toDays: number) => {
+    const t = new Date(iso).getTime()
+    return t > NOW.getTime() - fromDays * DAY && t <= NOW.getTime() - toDays * DAY
   }
-  const fleet = Array.from(fleetAgg.entries())
-    .map(([modelId, agg]) => {
-      const model = DRONE_MODELS[modelId] ?? { name: `Drone ${modelId}`, tank_l: 0 };
-      return {
-        modelId,
-        modelName: model.name,
-        tankL: model.tank_l,
-        // v2.1: el `color` del V0 no existe en `dji_drone_models`. Usamos
-        // tokens de `ui-tokens.ts` rotando por modelId (4 colors del
-        // brand palette). Aceptable mientras el schema no agregue el campo.
-        color:
-          [COLORS.primary, COLORS.success, COLORS.warning, COLORS.info, COLORS.completed][
-            modelId % 5
-          ] ?? COLORS.primary,
-        flights: agg.flights,
-        ha: Math.round(agg.ha * 10) / 10
-      };
+
+  const last30 = fumigations.filter((f) => inWindow(f.executed_at, 30, 0))
+  const prev30 = fumigations.filter((f) => inWindow(f.executed_at, 60, 30))
+  const flights30 = flights.filter((f) => inWindow(f.started_at, 30, 0))
+  const flightsPrev30 = flights.filter((f) => inWindow(f.started_at, 60, 30))
+
+  const sum = (arr: number[]) => arr.reduce((a, b) => a + b, 0)
+  const delta = (a: number, b: number) => (b === 0 ? null : ((a - b) / b) * 100)
+
+  const ha30 = sum(last30.map((f) => f.area_treated_ha))
+  const haPrev = sum(prev30.map((f) => f.area_treated_ha))
+  const vol30 = sum(last30.map((f) => f.volume_l))
+  const volPrev = sum(prev30.map((f) => f.volume_l))
+
+  // Serie mensual (12 meses)
+  const monthly: MonthlyBar[] = Array.from({ length: 12 }, (_, i) => {
+    const d = new Date(Date.UTC(NOW.getUTCFullYear(), NOW.getUTCMonth() - (11 - i), 1))
+    const start = d.getTime()
+    const end = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1)).getTime()
+    const evs = fumigations.filter((f) => {
+      const t = new Date(f.executed_at).getTime()
+      return t >= start && t < end
     })
-    .filter((f) => f.flights > 0)
-    .sort((a, b) => b.flights - a.flights);
+    return {
+      label: d.toLocaleDateString("es-CO", { month: "short", timeZone: "UTC" }),
+      ha: Math.round(sum(evs.map((e) => e.area_treated_ha))),
+      flights: sum(evs.map((e) => e.flights_count)),
+    }
+  })
 
-  // Health — `loadSyncHealth` ya devuelve un `HealthResponse` listo
-  // para pasar al `HealthPanel`.
-  const health = healthRaw;
-
-  // Map<id, parcel> para RecentActivity (links).
-  const parcelById = new Map<number, DjiParcelRecord>();
-  for (const p of parcelsResult.data) parcelById.set(p.id, p);
-
-  // v1.5: sidebar gate.
-  const viewerRole = await getViewerRole();
+  const fleet = DRONE_MODELS.filter((m) => m.id !== 0).map((m) => ({
+    model: m,
+    flights: flights.filter((f) => f.drone_model_id === m.id).length,
+    ha: sum(flights.filter((f) => f.drone_model_id === m.id).map((f) => f.area_ha)),
+  }))
+  const fleetMaxHa = Math.max(1, ...fleet.map((f) => f.ha))
+  const totalHa = sum(parcels.map((p) => p.area_ha))
 
   return (
-    <AppShell
-      activeSection="dashboard"
-      eyebrow="Panel de Control"
-      highAlertsCount={0}
-      overdueCount={0}
-      parcelsCount={totalParcels}
-      subtitle="Resumen operativo de la fumigación con drones DJI Agras. Trazabilidad por día, alertas y cobertura por dron."
-      title="AeroAdmin AFM"
-      viewerRole={viewerRole}
-    >
-      <div className="space-y-5">
-        <SyncBanner response={health} />
-        <DashboardV0Client
-          fleet={fleet}
-          health={health}
-          healthSteps={health.steps}
-          kpi30={{
-            ha: Math.round(sumHa(last30) * 10) / 10,
-            haPrev: Math.round(sumHa(prev30) * 10) / 10,
-            count: last30.length,
-            countPrev: prev30.length,
-            flights: sumFlights(last30),
-            flightsPrev: sumFlights(prev30),
-            volume: Math.round(sumVol(last30) * 10) / 10,
-            volumePrev: Math.round(sumVol(prev30) * 10) / 10
-          }}
-          monthly={monthly}
-          overdue={overdue}
-          parcelById={parcelById}
-          recentFumigations={recentFumigations}
-          totalFumigations={allFumigations.length}
-          totalHa={totalHa}
-          totalParcels={totalParcels}
-          totalFlights={allFumigations.reduce((s, e) => s + (e.flight_ids?.length ?? 0), 0)}
-        />
+    <div className="flex flex-col">
+      <PageHeader
+        title="Panel de operaciones"
+        description={`Portafolio de ${parcels.length} parcelas de caña (${fmtDec(totalHa)} ha) con ${fmtInt(fumigations.length)} aplicaciones y ${fmtInt(flights.length)} vuelos históricos consolidados desde DJI AG.`}
+        actions={
+          <Button render={<Link href="/geovisor" />} size="sm">
+            <MapIcon className="size-3.5" />
+            Abrir geovisor
+          </Button>
+        }
+      />
+
+      <div className="flex flex-col gap-4 p-4 sm:p-6">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <KpiCard
+            label="Hectáreas tratadas (30 d)"
+            value={`${fmtDec(ha30)} ha`}
+            hint="vs 30 días anteriores"
+            icon={Sprout}
+            delta={delta(ha30, haPrev)}
+          />
+          <KpiCard
+            label="Aplicaciones (30 d)"
+            value={fmtInt(last30.length)}
+            hint="eventos en dji_fumigations"
+            icon={MapIcon}
+            delta={delta(last30.length, prev30.length)}
+          />
+          <KpiCard
+            label="Vuelos (30 d)"
+            value={fmtInt(flights30.length)}
+            hint="sorties en dji_flights"
+            icon={Plane}
+            delta={delta(flights30.length, flightsPrev30.length)}
+          />
+          <KpiCard
+            label="Volumen aplicado (30 d)"
+            value={fmtLiters(vol30)}
+            hint="mezcla total asperjada"
+            icon={Droplets}
+            delta={delta(vol30, volPrev)}
+          />
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+          <div className="xl:col-span-2">
+            <MonthlyChart data={monthly} />
+          </div>
+          <Card>
+            <CardHeader>
+              <CardTitle>Uso de la flota</CardTitle>
+              <CardDescription>Vuelos y hectáreas por modelo (dji_drone_models)</CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-3">
+              {fleet.map((f) => (
+                <div key={f.model.id} className="flex flex-col gap-1.5">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="text-sm font-semibold">{f.model.name}</span>
+                    <span className="tabular font-mono text-xs text-muted-foreground">
+                      {`${fmtInt(f.flights)} vuelos · ${fmtDec(f.ha)} ha`}
+                    </span>
+                  </div>
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                    <div
+                      className="h-full rounded-full"
+                      style={{ width: `${(f.ha / fleetMaxHa) * 100}%`, backgroundColor: f.model.color }}
+                    />
+                  </div>
+                  <span className="text-[11px] text-muted-foreground">{`Tanque ${f.model.tank_l} L · id ${f.model.id}`}</span>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+          <div className="xl:col-span-2">
+            <CompliancePanel summaries={summaries} />
+          </div>
+          <HealthPanel health={health} batches={batches} />
+        </div>
+
+        <RecentActivity fumigations={fumigations.slice(0, 12)} parcelById={parcelById} />
       </div>
-    </AppShell>
-  );
+    </div>
+  )
 }

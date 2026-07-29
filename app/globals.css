@@ -1,82 +1,137 @@
-@import "tailwindcss";
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'maplibre-gl/dist/maplibre-gl.css';
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-sans: 'Manrope', 'Manrope Fallback', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'JetBrains Mono Fallback', ui-monospace, monospace;
+
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-teal: var(--teal);
+  --color-lime: var(--lime);
+
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
 
 :root {
   color-scheme: light;
-  --font-display: "Inter", sans-serif;
-  --font-body: "Inter", sans-serif;
 
-  /* Colores del logo - Paleta AeroCrop */
-  --color-amarillo: #FFD700;
-  --color-azul: #0066CC;
-  --color-verde: #228B22;
-  --color-verde-claro: #90EE90;
-  --color-verde-medio: #32CD32;
-  --color-verde-oscuro: #006400;
-  --color-negro: #191c1e;
-  --color-gris-oscuro: #5a4136;
-  --color-gris-claro: #e2bfb0;
-  --color-blanco: #ffffff;
-  --color-fondo: #f7f9fb;
+  /* Neutros */
+  --background: oklch(0.982 0.003 150);
+  --foreground: oklch(0.245 0.008 260);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.245 0.008 260);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.245 0.008 260);
+  --muted: oklch(0.955 0.006 150);
+  --muted-foreground: oklch(0.5 0.012 240);
+  --border: oklch(0.906 0.008 160);
+  --input: oklch(0.906 0.008 160);
+
+  /* Marca AFM */
+  --brand: oklch(0.42 0.09 150);
+  --brand-foreground: oklch(0.985 0.01 120);
+  --primary: oklch(0.42 0.09 150);
+  --primary-foreground: oklch(0.985 0.01 120);
+  --secondary: oklch(0.951 0.014 160);
+  --secondary-foreground: oklch(0.34 0.07 152);
+  --accent: oklch(0.951 0.014 160);
+  --accent-foreground: oklch(0.34 0.07 152);
+  --teal: oklch(0.53 0.076 190);
+  --lime: oklch(0.92 0.185 104);
+  --ring: oklch(0.53 0.076 190);
+
+  --destructive: oklch(0.55 0.2 26);
+
+  --chart-1: oklch(0.42 0.09 150);
+  --chart-2: oklch(0.53 0.076 190);
+  --chart-3: oklch(0.55 0.12 250);
+  --chart-4: oklch(0.86 0.16 104);
+  --chart-5: oklch(0.62 0.11 145);
+
+  --radius: 0.5rem;
+
+  --sidebar: oklch(0.24 0.02 165);
+  --sidebar-foreground: oklch(0.94 0.008 150);
+  --sidebar-primary: oklch(0.62 0.13 148);
+  --sidebar-primary-foreground: oklch(0.16 0.02 160);
+  --sidebar-accent: oklch(0.3 0.028 165);
+  --sidebar-accent-foreground: oklch(0.97 0.01 140);
+  --sidebar-border: oklch(0.33 0.025 165);
+  --sidebar-ring: oklch(0.62 0.13 148);
 }
 
-* {
-  box-sizing: border-box;
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    -webkit-font-smoothing: antialiased;
+  }
 }
 
-html,
-body {
-  margin: 0;
-  min-height: 100%;
-  background: var(--color-fondo);
-  color: var(--color-negro);
-  font-family: var(--font-body);
+@layer utilities {
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
 }
 
-a {
-  color: inherit;
-  text-decoration: none;
+/* Ajustes de MapLibre para integrarse con el tema */
+.maplibregl-ctrl-group {
+  border-radius: var(--radius) !important;
+  box-shadow: 0 1px 2px oklch(0 0 0 / 0.12) !important;
 }
-
-.leaflet-container {
-  background: #dfe6ea;
-}
-
-/*
-  v1.8 — Label permanente de parcela (`#11`, `#16`, etc.). Estilo
-  minimalista: badge blanco semi-transparente con texto pequeño en
-  negrita, sin flecha (direction: "center"). El fondo blanco le da
-  legibilidad sobre el verde olivo del polígono y el satélite.
-*/
-.map-parcel-label {
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
+.maplibregl-popup-content {
   padding: 0 !important;
-  pointer-events: none; /* no bloquea clicks sobre el polígono */
+  border-radius: var(--radius) !important;
+  overflow: hidden;
+  box-shadow: 0 8px 24px oklch(0 0 0 / 0.22) !important;
 }
-.map-parcel-label .parcel-label {
-  display: inline-block;
-  padding: 1px 6px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.88);
-  color: #121815;
+.maplibregl-popup-tip {
+  border-top-color: var(--card) !important;
+  border-bottom-color: var(--card) !important;
+}
+.maplibregl-ctrl-attrib.maplibregl-compact {
   font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  border: 1px solid rgba(11, 95, 45, 0.35);
-  white-space: nowrap;
-}
-.map-parcel-label::before {
-  display: none; /* oculta la flecha del tooltip */
-}
-
-.font-display {
-  font-family: var(--font-display);
-}
-
-.material-symbols-outlined {
-  font-family: "Material Symbols Outlined", sans-serif;
-  font-style: normal;
-  line-height: 1;
-  font-variation-settings: "FILL" 0, "wght" 500, "GRAD" 0, "opsz" 24;
 }
