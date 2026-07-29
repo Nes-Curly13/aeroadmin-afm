@@ -43,15 +43,21 @@ export function ParcelMap({
         style: {
           version: 8,
           sources: {
-            esri: {
+            // Sprint S8.1: Esri reemplazado por EOX Sentinel-2 cloudless
+            // (la red del operador bloquea services.arcgisonline.com).
+            // EOX es público (CC-BY) y no requiere API key.
+            eox: {
               type: "raster",
-              tiles: ["https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"],
+              tiles: [
+                "https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2020_3857/default/g/{z}/{y}/{x}.jpg"
+              ],
               tileSize: 256,
-              maxzoom: 18,
-              attribution: "Imagery &copy; Esri, Maxar",
+              maxzoom: 14,
+              attribution:
+                "Sentinel-2 cloudless 2020 &copy; <a href=\"https://eox.at\" target=\"_blank\" rel=\"noopener\">EOX</a>",
             },
           },
-          layers: [{ id: "esri", type: "raster", source: "esri" }],
+          layers: [{ id: "eox", type: "raster", source: "eox" }],
         },
         bounds,
         fitBoundsOptions: { padding: 34 },

@@ -28,20 +28,45 @@ export interface MapEvent {
   parcel_id: string
 }
 
+/**
+ * Estilos de mapa base para el geovisor.
+ *
+ * Sprint S8.1 (2026-07-28): reemplazamos el Esri World Imagery original
+ * del V0 (services.arcgisonline.com) por EOX Sentinel-2 cloudless
+ * (tiles.maps.eox.at) para el basemap satélite. Razón: la red del
+ * operador bloquea los dominios de Esri y Mapbox, y OSM en algunos
+ * segmentos. EOX está en un dominio distinto, es público (CC-BY) y
+ * no requiere API key — más resiliente que Esri/Mapbox.
+ *
+ * Si en el futuro EOX también queda bloqueado, las alternativas
+ * públicas sin auth más comunes son:
+ *   - USGS National Map (USGSImageryOnly):
+ *     https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}
+ *   - ESRI World Imagery vía subdomain alterno:
+ *     https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}
+ *   - Carto basemaps (solo "voyager", "positron", "dark-matter" — sin satélite).
+ *
+ * Para OpenStreetMap seguimos usando tile.openstreetmap.org porque la
+ * URL `/calles` (callejero) se renderiza aún si las imágenes no cargan
+ * — los polígonos y eventos se ven igual sobre el background sólido.
+ */
 const STYLES: Record<BaseMap, StyleSpecification> = {
   satelite: {
     version: 8,
     glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
     sources: {
-      esri: {
+      eox: {
         type: "raster",
-        tiles: ["https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"],
+        tiles: [
+          "https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2020_3857/default/g/{z}/{y}/{x}.jpg"
+        ],
         tileSize: 256,
-        maxzoom: 18,
-        attribution: "Imagery &copy; Esri, Maxar, Earthstar Geographics",
+        maxzoom: 14,
+        attribution:
+          "Sentinel-2 cloudless 2020 &copy; <a href=\"https://eox.at\" target=\"_blank\" rel=\"noopener\">EOX</a>",
       },
     },
-    layers: [{ id: "esri", type: "raster", source: "esri" }],
+    layers: [{ id: "eox", type: "raster", source: "eox" }],
   },
   calles: {
     version: 8,
@@ -257,8 +282,8 @@ export function GeoMap({
     const map = mapRef.current
     if (!map || !ready) return
     const style = STYLES[baseMap]
-    const src = baseMap === "satelite" ? "esri" : "osm"
-    const other = baseMap === "satelite" ? "osm" : "esri"
+    const src = baseMap === "satelite" ? "eox" : "osm"
+    const other = baseMap === "satelite" ? "osm" : "eox"
     if (!map.getSource(src)) {
       map.addSource(src, style.sources[src] as never)
       map.addLayer({ id: src, type: "raster", source: src }, "parcels-fill")
