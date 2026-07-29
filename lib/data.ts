@@ -89,17 +89,92 @@ function polygonCentroid(geom: GeoJSON.Geometry | null): { lng: number; lat: num
   return { lng: sum.lng / ring.length, lat: sum.lat / ring.length };
 }
 
+// Centro del Valle del Cauca (Palmira/Candelaria) como default cuando no
+// hay geometria real. La region tiene ~80km × 80km de extent util.
+const DEFAULT_CENTER: { lng: number; lat: number } = { lng: -76.3, lat: 3.45 };
+// 1 grado de longitud ≈ 111km en el ecuador, ~108km a latitud 3.45N.
+// 1 grado de latitud ≈ 110.5km.
+// Para que las 1213 parcelas se vean bien, las esparcimos en un cuadrado
+// de 1 grado × 1 grado (~110km × 110km). Eso da 1213 puntos en un area
+// razonable de la region canera del Valle.
+const SYNTHETIC_REGION_DEG = 0.9; // ~99km en lng, ~99km en lat
+
+/**
+ * Genera una localizacion sintetica UNICA por parcel ID.
+ *
+ * Por que: el dataset actual tiene `spray_geometry` NULL para todos
+ * los 1213 parcels (el scraper DJI no la persiste). Sin esta
+ * funcion, todos los centroides caen en (-76.3, 3.45) y los polygons
+ * sinteticos se superponen en un solo punto invisible.
+ *
+ * Estrategia: hash determinista del ID -> coords (x, y) en una grilla
+ * uniforme dentro de la region del Valle del Cauca. Parcel #1 va
+ * a (-76.3, 3.45) (top-left), parcel #2 a (-76.3 + dx, 3.45) (top-row),
+ * etc. Misma entrada -> misma posicion siempre.
+ */
+function syntheticCentroid(parcelId: number): { lng: number; lat: number } {
+  // Hash determinista: shift por un primo grande y mod por la region
+  const hash = (parcelId * 2654435761) >>> 0; // Knuth multiplicative hash
+  const lngOffset = ((hash % 10000) / 10000 - 0.5) * SYNTHETIC_REGION_DEG;
+  const latOffset = (((hash >>> 16) % 10000) / 10000 - 0.5) * SYNTHETIC_REGION_DEG;
+  return {
+    lng: DEFAULT_CENTER.lng + lngOffset,
+    lat: DEFAULT_CENTER.lat + latOffset
+  };
+}
+
+/**
+ * Genera un poligono cuadrado sintetico alrededor de un centroide,
+ * dimensionado segun el area del parcel.
+ *
+ * @param center centroide (lng, lat) del cuadrado
+ * @param areaHa hectareas declaradas (default 5ha = 500m × 100m)
+ * @returns GeoJSON Polygon (counter-clockwise, closed ring)
+ */
+function syntheticPolygon(
+  center: { lng: number; lat: number },
+  areaHa: number
+): { type: "Polygon"; coordinates: [number, number][][] } {
+  // Asumimos parcela aproximadamente cuadrada.
+  // 1 ha = 100m × 100m = 0.001 grados × 0.001 grados (a esta latitud).
+  // Para area = A ha, lado = sqrt(A) * 100m, lado_grados = sqrt(A) * 0.001.
+  const sideDeg = Math.max(0.0008, Math.sqrt(Math.max(areaHa, 0.5)) * 0.001);
+  const half = sideDeg / 2;
+  const { lng, lat } = center;
+  // Ring clockwise desde top-left (MapLibre/GeoJSON no require orientacion
+  // especifica para fill, pero ring cerrado es obligatorio).
+  const ring: [number, number][] = [
+    [lng - half, lat - half],
+    [lng + half, lat - half],
+    [lng + half, lat + half],
+    [lng - half, lat + half],
+    [lng - half, lat - half]
+  ];
+  return { type: "Polygon", coordinates: [ring] };
+}
+
 /** Mapea un DjiParcelRecord (project) → DjiParcel (V0). */
 function adaptParcel(
   p: DjiParcelRecord,
   schedule: DjiFumigationSchedule | null
 ): DjiParcel {
-  const { lng, lat } = polygonCentroid(p.spray_geometry);
   const droneCode = (p.drone_model_code ?? 0) as DroneModelId;
   // El proyecto ya tiene `crop_type` (metadata humana, migration 2026-07-22)
   // y `location_label` (direccion humana, migration 2026-07-09). Para
   // `client_name`/`farm_name`/`municipality`/`variety` caemos a defaults.
   const variety = p.variety ?? p.crop_type ?? "Sin asignar";
+  const areaHa = p.declared_area_ha ?? (p.spray_area_m2 != null ? p.spray_area_m2 / 10_000 : 0);
+  // v2.5.3 (S8.6): si hay geometria real, la usamos. Si no, generamos
+  // una localizacion sintetica unica por parcel ID para que el mapa
+  // muestre 1213 poligonos distintos en vez de todos apilados en el
+  // mismo punto.
+  const hasRealGeom = p.spray_geometry?.type === "Polygon";
+  const center = hasRealGeom
+    ? polygonCentroid(p.spray_geometry)
+    : syntheticCentroid(p.id);
+  const geom = hasRealGeom
+    ? (p.spray_geometry as { type: "Polygon"; coordinates: [number, number][][] })
+    : syntheticPolygon(center, areaHa);
   return {
     id: String(p.id),
     dji_land_id: p.external_id,
@@ -107,15 +182,12 @@ function adaptParcel(
     farm_name: p.farm_name ?? "Sin asignar",
     client_name: p.client_name ?? "Sin asignar",
     municipality: p.municipality ?? "Sin asignar",
-    area_ha: p.declared_area_ha ?? (p.spray_area_m2 != null ? p.spray_area_m2 / 10_000 : 0),
+    area_ha: areaHa,
     variety,
     drone_model_id: droneCode,
-    centroid_lng: lng,
-    centroid_lat: lat,
-    geom:
-      p.spray_geometry?.type === "Polygon"
-        ? (p.spray_geometry as { type: "Polygon"; coordinates: [number, number][][] })
-        : { type: "Polygon", coordinates: [[[lng, lat], [lng, lat + 0.001], [lng + 0.001, lat + 0.001], [lng + 0.001, lat], [lng, lat]]] },
+    centroid_lng: center.lng,
+    centroid_lat: center.lat,
+    geom,
     created_at: p.fetched_at ?? new Date().toISOString(),
     is_active: !p.is_orchard || p.field_type !== "Orchards" || true
   };
