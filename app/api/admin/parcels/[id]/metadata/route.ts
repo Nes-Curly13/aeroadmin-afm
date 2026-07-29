@@ -65,7 +65,23 @@ function pickEditable(input: Record<string, unknown>): ParcelMetadataUpdate {
 }
 
 export async function PATCH(req: Request, ctx: RouteContext) {
-  await requireRole("admin");
+  // requireRole lanza errores tipados (code='UNAUTHENTICATED' | 'FORBIDDEN')
+  // que tenemos que traducir a 401/403. Si NO los capturamos aca,
+  // Next.js los convierte en 500 (unhandled exception en route handler).
+  // v2.5.1 (S8.4): user story test 7.3 (RBAC supervisor) fallo con
+  //   500 en lugar de 403. Fix abajo.
+  try {
+    await requireRole("admin");
+  } catch (err) {
+    const e = err as { code?: string; status?: number; message?: string };
+    if (e.code === "UNAUTHENTICATED") {
+      return NextResponse.json({ error: "no autenticado" }, { status: 401 });
+    }
+    if (e.code === "FORBIDDEN") {
+      return NextResponse.json({ error: "rol insuficiente" }, { status: 403 });
+    }
+    return NextResponse.json({ error: e.message ?? "auth error" }, { status: 500 });
+  }
 
   const { id: idRaw } = await ctx.params;
   const id = Number(idRaw);
