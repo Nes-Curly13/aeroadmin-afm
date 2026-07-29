@@ -255,6 +255,12 @@ export async function getParcelsSummary() {
  * de DJI scrapeados — esos vienen del importer. Solo metadata que el operador
  * puede querer ajustar manualmente (nombre visible, tipo declarado, areas,
  * y la metadata humana que DJI no expone: cultivo, siembra, propietario, contacto, notas).
+ *
+ * Sprint S8.2 (2026-07-29): agregados los 4 campos del V0 mockup que la UI
+ * expone en el panel de operaciones y el filtro del geovisor
+ * (`client_name`, `farm_name`, `municipality`, `variety`). Estas columnas
+ * se agregaron físicamente en `dji_parcels` via la migration
+ * 20260728000000_add_v0_fields_to_dji_parcels.sql.
  */
 export type ParcelMetadataUpdate = {
   land_name?: string | null;
@@ -267,6 +273,13 @@ export type ParcelMetadataUpdate = {
   owner_name?: string | null;
   owner_contact?: string | null;
   supervisor_notes?: string | null;
+  // V0 fields (sprint S8.2, 2026-07-29). El operador fumigador los llena
+  // via /admin/parcels. Sin DJI source — los datos solo los conoce el
+  // operario de campo.
+  client_name?: string | null;
+  farm_name?: string | null;
+  municipality?: string | null;
+  variety?: string | null;
 };
 
 /**
@@ -342,6 +355,36 @@ export async function updateParcelMetadata(
     }
     sets.push(`supervisor_notes = $${idx++}`);
     params.push(patch.supervisor_notes ?? null);
+  }
+  // V0 fields (sprint S8.2, 2026-07-29). Validamos longitud razonable para
+  // evitar inputs pegados accidentalmente (e.g. un paste de 1MB de texto).
+  if (patch.client_name !== undefined) {
+    if (patch.client_name !== null && patch.client_name.length > 200) {
+      throw new Error("client_name max 200 chars");
+    }
+    sets.push(`client_name = $${idx++}`);
+    params.push(patch.client_name ?? null);
+  }
+  if (patch.farm_name !== undefined) {
+    if (patch.farm_name !== null && patch.farm_name.length > 200) {
+      throw new Error("farm_name max 200 chars");
+    }
+    sets.push(`farm_name = $${idx++}`);
+    params.push(patch.farm_name ?? null);
+  }
+  if (patch.municipality !== undefined) {
+    if (patch.municipality !== null && patch.municipality.length > 100) {
+      throw new Error("municipality max 100 chars");
+    }
+    sets.push(`municipality = $${idx++}`);
+    params.push(patch.municipality ?? null);
+  }
+  if (patch.variety !== undefined) {
+    if (patch.variety !== null && patch.variety.length > 100) {
+      throw new Error("variety max 100 chars");
+    }
+    sets.push(`variety = $${idx++}`);
+    params.push(patch.variety ?? null);
   }
 
   if (sets.length === 0) {
