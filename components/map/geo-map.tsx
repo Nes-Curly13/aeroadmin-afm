@@ -38,36 +38,55 @@ export interface MapEvent {
  * segmentos. EOX está en un dominio distinto, es público (CC-BY) y
  * no requiere API key — más resiliente que Esri/Mapbox.
  *
- * Si en el futuro EOX también queda bloqueado, las alternativas
- * públicas sin auth más comunes son:
- *   - USGS National Map (USGSImageryOnly):
- *     https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}
- *   - ESRI World Imagery vía subdomain alterno:
- *     https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}
- *   - Carto basemaps (solo "voyager", "positron", "dark-matter" — sin satélite).
+ * Sprint S8.7 (v2.6, 2026-07-30): si NEXT_PUBLIC_MAPTILER_KEY está
+ * definida, el basemap satélite usa MapTiler "Satellite Hybrid"
+ * (30cm res, satelite + labels) en lugar de EOX (10m). El operador
+ * proveyó la key gratuita. Si la key está vacía, cae a EOX 2024
+ * (drop-in upgrade desde 2020, mejor color, mismo dominio/res).
  *
- * Para OpenStreetMap seguimos usando tile.openstreetmap.org porque la
- * URL `/calles` (callejero) se renderiza aún si las imágenes no cargan
- * — los polígonos y eventos se ven igual sobre el background sólido.
+ * Sources: clave del API key en env (NUNCA hardcodear). Dominios
+ * permitidos en CSP: next.config.ts (img-src + connect-src).
  */
+const MAPTILER_KEY = process.env.NEXT_PUBLIC_MAPTILER_KEY || ""
+const USE_MAPTILER = MAPTILER_KEY.length > 0
+
+const EOX_TILE_URL =
+  "https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2024_3857/default/g/{z}/{y}/{x}.jpg"
+// MapTiler tile order: {z}/{x}/{y} (XYZ, NO TMS, NO {z}/{y}/{x} como EOX).
+const MAPTILER_HYBRID_URL = `https://api.maptiler.com/tiles/satellite-hybrid/{z}/{x}/{y}.jpg?key=${MAPTILER_KEY}`
+
 const STYLES: Record<BaseMap, StyleSpecification> = {
-  satelite: {
-    version: 8,
-    glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
-    sources: {
-      eox: {
-        type: "raster",
-        tiles: [
-          "https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2020_3857/default/g/{z}/{y}/{x}.jpg"
-        ],
-        tileSize: 256,
-        maxzoom: 14,
-        attribution:
-          "Sentinel-2 cloudless 2020 &copy; <a href=\"https://eox.at\" target=\"_blank\" rel=\"noopener\">EOX</a>",
+  satelite: USE_MAPTILER
+    ? {
+        version: 8,
+        glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
+        sources: {
+          maptiler: {
+            type: "raster",
+            tiles: [MAPTILER_HYBRID_URL],
+            tileSize: 256,
+            maxzoom: 20,
+            attribution:
+              "&copy; <a href=\"https://www.maptiler.com/\" target=\"_blank\" rel=\"noopener\">MapTiler</a> &copy; <a href=\"https://www.openstreetmap.org/copyright\" target=\"_blank\" rel=\"noopener\">OpenStreetMap</a> contributors",
+          },
+        },
+        layers: [{ id: "maptiler", type: "raster", source: "maptiler" }],
+      }
+    : {
+        version: 8,
+        glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
+        sources: {
+          eox: {
+            type: "raster",
+            tiles: [EOX_TILE_URL],
+            tileSize: 256,
+            maxzoom: 14,
+            attribution:
+              "Sentinel-2 cloudless 2024 &copy; <a href=\"https://eox.at\" target=\"_blank\" rel=\"noopener\">EOX</a>",
+          },
+        },
+        layers: [{ id: "eox", type: "raster", source: "eox" }],
       },
-    },
-    layers: [{ id: "eox", type: "raster", source: "eox" }],
-  },
   calles: {
     version: 8,
     glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
@@ -83,6 +102,9 @@ const STYLES: Record<BaseMap, StyleSpecification> = {
     layers: [{ id: "osm", type: "raster", source: "osm" }],
   },
 }
+
+/** Source name del basemap satélite actual (puede ser "maptiler" o "eox"). */
+const SATELITE_SOURCE_NAME = USE_MAPTILER ? "maptiler" : "eox"
 
 function parcelsToFeatures(parcels: MapParcel[]) {
   return {
@@ -287,8 +309,8 @@ export function GeoMap({
     const map = mapRef.current
     if (!map || !ready) return
     const style = STYLES[baseMap]
-    const src = baseMap === "satelite" ? "eox" : "osm"
-    const other = baseMap === "satelite" ? "osm" : "eox"
+    const src = baseMap === "satelite" ? SATELITE_SOURCE_NAME : "osm"
+    const other = baseMap === "satelite" ? "osm" : SATELITE_SOURCE_NAME
     if (!map.getSource(src)) {
       map.addSource(src, style.sources[src] as never)
       map.addLayer({ id: src, type: "raster", source: src }, "parcels-fill")

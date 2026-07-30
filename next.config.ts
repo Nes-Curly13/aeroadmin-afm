@@ -56,13 +56,15 @@ const securityHeaders = [
       "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "font-src 'self' https://fonts.gstatic.com",
-      "img-src 'self' data: https://*.tile.openstreetmap.org https://server.arcgisonline.com https://tiles.maps.eox.at https://unpkg.com",
+      "img-src 'self' data: https://*.tile.openstreetmap.org https://server.arcgisonline.com https://tiles.maps.eox.at https://api.maptiler.com https://unpkg.com",
       // v2.5.2 (S8.5): MapLibre usa fetch() (no <img>) para cargar tiles,
       // asi que 'img-src' no alcanza. Hay que permitir los dominios de
       // tiles en 'connect-src' tambien. Si no, el browser loguea
       // "Refused to connect because it violates the document's Content
       // Security Policy" y los tiles no cargan (canvas queda vacio).
-      "connect-src 'self' https://*.tile.openstreetmap.org https://tile.openstreetmap.org https://tiles.maps.eox.at https://server.arcgisonline.com https://demotiles.maplibre.org https://mt1.google.com",
+      // v2.6 (S8.7): anadido api.maptiler.com para MapTiler Satellite Hybrid
+      // (30cm res, con labels). Key via NEXT_PUBLIC_MAPTILER_KEY.
+      "connect-src 'self' https://*.tile.openstreetmap.org https://tile.openstreetmap.org https://tiles.maps.eox.at https://server.arcgisonline.com https://demotiles.maplibre.org https://mt1.google.com https://api.maptiler.com",
       // v2.5.4 (S8.6): MapLibre 6.0+ usa un Web Worker (maplibre-gl-worker.mjs)
       // para procesar GeoJSON sources (geojson-vt). Sin worker-src/blob:,
       // el worker no carga, _data tiene los features pero querySourceFeatures
