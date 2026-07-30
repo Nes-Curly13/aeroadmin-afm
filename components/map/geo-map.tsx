@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react"
 import { STATUS_META } from "@/lib/data-constants"
 import type { ComplianceStatus } from "@/lib/types"
 
-export type BaseMap = "satelite" | "calles"
+export type BaseMap = "satelite" | "hibrido" | "calles" | "topo"
 
 export interface MapParcel {
   id: string
@@ -33,67 +33,96 @@ export interface MapEvent {
  *
  * Sprint S8.1 (2026-07-28): reemplazamos el Esri World Imagery original
  * del V0 (services.arcgisonline.com) por EOX Sentinel-2 cloudless
- * (tiles.maps.eox.at) para el basemap satélite. Razón: la red del
- * operador bloquea los dominios de Esri y Mapbox, y OSM en algunos
- * segmentos. EOX está en un dominio distinto, es público (CC-BY) y
- * no requiere API key — más resiliente que Esri/Mapbox.
+ * (tiles.maps.eox.at). Razón: la red del operador bloquea los dominios
+ * de Esri y Mapbox, y OSM en algunos segmentos.
  *
- * Sprint S8.7 (v2.6, 2026-07-30): si NEXT_PUBLIC_MAPTILER_KEY está
- * definida, el basemap satélite usa MapTiler "Satellite Hybrid"
- * (30cm res, satelite + labels) en lugar de EOX (10m). El operador
- * proveyó la key gratuita. Si la key está vacía, cae a EOX 2024
- * (drop-in upgrade desde 2020, mejor color, mismo dominio/res).
+ * Sprint S8.7 (v2.6, 2026-07-30): selector de 4 basemaps via MapTiler
+ * (https://api.maptiler.com/maps/{style}/style.json). Patrón oficial
+ * MapTiler + MapLibre: `map.setStyle(url, { transformStyle })` donde
+ * transformStyle preserva los sources/layers custom (parcels, events)
+ * al cambiar de basemap. Ver:
+ *   - https://docs.maptiler.com/sdk-js/examples/change-map-styles/
+ *   - https://docs.maptiler.com/map-styles/  (lista completa)
+ *   - https://docs.maptiler.com/gl-style-specification/sources/
+ *
+ * Si NEXT_PUBLIC_MAPTILER_KEY NO está definida, fallback a EOX 2024
+ * (10m) para satélite y OSM para calles (sólo 2 opciones en el toggle).
  *
  * Sources: clave del API key en env (NUNCA hardcodear). Dominios
  * permitidos en CSP: next.config.ts (img-src + connect-src).
  */
 const MAPTILER_KEY = process.env.NEXT_PUBLIC_MAPTILER_KEY || ""
-const USE_MAPTILER = MAPTILER_KEY.length > 0
+export const USE_MAPTILER = MAPTILER_KEY.length > 0
 
+/** Estilos MapTiler (vector). Documentados en https://docs.maptiler.com/map-styles/ */
+const MAPTILER_STYLE_URLS: Record<BaseMap, string> = {
+  satelite: `https://api.maptiler.com/maps/satellite/style.json?key=${MAPTILER_KEY}`,
+  hibrido: `https://api.maptiler.com/maps/hybrid/style.json?key=${MAPTILER_KEY}`,
+  calles: `https://api.maptiler.com/maps/streets-v2/style.json?key=${MAPTILER_KEY}`,
+  topo: `https://api.maptiler.com/maps/outdoor/style.json?key=${MAPTILER_KEY}`,
+}
+
+/** Fallback sin key MapTiler: EOX Sentinel-2 cloudless 2024 + OSM. */
 const EOX_TILE_URL =
   "https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2024_3857/default/g/{z}/{y}/{x}.jpg"
-// MapTiler tile order: {z}/{x}/{y} (XYZ, NO TMS, NO {z}/{y}/{x} como EOX).
-const MAPTILER_HYBRID_URL = `https://api.maptiler.com/tiles/satellite-hybrid/{z}/{x}/{y}.jpg?key=${MAPTILER_KEY}`
+const OSM_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+const GLYPHS_URL = "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf"
 
-const STYLES: Record<BaseMap, StyleSpecification> = {
-  satelite: USE_MAPTILER
-    ? {
-        version: 8,
-        glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
-        sources: {
-          maptiler: {
-            type: "raster",
-            tiles: [MAPTILER_HYBRID_URL],
-            tileSize: 256,
-            maxzoom: 20,
-            attribution:
-              "&copy; <a href=\"https://www.maptiler.com/\" target=\"_blank\" rel=\"noopener\">MapTiler</a> &copy; <a href=\"https://www.openstreetmap.org/copyright\" target=\"_blank\" rel=\"noopener\">OpenStreetMap</a> contributors",
-          },
-        },
-        layers: [{ id: "maptiler", type: "raster", source: "maptiler" }],
-      }
-    : {
-        version: 8,
-        glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
-        sources: {
-          eox: {
-            type: "raster",
-            tiles: [EOX_TILE_URL],
-            tileSize: 256,
-            maxzoom: 14,
-            attribution:
-              "Sentinel-2 cloudless 2024 &copy; <a href=\"https://eox.at\" target=\"_blank\" rel=\"noopener\">EOX</a>",
-          },
-        },
-        layers: [{ id: "eox", type: "raster", source: "eox" }],
+const FALLBACK_STYLES: Record<BaseMap, StyleSpecification> = {
+  satelite: {
+    version: 8,
+    glyphs: GLYPHS_URL,
+    sources: {
+      eox: {
+        type: "raster",
+        tiles: [EOX_TILE_URL],
+        tileSize: 256,
+        maxzoom: 14,
+        attribution:
+          "Sentinel-2 cloudless 2024 &copy; <a href=\"https://eox.at\" target=\"_blank\" rel=\"noopener\">EOX</a>",
       },
+    },
+    layers: [{ id: "eox", type: "raster", source: "eox" }],
+  },
+  // hibrido + topo en fallback se renderizan igual que satélite (EOX)
+  // porque sin MapTiler no hay labels ni curvas de nivel. La UI los
+  // oculta cuando USE_MAPTILER=false (ver geovisor-client.tsx).
+  hibrido: {
+    version: 8,
+    glyphs: GLYPHS_URL,
+    sources: {
+      eox: {
+        type: "raster",
+        tiles: [EOX_TILE_URL],
+        tileSize: 256,
+        maxzoom: 14,
+        attribution:
+          "Sentinel-2 cloudless 2024 &copy; <a href=\"https://eox.at\" target=\"_blank\" rel=\"noopener\">EOX</a>",
+      },
+    },
+    layers: [{ id: "eox", type: "raster", source: "eox" }],
+  },
   calles: {
     version: 8,
-    glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
+    glyphs: GLYPHS_URL,
     sources: {
       osm: {
         type: "raster",
-        tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+        tiles: [OSM_TILE_URL],
+        tileSize: 256,
+        maxzoom: 19,
+        attribution: "&copy; OpenStreetMap contributors",
+      },
+    },
+    layers: [{ id: "osm", type: "raster", source: "osm" }],
+  },
+  topo: {
+    version: 8,
+    glyphs: GLYPHS_URL,
+    sources: {
+      osm: {
+        type: "raster",
+        tiles: [OSM_TILE_URL],
         tileSize: 256,
         maxzoom: 19,
         attribution: "&copy; OpenStreetMap contributors",
@@ -103,8 +132,17 @@ const STYLES: Record<BaseMap, StyleSpecification> = {
   },
 }
 
-/** Source name del basemap satélite actual (puede ser "maptiler" o "eox"). */
-const SATELITE_SOURCE_NAME = USE_MAPTILER ? "maptiler" : "eox"
+/** IDs de sources y layers custom que el transformStyle debe preservar. */
+const CUSTOM_SOURCE_IDS = new Set(["parcels", "events"])
+const CUSTOM_LAYER_PREFIXES = ["parcels-", "events-"]
+
+/** Filter helper: ¿es un source/layer custom que el transformStyle debe preservar? */
+function isCustomSource(id: string): boolean {
+  return CUSTOM_SOURCE_IDS.has(id)
+}
+function isCustomLayer(layer: { id?: string }): boolean {
+  return typeof layer.id === "string" && CUSTOM_LAYER_PREFIXES.some((p) => layer.id!.startsWith(p))
+}
 
 function parcelsToFeatures(parcels: MapParcel[]) {
   return {
@@ -182,9 +220,15 @@ export function GeoMap({
       const maplibregl = await import("maplibre-gl")
       if (cancelled || !containerRef.current) return
 
+      // Style inicial: URL de MapTiler si hay key, sino objeto local (EOX).
+      // MapLibre acepta tanto URL como objeto en `style`.
+      const initialStyle = USE_MAPTILER
+        ? MAPTILER_STYLE_URLS.satelite
+        : FALLBACK_STYLES.satelite
+
       map = new maplibregl.Map({
         container: containerRef.current,
-        style: STYLES.satelite,
+        style: initialStyle,
         center: [-76.31, 3.47],
         zoom: 10.2,
         attributionControl: { compact: true },
@@ -305,18 +349,59 @@ export function GeoMap({
   }, [showParcels, showEvents, showLabels, ready])
 
   // Basemap
+  //
+  // S8.7 (v2.6) — Dos paths segun si hay MapTiler key:
+  //   - USE_MAPTILER: `map.setStyle(url, { transformStyle })`. El transformStyle
+  //     preserva los sources/layers custom (parcels, events) inyectandolos
+  //     en el nextStyle antes de que se aplique. Patron oficial MapTiler.
+  //   - Fallback: multi-source (addSource + setLayoutProperty) con EOX + OSM.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !ready) return
-    const style = STYLES[baseMap]
-    const src = baseMap === "satelite" ? SATELITE_SOURCE_NAME : "osm"
-    const other = baseMap === "satelite" ? "osm" : SATELITE_SOURCE_NAME
-    if (!map.getSource(src)) {
-      map.addSource(src, style.sources[src] as never)
-      map.addLayer({ id: src, type: "raster", source: src }, "parcels-fill")
+
+    if (USE_MAPTILER) {
+      const styleUrl = MAPTILER_STYLE_URLS[baseMap]
+      // map.setStyle reemplaza TODAS las sources/layers. El transformStyle
+      // se ejecuta antes de aplicar el nuevo style; ahi re-inyectamos nuestros
+      // parcels/events. El source "parcels" mantiene su data porque es la
+      // misma referencia Map source object (no se recrea).
+      map.setStyle(styleUrl, {
+        transformStyle: (previousStyle, nextStyle) => {
+          // previousStyle puede ser undefined en el primer setStyle
+          // (antes del primer load event). En ese caso, no hay nada
+          // custom que preservar.
+          const preservedSources: Record<string, unknown> = {}
+          const preservedLayers: unknown[] = []
+          if (previousStyle) {
+            for (const [id, source] of Object.entries(previousStyle.sources ?? {})) {
+              if (isCustomSource(id)) preservedSources[id] = source
+            }
+            for (const layer of previousStyle.layers ?? []) {
+              if (isCustomLayer(layer as { id?: string })) preservedLayers.push(layer)
+            }
+          }
+          return {
+            ...nextStyle,
+            sources: { ...(nextStyle.sources ?? {}), ...preservedSources },
+            // Las custom layers van al final para que se dibujen encima del basemap.
+            layers: [...(nextStyle.layers ?? []), ...preservedLayers],
+          } as StyleSpecification
+        },
+      })
+      return
     }
-    map.setLayoutProperty(src, "visibility", "visible")
-    if (map.getLayer(other)) map.setLayoutProperty(other, "visibility", "none")
+
+    // Fallback: toggle visibility de sources raster (EOX / OSM).
+    // Solo aplica a "satelite" y "calles" (los otros 2 mapean al mismo source).
+    const style = FALLBACK_STYLES[baseMap]
+    const activeSrc = baseMap === "calles" || baseMap === "topo" ? "osm" : "eox"
+    const otherSrc = activeSrc === "eox" ? "osm" : "eox"
+    if (!map.getSource(activeSrc)) {
+      map.addSource(activeSrc, style.sources[activeSrc] as never)
+      map.addLayer({ id: activeSrc, type: "raster", source: activeSrc }, "parcels-fill")
+    }
+    map.setLayoutProperty(activeSrc, "visibility", "visible")
+    if (map.getLayer(otherSrc)) map.setLayoutProperty(otherSrc, "visibility", "none")
   }, [baseMap, ready])
 
   // Selección: encuadre + resaltado

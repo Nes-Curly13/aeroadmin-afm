@@ -69,14 +69,16 @@ test("geovisor usa MapTiler cuando NEXT_PUBLIC_MAPTILER_KEY esta seteada", async
   expect(maptilerRequests.length).toBeGreaterThan(0)
   expect(eoxRequests.length).toBe(0)
 
-  // 2. La URL de MapTiler incluye el subdomain correcto y la key.
-  //    Si la key no esta en el URL, significa que el build no
-  //    reemplazo el template.
-  const sample = maptilerRequests[0]
-  expect(sample).toMatch(/^https:\/\/api\.maptiler\.com\/tiles\/satellite-hybrid\/\d+\/\d+\/\d+\.jpg\?key=/)
-  // No asertamos el valor exacto de la key (rotacion, dev vs prod).
-  // Solo que el parametro existe y no esta vacio.
-  const keyMatch = sample.match(/[?&]key=([^&]+)/)
+  // 2. Al menos un request es al style.json de MapTiler (el approach
+  //    v2.6 usa map.setStyle con URL del vector style, que internamente
+  //    pide /maps/{style}/style.json).
+  const styleJsonRequests = maptilerRequests.filter((u) => u.includes("/maps/") && u.includes("style.json"))
+  expect(styleJsonRequests.length).toBeGreaterThan(0)
+  expect(styleJsonRequests[0]).toMatch(/^https:\/\/api\.maptiler\.com\/maps\/(satellite|hybrid|streets-v2|outdoor)\/style\.json\?key=/)
+
+  // 3. La key esta en el URL. No asertamos el valor exacto (rotacion,
+  //    dev vs prod). Solo que existe y no esta vacio.
+  const keyMatch = styleJsonRequests[0].match(/[?&]key=([^&]+)/)
   expect(keyMatch).not.toBeNull()
   expect(keyMatch![1].length).toBeGreaterThan(10)
 })

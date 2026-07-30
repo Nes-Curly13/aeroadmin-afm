@@ -3,7 +3,7 @@
 import { ArrowUpRight, Droplets, Layers, MapPin, Plane, Search, SlidersHorizontal, Sprout } from "lucide-react"
 import Link from "next/link"
 import { useMemo, useState } from "react"
-import { type BaseMap, GeoMap, type MapParcel } from "@/components/map/geo-map"
+import { type BaseMap, GeoMap, USE_MAPTILER, type MapParcel } from "@/components/map/geo-map"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { FieldSelect } from "@/components/ui/field-select"
@@ -320,23 +320,31 @@ export function GeovisorClient({ payload }: { payload: GeovisorPayload }) {
           <legend className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             Mapa base
           </legend>
-          <div className="flex gap-1.5">
+          <div className="flex flex-wrap gap-1.5">
             {(
               [
+                // S8.7 (v2.6): selector de 4 basemaps. hibrido + topo solo
+                // disponibles cuando USE_MAPTILER=true (requieren MapTiler
+                // vector styles con labels / curvas de nivel). En fallback
+                // (sin key), solo satelite y calles son relevantes.
                 ["satelite", "Satélite"],
-                ["calles", "Callejero"],
+                ["hibrido", "Híbrido"],
+                ["calles", "Calles"],
+                ["topo", "Topo"],
               ] as [BaseMap, string][]
-            ).map(([value, label]) => (
-              <Button
-                key={value}
-                type="button"
-                size="sm"
-                variant={baseMap === value ? "default" : "outline"}
-                onClick={() => setBaseMap(value)}
-              >
-                {label}
-              </Button>
-            ))}
+            )
+              .filter(([value]) => USE_MAPTILER || value === "satelite" || value === "calles")
+              .map(([value, label]) => (
+                <Button
+                  key={value}
+                  type="button"
+                  size="sm"
+                  variant={baseMap === value ? "default" : "outline"}
+                  onClick={() => setBaseMap(value)}
+                >
+                  {label}
+                </Button>
+              ))}
           </div>
         </fieldset>
       </aside>
