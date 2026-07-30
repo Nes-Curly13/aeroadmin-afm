@@ -21,6 +21,7 @@ import {
   fetchParcelsSummaryCached,
   fetchUpcomingFumigationsCached,
   fetchActivityComparisonCached,
+  fetchFlightHullsByParcelCached,
   invalidateAfterFumigationMutation,
   invalidateAfterParcelMutation
 } from "@/lib/cache";
@@ -1237,6 +1238,40 @@ export async function getFlightPoints(limit = 300): Promise<FlightPointRecord[]>
 export async function getFlightPointsForMap(): Promise<FlightPointRecord[]> {
   const safeLimit = 2000;
   return fetchFlightPointsCached(safeLimit);
+}
+
+/**
+ * v2.5.5 (sprint S8.7+): polígonos derivados de flights fumigados
+ * reales. Computa el `ST_ConvexHull` de los flight points por parcel.
+ *
+ * Cobertura actual (medido 2026-07-30 con `scripts/diagnose-parcel-geometry.js`):
+ *   - 1213 parcels totales
+ *   - 451 parcels (37.2%) tienen al menos 1 flight
+ *   - 419 parcels (34.5%) tienen >= 3 flights → devuelven hull real
+ *   - 32 parcels (2.6%) tienen 1-2 flights → hull null (caller hace buffer)
+ *   - 762 parcels (62.8%) sin flights → no aparecen acá (caller hace synthetic)
+ *
+ * Cacheado 10min (TTL `flightHulls`). Se invalida junto con `flights`
+ * cuando se re-importan. La query es cara (PostGIS sobre 8k flights)
+ * pero estable entre re-scrapes.
+ *
+ * Retorna:
+ *   - `hullGeometry`: GeoJSON Polygon cuando flightCount >= 3, sino null
+ *   - `centroid`: {lng, lat} promedio de los flights — siempre presente
+ *     cuando hay al menos 1 flight. El caller lo usa para buffer cuando
+ *     el hull no es viable.
+ *
+ * Ver `lib/data.ts:adaptParcel` para el cascade: hull → buffer → synthetic.
+ */
+export async function getFlightHullsByParcel(): Promise<
+  Array<{
+    parcelId: number;
+    flightCount: number;
+    centroid: { lng: number; lat: number };
+    hullGeometry: GeoJSON.Polygon | null;
+  }>
+> {
+  return fetchFlightHullsByParcelCached();
 }
 
 /**

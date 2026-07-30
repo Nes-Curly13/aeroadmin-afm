@@ -35,7 +35,8 @@ import {
   getRecentFumigations,
   getFlightPoints,
   getAllFumigationSchedules,
-  getScheduleHistory as getScheduleHistoryFromRepo
+  getScheduleHistory as getScheduleHistoryFromRepo,
+  getFlightHullsByParcel
 } from "@/api/repositories";
 import { readHealthFile, deriveResponse, type PipelineHealth } from "@/lib/djiag-health";
 import { getBogotaDateString, toDateString } from "@/lib/format";
@@ -99,21 +100,37 @@ const DEFAULT_CENTER: { lng: number; lat: number } = { lng: -76.3, lat: 3.45 };
 // razonable de la region canera del Valle.
 const SYNTHETIC_REGION_DEG = 0.9; // ~99km en lng, ~99km en lat
 
+// v2.5.5 (S8.7+): convierte hectareas a un radio en grados decimales.
+// Usado por el N-gon sintetico y por el buffer alrededor de flight
+// centroide. Asumimos parcelas aproximadamente circulares para el
+// calculo del area equivalente (A = π * r² → r = sqrt(A/π)).
+//
+// 1 grado ≈ 111km. Para area = A ha:
+//   - r_m = sqrt(A * 10000 / π) (radio en metros)
+//   - r_deg = r_m / 111000       (radio en grados)
+//
+// 0.5 ha mínimo para evitar polígonos degeneres (un parcel de 0.1 ha
+// daría un polígono de 2.5m de radio, invisible a z=10).
+function areaHaToRadiusDeg(areaHa: number): number {
+  const ha = Math.max(areaHa, 0.5);
+  const radiusM = Math.sqrt((ha * 10_000) / Math.PI);
+  return Math.max(radiusM / 111_000, 0.0006);
+}
+
 /**
  * Genera una localizacion sintetica UNICA por parcel ID.
  *
- * Por que: el dataset actual tiene `spray_geometry` NULL para todos
- * los 1213 parcels (el scraper DJI no la persiste). Sin esta
- * funcion, todos los centroides caen en (-76.3, 3.45) y los polygons
- * sinteticos se superponen en un solo punto invisible.
+ * Por que: para parcels SIN flights ni geometria real (~65% del dataset),
+ * necesitamos una posicion estable y unica por parcel ID. Misma entrada
+ * → misma salida siempre (importante para que el render no "salte" entre
+ * re-renders).
  *
- * Estrategia: hash determinista del ID -> coords (x, y) en una grilla
+ * Estrategia: hash determinista del ID → coords (x, y) en una grilla
  * uniforme dentro de la region del Valle del Cauca. Parcel #1 va
  * a (-76.3, 3.45) (top-left), parcel #2 a (-76.3 + dx, 3.45) (top-row),
- * etc. Misma entrada -> misma posicion siempre.
+ * etc.
  */
 function syntheticCentroid(parcelId: number): { lng: number; lat: number } {
-  // Hash determinista: shift por un primo grande y mod por la region
   const hash = (parcelId * 2654435761) >>> 0; // Knuth multiplicative hash
   const lngOffset = ((hash % 10000) / 10000 - 0.5) * SYNTHETIC_REGION_DEG;
   const latOffset = (((hash >>> 16) % 10000) / 10000 - 0.5) * SYNTHETIC_REGION_DEG;
@@ -124,39 +141,101 @@ function syntheticCentroid(parcelId: number): { lng: number; lat: number } {
 }
 
 /**
- * Genera un poligono cuadrado sintetico alrededor de un centroide,
- * dimensionado segun el area del parcel.
+ * Genera un polígono N-gon IRREGULAR sintetico alrededor de un centroide.
  *
- * @param center centroide (lng, lat) del cuadrado
- * @param areaHa hectareas declaradas (default 5ha = 500m × 100m)
- * @returns GeoJSON Polygon (counter-clockwise, closed ring)
+ * v2.5.5 (S8.7+): reemplaza al cuadrado perfecto de v2.5.3. El cuadrado
+ * se veía irreal para el operador (un lote de caña nunca es cuadrado).
+ * El N-gon tiene:
+ *   - 8-12 lados (n = 8 + (id % 5))
+ *   - Cada vértice perturbado radialmente entre 0.65x y 1.35x del radio
+ *     base, usando un segundo hash para que la perturbación sea estable
+ *   - Aspect ratio variable (no siempre cuadrado): width/height entre
+ *     0.7x y 1.3x, derivado de un tercer hash
+ *
+ * Determinista: misma entrada → misma forma siempre. Cada parcel tiene
+ * una "huella" geometrica única derivada de su ID.
+ *
+ * @param center centroide (lng, lat) del N-gon
+ * @param areaHa hectareas declaradas — determina el radio base
+ * @param parcelId ID del parcel — determina N, perturbaciones, y aspect ratio
+ * @returns GeoJSON Polygon (ring cerrado)
  */
 function syntheticPolygon(
   center: { lng: number; lat: number },
+  areaHa: number,
+  parcelId: number
+): { type: "Polygon"; coordinates: [number, number][][] } {
+  // Cantidad de lados: 8 a 12. Usamos (id - 1) % 5 para que el rango
+  // sea exactamente 0..4 (los parcel IDs reales empiezan en 1, no en 0).
+  const n = 8 + ((parcelId - 1) % 5);
+  // Radio base (mismo para todos los vértices, después se perturba).
+  const r = areaHaToRadiusDeg(areaHa);
+  // Aspect ratio: 0.7x a 1.3x. Multiplicamos lng por aspectRatio,
+  // dividimos lat por aspectRatio. Resultado: parcelas elongadas
+  // (algunas más anchas, otras más altas), no todas redondos.
+  const aspectRatio = 0.7 + ((parcelId * 17) % 100) / 100 * 0.6;
+  // Hash secundario para perturbar el radio de cada vértice.
+  // (parcelId * 31) es otro primo que no colisiona con el hash del
+  // centroide. >>> 8 desplaza para tener bits "frescos" en mod 100.
+  const perturbSeed = (parcelId * 31) >>> 8;
+  const ring: [number, number][] = [];
+  for (let i = 0; i < n; i++) {
+    // Angulo base: 2π * i / n
+    // Jitter angular: ±(π / (2n)) para que los vértices no caigan
+    // exactamente sobre una grilla regular — eso es lo que hace que
+    // el polígono se vea "natural" y no simétrico.
+    const angleBase = (2 * Math.PI * i) / n;
+    const angleJitter = (((perturbSeed + i * 7) % 100) / 100 - 0.5) * (Math.PI / n);
+    const angle = angleBase + angleJitter;
+    // Perturbacion radial: 0.65x a 1.35x del radio base.
+    const radialFactor = 0.65 + (((perturbSeed + i * 13) % 100) / 100) * 0.7;
+    const rActual = r * radialFactor;
+    // Aplicar aspect ratio. Si aspect > 1, el polígono es más ancho
+    // en lng que alto en lat (parcela horizontal). Si < 1, al revés.
+    const dLng = (rActual * Math.cos(angle)) * aspectRatio;
+    const dLat = (rActual * Math.sin(angle)) / aspectRatio;
+    ring.push([center.lng + dLng, center.lat + dLat]);
+  }
+  // Cerrar el ring (GeoJSON requiere primer punto = último punto).
+  ring.push([ring[0][0], ring[0][1]]);
+  return { type: "Polygon", coordinates: [ring] };
+}
+
+/**
+ * Genera un polígono buffer circular alrededor de un centroide, dimensionado
+ * segun el area del parcel.
+ *
+ * v2.5.5 (S8.7+): usado para parcels con 1-2 flights (no suficientes para
+ * hacer un hull significativo). Devuelve un circulo de N lados — más
+ * realista que un cuadrado y refleja que "hay datos pero pocos".
+ *
+ * @param center centroide (lng, lat) del circulo
+ * @param areaHa hectareas declaradas — determina el radio
+ * @returns GeoJSON Polygon (circulo de 16 lados, cerrado)
+ */
+function flightBufferPolygon(
+  center: { lng: number; lat: number },
   areaHa: number
 ): { type: "Polygon"; coordinates: [number, number][][] } {
-  // Asumimos parcela aproximadamente cuadrada.
-  // 1 ha = 100m × 100m = 0.001 grados × 0.001 grados (a esta latitud).
-  // Para area = A ha, lado = sqrt(A) * 100m, lado_grados = sqrt(A) * 0.001.
-  const sideDeg = Math.max(0.0008, Math.sqrt(Math.max(areaHa, 0.5)) * 0.001);
-  const half = sideDeg / 2;
-  const { lng, lat } = center;
-  // Ring clockwise desde top-left (MapLibre/GeoJSON no require orientacion
-  // especifica para fill, pero ring cerrado es obligatorio).
-  const ring: [number, number][] = [
-    [lng - half, lat - half],
-    [lng + half, lat - half],
-    [lng + half, lat + half],
-    [lng - half, lat + half],
-    [lng - half, lat - half]
-  ];
+  // 16 lados es suficiente para que el círculo se vea suave a cualquier
+  // zoom. Mas lados = más bytes en el payload GeoJSON sin beneficio
+  // visual a z<=16.
+  const sides = 16;
+  const r = areaHaToRadiusDeg(areaHa);
+  const ring: [number, number][] = [];
+  for (let i = 0; i < sides; i++) {
+    const angle = (2 * Math.PI * i) / sides;
+    ring.push([center.lng + r * Math.cos(angle), center.lat + r * Math.sin(angle)]);
+  }
+  ring.push([ring[0][0], ring[0][1]]);
   return { type: "Polygon", coordinates: [ring] };
 }
 
 /** Mapea un DjiParcelRecord (project) → DjiParcel (V0). */
 function adaptParcel(
   p: DjiParcelRecord,
-  schedule: DjiFumigationSchedule | null
+  schedule: DjiFumigationSchedule | null,
+  flightHull: { flightCount: number; centroid: { lng: number; lat: number }; hullGeometry: GeoJSON.Polygon | null } | null
 ): DjiParcel {
   const droneCode = (p.drone_model_code ?? 0) as DroneModelId;
   // El proyecto ya tiene `crop_type` (metadata humana, migration 2026-07-22)
@@ -164,17 +243,47 @@ function adaptParcel(
   // `client_name`/`farm_name`/`municipality`/`variety` caemos a defaults.
   const variety = p.variety ?? p.crop_type ?? "Sin asignar";
   const areaHa = p.declared_area_ha ?? (p.spray_area_m2 != null ? p.spray_area_m2 / 10_000 : 0);
-  // v2.5.3 (S8.6): si hay geometria real, la usamos. Si no, generamos
-  // una localizacion sintetica unica por parcel ID para que el mapa
-  // muestre 1213 poligonos distintos en vez de todos apilados en el
-  // mismo punto.
-  const hasRealGeom = p.spray_geometry?.type === "Polygon";
-  const center = hasRealGeom
-    ? polygonCentroid(p.spray_geometry)
-    : syntheticCentroid(p.id);
-  const geom = hasRealGeom
-    ? (p.spray_geometry as { type: "Polygon"; coordinates: [number, number][][] })
-    : syntheticPolygon(center, areaHa);
+
+  // v2.5.5 (S8.7+): cascade por capas para el poligono del parcel.
+  //
+  //   1. spray_geometry REAL del scraper (dji_parcels.spray_geom) — si existe.
+  //      Caso raro hoy (0/1213) pero el codigo lo soporta para cuando
+  //      se popule.
+  //   2. HULL REAL de flights fumigados (ST_ConvexHull) — si hay ≥3 flights
+  //      con coordenadas. Cubre 34.5% de los parcels (419/1213). Es la
+  //      fuente de máxima fidelidad disponible.
+  //   3. BUFFER CIRCULAR alrededor del flight centroid — si hay 1-2 flights.
+  //      Cubre 2.6% de los parcels (32/1213). Hull no es viable con tan
+  //      pocos puntos, pero tenemos al menos la posición real del lote.
+  //   4. N-GON SINTETICO IRREGULAR (Knuth hash) — si no hay nada.
+  //      Cubre 62.8% de los parcels (762/1213). Determinista, no es
+  //      cuadrado perfecto, tiene aspect ratio variable.
+  //
+  // El centroide que devolvemos (centroid_lng, centroid_lat) SIEMPRE
+  // viene de la fuente de maxima fidelidad disponible: real > hull > buffer
+  // > synthetic. Eso garantiza que el label/marker del mapa este donde
+  // realmente está (o estaria) el lote.
+  let center: { lng: number; lat: number };
+  let geom: { type: "Polygon"; coordinates: [number, number][][] };
+
+  if (p.spray_geometry?.type === "Polygon") {
+    // 1) Real geometry del scraper
+    center = polygonCentroid(p.spray_geometry);
+    geom = p.spray_geometry as { type: "Polygon"; coordinates: [number, number][][] };
+  } else if (flightHull?.hullGeometry) {
+    // 2) Hull real de flights fumigados
+    center = flightHull.centroid;
+    geom = flightHull.hullGeometry as { type: "Polygon"; coordinates: [number, number][][] };
+  } else if (flightHull) {
+    // 3) Buffer alrededor del flight centroid (1-2 flights)
+    center = flightHull.centroid;
+    geom = flightBufferPolygon(center, areaHa);
+  } else {
+    // 4) N-gon sintetico irregular
+    center = syntheticCentroid(p.id);
+    geom = syntheticPolygon(center, areaHa, p.id);
+  }
+
   return {
     id: String(p.id),
     dji_land_id: p.external_id,
@@ -303,6 +412,12 @@ interface Dataset {
   flightPoints: FlightPointRecord[];
   importBatches: DjiImportBatch[];
   scheduleHistory: Record<string, DjiScheduleHistory[]>;
+  /** v2.5.5: hulls de flights fumigados por parcel (cache de PostGIS). */
+  flightHullsByParcelId: Record<number, {
+    flightCount: number;
+    centroid: { lng: number; lat: number };
+    hullGeometry: GeoJSON.Polygon | null;
+  }>;
   fetchedAt: string;
 }
 
@@ -323,12 +438,27 @@ const _loadDatasetCached = unstable_cache(
     // 3) Flight points (max 2000 por la cache).
     const flightPoints = await getFlightPoints(2000);
 
-    // 4) Health (leído del _health.json en `loadHealth()` aparte, ver arriba).
+    // 4) v2.5.5 — flight hulls (PostGIS ST_ConvexHull agrupado por parcel).
+    // Query cara (~200ms en Supabase sobre 8k flights), cacheada aparte en
+    // `fetchFlightHullsByParcelCached` con TTL 10min. Devuelve una entrada
+    // por parcel con flights válidos (incluyendo parcels con 1-2 flights
+    // que tendran `hullGeometry: null`).
+    const flightHulls = await getFlightHullsByParcel();
+    const flightHullsByParcelId: Dataset["flightHullsByParcelId"] = {};
+    for (const h of flightHulls) {
+      flightHullsByParcelId[h.parcelId] = {
+        flightCount: h.flightCount,
+        centroid: h.centroid,
+        hullGeometry: h.hullGeometry
+      };
+    }
+
+    // 5) Health (leído del _health.json en `loadHealth()` aparte, ver arriba).
     //    Acá solo necesitamos los import batches derivados del health raw.
     const healthRaw = await readHealthFile(HEALTH_FILE_PATH);
     const healthResponse = deriveResponse(healthRaw);
 
-    // 5) Import batches — derivamos de health.steps como un solo batch.
+    // 6) Import batches — derivamos de health.steps como un solo batch.
     const importBatches: DjiImportBatch[] = healthRaw
       ? [
           {
@@ -344,13 +474,13 @@ const _loadDatasetCached = unstable_cache(
         ]
       : [];
 
-    // 6) Schedule history — vacío por ahora (el proyecto no tiene tabla
+    // 7) Schedule history — vacío por ahora (el proyecto no tiene tabla
     //    `dji_fumigation_schedule_history` aún).
     const scheduleHistory: Record<string, DjiScheduleHistory[]> = {};
 
-    // 7) Adaptar parcels.
+    // 8) Adaptar parcels — v2.5.5 cascade: real > hull > buffer > N-gon synth.
     const parcels: DjiParcel[] = parcelRecords.map((p) =>
-      adaptParcel(p, schedulesByParcelId[p.id] ?? null)
+      adaptParcel(p, schedulesByParcelId[p.id] ?? null, flightHullsByParcelId[p.id] ?? null)
     );
 
     // NOTA: `health` ya no se devuelve desde acá. Está en `loadHealth()`
@@ -363,6 +493,7 @@ const _loadDatasetCached = unstable_cache(
       flightPoints,
       importBatches,
       scheduleHistory,
+      flightHullsByParcelId,
       fetchedAt: new Date().toISOString()
     };
   },

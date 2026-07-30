@@ -80,7 +80,11 @@ export const CACHE_TAGS = {
   // el costo de nuevo en el mismo minuto). Se invalida junto con
   // `parcels` + `upcoming` cuando hay mutaciones de fumigación o
   // metadata de la parcela.
-  parcelReport: "afm:parcel-report"
+  parcelReport: "afm:parcel-report",
+  // v2.5.5 (sprint S8.7+) — polígonos de parcelas derivados de flights
+  // (ST_ConvexHull agrupado por parcel). Computación cara (PostGIS sobre
+  // 8759 flights), se invalida junto con `flights` cuando se re-importan.
+  flightHulls: "afm:flight-hulls"
 } as const;
 
 export const CACHE_TAGS_ALL = Object.values(CACHE_TAGS);
@@ -101,7 +105,12 @@ export const CACHE_TTL = {
   // F1.11: PDF cacheado 60s. Mismo TTL que `parcels` — el reporte se
   // beneficia de la cache de parcelas ya activa, y queremos que se
   // refresque junto con la lista cuando hay cambios.
-  parcelReport: 60
+  parcelReport: 60,
+  // v2.5.5 (S8.7+): hulls por parcel. Computación cara (ST_ConvexHull
+  // agrupado sobre 8k flights), pero los datos son estables entre
+  // re-scrapes. 10min es suficiente — el re-scrape del pipeline es
+  // diario, y entre runs el hull no cambia.
+  flightHulls: 600
 } as const;
 
 // ============================================================
@@ -621,6 +630,92 @@ export const fetchFlightPointsCached = unstable_cache(
   async (limit: number) => fetchFlightPointsRaw(limit),
   ["flight-points"],
   { revalidate: CACHE_TTL.flights, tags: [CACHE_TAGS.flights] }
+);
+
+// ============================================================
+// v2.5.5 (sprint S8.7+): polígonos derivados de flights
+// ============================================================
+//
+// `dji_parcels.spray_geom` es NULL para 1213/1213 parcelas (el scraper
+// DJI no la persiste). El commit v2.5.3 (S8.6) metió un fallback
+// sintético cuadrado — funciona pero se ve irreal para el operador.
+//
+// Este query computa el polígono real fumigado por parcel agrupando
+// los flight points y aplicando `ST_ConvexHull` (PostGIS). Devuelve
+// una entrada por parcel con flights válidos:
+//   - `flightCount`: cuántos flights tiene el parcel
+//   - `centroid`: {lng, lat} promedio de los flights (para buffer fallback)
+//   - `hullGeometry`: GeoJSON Polygon del hull convexo (null si <3 flights,
+//     porque con 1-2 puntos el hull es trivial — el caller usa el
+//     centroid + buffer en ese caso)
+//
+// Threshold "hull viable" = 3 flights. Con 1-2 flights el hull es un
+// punto o una línea — degenera visualmente. Para esos casos, el caller
+// (`lib/data.ts:adaptParcel`) hace un buffer circular alrededor del
+// centroide.
+//
+// Si el parcel no tiene flights, no aparece en este resultado — el
+// caller cae al fallback N-gon sintético.
+
+export interface FlightHullByParcel {
+  parcelId: number;
+  flightCount: number;
+  centroid: { lng: number; lat: number };
+  /** GeoJSON Polygon del convex hull. null si flightCount < 3. */
+  hullGeometry: GeoJSON.Polygon | null;
+}
+
+async function fetchFlightHullsByParcelRaw(): Promise<FlightHullByParcel[]> {
+  const db = getDb();
+  // ST_ConvexHull requiere al menos 2 puntos para devolver un polígono
+  // no-trivial; con 1 punto devuelve el punto mismo. Por eso hacemos
+  // el `CASE WHEN count >= 3` en SQL — para no devolver hulls de 1
+  // punto que confundirían al caller.
+  //
+  // ST_MakePoint(x, y) usa orden (lng, lat) — coincide con WKT/GeoJSON.
+  // ::geometry castea explícitamente porque pg infiere `point` (no
+  // `geometry`) por defecto sobre columnas numeric, y `ST_Collect` no
+  // funciona sobre `point` directamente.
+  const result = await db.query<{
+    parcel_id: number;
+    flight_count: number;
+    centroid_lng: number;
+    centroid_lat: number;
+    hull_geometry: string | null;
+  }>(
+    `SELECT
+        parcel_id,
+        count(*)::int AS flight_count,
+        ST_X(ST_Centroid(ST_Collect(ST_MakePoint(lng::float8, lat::float8)::geometry)))::float8 AS centroid_lng,
+        ST_Y(ST_Centroid(ST_Collect(ST_MakePoint(lng::float8, lat::float8)::geometry)))::float8 AS centroid_lat,
+        CASE
+          WHEN count(*) >= 3
+          THEN ST_AsGeoJSON(ST_ConvexHull(ST_Collect(ST_MakePoint(lng::float8, lat::float8)::geometry)))::text
+          ELSE NULL
+        END AS hull_geometry
+       FROM dji_flights
+      WHERE parcel_id IS NOT NULL
+        AND lng IS NOT NULL
+        AND lat IS NOT NULL
+        AND lng BETWEEN -180 AND 180
+        AND lat BETWEEN -90 AND 90
+      GROUP BY parcel_id`
+  );
+  return result.rows.map((r) => ({
+    parcelId: Number(r.parcel_id),
+    flightCount: Number(r.flight_count),
+    centroid: {
+      lng: Number(r.centroid_lng),
+      lat: Number(r.centroid_lat)
+    },
+    hullGeometry: r.hull_geometry ? (JSON.parse(r.hull_geometry) as GeoJSON.Polygon) : null
+  }));
+}
+
+export const fetchFlightHullsByParcelCached = unstable_cache(
+  async () => fetchFlightHullsByParcelRaw(),
+  ["flight-hulls-by-parcel"],
+  { revalidate: CACHE_TTL.flightHulls, tags: [CACHE_TAGS.flightHulls, CACHE_TAGS.flights] }
 );
 
 // ============================================================
