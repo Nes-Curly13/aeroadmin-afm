@@ -63,6 +63,13 @@ const securityHeaders = [
       // "Refused to connect because it violates the document's Content
       // Security Policy" y los tiles no cargan (canvas queda vacio).
       "connect-src 'self' https://*.tile.openstreetmap.org https://tile.openstreetmap.org https://tiles.maps.eox.at https://server.arcgisonline.com https://demotiles.maplibre.org https://mt1.google.com",
+      // v2.5.4 (S8.6): MapLibre 6.0+ usa un Web Worker (maplibre-gl-worker.mjs)
+      // para procesar GeoJSON sources (geojson-vt). Sin worker-src/blob:,
+      // el worker no carga, _data tiene los features pero querySourceFeatures
+      // devuelve 0 (los poligonos no se renderizan). Sintoma: mapa muestra
+      // el basemap satelital pero no las 1213 parcelas.
+      "worker-src 'self' blob:",
+      "child-src 'self' blob:",
       "frame-ancestors 'none'"
     ].join("; ")
   }

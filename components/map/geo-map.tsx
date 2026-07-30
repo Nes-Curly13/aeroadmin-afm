@@ -168,6 +168,11 @@ export function GeoMap({
         attributionControl: { compact: true },
       })
       mapRef.current = map
+      // S8.6 (v2.5.3) debug: exponer el map a window para que
+      // los tests e2e puedan inspeccionar source/layers via
+      // map.querySourceFeatures / queryRenderedFeatures. Inocuo
+      // en prod (solo expone la misma instancia que vive en mapRef).
+      ;(window as unknown as { __afmMap?: unknown }).__afmMap = map
       map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right")
       map.addControl(new maplibregl.ScaleControl({ maxWidth: 100, unit: "metric" }), "bottom-left")
 
