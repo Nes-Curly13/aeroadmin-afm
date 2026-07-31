@@ -28,6 +28,33 @@ next-dev.log
 
 # OS / editor
 .DS_Store
+
+# s8.8 (2026-07-31): backups pre-migration de docker (~220MB total)
+backups/
+
+# s8.8 (2026-07-31): mockup V0 del Figma en `docs/fumigation-management-dashboard/`
+# Ya fue porteado al repo principal (lib/data.ts, components/, app/).
+# El mockup original se conserva en historial local pero no se commitea
+# (es muy grande, tiene pnpm-lock.yaml que no aplica, etc).
+docs/fumigation-management-dashboard/
+
+# s8.8 (2026-07-31): preview HTML estatico generado por scripts/generate-polygon-preview.js
+# Output de un script, no se commitea.
+public/polygon-preview.html
+
+# s8.8 (2026-07-31): scripts de diagnostico one-shot (no operacionales).
+# Se conservan en el repo local para referencia pero no se commitean.
+scripts/align-docker-*.js
+scripts/create-supabase-extra-tables.js
+scripts/fix-sequences.js
+scripts/generate-polygon-preview.js
+scripts/simulate-v0-export.js
+scripts/sync-param-waypoint-to-supabase.js
+scripts/sync-polygons-to-supabase.js
+scripts/test-queries-supabase.js
+scripts/migrate-docker-to-supabase.js
+# (scripts/backfill-lands-metadata.js, scripts/backup-djiag-health.js:
+#  son operacionales — SE COMMITEAN)
 Thumbs.db
 .vscode/
 .idea/
