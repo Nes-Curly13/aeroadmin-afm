@@ -79,7 +79,16 @@ export const djiParcelsQuery = `
     p.sweep_direction,
     p.is_orchard,
     p.uses_side_spray,
-    CASE WHEN p.spray_geom IS NULL THEN NULL ELSE ST_AsGeoJSON(p.spray_geom)::json END AS spray_geometry,
+    -- s8.8+ (2026-07-31): normalizar a Polygon (el adapter en lib/data.ts
+    -- espera Polygon, no MultiPolygon). Si spray_geom es MultiPolygon (caso
+    -- real hoy en 1213/1213), tomamos el primer polígono con ST_GeometryN.
+    -- Para el 99% de las parcelas con un solo anillo, esto es no-op.
+    -- Si spray_geom ya es Polygon o NULL, ST_GeometryN no rompe.
+    CASE WHEN p.spray_geom IS NULL THEN NULL
+         WHEN ST_GeometryType(p.spray_geom) = 'ST_MultiPolygon'
+              THEN ST_AsGeoJSON(ST_GeometryN(p.spray_geom, 1))::json
+         ELSE ST_AsGeoJSON(p.spray_geom)::json
+    END AS spray_geometry,
     CASE WHEN p.reference_point IS NULL THEN NULL ELSE ST_AsGeoJSON(p.reference_point)::json END AS reference_point,
     CASE WHEN p.waypoints IS NULL THEN NULL ELSE ST_AsGeoJSON(p.waypoints)::json END AS waypoints_geometry,
     p.waypoint_count,

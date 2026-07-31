@@ -215,11 +215,29 @@ describe("djiag-lands-to-parcels — UPSERT_SQL", () => {
   });
 
   it("el DO UPDATE solo toca columnas API, no las de parameter.json", () => {
-    // Estas columnas las maneja el importer legacy, no se deben pisar
+    // Estas columnas las maneja el importer legacy y solo el legacy
+    // (parameter.json) las puede poblar — la API no las trae. NO se deben
+    // pisar porque perderíamos la data del dron / parámetros operativos.
     expect(UPSERT_SQL).not.toMatch(/spray_geom\s*=\s*EXCLUDED/);
     expect(UPSERT_SQL).not.toMatch(/drone_model_code\s*=\s*EXCLUDED/);
     expect(UPSERT_SQL).not.toMatch(/spray_width_m\s*=\s*EXCLUDED/);
-    expect(UPSERT_SQL).not.toMatch(/is_orchard\s*=\s*EXCLUDED/);
+    expect(UPSERT_SQL).not.toMatch(/work_speed_mps\s*=\s*EXCLUDED/);
+    expect(UPSERT_SQL).not.toMatch(/radar_height_m\s*=\s*EXCLUDED/);
+    expect(UPSERT_SQL).not.toMatch(/waypoints\s*=\s*EXCLUDED/);
+    expect(UPSERT_SQL).not.toMatch(/reference_point\s*=\s*EXCLUDED/);
+  });
+
+  it("DO UPDATE incluye is_orchard, field_type, land_name — DJI es la fuente de verdad (fix 2026-07-30)", () => {
+    // Bug original: 288 parcelas (24%) tenían is_orchard=true en BD pero DJI
+    // las clasifica como PLANT_LAND. El legacy import usaba
+    // parameter.tree_spray_selector (que significa "este vuelo usó modo
+    // tree-spray", no "es un orchard") como proxy — incorrecto.
+    //
+    // Fix: la API de DJI devuelve landType (Orchards | PLANT_LAND) que es
+    // la clasificación real del campo. Ahora se sobrescribe en DO UPDATE.
+    expect(UPSERT_SQL).toMatch(/land_name\s*=\s*EXCLUDED\.land_name/);
+    expect(UPSERT_SQL).toMatch(/field_type\s*=\s*EXCLUDED\.field_type/);
+    expect(UPSERT_SQL).toMatch(/is_orchard\s*=\s*EXCLUDED\.is_orchard/);
   });
 
   it("usa COALESCE en source_url_* para preservar valores del scraper", () => {

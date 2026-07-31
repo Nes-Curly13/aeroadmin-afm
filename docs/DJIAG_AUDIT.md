@@ -207,10 +207,33 @@ Issues históricos (§2.1-§2.5) — la mayoría resueltos según el README y la
 | §3.1 land_files 8 días desactualizado | 🟡 Idem §2.1 | Depende de fix §2.1 |
 | §3.2 Formato tiempo inconsistente | 🟡 Parcial | `work_time_text` se guarda literal, no normalizado |
 | §3.3 KML pierde MultiPoint | 🟡 Abierto | `geoJsonToKml` no maneja MultiPoint |
-| §3.4 geometry ≠ lindero | 🔴 Abierto | `geometry.json` es la zona fumigada, no el lindero del campo. Sin lindero real de DJI. |
+| §3.4 geometry ≠ lindero | ✅ Resuelto (2026-07-30) | **La hipótesis original era incorrecta para los 1213 parcels actuales.** El PlantZone ES el lindero del campo, no una zona fumigada subset. Ver §3.4-bis abajo. |
 | §3.5 nav_states inútil | 🟡 Abierto | Bug menor, no se usa en runtime |
 
-**§3.4 es el issue abierto más relevante:** la geometría que entra a la BD no es el lindero del campo sino la zona fumigada. Cualquier visualización de "campo completo" está mal. Esto requiere pedirle al cliente un KML/shapefile del lindero, o tomar el convex hull del PlantZone.
+**§3.4 era el issue abierto más relevante** y fue reabierto como §3.4-bis tras el análisis del 2026-07-30. La conclusión original (PlantZone = zona fumigada) era razonable como hipótesis pero no se cumplía en la data: en los 1213 parcels, el bbox de DJI (`?name=lands.bbox`) es IDÉNTICO al bbox computado del PlantZone (ratio 1.000 en todos los casos). La causa del "no coinciden" que reportó el operador era otra (ver §3.4-bis).
+
+---
+
+### §3.4-bis (2026-07-30) — El verdadero "no coinciden": metadata faltante + 288 orchards mal clasificados
+
+**Causa real** (verificada con `scripts/diag-5-random-side-by-side.js` y `scripts/diag-orchard-conflict.js`):
+
+1. **El import API (`lib/djiag-lands-to-parcels.js`) nunca persistió sus campos** en las 1213 filas. El legacy import (`import_djiag_data.js`) dejó `land_name`, `position`, `bbox`, `total_area_mu`, `work_area_mu`, `tags`, `serial_number`, `dji_land_uuid`, `land_type_raw`, `location_label`, `api_fetched_at` en NULL. La geometría (`spray_geom`) sí quedó — el import legacy la pobla desde el `geometry.json` descargado.
+
+2. **288 parcelas (24% del total) tenían `is_orchard=true` por un mal mapeo**: el legacy import usaba `parameter.tree_spray_selector=1` para decidir orchard/farmland, pero ese flag significa "este vuelo usó modo tree-spray" (un farmland también puede usar ese modo), no "es un orchard". DJI las clasifica como `PLANT_LAND` (farmland). El operador veía una cosa en DJI SmartFarm Web, otra en nuestro panel.
+
+**Fix** (en `lib/djiag-lands-to-parcels.js` + `scripts/backfill-lands-metadata.js`):
+
+- `land_name`, `field_type`, `is_orchard` ahora están en `DO UPDATE SET` del UPSERT (antes no — el diseño original preservaba el valor del legacy import).
+- Script idempotente `scripts/backfill-lands-metadata.js --apply` que toma `djiag_exports/lands-normalized.json` y aplica el UPSERT.
+- Resultados: docker local 1213/1213 parcelas con todos los campos API populados, 0 inconsistencias de orchard. Supabase 1213/1213 con `total_area_mu`/`work_area_mu` populados (los otros campos ya estaban).
+
+**Lo que NO se arregló con este fix**:
+
+- **Supabase (producción) tiene 0 polígonos** (`spray_geom` NULL para las 1213 filas). El legacy import con los `.geometry.json` solo se corrió en el docker. Para Supabase habría que re-correr `import_djiag_data.js` (o un script equivalente que descargue los assets y popule `spray_geom`/`reference_point`/`waypoints`).
+- **No hay test que detecte automáticamente** la situación de "metadata API toda NULL + polígonos OK" o viceversa. Recomendado: agregar un check en `scripts/validate-post-import.js` que cuente NULLs por columna y alarme si alguna API-only field queda en 0 después de un import.
+
+**M3 original queda obsoleto** (no hay que pedir KML al cliente — el PlantZone ya ES el lindero). Reemplazar por: re-correr el legacy import en Supabase para popular los polígonos.
 
 ---
 
@@ -246,7 +269,7 @@ Issues históricos (§2.1-§2.5) — la mayoría resueltos según el README y la
 |---|---|---|---|
 | M1 | Multi-page client: usar `context.newPage()` por request. Permite fetches concurrentes. | 1 día | Limitación documentada del cliente |
 | M2 | Supervisor worker en background que detecta cambios de schema automáticamente y notifica (Sentry, log, o email) | 2 días | H3 (auto-detect) |
-| M3 | Resolver §3.4 (geometría fumigada ≠ lindero): pedir KML al cliente + columna `boundary_geom` separada de `spray_geom` | 1 día | §3.4 |
+| M3 | ~~Resolver §3.4 (geometría fumigada ≠ lindero)~~ OBSOLETO. Reemplazar por: re-correr `import_djiag_data.js` (o un script equivalente) en Supabase para popular `spray_geom`/`reference_point`/`waypoints` (Supabase tiene 0 polígonos hoy) | 1 día | §3.4-bis |
 
 **Total M: ~4 días, vale hacerlo después de tener XS+S en producción.**
 

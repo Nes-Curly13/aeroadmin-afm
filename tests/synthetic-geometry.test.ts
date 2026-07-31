@@ -280,8 +280,13 @@ function adaptParcelCascade(p: ParcelFixture, flightHull: FlightHullFixture) {
   let center: { lng: number; lat: number };
   let geom: { type: "Polygon"; coordinates: [number, number][][] };
 
-  if (p.spray_geometry?.type === "Polygon") {
-    const ring = p.spray_geometry.coordinates[0] ?? [];
+  if (p.spray_geometry?.type === "Polygon" || p.spray_geometry?.type === "MultiPolygon") {
+    // Acepta Polygon o MultiPolygon (replica lib/data.ts s8.8+).
+    // Para MultiPolygon, toma el primer anillo del primer polígono.
+    const ring: [number, number][] =
+      p.spray_geometry.type === "Polygon"
+        ? ((p.spray_geometry.coordinates[0] ?? []) as [number, number][])
+        : ((p.spray_geometry.coordinates[0]?.[0] ?? []) as [number, number][]);
     const sum = ring.reduce(
       (acc, [lng, lat]) => ({ lng: acc.lng + lng, lat: acc.lat + lat }),
       { lng: 0, lat: 0 }
@@ -290,7 +295,7 @@ function adaptParcelCascade(p: ParcelFixture, flightHull: FlightHullFixture) {
     geom = p.spray_geometry as { type: "Polygon"; coordinates: [number, number][][] };
   } else if (flightHull?.hullGeometry) {
     center = flightHull.centroid;
-    geom = flightHull.hullGeometry;
+    geom = flightHull.hullGeometry as { type: "Polygon"; coordinates: [number, number][][] };
   } else if (flightHull) {
     center = flightHull.centroid;
     geom = flightBufferPolygon(center, areaHa);

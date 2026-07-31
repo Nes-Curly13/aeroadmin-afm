@@ -207,6 +207,25 @@ export interface DjiFumigationEvent {
    * Trazabilidad del UI.
    */
   flight_ids?: number[] | null;
+  /**
+   * s8.8 (2026-07-31) — coordenadas geograficas para renderizar el
+   * evento en el mapa del geovisor. Calculadas como centroide de los
+   * flights asociados en `getRecentFumigations` (LEFT JOIN con
+   * dji_flights por flight_ids). NULL si la fumigacion no tiene
+   * flights asociados o si el JOIN no encuentra match (el evento
+   * NO deberia renderizarse en el mapa en ese caso).
+   *
+   * IMPORTANTE: este campo NO vive en la BD — es derivado del JOIN
+   * en el query. Se calcula una vez por fumigacion por request.
+   */
+  lng?: number | null;
+  lat?: number | null;
+  /**
+   * s8.8 (2026-07-31) — numero de flights del JOIN que encontraron
+   * match. Util para mostrar en el popup del geovisor ("5 de 7 flights
+   * asociados" o "sin match — la fumigacion no tiene flights en BD").
+   */
+  n_matched_flights?: number | null;
 }
 
 /**
@@ -407,6 +426,18 @@ export interface DjiFumigationV0 {
   operator: string;
   flights_count: number;
   notes: string | null;
+  /**
+   * s8.8 (2026-07-31) — coordenadas para renderizar el evento en el
+   * mapa del geovisor. Calculadas por `getRecentFumigations` como
+   * centroide de los flights asociados. NULL si no hay match.
+   */
+  lng?: number | null;
+  lat?: number | null;
+  /**
+   * s8.8 (2026-07-31) — numero de flights del JOIN que encontraron
+   * match. Util para el popup ("5 de 7 flights asociados").
+   */
+  n_matched_flights?: number | null;
 }
 
 /** Alias del V0 (los components V0 importan `DjiFumigation`). */
@@ -506,17 +537,30 @@ export interface GeovisorPayload {
     cadence_days: number;
     fumigations_count: number;
   }[];
-  events: {
-    id: string;
-    parcel_id: string;
-    executed_at: string;
-    source: FumigationSource;
-    area_treated_ha: number;
-    volume_l: number;
-    flights_count: number;
-    product: string;
-    operator: string;
-    lng: number;
-    lat: number;
-  }[];
+  /**
+   * s8.8 (2026-07-31) — `events` ahora incluye `notes` y `n_matched_flights`
+   * para que el popup del mapa pueda leer todos los campos del V0 sin
+   * necesidad de un Map<id, event> en memoria. Antes solo tenía
+   * {id, parcel_id, executed_at, source, area_treated_ha, volume_l,
+   * flights_count, product, operator, lng, lat} — el `notes` y
+   * `n_matched_flights` se perdían en el render del mapa.
+   */
+  events: Array<
+    Pick<
+      DjiFumigationV0,
+      | "id"
+      | "parcel_id"
+      | "executed_at"
+      | "source"
+      | "area_treated_ha"
+      | "volume_l"
+      | "flights_count"
+      | "product"
+      | "operator"
+      | "lng"
+      | "lat"
+      | "notes"
+      | "n_matched_flights"
+    >
+  >;
 }

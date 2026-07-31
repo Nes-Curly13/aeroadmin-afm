@@ -78,10 +78,18 @@ const DAY = 86_400_000;
 // Helpers de mapeo: project → V0 shapes.
 // ---------------------------------------------------------------------------
 
-/** Extrae el centroide de un polígono GeoJSON (lng, lat promedio). */
+/** Extrae el centroide de un polígono GeoJSON (lng, lat promedio).
+ *  Acepta Polygon o MultiPolygon (toma el primer anillo del primer
+ *  polígono para MultiPolygon). */
 function polygonCentroid(geom: GeoJSON.Geometry | null): { lng: number; lat: number } {
-  if (!geom || geom.type !== "Polygon") return { lng: -76.3, lat: 3.45 };
-  const ring = geom.coordinates[0] ?? [];
+  if (!geom) return { lng: -76.3, lat: 3.45 };
+  if (geom.type !== "Polygon" && geom.type !== "MultiPolygon") {
+    return { lng: -76.3, lat: 3.45 };
+  }
+  const ring: [number, number][] =
+    geom.type === "Polygon"
+      ? ((geom.coordinates[0] ?? []) as [number, number][])
+      : ((geom.coordinates[0]?.[0] ?? []) as [number, number][]);
   if (ring.length === 0) return { lng: -76.3, lat: 3.45 };
   const sum = ring.reduce(
     (acc, [lng, lat]) => ({ lng: acc.lng + lng, lat: acc.lat + lat }),
@@ -266,8 +274,11 @@ function adaptParcel(
   let center: { lng: number; lat: number };
   let geom: { type: "Polygon"; coordinates: [number, number][][] };
 
-  if (p.spray_geometry?.type === "Polygon") {
-    // 1) Real geometry del scraper
+  if (p.spray_geometry?.type === "Polygon" || p.spray_geometry?.type === "MultiPolygon") {
+    // 1) Real geometry del scraper (acepta Polygon o MultiPolygon).
+    // El query en api/queries.ts ya normaliza a Polygon con ST_GeometryN,
+    // pero aceptamos MultiPolygon también por defensa (futuros scrapers
+    // podrían traer multipolígonos válidos sin necesidad de tomar el primero).
     center = polygonCentroid(p.spray_geometry);
     geom = p.spray_geometry as { type: "Polygon"; coordinates: [number, number][][] };
   } else if (flightHull?.hullGeometry) {
@@ -331,7 +342,14 @@ function adaptFumigation(e: DjiFumigationEvent, flightsCount: number): DjiFumiga
     volume_l: volumeL,
     operator: e.recorded_by ?? "Sin asignar",
     flights_count: flightsCount,
-    notes: e.human_notes ?? null
+    notes: e.human_notes ?? null,
+    // s8.8 (2026-07-31): lng/lat del centroide de flights (calculado en
+    // getRecentFumigations via LEFT JOIN). Pasa al DjiFumigationV0
+    // para que el geovisor pueda renderizar el evento en su posición
+    // real. Si es NULL, el evento NO se renderiza.
+    lng: e.lng ?? null,
+    lat: e.lat ?? null,
+    n_matched_flights: e.n_matched_flights ?? null
   };
 }
 
@@ -747,9 +765,18 @@ export async function getGeovisorPayload(): Promise<GeovisorPayload> {
       cadence_days: s.schedule.cadence_days,
       fumigations_count: s.fumigations_count
     })),
-    events: fumigations.map((f) => {
-      const parcel = summaries.find((s) => s.parcel.id === f.parcel_id)?.parcel;
-      return {
+    events: fumigations
+      // s8.8 (2026-07-31): filtrar eventos sin coordenadas validas
+      // (centroide de flights). El `f.lng`/`f.lat` ya viene calculado
+      // de `getRecentFumigations` (LEFT JOIN con dji_flights por
+      // flight_ids). Antes se usaba el centroide de la parcela como
+      // fallback, lo que hacia que 5 fumigaciones en la misma parcela
+      // se vieran como 5 puntos superpuestos. Ahora cada fumigacion
+      // se renderiza donde realmente voló el dron.
+      .filter((f): f is typeof f & { lng: number; lat: number } =>
+        typeof f.lng === "number" && typeof f.lat === "number"
+      )
+      .map((f) => ({
         id: f.id,
         parcel_id: f.parcel_id,
         executed_at: f.executed_at,
@@ -759,9 +786,10 @@ export async function getGeovisorPayload(): Promise<GeovisorPayload> {
         flights_count: f.flights_count,
         product: f.product,
         operator: f.operator,
-        lng: parcel?.centroid_lng ?? -76.3,
-        lat: parcel?.centroid_lat ?? 3.45
-      };
-    })
+        notes: f.notes,
+        n_matched_flights: f.n_matched_flights ?? null,
+        lng: f.lng,
+        lat: f.lat,
+      }))
   };
 }
