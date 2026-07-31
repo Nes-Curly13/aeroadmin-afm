@@ -13,36 +13,19 @@ import { fmtDec, fmtInt, fmtLiters, fmtRelative, SOURCE_LABEL } from "@/lib/form
 import type { GeovisorPayload } from "@/lib/types"
 import type { ComplianceStatus, FumigationSource } from "@/lib/types"
 import { cn } from "@/lib/utils"
-import { type MonthOption, TimeRange } from "./time-range"
 
 const STATUS_ORDER: ComplianceStatus[] = ["critico", "vencido", "por_vencer", "al_dia"]
 const SOURCES: FumigationSource[] = ["djiscraper", "import", "manual"]
 
-function buildMonths(events: GeovisorPayload["events"]): MonthOption[] {
-  if (events.length === 0) return []
-  const times = events.map((e) => new Date(e.executed_at).getTime())
-  const first = new Date(Math.min(...times))
-  const last = new Date(Math.max(...times))
-  const months: MonthOption[] = []
-  const cursor = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth(), 1))
-  while (cursor.getTime() <= last.getTime()) {
-    const start = cursor.getTime()
-    const next = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth() + 1, 1)).getTime()
-    months.push({
-      key: `${cursor.getUTCFullYear()}-${cursor.getUTCMonth() + 1}`,
-      label: cursor.toLocaleDateString("es-CO", { month: "short", year: "2-digit", timeZone: "UTC" }),
-      start,
-      end: next - 1,
-    })
-    cursor.setUTCMonth(cursor.getUTCMonth() + 1)
-  }
-  return months
-}
-
 export function GeovisorClient({ payload }: { payload: GeovisorPayload }) {
-  const months = useMemo(() => buildMonths(payload.events), [payload.events])
-  const [range, setRange] = useState<[number, number]>(() => [Math.max(0, months.length - 7), months.length - 1])
-  const [playing, setPlaying] = useState(false)
+  // S8.8 (2026-07-31): sin VENTANA TEMPORAL, from/to es el rango natural
+  // de los datos (min/max de executed_at). Filtrar por un rango manual
+  // no aportaba a la UX del operador.
+  const { from, to } = useMemo(() => {
+    if (payload.events.length === 0) return { from: 0, to: Date.now() }
+    const times = payload.events.map((e) => new Date(e.executed_at).getTime())
+    return { from: Math.min(...times), to: Math.max(...times) }
+  }, [payload.events])
   const [client, setClient] = useState("todos")
   const [farm, setFarm] = useState("todas")
   const [model, setModel] = useState("todos")
@@ -70,14 +53,9 @@ export function GeovisorClient({ payload }: { payload: GeovisorPayload }) {
     [payload, client],
   )
 
-  const from = months[range[0]]?.start ?? 0
-  const to = months[range[1]]?.end ?? Date.now()
-
-  const eventsPerMonth = useMemo(
-    () => months.map((m) => payload.events.filter((e) => { const t = new Date(e.executed_at).getTime(); return t >= m.start && t <= m.end }).length),
-    [months, payload.events],
-  )
-
+  // S8.8 (2026-07-31): from/to vienen del useMemo arriba (rango natural
+  // de los datos). Sin ventana temporal para filtrar, mostramos todos
+  // los eventos del periodo disponible.
   const filteredParcels = useMemo(
     () =>
       payload.parcels.filter((p) => {
@@ -175,6 +153,23 @@ export function GeovisorClient({ payload }: { payload: GeovisorPayload }) {
           showFilters ? "lg:w-76" : "lg:w-0 lg:overflow-hidden lg:border-r-0 lg:p-0",
         )}
       >
+        {/* S8.8 (2026-07-31): logo AFM en el header del sidebar.
+            SVG es 485x695 (vertical), escalado a h-24 mantiene aspect ratio.
+            Link al dashboard para que el logo sirva de home. */}
+        <Link
+          href="/dashboard"
+          aria-label="Ir al panel principal"
+          className="flex justify-center border-b border-border pb-4 -mx-1"
+        >
+          <img
+            src="/afm-logo.svg"
+            alt="AeroAdmin Fumigación"
+            className="h-24 w-auto"
+            width={485}
+            height={695}
+          />
+        </Link>
+
         <div className="flex items-center gap-2">
           <SlidersHorizontal className="size-4 text-primary" aria-hidden />
           <h2 className="text-sm font-bold tracking-tight">Filtros</h2>
@@ -288,19 +283,66 @@ export function GeovisorClient({ payload }: { payload: GeovisorPayload }) {
             <Layers className="size-3.5" aria-hidden /> Capas
           </legend>
           <div className="flex flex-col gap-1.5">
-            {[
-              { label: "Polígonos de parcelas", value: showParcels, set: setShowParcels },
-              { label: "Aplicaciones en el rango", value: showEvents, set: setShowEvents },
-              { label: "Etiquetas de suerte", value: showLabels, set: setShowLabels },
-            ].map((l) => (
+            {(
+              [
+                // S8.8 (2026-07-31): cada capa muestra su simbologia real
+                // (color de relleno, punto, glyph) para que el operador
+                // entienda que es cada toggle sin abrir el mapa. Los
+                // colores matchean geo-map.tsx:
+                //   - critico: #c0392b (rojo) — representativo del color
+                //     de poligono critico (cambia por status real del parcel)
+                //   - eventos: #f5e839 (amarillo) — events-circle paint
+                //   - labels: text-glyph "Aa"
+                {
+                  label: "Polígonos de parcelas",
+                  value: showParcels,
+                  set: setShowParcels,
+                  sym: (
+                    <span
+                      className="size-3.5 rounded-sm border border-foreground/20"
+                      style={{ backgroundColor: STATUS_META.critico.color }}
+                      aria-hidden
+                    />
+                  ),
+                },
+                {
+                  label: "Aplicaciones en el rango",
+                  value: showEvents,
+                  set: setShowEvents,
+                  sym: (
+                    <span
+                      className="size-3.5 rounded-full border border-foreground/30"
+                      style={{ backgroundColor: "#f5e839" }}
+                      aria-hidden
+                    />
+                  ),
+                },
+                {
+                  label: "Etiquetas de suerte",
+                  value: showLabels,
+                  set: setShowLabels,
+                  sym: (
+                    <span
+                      className="grid size-3.5 place-items-center rounded-sm border border-foreground/30 bg-card text-[8px] font-bold leading-none text-foreground/70"
+                      aria-hidden
+                    >
+                      Aa
+                    </span>
+                  ),
+                },
+              ] as const
+            ).map((l) => (
               <button
                 key={l.label}
                 type="button"
                 onClick={() => l.set(!l.value)}
                 aria-pressed={l.value}
-                className="flex items-center justify-between rounded-md border border-border px-2.5 py-1.5 text-xs hover:bg-muted"
+                className="flex items-center justify-between gap-2 rounded-md border border-border px-2.5 py-1.5 text-xs hover:bg-muted"
               >
-                {l.label}
+                <span className="flex items-center gap-2">
+                  {l.sym}
+                  <span>{l.label}</span>
+                </span>
                 <span
                   className={cn(
                     "flex h-4 w-7 items-center rounded-full p-0.5 transition-colors",
@@ -433,19 +475,11 @@ export function GeovisorClient({ payload }: { payload: GeovisorPayload }) {
           </ul>
         </div>
 
-        {/* Control temporal */}
-        <div className="absolute inset-x-3 bottom-3 rounded-md border border-border bg-card/95 p-3 shadow-sm backdrop-blur">
-          {months.length > 0 && (
-            <TimeRange
-              months={months}
-              range={range}
-              onRangeChange={setRange}
-              playing={playing}
-              onPlayingChange={setPlaying}
-              eventsPerMonth={eventsPerMonth}
-            />
-          )}
-        </div>
+        {/* S8.8 (2026-07-31): VENTANA TEMPORAL removida. No aportaba
+            a la UX del operador; filtramos por el rango natural de los
+            datos (ver from/to arriba). Si en el futuro se quiere
+            re-introducir, el componente TimeRange sigue en
+            components/geovisor/time-range.tsx listo para usar. */}
       </section>
 
       {/* Panel de resultados */}
