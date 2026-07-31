@@ -50,6 +50,9 @@ export function GeovisorClient({ payload }: { payload: GeovisorPayload }) {
   const [sources, setSources] = useState<FumigationSource[]>([])
   const [query, setQuery] = useState("")
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  // s8.8 (2026-07-31): id del event (fumigacion) seleccionado en el mapa.
+  // Cuando se setea, GeoMap muestra un popup MapLibre con el detalle.
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null)
   const [baseMap, setBaseMap] = useState<BaseMap>("satelite")
   const [showParcels, setShowParcels] = useState(true)
   const [showEvents, setShowEvents] = useState(true)
@@ -353,13 +356,36 @@ export function GeovisorClient({ payload }: { payload: GeovisorPayload }) {
       <section className="relative min-h-[60svh] flex-1">
         <GeoMap
           parcels={mapParcels}
-          events={filteredEvents.map((e) => ({ id: e.id, lng: e.lng, lat: e.lat, parcel_id: e.parcel_id }))}
+          events={filteredEvents
+            .filter((e): e is typeof e & { lng: number; lat: number } =>
+              // s8.8 (2026-07-31): solo eventos con coordenadas validas
+              // (centroide de flights calculado en getRecentFumigations).
+              // Si no hay flights asociados, el evento se oculta.
+              typeof e.lng === "number" && typeof e.lat === "number"
+            )
+            .map((e) => ({
+              id: e.id,
+              lng: e.lng,
+              lat: e.lat,
+              parcel_id: e.parcel_id,
+              executed_at: e.executed_at,
+              area_treated_ha: e.area_treated_ha,
+              product: e.product,
+              volume_l: e.volume_l,
+              operator: e.operator,
+              flights_count: e.flights_count,
+              notes: e.notes,
+              source: e.source,
+              n_matched_flights: e.n_matched_flights ?? null,
+            }))}
           showParcels={showParcels}
           showEvents={showEvents}
           showLabels={showLabels}
           baseMap={baseMap}
           selectedId={selectedId}
           onSelect={setSelectedId}
+          selectedEventId={selectedEventId}
+          onSelectEvent={setSelectedEventId}
         />
 
         {/* KPIs de la ventana temporal */}

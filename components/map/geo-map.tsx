@@ -1,6 +1,6 @@
 "use client"
 
-import type { Map as MlMap, StyleSpecification } from "maplibre-gl"
+import type { Map as MlMap, Popup as MlPopup, StyleSpecification } from "maplibre-gl"
 import { useEffect, useRef, useState } from "react"
 import { STATUS_META } from "@/lib/data-constants"
 import type { ComplianceStatus } from "@/lib/types"
@@ -26,6 +26,21 @@ export interface MapEvent {
   lng: number
   lat: number
   parcel_id: string
+  /**
+   * s8.8 (2026-07-31) — campos del V0 que se muestran en el popup al
+   * hacer click en el event del mapa. Si la fumigacion no tiene
+   * flights asociados, lng/lat seran null y el caller deberia
+   * filtrar el evento antes de renderizarlo.
+   */
+  executed_at: string
+  area_treated_ha: number
+  product: string
+  volume_l: number
+  operator: string
+  flights_count: number
+  notes: string | null
+  source: "manual" | "import" | "djiscraper"
+  n_matched_flights: number | null
 }
 
 /**
@@ -166,8 +181,22 @@ function parcelsToFeatures(parcels: MapParcel[]) {
   }
 }
 
+/** s8.8 (2026-07-31): helper para escapar HTML en campos user-provided
+ *  (product, operator, notes) antes de inyectarlos en el popup. */
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;")
+}
+
 function eventsToFeatures(events: MapEvent[]) {
   // Jitter determinista para que los eventos de una misma parcela no se apilen.
+  // s8.8 (2026-07-31): incluye todos los campos del V0 en properties
+  // para que el popup pueda leerlos via map.queryRenderedFeatures()
+  // sin necesidad de un Map<id, event> en memoria.
   return {
     type: "FeatureCollection" as const,
     features: events.map((e, i) => {
@@ -179,7 +208,19 @@ function eventsToFeatures(events: MapEvent[]) {
           type: "Point" as const,
           coordinates: [e.lng + Math.cos(a) * r, e.lat + Math.sin(a) * r],
         },
-        properties: { id: e.id, parcel_id: e.parcel_id },
+        properties: {
+          id: e.id,
+          parcel_id: e.parcel_id,
+          executed_at: e.executed_at,
+          area_treated_ha: e.area_treated_ha,
+          product: e.product,
+          volume_l: e.volume_l,
+          operator: e.operator,
+          flights_count: e.flights_count,
+          notes: e.notes,
+          source: e.source,
+          n_matched_flights: e.n_matched_flights,
+        },
       }
     }),
   }
@@ -194,6 +235,13 @@ interface GeoMapProps {
   baseMap: BaseMap
   selectedId: string | null
   onSelect: (id: string | null) => void
+  /**
+   * s8.8 (2026-07-31) — id del event seleccionado (popup abierto).
+   * Cuando se setea, GeoMap muestra un popup MapLibre anclado al
+   * punto. Cuando se setea a null, el popup se cierra.
+   */
+  selectedEventId?: string | null
+  onSelectEvent?: (id: string | null) => void
 }
 
 export function GeoMap({
@@ -205,12 +253,17 @@ export function GeoMap({
   baseMap,
   selectedId,
   onSelect,
+  selectedEventId = null,
+  onSelectEvent,
 }: GeoMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MlMap | null>(null)
   const [ready, setReady] = useState(false)
   const selectRef = useRef(onSelect)
   selectRef.current = onSelect
+  const selectEventRef = useRef(onSelectEvent)
+  selectEventRef.current = onSelectEvent
+  const popupRef = useRef<MlPopup | null>(null)
 
   useEffect(() => {
     let map: MlMap | null = null
@@ -299,9 +352,26 @@ export function GeoMap({
           const id = e.features?.[0]?.properties?.id as string | undefined
           if (id) selectRef.current(id)
         })
+        // s8.8 (2026-07-31): click en un event (fumigacion) abre el popup
+        // con el detalle. El id del event se pasa al padre via onSelectEvent.
+        map.on("click", "events-circle", (e) => {
+          const props = e.features?.[0]?.properties
+          if (props && selectEventRef.current) {
+            selectEventRef.current(String(props.id))
+          }
+        })
         map.on("click", (e) => {
-          const hits = map?.queryRenderedFeatures(e.point, { layers: ["parcels-fill"] })
-          if (!hits || hits.length === 0) selectRef.current(null)
+          const hits = map?.queryRenderedFeatures(e.point, { layers: ["parcels-fill", "events-circle"] })
+          if (!hits || hits.length === 0) {
+            selectRef.current(null)
+            if (selectEventRef.current) selectEventRef.current(null)
+          }
+        })
+        map.on("mouseenter", "events-circle", () => {
+          if (map) map.getCanvas().style.cursor = "pointer"
+        })
+        map.on("mouseleave", "events-circle", () => {
+          if (map) map.getCanvas().style.cursor = ""
         })
         map.on("mouseenter", "parcels-fill", () => {
           if (map) map.getCanvas().style.cursor = "pointer"
@@ -347,6 +417,69 @@ export function GeoMap({
     map.setLayoutProperty("parcels-label", "visibility", showParcels && showLabels ? "visible" : "none")
     map.setLayoutProperty("events-circle", "visibility", showEvents ? "visible" : "none")
   }, [showParcels, showEvents, showLabels, ready])
+
+  // s8.8 (2026-07-31): sincronizar el popup MapLibre con selectedEventId.
+  // Cuando se setea un id, buscamos el feature en el source "events",
+  // creamos un popup MapLibre con HTML, y lo mostramos anclado al
+  // punto. Cuando es null, removemos el popup.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready) return
+    // Cierra el popup previo si existe
+    if (popupRef.current) {
+      popupRef.current.remove()
+      popupRef.current = null
+    }
+    if (!selectedEventId) return
+    const event = events.find((e) => e.id === selectedEventId)
+    if (!event || event.lng == null || event.lat == null) return
+    ;(async () => {
+      const maplibregl = await import("maplibre-gl")
+      const date = new Date(event.executed_at)
+      const dateLabel = isNaN(date.getTime())
+        ? event.executed_at
+        : date.toLocaleDateString("es-CO", { day: "2-digit", month: "short", year: "numeric", timeZone: "America/Bogota" })
+      const areaLabel = event.area_treated_ha.toFixed(2)
+      const volumeLabel = event.volume_l.toFixed(1)
+      const product = event.product || "Sin producto"
+      const operator = event.operator || "Sin asignar"
+      const matchInfo = event.n_matched_flights != null
+        ? `<div class="event-popup__row"><span class="event-popup__lbl">Flights asociados</span><span class="event-popup__val">${event.n_matched_flights}</span></div>`
+        : ""
+      const notesHtml = event.notes
+        ? `<div class="event-popup__notes">${escapeHtml(event.notes)}</div>`
+        : ""
+      const html = `
+        <div class="event-popup">
+          <div class="event-popup__head">
+            <span class="event-popup__date">${dateLabel}</span>
+            <span class="event-popup__src">${event.source}</span>
+          </div>
+          <div class="event-popup__row"><span class="event-popup__lbl">Producto</span><span class="event-popup__val">${escapeHtml(product)}</span></div>
+          <div class="event-popup__row"><span class="event-popup__lbl">Área tratada</span><span class="event-popup__val">${areaLabel} ha</span></div>
+          <div class="event-popup__row"><span class="event-popup__lbl">Volumen</span><span class="event-popup__val">${volumeLabel} L</span></div>
+          <div class="event-popup__row"><span class="event-popup__lbl">Operador</span><span class="event-popup__val">${escapeHtml(operator)}</span></div>
+          ${matchInfo}
+          ${notesHtml}
+          <a class="event-popup__link" href="/parcelas/${event.parcel_id}">Ver hoja de vida de la parcela →</a>
+        </div>
+      `
+      const popup = new maplibregl.Popup({
+        closeButton: true,
+        closeOnClick: true,
+        maxWidth: "320px",
+        offset: 12,
+        className: "event-popup-container",
+      })
+        .setLngLat([event.lng, event.lat])
+        .setHTML(html)
+        .addTo(map)
+      popupRef.current = popup
+      popup.on("close", () => {
+        if (selectEventRef.current) selectEventRef.current(null)
+      })
+    })()
+  }, [selectedEventId, events, ready])
 
   // Basemap
   //

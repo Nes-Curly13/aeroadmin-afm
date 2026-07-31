@@ -135,3 +135,87 @@
 .maplibregl-ctrl-attrib.maplibregl-compact {
   font-size: 10px;
 }
+
+/* s8.8 (2026-07-31): estilos del popup de eventos (fumigaciones) en el
+ * geovisor. Se aplica dentro de .maplibregl-popup-content via el
+ * container .event-popup. Los colores vienen de las design tokens del
+ * proyecto (--card, --border, --primary, --muted-foreground). */
+.event-popup {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.75rem;
+  font-size: 12px;
+  min-width: 220px;
+  max-width: 300px;
+  background: var(--card);
+  color: var(--card-foreground);
+}
+.event-popup__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.4rem;
+  margin-bottom: 0.2rem;
+}
+.event-popup__date {
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--foreground);
+}
+.event-popup__src {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.15rem 0.4rem;
+  border-radius: 999px;
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-weight: 600;
+}
+.event-popup__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 11px;
+}
+.event-popup__lbl {
+  color: var(--muted-foreground);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 9.5px;
+  font-weight: 600;
+}
+.event-popup__val {
+  font-family: var(--font-mono, monospace);
+  font-weight: 600;
+  text-align: right;
+  word-break: break-word;
+  max-width: 60%;
+}
+.event-popup__notes {
+  margin-top: 0.3rem;
+  padding: 0.4rem 0.5rem;
+  background: var(--muted);
+  border-radius: calc(var(--radius) * 0.5);
+  font-size: 11px;
+  font-style: italic;
+  color: var(--muted-foreground);
+  line-height: 1.3;
+}
+.event-popup__link {
+  display: block;
+  margin-top: 0.4rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--primary);
+  text-decoration: none;
+}
+.event-popup__link:hover {
+  text-decoration: underline;
+}

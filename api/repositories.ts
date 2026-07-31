@@ -1837,28 +1837,49 @@ export async function getRecentFumigations(
   const db = getDb();
   return withLocalFallback(
     async () => {
+      // s8.8 (2026-07-31): LEFT JOIN con dji_flights para calcular el
+      // centroide de los flights asociados a la fumigacion (vía
+      // flight_ids = bigint[]). Eso da lng/lat REAL para que el
+      // geovisor pueda renderizar el punto en el lugar correcto
+      // (antes se renderizaba en lng=0/lat=0 porque DjiFumigationV0
+      // no tenia lng/lat).
+      //
+      // El `n_matched_flights` es util para debugging y para el popup
+      // ("5 de 7 flights asociados"). Si es 0, el centroide es NULL
+      // y el evento NO deberia renderizarse en el mapa.
       const result = await db.query<DjiFumigationEvent>(
         `SELECT
-            id,
-            parcel_id,
-            fumigation_date,
-            product_used,
-            dose_l_per_ha,
-            area_fumigated_m2,
-            drone_code_used,
-            duration_minutes,
-            notes,
-            human_notes,
-            recorded_by,
-            product_registered_ica,
-            pilot_license,
-            recorded_at,
-            source,
-            flight_ids
-           FROM dji_fumigations
-          WHERE deleted_at IS NULL
-            AND parcel_id IS NOT NULL
-          ORDER BY fumigation_date DESC, recorded_at DESC
+            f.id,
+            f.parcel_id,
+            f.fumigation_date,
+            f.product_used,
+            f.dose_l_per_ha,
+            f.area_fumigated_m2,
+            f.drone_code_used,
+            f.duration_minutes,
+            f.notes,
+            f.human_notes,
+            f.recorded_by,
+            f.product_registered_ica,
+            f.pilot_license,
+            f.recorded_at,
+            f.source,
+            f.flight_ids,
+            count(fl.id)::int AS n_matched_flights,
+            CASE
+              WHEN count(fl.id) = 0 THEN NULL
+              ELSE ST_Y(ST_Centroid(ST_Collect(fl.point)))::numeric
+            END AS lat,
+            CASE
+              WHEN count(fl.id) = 0 THEN NULL
+              ELSE ST_X(ST_Centroid(ST_Collect(fl.point)))::numeric
+            END AS lng
+           FROM dji_fumigations f
+           LEFT JOIN dji_flights fl ON fl.flight_id = ANY(f.flight_ids)
+          WHERE f.deleted_at IS NULL
+            AND f.parcel_id IS NOT NULL
+          GROUP BY f.id
+          ORDER BY f.fumigation_date DESC, f.recorded_at DESC
           LIMIT $1`,
         [limit]
       );
