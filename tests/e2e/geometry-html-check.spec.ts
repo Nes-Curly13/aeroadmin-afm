@@ -40,7 +40,7 @@ test("geometry fix v2.5.3: 1213 parcelas con posiciones unicas en Valle del Cauc
     valleCaucaCoords.map((c) => `${c.lng.toFixed(4)},${c.lat.toFixed(4)}`)
   );
 
-  console.log(`Total coords in Valle del Cauca region: ${valleCaucaCoords.size}`);
+  console.log(`Total coords in Valle del Cauca region: ${valleCaucaCoords.length}`);
   console.log(`Unique centroids: ${uniqueCentroids.size}`);
 
   // Should have 1213 unique positions (one per parcel, modulo hash collisions)
