@@ -10,12 +10,15 @@ import {
   NOW,
   STATUS_META,
   droneModel,
+  getCycleForParcel,
   getFlightsByParcel,
   getFumigationsByParcel,
   getParcelSummary,
   getScheduleHistory,
 } from "@/lib/data"
+import { phaseChipClass, phaseLabel } from "@/lib/crop-cycle"
 import { fmtDate, fmtDateTime, fmtDec, fmtHa, fmtInt, fmtLiters, fmtRelative } from "@/lib/format"
+import { cn } from "@/lib/utils"
 
 export const dynamic = "force-dynamic"
 
@@ -25,9 +28,14 @@ export default async function ParcelaPage({ params }: { params: Promise<{ id: st
   if (!summary) notFound()
 
   const { parcel, schedule } = summary
-  const fumigations = await getFumigationsByParcel(id)
-  const flights = await getFlightsByParcel(id)
-  const history = await getScheduleHistory(id)
+  // Sprint 2026-08-01 — fetch de cycle data en paralelo con flights/fumigations.
+  // `getCycleForParcel` degrada a {null, null} si la migration no se aplicó.
+  const [fumigations, flights, history, cycle] = await Promise.all([
+    getFumigationsByParcel(id),
+    getFlightsByParcel(id),
+    getScheduleHistory(id),
+    getCycleForParcel(id)
+  ])
   const meta = STATUS_META[summary.status]
   const model = droneModel(parcel.drone_model_id)
 
@@ -89,6 +97,21 @@ export default async function ParcelaPage({ params }: { params: Promise<{ id: st
               <Badge variant="outline" className="gap-1.5 border-border">
                 <span className="size-2 rounded-full" style={{ backgroundColor: meta.color }} aria-hidden />
                 {meta.label}
+              </Badge>
+              {/* Sprint 2026-08-01 — chip de fase de cultivo. Mismo patrón
+                  visual que en parcels-table. Si no hay planting_date,
+                  muestra "Fase: Desconocida" en gris. */}
+              <Badge
+                variant="outline"
+                className={cn("gap-1.5 border text-[10px] font-medium", phaseChipClass(cycle.cycle_phase))}
+                title={
+                  cycle.cycle_phase
+                    ? `Fase del cultivo: ${phaseLabel(cycle.cycle_phase)}`
+                    : "Fase desconocida (faltan planting_date / cycle_phase en dji_parcels)"
+                }
+              >
+                <Sprout className="size-3" aria-hidden />
+                {`Fase: ${phaseLabel(cycle.cycle_phase)}`}
               </Badge>
               {!parcel.is_active && <Badge variant="secondary">Inactiva</Badge>}
             </div>

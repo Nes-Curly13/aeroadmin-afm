@@ -8,7 +8,8 @@ import { FieldSelect } from "@/components/ui/field-select"
 import { Input } from "@/components/ui/input"
 import { STATUS_META, droneModel } from "@/lib/data-constants"
 import { fmtDate, fmtHa, fmtInt } from "@/lib/format"
-import type { ComplianceStatus, ParcelSummary } from "@/lib/types"
+import { phaseChipClass, phaseLabel } from "@/lib/crop-cycle"
+import type { ComplianceStatus, CyclePhase, ParcelSummary } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 type SortKey = "name" | "area" | "last" | "due" | "events"
@@ -29,9 +30,23 @@ interface Row {
   status: ComplianceStatus
   events: number
   flights: number
+  cyclePhase: CyclePhase | null
 }
 
-export function ParcelsTable({ summaries }: { summaries: ParcelSummary[] }) {
+export function ParcelsTable({
+  summaries,
+  cycleByParcelId
+}: {
+  summaries: ParcelSummary[]
+  /**
+   * Sprint 2026-08-01 — fase del cultivo por parcela. Lookup O(1) en el
+   * row. Si la parcel no está en el map (no se aplicó la migration o
+   * el parcel es muy nuevo), se muestra "Fase: desconocida".
+   * Optional para backward compat: si no se pasa, todas las filas
+   * muestran "Fase: desconocida".
+   */
+  cycleByParcelId?: Record<string, CyclePhase | null>
+}) {
   const [query, setQuery] = useState("")
   const [client, setClient] = useState("todos")
   const [status, setStatus] = useState("todos")
@@ -56,8 +71,9 @@ export function ParcelsTable({ summaries }: { summaries: ParcelSummary[] }) {
         status: s.status,
         events: s.fumigations_count,
         flights: s.flights_count,
+        cyclePhase: cycleByParcelId?.[s.parcel.id] ?? null
       })),
-    [summaries],
+    [summaries, cycleByParcelId]
   )
 
   const clients = useMemo(() => Array.from(new Set(rows.map((r) => r.client))).sort(), [rows])
@@ -193,15 +209,36 @@ export function ParcelsTable({ summaries }: { summaries: ParcelSummary[] }) {
                       <span className="text-muted-foreground">{` / ${fmtInt(r.flights)} v`}</span>
                     </td>
                     <td className="px-3 py-2.5">
-                      <Badge variant="outline" className="gap-1.5 border-border font-medium">
-                        <span className="size-2 rounded-full" style={{ backgroundColor: meta.color }} aria-hidden />
-                        {meta.label}
-                        {r.daysToDue !== null && (
-                          <span className="font-mono text-[10px] text-muted-foreground">
-                            {r.daysToDue >= 0 ? `+${r.daysToDue}d` : `${r.daysToDue}d`}
-                          </span>
-                        )}
-                      </Badge>
+                      <div className="flex flex-col gap-1">
+                        <Badge variant="outline" className="gap-1.5 border-border font-medium">
+                          <span className="size-2 rounded-full" style={{ backgroundColor: meta.color }} aria-hidden />
+                          {meta.label}
+                          {r.daysToDue !== null && (
+                            <span className="font-mono text-[10px] text-muted-foreground">
+                              {r.daysToDue >= 0 ? `+${r.daysToDue}d` : `${r.daysToDue}d`}
+                            </span>
+                          )}
+                        </Badge>
+                        {/* Sprint 2026-08-01 — chip de fase de cultivo.
+                            Posicionado junto al estado de cadencia porque
+                            ambos son "metadata temporal" del parcel. El
+                            color sigue la paleta AFM (ver phaseChipClass
+                            en lib/crop-cycle.ts). */}
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            "w-fit gap-1 border px-1.5 text-[10px] font-medium",
+                            phaseChipClass(r.cyclePhase)
+                          )}
+                          title={
+                            r.cyclePhase
+                              ? `Fase del cultivo: ${phaseLabel(r.cyclePhase)}`
+                              : "Fase desconocida (faltan planting_date / cycle_phase en dji_parcels)"
+                          }
+                        >
+                          {`Fase: ${phaseLabel(r.cyclePhase)}`}
+                        </Badge>
+                      </div>
                     </td>
                   </tr>
                 )

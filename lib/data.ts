@@ -36,7 +36,8 @@ import {
   getFlightPoints,
   getAllFumigationSchedules,
   getScheduleHistory as getScheduleHistoryFromRepo,
-  getFlightHullsByParcel
+  getFlightHullsByParcel,
+  getParcelsCycleData
 } from "@/api/repositories";
 import { readHealthFile, deriveResponse, type PipelineHealth } from "@/lib/djiag-health";
 import { getBogotaDateString, toDateString } from "@/lib/format";
@@ -55,6 +56,7 @@ import {
   type DjiFumigationSchedule,
   type FlightPointRecord,
   type DjiParcel,
+  type DjiParcelWithCycle,
   type DjiFumigationV0,
   type DjiFlightV0,
   type DjiFumigationScheduleV0,
@@ -62,6 +64,7 @@ import {
   type DjiImportBatch,
   type DjiAgHealth,
   type ComplianceStatus,
+  type CyclePhase,
   type ParcelSummary,
   type DroneModelId,
   type GeovisorPayload
@@ -901,4 +904,81 @@ export async function getGeovisorPayload(): Promise<GeovisorPayload> {
         lat: f.lat,
       }))
   };
+}
+
+// ---------------------------------------------------------------------------
+// getParcelsWithCycle (sprint 2026-08-01 — "Fase de cultivo y cadencia efectiva").
+//
+// Re-exporta `getParcels()` con la metadata de fase de cultivo (planting_date,
+// cycle_phase) ya mergeada. La fuente de los cycle fields es
+// `getParcelsCycleData()` en api/repositories.ts (query dedicado, no toca el
+// cache del dataset).
+//
+// Resilencia: si la migration 20260801000000_add_planting_date_and_season.sql
+// no se aplicó todavía, el query de cycle data explota con
+// "column cycle_phase does not exist". Acá lo capturamos con try/catch,
+// loggeamos un warning único (rate-limited a 1 cada 5min para no spamear
+// logs) y degradamos a `planting_date: null, cycle_phase: null` en cada
+// parcel. El UI muestra "Fase: desconocida" en ese caso (sin romper).
+//
+// Patrón de reuso: toma la lista V0 de `getParcels()` (que ya pasa por
+// `adaptParcel()` y la cache `unstable_cache` de 60s) y le pega los cycle
+// fields encima. NO reinventa la query de parcelas — solo agrega el merge.
+// ---------------------------------------------------------------------------
+
+let _lastCycleWarnAt = 0;
+const CYCLE_WARN_COOLDOWN_MS = 5 * 60 * 1000; // 5 min
+
+function warnCycleUnavailable(err: unknown): void {
+  const now = Date.now();
+  if (now - _lastCycleWarnAt < CYCLE_WARN_COOLDOWN_MS) return;
+  _lastCycleWarnAt = now;
+  // eslint-disable-next-line no-console
+  console.warn(
+    "[getParcelsWithCycle] cycle columns unavailable; " +
+      "apply db/migrations/20260801000000_add_planting_date_and_season.sql. " +
+      "Falling back to planting_date=null, cycle_phase=null. Error:",
+    err instanceof Error ? err.message : String(err)
+  );
+}
+
+export async function getParcelsWithCycle(): Promise<DjiParcelWithCycle[]> {
+  const parcels = await getParcels();
+  let cycleMap: Map<
+    number,
+    { planting_date: string | null; cycle_phase: CyclePhase | null }
+  > = new Map();
+  try {
+    cycleMap = await getParcelsCycleData();
+  } catch (err) {
+    warnCycleUnavailable(err);
+  }
+  return parcels.map((p) => {
+    const cycle = cycleMap.get(Number(p.id));
+    return {
+      ...p,
+      planting_date: cycle?.planting_date ?? null,
+      cycle_phase: cycle?.cycle_phase ?? null
+    };
+  });
+}
+
+/**
+ * Devuelve los cycle fields para UN parcel (detail page).
+ * Misma resilencia que `getParcelsWithCycle` — degrada a `{null, null}`
+ * si la migration no se aplicó.
+ */
+export async function getCycleForParcel(parcelId: string): Promise<{
+  planting_date: string | null;
+  cycle_phase: CyclePhase | null;
+}> {
+  try {
+    const cycleMap = await getParcelsCycleData();
+    const row = cycleMap.get(Number(parcelId));
+    if (!row) return { planting_date: null, cycle_phase: null };
+    return { planting_date: row.planting_date, cycle_phase: row.cycle_phase };
+  } catch (err) {
+    warnCycleUnavailable(err);
+    return { planting_date: null, cycle_phase: null };
+  }
 }

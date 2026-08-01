@@ -177,23 +177,128 @@ export function getFumigationStatus(
    - ¿Todas las Farmland son caña de azúcar?
    - ¿Las Orchards son citrícos, mango, aguacate?
 
-2. **Temporada vs año redondo** — el Valle del Cauca tiene temporada
-   seca (junio-sept) y húmeda (octubre-mayo). Las cadencias pueden
-   variar por época. Por ahora asumimos cadencia constante.
+2. ~~**Temporada vs año redondo**~~ — ✅ **CERRADO** en sprint
+   2026-08-01 ("Crop time / fase de cultivo"). Ver
+   `lib/season.ts` y la sección "Fase de cultivo y cadencia efectiva"
+   abajo. La cadencia ahora se ajusta por estación (secas jun-sep
+   × 1.5; lluvias oct-may × 1.0) y orchards en lluvias × 0.7.
 
 3. **Productos específicos** — DJI no expone en el JSON qué producto
    se usó. Solo tenemos `droplet_size`. La tabla `dji_fumigations`
    deja un campo `products_used` libre para que el operador lo llene
    al registrar manualmente.
 
-4. **Diatrea vs salivazo vs hongos** — necesitaríamos saber la plaga
-   objetivo para refinar la cadencia. Por ahora usamos un promedio.
+4. ~~**Diatrea vs salivazo vs hongos**~~ — parcialmente cerrado. La
+   cadencia se ajusta por **fase** del cultivo (ver sección abajo)
+   que aproxima el riesgo dominante: establecimiento = herbicida
+   (menos urgente), vegetativa = barrenador (MIPE 14d), madurante
+   = ripener (35d pre-cosecha), cosecha = sin fumigación. Faltaría
+   refinar a nivel de plaga específica dentro de la fase vegetativa.
 
 5. **Datos históricos de fumigaciones del cliente** — DJI no expone
    histórico por parcela. Solo tenemos el PLAN actual por parcela
    (parameter.json) y los rollups DIARIOS agregados (daily_summaries).
    Por eso `dji_fumigations` está diseñada para entrada MANUAL del
    operador y no para auto-poblar.
+
+---
+
+## Fase de cultivo y cadencia efectiva
+
+> **Sprint 2026-08-01 — "Crop time / fase de cultivo"**.
+> Cierra los gaps #2 (estación) y parcialmente #4 (fase ≈ plaga
+> dominante). Implementado en `lib/crop-cycle.ts` + `lib/season.ts` +
+> extensión de `lib/fumigation-cadence.ts#effectiveCadence`.
+
+### Las 4 fases del cultivo (caña de azúcar)
+
+| Fase | Meses desde siembra | Cadencia aplicada | Fuente |
+|---|---|---|---|
+| **Establecimiento** | 0–3 | base × 1.5 (ej. 21d) | DJI herbicida 30–60d, Cenicaña |
+| **Vegetativa** | 3–9 | base (ej. 14d) | Cenicaña MIPE, ICA 14–21d |
+| **Madurante** | 9–12 | **35d (fijo)** | DJI case study, una vez por ciclo pre-cosecha |
+| **Cosecha** | >12 | 999d (no se fumiga) | Operativo — durante cosecha no se fumiga |
+
+Para **orchards (frutales)**, simplificamos: si hay `planting_date`,
+la fase siempre es `'vegetativa'` (los frutales son perennes y no
+siguen el modelo de 4 fases de la caña). Documentamos la
+simplificación — un sprint futuro puede modelar fenología por especie.
+
+### Multiplicador por estación (Valle del Cauca)
+
+| Estación | Meses | Multiplicador | Razón |
+|---|---|---|---|
+| **Secas** | jun-sep | × 1.5 | Menos presión fúngica, se puede espaciar más |
+| **Lluvias** | oct-may | × 1.0 | Default operativo, más humedad → más presión |
+
+**Caso especial — orchards en lluvias:** × 0.7 (más fumigación). La
+presión fúngica en cítricos/mango durante las lluvias colombianas
+es severa (antracnosis, monilia). La regla vive en
+`lib/fumigation-cadence.ts#effectiveCadence` porque ahí conocemos
+el `cropType`.
+
+### Composición de la cadencia efectiva
+
+```
+effective_cadence = cadenceForPhase(phase, base)        // fase
+                  × seasonMultiplier(season)             // estación
+                  × cropAdjustment(cropType, season)     // 0.7 si orchards en lluvias
+```
+
+Implementado en `effectiveCadence(baseCadence, phase, season, cropType)`.
+
+### Ejemplo trabajado
+
+Parcela de caña (`base = 14d`) plantada el **2025-03-15**, hoy
+**2026-08-01**:
+
+- Meses transcurridos: `monthsBetween(2025-03-15, 2026-08-01) = 16`
+- Fase: `16 >= 12` → **cosecha** (cadencia 999d, no se fumiga)
+- Estación agosto: **secas** (jun-sep)
+- Cadencia efectiva: `999 × 1.5 = 1498.5 ≈ 1499d` (sigue sin
+  fumigar — la fase manda sobre la estación)
+
+Misma parcela 6 meses antes (2026-02-01):
+
+- Meses transcurridos: 10
+- Fase: `madurante` (9–12) → cadencia fase 35d
+- Estación febrero: **lluvias** → multiplicador 1.0
+- Cadencia efectiva: **35d** (ripener pre-cosecha)
+
+### Integración con el sistema de cadencia
+
+`lib/fumigation-cadence.ts` extiende `getFumigationStatus` y
+`computeNextDueDate` con parámetros opcionales `phase` y `season`:
+
+```ts
+// Antes (sigue funcionando, no rompe callers existentes):
+getFumigationStatus(lastFumigation, 14, now)
+
+// Ahora (opcional, para chips de fase + estación):
+getFumigationStatus(lastFumigation, 14, now, 'vegetativa', 'secas')
+```
+
+Si `phase` o `season` son `null`/`undefined`, la función usa
+`cadenceDays` directo (backward compat con los tests previos).
+
+### Trabajo futuro (no en este sprint)
+
+- **Backfill de `planting_date`** desde los registros en papel del
+  operador. Hoy 1213/1213 parcelas tienen `planting_date = NULL`
+  → 1213/1213 muestran "Fase: desconocida". Necesitamos un ETL
+  manual (CSV del supervisor → script de upsert).
+- **Modelar fenología de orchards** por especie. La simplificación
+  actual ('vegetativa' siempre) funciona mientras el cliente
+  fumigador cañero no maneje >10% de orchards. Si crece, separar
+  cítrico / mango / aguacate con cadencias distintas.
+- **Extender a otros cultivos y regiones.** La firma de
+  `getSeason(date, latitude, longitude)` ya acepta coordenadas.
+  Cuando se sumen clientes en Cauca o Risaralda, agregar reglas
+  por latitud.
+- **Conectar a alertas automatizadas.** Hoy el operador lee el
+  chip visualmente. Un sprint futuro puede cruzar `cycle_phase`
+  con `next_due_date` y notificar proactivamente cuando una
+  parcela entra en 'madurante' y la fecha de cosecha se acerca.
 
 ---
 

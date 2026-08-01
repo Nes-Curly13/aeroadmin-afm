@@ -37,7 +37,8 @@ import type {
   FumigationTimelineInput,
   OverdueParcel,
   UpcomingFumigation,
-  FlightPointRecord
+  FlightPointRecord,
+  CyclePhase
 } from "@/lib/types";
 import type { OverdueParcelsArgs } from "@/lib/cache";
 
@@ -1890,4 +1891,77 @@ export async function getRecentFumigations(
     },
     async () => []
   );
+}
+
+// ---------------------------------------------------------------------------
+// Crop cycle data (sprint 2026-08-01 — "Fase de cultivo y cadencia efectiva").
+//
+// Devuelve un Map parcel_id → { planting_date, cycle_phase } para todas las
+// parcelas no soft-deleted. Se usa desde `getParcelsWithCycle()` en
+// `lib/data.ts` para extender el shape V0 (`DjiParcel`) con la fase del
+// cultivo sin tocar la query cacheada del dataset.
+//
+// Decisiones de diseño:
+//   - Query dedicado (NO extiende `djiParcelsQuery`). Razón: si la
+//     migration 20260801000000_add_planting_date_and_season.sql no se
+//     aplicó todavía, este query explota con "column cycle_phase does
+//     not exist". El caller (`getParcelsWithCycle`) lo envuelve en
+//     try/catch y degrada a null. Si hubiéramos metido `cycle_phase`
+//     en `djiParcelsQuery`, el cache de 60s del dataset entero se
+//     rompería hasta que se aplique la migration — peor blast radius.
+//   - Filtra `deleted_at IS NULL` igual que `djiParcelsQuery`.
+//   - Solo trae 3 columnas (id, planting_date, cycle_phase) — chico,
+//     no necesita ser cacheado. Si en el futuro se vuelve hot, agregar
+//     wrapper con `unstable_cache`.
+//   - `cycle_phase` viene como string de Postgres. El driver lo devuelve
+//     como string (no enum). Validamos el shape acá para no propagar
+//     strings arbitrarios a la UI.
+// ---------------------------------------------------------------------------
+
+export interface ParcelCycleRow {
+  id: number;
+  planting_date: string | null;
+  cycle_phase: CyclePhase | null;
+}
+
+const VALID_PHASES: ReadonlySet<string> = new Set([
+  "establecimiento",
+  "vegetativa",
+  "madurante",
+  "cosecha"
+]);
+
+function normalizePhase(value: unknown): CyclePhase | null {
+  if (typeof value !== "string") return null;
+  return VALID_PHASES.has(value) ? (value as CyclePhase) : null;
+}
+
+export async function getParcelsCycleData(): Promise<Map<number, ParcelCycleRow>> {
+  const db = getDb();
+  const result = await db.query<{
+    id: number;
+    planting_date: string | Date | null;
+    cycle_phase: string | null;
+  }>(
+    `SELECT id, planting_date, cycle_phase
+       FROM dji_parcels
+      WHERE deleted_at IS NULL`
+  );
+  const map = new Map<number, ParcelCycleRow>();
+  for (const row of result.rows) {
+    map.set(Number(row.id), {
+      id: Number(row.id),
+      // pg devuelve DATE como string 'YYYY-MM-DD' o Date según el driver.
+      // Normalizamos a string si es Date. Si la columna no existe, el
+      // query entero falla (capturado en el caller).
+      planting_date:
+        row.planting_date == null
+          ? null
+          : row.planting_date instanceof Date
+            ? row.planting_date.toISOString().slice(0, 10)
+            : String(row.planting_date),
+      cycle_phase: normalizePhase(row.cycle_phase)
+    });
+  }
+  return map;
 }

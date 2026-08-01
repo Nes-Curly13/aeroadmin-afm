@@ -85,7 +85,18 @@ export interface DjiParcelRecord {
   farm_name?: string | null;
   municipality?: string | null;
   variety?: string | null;
+  // Sprint "Crop time / fase de cultivo" (2026-08-01). Nullable hasta
+  // que se popule `planting_date` (1213/1213 parcelas hoy). Si la
+  // migration 20260801000000_add_planting_date_and_season.sql no se
+  // aplicó, este campo no existe en la BD y el query de cycle data
+  // (`getParcelsCycleData` en api/repositories.ts) lo captura con
+  // try/catch. NO se agrega a `djiParcelsQuery` (la query cacheada del
+  // dataset) para no romper el cache si la migration no corrió.
+  cycle_phase?: string | null;
 }
+
+/** Fase del cultivo (sprint 2026-08-01). Ver lib/crop-cycle.ts. */
+export type CyclePhase = "establecimiento" | "vegetativa" | "madurante" | "cosecha";
 
 export interface DjiDailySummaryRecord {
   id: number;
@@ -401,7 +412,25 @@ export interface DjiParcel {
   geom: { type: "Polygon"; coordinates: [number, number][][] };
   created_at: string;
   is_active: boolean;
+  // Sprint "Crop time / fase de cultivo" (2026-08-01). Null hasta que
+  // se popule planting_date (lo llena el supervisor). Los chips de UI
+  // ("Fase: vegetativa", "Fase: desconocida") leen `cycle_phase`. Si
+  // la migration no se aplicó, ambos campos son null y la UI degrada
+  // a "Fase: desconocida".
+  planting_date?: string | null;     // YYYY-MM-DD
+  cycle_phase?: CyclePhase | null;
 }
+
+/**
+ * dji_parcels extendido con metadata de fase de cultivo.
+ * Sprint 2026-08-01. Lo retorna `getParcelsWithCycle()` en lib/data.ts.
+ * Backward compat: extender un type con dos campos opcionales no rompe
+ * a callers que solo usan `DjiParcel`.
+ */
+export type DjiParcelWithCycle = DjiParcel & {
+  planting_date: string | null;
+  cycle_phase: CyclePhase | null;
+};
 
 /** dji_fumigation_schedule — cadencia esperada (1:1 con dji_parcels). */
 export interface DjiFumigationScheduleV0 {
