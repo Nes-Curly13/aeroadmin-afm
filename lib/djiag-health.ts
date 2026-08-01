@@ -35,6 +35,7 @@ import { readFile } from "node:fs/promises";
 export {
   deriveResponse,
   STALE_THRESHOLD_HOURS,
+  type CircuitBreakerSnapshot,
   type HealthResponse,
   type HealthStatus,
   type PipelineHealth,
@@ -56,6 +57,72 @@ export async function readHealthFile(filePath: string): Promise<import("@/lib/dj
     const parsed = JSON.parse(raw) as unknown;
     if (!parsed || typeof parsed !== "object") return null;
     return parsed as import("@/lib/djiag-health-types").PipelineHealth;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Lee la sección `circuitBreaker` del archivo de health.
+ *
+ * S1 (audit 2026-07-22, docs/DJIAG_AUDIT.md H2). El circuit breaker
+ * del cliente DJI persiste su state en la sección `circuitBreaker`
+ * de `djiag_exports/_health.json` (mismo archivo que `readHealthFile`).
+ * Esta función expone ese state a los consumers (admin panel,
+ * orchestrator pre-flight check, etc.) sin tener que parsear el
+ * JSON completo.
+ *
+ * Devuelve `null` si:
+ *   - el archivo no existe
+ *   - el JSON está corrupto
+ *   - la sección `circuitBreaker` no está presente (nunca se intentó
+ *     login contra DJI en este filesystem)
+ *   - la sección existe pero el shape es inválido (campo `state` no
+ *     es uno de los 3 valores conocidos, etc.)
+ *
+ * No tira error. El caller decide cómo tratar el `null`:
+ *   - Orchestrator (run-pipeline.js): `null === { state: 'closed' }` → OK
+ *   - Admin panel: mostrar "circuit breaker: never used" o similar
+ *
+ * NO muta el filesystem. La función es read-only; para reset/abrir
+ * el circuit, usar `CircuitBreaker` de `lib/djiag-circuit-breaker.js`
+ * directamente.
+ */
+export async function getCircuitBreakerState(
+  filePath: string
+): Promise<import("@/lib/djiag-health-types").CircuitBreakerSnapshot | null> {
+  try {
+    const raw = await readFile(filePath, "utf8");
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") return null;
+    const cb = (parsed as { circuitBreaker?: unknown }).circuitBreaker;
+    if (!cb || typeof cb !== "object") return null;
+    const obj = cb as Record<string, unknown>;
+    // Validar shape mínimo. Si el state no es uno de los 3 conocidos,
+    // descartar la sección entera (asumimos corrupción / versión
+    // incompatible del módulo circuit-breaker).
+    const state = obj.state;
+    if (state !== "closed" && state !== "open" && state !== "half-open") {
+      return null;
+    }
+    return {
+      state,
+      failureCount:
+        typeof obj.failureCount === "number" && Number.isFinite(obj.failureCount)
+          ? obj.failureCount
+          : 0,
+      openedAt: typeof obj.openedAt === "string" ? obj.openedAt : null,
+      lastFailureAt:
+        typeof obj.lastFailureAt === "string" ? obj.lastFailureAt : null,
+      failureThreshold:
+        typeof obj.failureThreshold === "number" && Number.isFinite(obj.failureThreshold)
+          ? obj.failureThreshold
+          : 3,
+      resetTimeoutMs:
+        typeof obj.resetTimeoutMs === "number" && Number.isFinite(obj.resetTimeoutMs)
+          ? obj.resetTimeoutMs
+          : 5 * 60 * 1000
+    };
   } catch {
     return null;
   }

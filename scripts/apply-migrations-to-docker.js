@@ -2,9 +2,13 @@
 // Aplica migrations a docker (no supabase). Para cuando se quiere
 // estabilizar docker antes de migrar a supabase.
 //
-// Lee supabase/migrations/*.sql en orden lexicografico, las aplica a
+// Lee db/migrations/*.sql en orden lexicografico, las aplica a
 // docker, y registra en dji_migrations (la misma tabla que usa
 // apply-pending-migrations.js para supabase).
+//
+// Sprint de reconciliación 2026-07-29: el directorio de migrations
+// se consolidó en `db/migrations/` (antes `supabase/migrations/`).
+// Este script lee del nuevo path.
 //
 // Uso: node scripts/apply-migrations-to-docker.js
 //      node scripts/apply-migrations-to-docker.js --from 20260731   # solo desde esa fecha
@@ -15,7 +19,7 @@ const path = require("path");
 const { Client } = require("pg");
 
 const DOCKER_URL = "postgresql://postgres:postgres@localhost:5432/afm_flights";
-const MIGRATIONS_DIR = path.join(__dirname, "..", "supabase", "migrations");
+const MIGRATIONS_DIR = path.join(__dirname, "..", "db", "migrations");
 
 function listMigrations(filter) {
   const all = fs.readdirSync(MIGRATIONS_DIR)

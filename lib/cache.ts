@@ -32,10 +32,6 @@
 import { revalidateTag, unstable_cache } from "next/cache";
 import { getDb } from "@/lib/db";
 import {
-  aggregateFlightsByDay,
-  type FlightRow
-} from "@/lib/dji-flights-aggregate";
-import {
   buildAlertsFromFumigations,
   type FumigationRow
 } from "@/lib/dji-fumigations-aggregate";
@@ -84,7 +80,14 @@ export const CACHE_TAGS = {
   // v2.5.5 (sprint S8.7+) — polígonos de parcelas derivados de flights
   // (ST_ConvexHull agrupado por parcel). Computación cara (PostGIS sobre
   // 8759 flights), se invalida junto con `flights` cuando se re-importan.
-  flightHulls: "afm:flight-hulls"
+  flightHulls: "afm:flight-hulls",
+  // Sprint H2 follow-up (audit 2026-07-30 §3.4-bis) — series mensual de
+  // fumigaciones (hectáreas + eventos) leída desde la materialized view
+  // `mv_fumigations_monthly`. Se invalida junto con `flights` cuando se
+  // re-importan fumigaciones y al final del pipeline (step 11 refresca
+  // la MV — la cache de 5min es defensiva, no se invalida por tag en el
+  // step porque el refresco del MV no toca el cache del query).
+  fumigationsMonthly: "afm:fumigations-monthly"
 } as const;
 
 export const CACHE_TAGS_ALL = Object.values(CACHE_TAGS);
@@ -110,7 +113,15 @@ export const CACHE_TTL = {
   // agrupado sobre 8k flights), pero los datos son estables entre
   // re-scrapes. 10min es suficiente — el re-scrape del pipeline es
   // diario, y entre runs el hull no cambia.
-  flightHulls: 600
+  flightHulls: 600,
+  // Sprint H2 follow-up (audit 2026-07-30 §3.4-bis) — series mensual
+  // desde `mv_fumigations_monthly`. La MV se refresca al final del
+  // pipeline (step 11), pero entre runs la cache del query evita
+  // pegarle al MV en cada render del dashboard. 5min = mismo TTL que
+  // `metrics` y `alerts` — si el operador ve el dashboard justo
+  // después de un re-scrape, la cache puede mostrar 5min de stale en
+  // el peor caso, aceptable.
+  fumigationsMonthly: 300
 } as const;
 
 // ============================================================
@@ -232,22 +243,6 @@ export const fetchDashboardMetricsCached = unstable_cache(
   { revalidate: CACHE_TTL.metrics, tags: [CACHE_TAGS.metrics] }
 );
 
-interface FlightDbRow {
-  id: number;
-  flight_id: number;
-  start_at: Date;
-  end_at: Date;
-  duration_seconds: number;
-  area_m2: number;
-  spray_usage_ml: number;
-  drone_nickname: string | null;
-  pilot_name: string | null;
-  parcel_id: number | null;
-  lng: number | null;
-  lat: number | null;
-  point: GeoJSON.Geometry | null;
-}
-
 /**
  * v1.6 (auditoria #2 doble modelo fumigaciones):
  *   ANTES: las alertas se derivaban de dji_flights agregado por DIA total.
@@ -315,74 +310,21 @@ async function fetchAlertsFromFumigationsRaw(): Promise<DjiAlertRecord[]> {
 }
 
 /**
- * v1.6: fetchAlertsRaw ahora delega al nuevo fetchAlertsFromFumigationsRaw.
- * El cache + tag (`afm:alerts`) se mantienen — la UI no nota el cambio.
+ * v1.6 → v2.5: las alertas se derivan de `dji_fumigations` (no de
+ * `dji_flights` agregado por día). El cache + tag (`afm:alerts`) se
+ * mantienen — la UI no nota el cambio.
  *
- * El codigo viejo (basado en dji_flights) se conserva en este archivo
- * como `fetchAlertsLegacyFromFlightsRaw` por si necesitamos rollback
- * rapido. Si en 30 dias no se usa, borrar (TODO: ticket de cleanup).
+ * v2.5 (sprint cleanup 2026-08-01): el código viejo basado en
+ * `dji_flights` (`fetchAlertsLegacyFromFlightsRaw`) se eliminó después
+ * de 2 sprints sin uso. Si en algún momento se necesita re-derivar
+ * alertas de vuelos crudos, leer de git history (commit anterior a
+ * este cambio).
  */
-async function fetchAlertsRaw(): Promise<DjiAlertRecord[]> {
-  return fetchAlertsFromFumigationsRaw();
-}
-
 export const fetchAlertsCached = unstable_cache(
-  async () => fetchAlertsRaw(),
+  async () => fetchAlertsFromFumigationsRaw(),
   ["alerts"],
   { revalidate: CACHE_TTL.alerts, tags: [CACHE_TAGS.alerts] }
 );
-
-/**
- * LEGACY v1.5: derivaba alertas de dji_flights agregado por dia.
- * Conservado como `fetchAlertsLegacyFromFlightsRaw` SOLO para
- * rollback rapido. No se invoca desde el codigo de produccion.
- *
- * Para usar en caso de emergencia:
- *   1. Cambiar `fetchAlertsRaw` para que retorne esta version.
- *   2. Commit con revert explicito en el mensaje.
- *
- * Removal: v2.0 (cuando se decida el destino final de dji_flights).
- */
-async function fetchAlertsLegacyFromFlightsRaw(): Promise<DjiAlertRecord[]> {
-  const db = getDb();
-  const result = await db.query<FlightDbRow>(
-    `SELECT id, flight_id, start_at, end_at, duration_seconds, area_m2,
-            spray_usage_ml, drone_nickname, pilot_name, parcel_id
-       FROM dji_flights ORDER BY start_at DESC`
-  );
-  const aggregated = aggregateFlightsByDay(
-    result.rows.map(
-      (r): FlightRow => ({
-        id: r.id,
-        flight_id: r.flight_id,
-        start_at: r.start_at,
-        duration_seconds: r.duration_seconds,
-        area_m2: r.area_m2,
-        spray_usage_ml: r.spray_usage_ml
-      })
-    )
-  );
-  return aggregated.map((row): DjiAlertRecord => {
-    const areaMu = Number(row.area_mu);
-    const usageLiters = Number(row.usage_liters);
-    const timesCount = Number(row.times_count);
-    const ageDays = Math.max(0, Math.round(areaMu / 2));
-    const level: DjiAlertRecord["level"] =
-      areaMu >= 60 || timesCount >= 80
-        ? "HIGH"
-        : areaMu >= 30
-          ? "MEDIUM"
-          : "LOW";
-    return {
-      parcel_id: row.id,
-      parcel_name: `${row.record_date} ${row.category}`,
-      level,
-      age_days: ageDays,
-      message: `${row.category} en ${row.record_date}: ${timesCount} salidas, ${areaMu.toFixed(2)} mu, ${usageLiters.toFixed(1)} L.`,
-      geometry: null
-    };
-  });
-}
 
 async function fetchUpcomingFumigationsRaw(limit: number): Promise<UpcomingFumigation[]> {
   const db = getDb();

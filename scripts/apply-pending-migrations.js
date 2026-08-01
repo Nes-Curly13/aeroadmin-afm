@@ -1,7 +1,21 @@
 // CLI: aplica migrations SQL que estén pendientes.
-// Lee todos los .sql de supabase/migrations/ en orden lexicografico, los
+// Lee todos los .sql de db/migrations/ en orden lexicografico, los
 // ejecuta dentro de una transaccion, y registra cuales ya se aplicaron
 // en dji_migrations (crea la tabla si no existe).
+//
+// Sprint de reconciliación 2026-07-29: el directorio de migrations se
+// movió desde `supabase/migrations/` (donde vivía históricamente) a
+// `db/migrations/` (que es lo que AGENTS.md y el R6 documentan como
+// ubicación canónica). El script sigue siendo el mismo; solo cambia
+// el path.
+//
+// Si tu BD local tiene `dji_migrations` con las migrations aplicadas
+// bajo el nombre antiguo, este script las va a re-aplicar porque el
+// nombre del archivo no coincide con la key guardada. Workaround:
+// después del primer `db:migrate` fallido, corre:
+//   `psql $DATABASE_URL -c "DELETE FROM dji_migrations WHERE name NOT
+//    IN (SELECT name FROM dji_migrations WHERE name LIKE '2026%');"`
+// o, mejor, sincronizá desde cero en una BD fresca.
 //
 // Uso:
 //   node scripts/apply-pending-migrations.js
@@ -71,7 +85,7 @@ async function main() {
     await ensureMigrationsTable(client);
     const applied = await getApplied(client);
 
-    const dir = path.join(process.cwd(), 'supabase', 'migrations');
+    const dir = path.join(process.cwd(), 'db', 'migrations');
     let files = [];
     if (onlyFile) {
       files = [path.resolve(onlyFile)];

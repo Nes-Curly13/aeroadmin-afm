@@ -24,6 +24,16 @@
 //                             del admin (no recomendado, complicado de rotar)
 //   HEALTH_STALE_HOURS      — threshold de "stale" (default: 24)
 //
+// Notificaciones (Sprint H2+H6, 2026-07-30):
+//   El watchdog puede notificar a canales externos cuando detecta
+//   un estado "stale/partial/failed". El fallback chain es:
+//     1. Telegram (si TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID están seteadas)
+//     2. Discord webhook (si DISCORD_WEBHOOK_URL está seteada)
+//     3. Log local: `djiag_exports/_watchdog-notifications.log` (append JSON
+//        lines) + `djiag_exports/_watchdog-banner.json` (último mensaje,
+//        para que el admin panel pueda mostrar un banner).
+//   Ver `notify(severity, message, opts?)` más abajo.
+//
 // Exit codes:
 //   0 = healthy (status='ok' o 'unknown' con warning de no-data)
 //   1 = stale (>24h sin update) o error HTTP / timeout
@@ -34,7 +44,7 @@
 //   - status='stale'      → lastRunStatus='ok' AND hoursSinceLastSync>24
 //   - status='partial'    → lastRunStatus='partial'
 //   - status='failed'     → lastRunStatus='failed'
-//   - status='unknown'    → archivo _health.json ausente o corrupto
+//   - status='unknown'    — archivo _health.json ausente o corrupto
 
 const fs = require('fs');
 const path = require('path');
@@ -132,6 +142,211 @@ function buildAuthHeaders(env = process.env) {
   return headers;
 }
 
+// ============================================================
+// notify() — canal de notificación del watchdog
+// (Sprint H2+H6, 2026-07-30)
+// ============================================================
+//
+// Fallback chain:
+//   1. Telegram (si TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID)
+//   2. Discord webhook (si DISCORD_WEBHOOK_URL)
+//   3. Log file + banner file (siempre, last-resort)
+//
+// Test: si no hay env vars de Telegram ni Discord, igual escribe al
+// log file. NO crashea. Las funciones `sendTelegram` y `sendDiscord`
+// son exportadas para tests unitarios (mismo patrón que `fetchHealth`).
+//
+// Severities aceptadas: 'ok' | 'info' | 'warning' | 'critical'.
+// El caller puede usar la que quiera — la función no valida el
+// contenido, solo lo pasa al canal correspondiente.
+
+/**
+ * Envía un mensaje por Telegram usando `sendMessage`. Devuelve
+ * `{ ok: true, status, body }` o `{ ok: false, error, status? }`.
+ *
+ * Por qué se exporta: para que el test pueda mockear el canal sin
+ * tocar el fallback chain.
+ */
+async function sendTelegram(message, opts = {}) {
+  const env = opts.env ?? process.env;
+  const fetchFn = opts.fetchFn ?? globalThis.fetch;
+  const token = env.TELEGRAM_BOT_TOKEN;
+  const chatId = env.TELEGRAM_CHAT_ID;
+  if (!token || !chatId) {
+    return { ok: false, error: 'TELEGRAM_BOT_TOKEN o TELEGRAM_CHAT_ID no configurados' };
+  }
+  const url = `https://api.telegram.org/bot${token}/sendMessage`;
+  try {
+    const res = await fetchFn(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: message,
+        // parse_mode omitido: dejamos que el cliente Telegram renderice
+        // como texto plano. Si el operador quiere bold/links, puede
+        // editar el mensaje antes de pasar.
+        disable_web_page_preview: true
+      })
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      // 401/403/404 → token mal configurado. Tratar como "not configured"
+      // y dejar que el fallback chain continúe.
+      if (res.status === 401 || res.status === 403 || res.status === 404) {
+        return { ok: false, error: `Telegram auth/not-found (${res.status}): ${text.slice(0, 200)}`, status: res.status, fatal: true };
+      }
+      return { ok: false, error: `Telegram HTTP ${res.status}: ${text.slice(0, 200)}`, status: res.status };
+    }
+    return { ok: true, status: res.status };
+  } catch (err) {
+    return { ok: false, error: `Telegram fetch failed: ${err instanceof Error ? err.message : String(err)}` };
+  }
+}
+
+/**
+ * Envía un mensaje por Discord webhook. Devuelve `{ ok: true, status }`
+ * o `{ ok: false, error, status? }`.
+ */
+async function sendDiscord(message, opts = {}) {
+  const env = opts.env ?? process.env;
+  const fetchFn = opts.fetchFn ?? globalThis.fetch;
+  const webhookUrl = env.DISCORD_WEBHOOK_URL;
+  if (!webhookUrl) {
+    return { ok: false, error: 'DISCORD_WEBHOOK_URL no configurada' };
+  }
+  try {
+    const res = await fetchFn(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        content: message,
+        // Discord trunca a 2000 chars; cortamos defensivamente.
+        // El caller puede usar `username` y `avatar_url` para branding
+        // custom, pero acá no los seteamos para no hardcodear.
+      })
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      // Discord devuelve 204 No Content en éxito. Si status >= 400,
+      // es un error (webhook borrado, rate limit, etc.).
+      return { ok: false, error: `Discord HTTP ${res.status}: ${text.slice(0, 200)}`, status: res.status };
+    }
+    return { ok: true, status: res.status };
+  } catch (err) {
+    return { ok: false, error: `Discord fetch failed: ${err instanceof Error ? err.message : String(err)}` };
+  }
+}
+
+/**
+ * Escribe una línea JSON al log file (append). Crea el directorio
+ * si no existe. Si el write falla, NO throw — solo loguea a stderr.
+ */
+function appendNotificationLog(severity, message, logFilePath, now) {
+  try {
+    const dir = path.dirname(logFilePath);
+    fs.mkdirSync(dir, { recursive: true });
+    const entry = JSON.stringify({
+      ts: (now ?? (() => new Date()))().toISOString(),
+      severity,
+      message
+    }) + '\n';
+    fs.appendFileSync(logFilePath, entry, 'utf8');
+    return true;
+  } catch (err) {
+    console.warn(`[watchdog] no se pudo escribir log de notificación: ${err instanceof Error ? err.message : String(err)}`);
+    return false;
+  }
+}
+
+/**
+ * Escribe el banner file (sobreescribe). Es el último mensaje
+ * enviado; el admin panel puede leer este archivo y mostrar un
+ * banner rojo/amarillo según severity.
+ *
+ * Si falla, NO throw. Best-effort.
+ */
+function writeBannerFile(severity, message, bannerFilePath, now) {
+  try {
+    const dir = path.dirname(bannerFilePath);
+    fs.mkdirSync(dir, { recursive: true });
+    const payload = {
+      ts: (now ?? (() => new Date()))().toISOString(),
+      severity,
+      message
+    };
+    fs.writeFileSync(bannerFilePath, JSON.stringify(payload, null, 2), 'utf8');
+    return true;
+  } catch (err) {
+    console.warn(`[watchdog] no se pudo escribir banner: ${err instanceof Error ? err.message : String(err)}`);
+    return false;
+  }
+}
+
+/**
+ * Notifica al operador vía el fallback chain. Función principal.
+ *
+ * Comportamiento:
+ *   1. Si `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` están seteadas Y
+ *      `sendTelegram` tiene éxito → devuelve `{ channel: 'telegram', ok: true }`.
+ *      Si falla con `fatal: true` (401/403/404), cae al siguiente canal.
+ *      Si falla con error transitorio, también cae.
+ *   2. Si `DISCORD_WEBHOOK_URL` está seteada Y `sendDiscord` tiene éxito
+ *      → devuelve `{ channel: 'discord', ok: true }`.
+ *   3. Cae al log file + banner (siempre — incluso si Telegram/Discord
+ *      ya escribieron, no; esto es last-resort, no se ejecuta si un
+ *      canal externo tuvo éxito).
+ *
+ * En CUALQUIER caso, no crashea. El log + banner son best-effort.
+ *
+ * @param {string} severity — 'ok' | 'info' | 'warning' | 'critical'
+ * @param {string} message  — texto a enviar
+ * @param {object} [opts]
+ * @param {Function} [opts.fetchFn]         — inyectable para tests (default globalThis.fetch)
+ * @param {string}  [opts.logFilePath]     — default `djiag_exports/_watchdog-notifications.log`
+ * @param {string}  [opts.bannerFilePath]  — default `djiag_exports/_watchdog-banner.json`
+ * @param {() => Date} [opts.now]          — clock inyectable (default new Date)
+ * @param {object}  [opts.env]             — env override para tests (default process.env)
+ * @returns {Promise<{ channel: 'telegram'|'discord'|'log', ok: true, status?: number, message: string, fatal?: boolean, error?: string }>}
+ */
+async function notify(severity, message, opts = {}) {
+  const env = opts.env ?? process.env;
+  const fetchFn = opts.fetchFn ?? globalThis.fetch;
+  const now = opts.now ?? (() => new Date());
+  const logFilePath = opts.logFilePath ?? path.join(process.cwd(), 'djiag_exports', '_watchdog-notifications.log');
+  const bannerFilePath = opts.bannerFilePath ?? path.join(process.cwd(), 'djiag_exports', '_watchdog-banner.json');
+
+  const fullMessage = `[${severity}] ${message}`;
+
+  // 1. Telegram
+  if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID) {
+    const r = await sendTelegram(fullMessage, { env, fetchFn });
+    if (r.ok) {
+      // Aún así, escribimos al log para tener audit trail.
+      appendNotificationLog(severity, message, logFilePath, now);
+      return { channel: 'telegram', ok: true, status: r.status };
+    }
+    // Si es fatal (auth mal), probamos Discord. Si es transitorio
+    // (5xx, network), también probamos Discord como fallback.
+    console.warn(`[watchdog] notify: Telegram falló (${r.error}); intentando Discord.`);
+  }
+
+  // 2. Discord
+  if (env.DISCORD_WEBHOOK_URL) {
+    const r = await sendDiscord(fullMessage, { env, fetchFn });
+    if (r.ok) {
+      appendNotificationLog(severity, message, logFilePath, now);
+      return { channel: 'discord', ok: true, status: r.status };
+    }
+    console.warn(`[watchdog] notify: Discord falló (${r.error}); cayendo al log.`);
+  }
+
+  // 3. Log + banner (last-resort, siempre)
+  appendNotificationLog(severity, message, logFilePath, now);
+  writeBannerFile(severity, message, bannerFilePath, now);
+  return { channel: 'log', ok: true };
+}
+
 async function main() {
   loadLocalEnv();
 
@@ -184,6 +399,27 @@ async function main() {
     console.log(`[watchdog] ${decision.reason}`);
   } else {
     console.error(`[watchdog] ${decision.reason}`);
+    // Sprint H2+H6 (2026-07-30). Notificar al operador cuando el
+    // estado es problemático (stale/partial/failed). El estado
+    // 'unknown' (sin datos) NO notifica — es benign durante la
+    // primera corrida o cuando el pipeline nunca corrió.
+    //
+    // `notify()` no crashea si no hay env vars configuradas (cae
+    // al log file + banner). Si el log write falla, sigue sin
+    // crashear. Por eso no lo rodeamos de try/catch.
+    //
+    // Severity mapping:
+    //   - 'failed'  → critical (login roto, scraper caído, etc.)
+    //   - 'partial' → warning (algunos steps fallaron)
+    //   - 'stale'   → warning (última sync > HEALTH_STALE_HOURS)
+    const severity =
+      health?.status === 'failed' ? 'critical' : 'warning';
+    const notifyMsg =
+      `AeroAdmin AFM djiag-health: ${decision.reason}. ` +
+      `Revisar: ${healthUrl}/admin/djiag-health`;
+    notify(severity, notifyMsg).catch((e) =>
+      console.warn(`[watchdog] notify falló: ${e instanceof Error ? e.message : String(e)}`)
+    );
   }
   process.exit(decision.exitCode);
 }
@@ -201,5 +437,12 @@ module.exports = {
   loadLocalEnv,
   fetchHealth,
   evaluateHealth,
-  buildAuthHeaders
+  buildAuthHeaders,
+  // Sprint H2+H6 (2026-07-30). notify() y sus helpers internos.
+  // Exportados para tests unitarios (mismo patrón que fetchHealth).
+  notify,
+  sendTelegram,
+  sendDiscord,
+  appendNotificationLog,
+  writeBannerFile
 };

@@ -42,9 +42,14 @@ El script devuelve:
 
 ```bash
 # 1. .env.local con HEALTH_URL + HEALTH_TOKEN (o HEALTH_AUTH_COOKIE)
+#    + (opcional) TELEGRAM_BOT_TOKEN/CHAT_ID o DISCORD_WEBHOOK_URL para notificaciones
 cat .env.local
 # HEALTH_URL=http://localhost:3000
 # HEALTH_TOKEN=dev-only-token  # debe coincidir con el server
+# --- opcionales, para notificaciones activas ---
+# TELEGRAM_BOT_TOKEN=...        # ver "Configuración de notificaciones" abajo
+# TELEGRAM_CHAT_ID=...
+# DISCORD_WEBHOOK_URL=https://...
 
 # 2. Asegurarse de que el server también tenga HEALTH_TOKEN (en .env.local del server)
 #    sino el endpoint rechaza con 401.
@@ -123,44 +128,89 @@ Por default el threshold es **24 horas** (alineado con
 
 ## Cómo recibir notificaciones
 
-El workflow **NO incluye** notificaciones automáticas — eso es
-intencional (Sprint C es corto, no hay integración con servicios
-externos todavía). La forma más rápida de enterarse es subscribirse
-a "failed workflow runs":
+El watchdog (`scripts/health-watchdog.js`) tiene un canal propio de
+notificación (`notify()`) que se dispara cuando detecta
+`stale`/`partial`/`failed`. El fallback chain es:
+
+1. **Telegram** (si `TELEGRAM_BOT_TOKEN` y `TELEGRAM_CHAT_ID` están seteadas)
+2. **Discord webhook** (si `DISCORD_WEBHOOK_URL` está seteada)
+3. **Log file + banner** (siempre, last-resort)
+
+> Los puntos 1-2 son **notificaciones activas** que llegan al operador
+> en tiempo real. El punto 3 es para tener audit trail y un banner
+> que el admin panel puede leer.
+
+Además, el workflow de GitHub Actions notifica por la UI de GitHub
+(subscribirse a "failed workflow runs"):
 
 1. `Settings → Notifications` (personal) o `Watch → Custom` (repos que sigues).
 2. Marcar "Send notifications for failed workflows only" o similar.
 
-### Integración con Slack/Discord/email (3 opciones, **NO implementadas**)
+### Configuración de notificaciones
 
-**Opción A — Slack** (recomendado para equipos chicos):
-1. Crear incoming webhook en Slack (canal `#alerts-aeroadmin`).
-2. Agregar step al final del workflow `djiag-health-watchdog.yml`:
-   ```yaml
-   - name: Notify Slack on failure
-     if: failure()
-     uses: slackapi/slack-github-action@v1
-     with:
-       payload: |
-         {"text": ":warning: AeroAdmin AFM djiag-health-watchdog FAILED on ${{ github.ref_name }}: ${{ github.run_id }}"}
-     env:
-       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+Sprint H2+H6 (2026-07-30) — `notify()` implementado en
+`scripts/health-watchdog.js`. El watchdog llama `notify(severity, msg)`
+cuando el estado es `stale`/`partial`/`failed` (severity mapping:
+`failed` → critical, `partial`/`stale` → warning).
+
+#### Telegram (recomendado para 1-3 personas)
+
+1. Hablar con `@BotFather` en Telegram.
+2. Crear bot: `/newbot`. Anotar el **token** que devuelve.
+3. Crear grupo o canal donde querés recibir las alertas.
+4. Agregar el bot al grupo.
+5. Obtener el **chat_id** del grupo:
+   ```bash
+   curl -s "https://api.telegram.org/bot<TOKEN>/getUpdates" | jq '.result[].message.chat.id'
    ```
-3. Agregar `SLACK_WEBHOOK_URL` como secret.
+   (mandar un mensaje al grupo primero, después correr el curl).
+6. Configurar env vars:
+   ```bash
+   # .env.local (dev) o GitHub Secrets (CI)
+   TELEGRAM_BOT_TOKEN=1234567890:ABCdefGHIjklMNOpqrSTUvwxYZ
+   TELEGRAM_CHAT_ID=-1001234567890
+   ```
 
-**Opción B — Discord** (similar a Slack):
-1. Crear webhook en Discord.
-2. Usar la action `appleboy/discord-action@master` con el mismo
-   `if: failure()`.
+#### Discord
 
-**Opción C — Email** (más simple, sin servicios externos):
-1. GitHub envía emails automáticos a quienes estén suscritos al
-   repo. `Settings → Notifications` por usuario.
-2. Costo cero, latency ~5 min.
+1. En el server de Discord, ir a un canal.
+2. `Edit Channel` → `Integrations` → `Webhooks` → `New Webhook`.
+3. Copiar la URL del webhook.
+4. Configurar env var:
+   ```bash
+   # .env.local (dev) o GitHub Secrets (CI)
+   DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/1234567890/abcdef...
+   ```
 
-> **Scope**: documentado en `docs/review/SYNTHESIS.md` como
-> follow-up P-financial. El PR que lo implemente es de 30-60 min
-> cada uno (es copy-paste de los snippets de arriba).
+#### Comportamiento cuando NO hay env vars configuradas
+
+El watchdog **NO crashea**. Cae al fallback:
+
+- `djiag_exports/_watchdog-notifications.log` — JSON lines, una por
+  cada notificación (append). Sirve de audit trail.
+- `djiag_exports/_watchdog-banner.json` — última notificación, en formato
+  JSON simple. El admin panel puede leerlo y mostrar un banner.
+
+Si el pipeline local no tiene acceso a la red (e.g. corre en
+una máquina detrás de un firewall estricto), el log + banner es
+la única señal. El operador puede leerlos con:
+
+```bash
+tail -f djiag_exports/_watchdog-notifications.log
+cat djiag_exports/_watchdog-banner.json
+```
+
+#### Slack/email (no implementados)
+
+Slack y email quedaron fuera del alcance de Sprint H2+H6. Si el
+operador los necesita, el patrón es el mismo:
+
+- Slack: incoming webhook + custom GH Action step (o custom Node call).
+- Email: SMTP via `nodemailer` o similar (requiere nuevo dep, fuera
+  del alcance actual).
+
+Ver `docs/HEALTH-WATCHDOG-NGROK-SETUP.md` para cómo exponer el endpoint
+local si querés testear las notificaciones desde dev.
 
 ## Troubleshooting
 

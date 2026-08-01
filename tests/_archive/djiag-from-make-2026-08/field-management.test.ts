@@ -13,7 +13,7 @@ import {
   landToFieldCard,
   type FieldCard,
   type FetchFieldManagementOptions
-} from "@/lib/djiag-from-make/field-management";
+} from "@/lib/_archive/djiag-from-make-2026-08/field-management";
 import type { NormalizedLand } from "@/lib/djiag-graphql-types";
 
 const baseLand: NormalizedLand = {

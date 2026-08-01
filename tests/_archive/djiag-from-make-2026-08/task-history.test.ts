@@ -19,7 +19,7 @@ import {
   formatDuration,
   muFromM2,
   type FlightLikeRow
-} from "@/lib/djiag-from-make/task-history";
+} from "@/lib/_archive/djiag-from-make-2026-08/task-history";
 import type { NormalizedFumigationDay } from "@/lib/djiag-fumigations-fetcher";
 
 describe("formatDuration", () => {

@@ -33,6 +33,40 @@ export interface PipelineHealth {
     lands: number;
   };
   version: 1;
+  /**
+   * Estado del circuit breaker del cliente DJI (S1, audit 2026-07-22 H2).
+   * Lo escribe `lib/djiag-korean-client.js` cuando se hacen logins.
+   * `null` si nunca se intentó login o si la sección no está en el archivo.
+   *
+   * Shape: ver `CircuitBreakerSnapshot` (consistente con el snapshot del
+   * módulo `lib/djiag-circuit-breaker.js`).
+   *
+   * Nota de nomenclatura: el campo es `failureCount` (no `failCount`)
+   * porque así lo escribe el módulo CJS en disco. Cambiar el nombre
+   * rompería la compatibilidad con `_health.json` ya existente.
+   */
+  circuitBreaker?: CircuitBreakerSnapshot | null;
+}
+
+/**
+ * Estado del circuit breaker del cliente DJI (mismo shape que
+ * `CircuitBreaker.snapshot()` de `lib/djiag-circuit-breaker.js`).
+ *
+ * Se persiste en la sección `circuitBreaker` de `djiag_exports/_health.json`
+ * y lo lee `getCircuitBreakerState()` de `lib/djiag-health.ts`.
+ */
+export interface CircuitBreakerSnapshot {
+  state: "closed" | "open" | "half-open";
+  /** Cantidad de failures consecutivos. */
+  failureCount: number;
+  /** ISO timestamp de cuándo se abrió. `null` si nunca se abrió. */
+  openedAt: string | null;
+  /** ISO timestamp del último failure. `null` si nunca falló. */
+  lastFailureAt: string | null;
+  /** Threshold configurado (solo lectura, para diagnóstico). */
+  failureThreshold: number;
+  /** Reset timeout en ms (solo lectura, para diagnóstico). */
+  resetTimeoutMs: number;
 }
 
 export interface StepHealth {

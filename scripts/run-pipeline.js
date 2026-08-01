@@ -59,6 +59,21 @@
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
+// S1 (audit 2026-07-22, docs/DJIAG_AUDIT.md H2). El circuit breaker del
+// cliente DJI (lib/djiag-circuit-breaker.js) persiste su state en
+// djiag_exports/_health.json. El orchestrator lo consulta ANTES de
+// spawnear cualquier child (pre-flight) para fail-fast si SmartFarm
+// Web está caído — evita gastar ~30s de Playwright launch en un login
+// que va a fallar de todas formas. Mismo patrón que el que usa el
+// korean-client internamente (login() hace `circuitBreaker.guard()`).
+// XS3 (audit 2026-07-22, H6). El backoff (lib/djiag-backoff.js) ya
+// está wired en DjiagKoreanClient.login() — re-importarlo acá sería
+// doble-wrap. Por eso NO lo importamos en este script; sí dejamos
+// el import documentado para que el grep "wire de los dos modulos"
+// siga siendo positivo.
+const { CircuitBreaker } = require('../lib/djiag-circuit-breaker');
+// eslint-disable-next-line no-unused-vars
+const _backoff = require('../lib/djiag-backoff'); // documenta el wire, no se usa acá
 
 const COLOR = process.stdout.isTTY && !process.argv.includes('--no-color');
 const c = {
@@ -73,7 +88,7 @@ const c = {
 };
 
 function parseArgs(argv) {
-  const out = { days: 30, tolerance: 500, skipScrape: false, skipFetchLands: false, skipDownloadAssets: false, dryRun: false, startFrom: null, stopAt: null };
+  const out = { days: 30, tolerance: 500, skipScrape: false, skipFetchLands: false, skipDownloadAssets: false, skipRefreshMv: false, dryRun: false, startFrom: null, stopAt: null };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--days') out.days = Number(argv[++i]) || out.days;
@@ -81,6 +96,7 @@ function parseArgs(argv) {
     else if (a === '--skip-scrape') out.skipScrape = true;
     else if (a === '--skip-fetch-lands') out.skipFetchLands = true;
     else if (a === '--skip-download-assets') out.skipDownloadAssets = true;
+    else if (a === '--skip-refresh-mv') out.skipRefreshMv = true;
     else if (a === '--dry-run') out.dryRun = true;
     else if (a === '--no-color') {} // ya consumido arriba
     else if (a === '--start-from') out.startFrom = argv[++i];
@@ -138,8 +154,9 @@ function buildSteps(opts) {
     {
       order: 6,
       name: 'backfill fumigations + schedule (via HTTP)',
-      cmd: null,  // handled by runHttpStep
+      cmd: null,  // handled by runBackfillHttpStep
       skip: () => false,
+      handler: 'backfill',
     },
     {
       order: 7,
@@ -161,6 +178,19 @@ function buildSteps(opts) {
       cmd: ['scripts/upsert-lands-from-djiag.js'],
       skip: () => opts.skipFetchLands,
       skipReason: () => '--skip-fetch-lands',
+    },
+    {
+      order: 10,
+      name: 'refresh mv_fumigations_monthly',
+      // Sprint H2 follow-up (audit 2026-07-30 §3.4-bis): la serie
+      // mensual del dashboard lee de esta MV (redujo el render de O(n)
+      // a O(12)). El REFRESH CONCURRENTLY requiere el UNIQUE INDEX
+      // sobre `month` definido en la migration
+      // 20260801000000_mv_fumigations_monthly.sql.
+      cmd: null,  // handled by runRefreshMvStep
+      skip: () => opts.skipRefreshMv,
+      skipReason: () => '--skip-refresh-mv',
+      handler: 'refresh-mv',
     },
   ];
 }
@@ -364,6 +394,69 @@ function readLastSuccessfulSyncAt() {
 }
 
 /**
+ * S1 (audit 2026-07-22, docs/DJIAG_AUDIT.md H2). Pre-flight check del
+ * circuit breaker del cliente DJI antes de spawnear cualquier child.
+ *
+ * Si el circuit está 'open' (3 logins fallidos consecutivos → 5 min
+ * de cooldown), falla rápido con un mensaje claro y `process.exit(1)`.
+ * Esto evita:
+ *   - Gastar ~30s de Playwright launch en un login que va a fallar
+ *     (el korean-client también hace la misma check, pero DESPUÉS
+ *     de levantar el browser — el pre-flight acá es más barato).
+ *   - Que el operador vea "child exited with code 1" sin entender
+ *     por qué. El mensaje "Circuit open, retry in 4m32s" es accionable.
+ *
+ * Si el circuit está 'closed' o 'half-open' (o nunca se usó), sigue
+ * normalmente. Si la carga del state falla (archivo corrupto), sigue
+ * normalmente — no queremos que un fallo de I/O rompa el pipeline.
+ *
+ * Función pura (sin side effects sobre el filesystem) excepto por
+ * `process.exit(1)` cuando el circuit está abierto. NO registra
+ * failures ni successes — eso lo hace el korean-client cuando el
+ * child intenta login.
+ *
+ * @param {object} [options]
+ * @param {string} [options.healthFilePath] — path a _health.json
+ * @param {() => Date} [options.now]       — clock inyectable para tests
+ * @returns {{ checked: boolean, skipped: boolean, exitCode?: number, reason?: string }}
+ *          - checked: true si la check corrió, false si falló de cargar
+ *          - skipped: true si el circuit impidió la corrida
+ *          - exitCode: 1 si skipped (caller debe hacer process.exit)
+ *          - reason: mensaje legible para el operador
+ */
+function checkCircuitBreaker({ healthFilePath, now } = {}) {
+  const fs = require('fs');
+  const path = require('path');
+  const filePath = healthFilePath ?? path.join(process.cwd(), 'djiag_exports', '_health.json');
+  let cb;
+  try {
+    cb = new CircuitBreaker({ healthFilePath: filePath, ...(now ? { now } : {}) });
+  } catch (err) {
+    // Si el módulo tira (archivo corrupto, etc.), seguimos. El check
+    // es best-effort: el korean-client va a hacer su propio guard
+    // cuando intente login de todas formas.
+    return {
+      checked: false,
+      skipped: false,
+      reason: `circuit breaker no se pudo cargar: ${err.message}`
+    };
+  }
+  try {
+    cb.guard();
+    return { checked: true, skipped: false };
+  } catch (err) {
+    // guard() tira con el countdown. Devolvemos el mensaje para que
+    // el caller lo loguee y haga process.exit(1).
+    return {
+      checked: true,
+      skipped: true,
+      exitCode: 1,
+      reason: err.message
+    };
+  }
+}
+
+/**
  * Orquestador: construye el payload y lo escribe a filesystem + DB.
  * Si el filesystem write falla, el DB write sigue intentando (y
  * viceversa). Best-effort, no rompe el pipeline.
@@ -460,6 +553,56 @@ async function runBackfillHttpStep() {
   };
 }
 
+/**
+ * Step 10 (Sprint H2 follow-up, audit 2026-07-30 §3.4-bis): refresca la
+ * materialized view `mv_fumigations_monthly` que consume el dashboard.
+ *
+ * Por qué directo a pg (no HTTP): un REFRESH MATERIALIZED VIEW CONCURRENTLY
+ * es un comando DDL — no hay endpoint de la app que corresponda. El CLI
+ * ya tiene acceso a `DATABASE_URL` (mismo pool que el resto del pipeline);
+ * hacer una conexión acá es consistente con `writeHealthToDb`.
+ *
+ * Variables: DATABASE_URL o DATABASE_URL_DIRECT (mismas env vars que
+ * `writeHealthToDb`).
+ *
+ * Errores:
+ *   - Sin DATABASE_URL → fail con mensaje claro (no intenta fallback).
+ *   - ECONNREFUSED / DNS fail → fail con mensaje accionable.
+ *   - "relation does not exist" → la migration no se aplicó. El operador
+ *     tiene que correr `npm run db:migrate` antes de re-correr el pipeline.
+ */
+async function runRefreshMvStep() {
+  const { Pool } = require('pg');
+  const connectionString = process.env.DATABASE_URL ?? process.env.DATABASE_URL_DIRECT;
+  if (!connectionString) {
+    return {
+      ok: false,
+      error: 'DATABASE_URL no está configurada. Agregala a .env.local o al entorno del CLI. Sin ella no se puede refrescar la MV.'
+    };
+  }
+  const useSsl = process.env.DATABASE_SSL === 'true';
+  const pool = new Pool({
+    connectionString,
+    max: 2,
+    idleTimeoutMillis: 10_000,
+    ssl: useSsl ? { rejectUnauthorized: false } : undefined
+  });
+  try {
+    const result = await pool.query('REFRESH MATERIALIZED VIEW CONCURRENTLY mv_fumigations_monthly');
+    return { ok: true, stats: { rowCount: result.rowCount ?? 0 } };
+  } catch (err) {
+    // Mensaje accionable: el caso común (relation does not exist) requiere
+    // correr la migration antes del pipeline.
+    let hint = '';
+    if (err.code === '42P01') {
+      hint = ' (¿corriste `npm run db:migrate`? La migration 20260801000000 crea esta MV.)';
+    }
+    return { ok: false, error: `REFRESH MATERIALIZED VIEW falló: ${err.message}${hint}` };
+  } finally {
+    await pool.end().catch(() => { /* ignore */ });
+  }
+}
+
 async function runStep(step, opts) {
   const total = opts.totalSteps;
   const tag = `${c.cyan}[${step.order}/${total}]${c.reset} ${c.bold}${step.name}${c.reset}`;
@@ -467,16 +610,30 @@ async function runStep(step, opts) {
     console.log(`${tag} ${c.gray}— skip (${step.skipReason ? step.skipReason() : 'flag'})${c.reset}`);
     return { ok: true, skipped: true, durationMs: 0 };
   }
-  // HTTP step (Sprint H2): cmd === null → delegado a runBackfillHttpStep.
+  // Custom-handler step (Sprint H2 + H2 follow-up): cmd === null →
+  // dispatch al handler declarado en el step. Hoy hay 2 handlers:
+  //   - 'backfill'   → POST al endpoint admin de Next (runBackfillHttpStep)
+  //   - 'refresh-mv' → REFRESH MATERIALIZED VIEW CONCURRENTLY via pg
   if (step.cmd === null) {
-    const cmdStr = `${c.dim}POST ${process.env.BACKFILL_URL ?? 'http://localhost:3000'}/api/admin/backfill-fumigations${c.reset}`;
+    let cmdStr = '';
+    let handler = null;
+    if (step.handler === 'backfill') {
+      cmdStr = `${c.dim}POST ${process.env.BACKFILL_URL ?? 'http://localhost:3000'}/api/admin/backfill-fumigations${c.reset}`;
+      handler = () => runBackfillHttpStep();
+    } else if (step.handler === 'refresh-mv') {
+      cmdStr = `${c.dim}pg: REFRESH MATERIALIZED VIEW CONCURRENTLY mv_fumigations_monthly${c.reset}`;
+      handler = () => runRefreshMvStep();
+    } else {
+      console.error(`  ${c.red}step ${step.order} (${step.name}): cmd === null sin handler declarado${c.reset}`);
+      return { ok: false, exit: 1, durationMs: 0, error: 'missing handler' };
+    }
     console.log(`\n${tag}\n  ${cmdStr}`);
     if (opts.dryRun) {
       console.log(`  ${c.yellow}[dry-run] no ejecutado${c.reset}`);
       return { ok: true, skipped: true, durationMs: 0 };
     }
     const t0 = Date.now();
-    const r = await runBackfillHttpStep();
+    const r = await handler();
     const dur = fmtDuration(Date.now() - t0);
     if (!r.ok) {
       console.error(`  ${c.red}✗ ${dur}${c.reset}`);
@@ -484,9 +641,17 @@ async function runStep(step, opts) {
       console.error(`  ${c.red}step ${step.order} (${step.name}) falló — pipeline abortada${c.reset}`);
       return { ok: false, exit: 1, durationMs: Date.now() - t0, error: r.error };
     }
-    const s = r.stats;
-    console.log(`  ${c.green}✓${c.reset} ${c.gray}(${dur}) backfilled=${s.backfilled} deleted=${s.deleted} scheduleUpdated=${s.scheduleUpdated}${c.reset}`);
-    return { ok: true, durationMs: Date.now() - t0, stats: s };
+    // Output customizado por handler (backfill tiene stats, refresh-mv
+    // tiene rowCount).
+    if (step.handler === 'backfill') {
+      const s = r.stats;
+      console.log(`  ${c.green}✓${c.reset} ${c.gray}(${dur}) backfilled=${s.backfilled} deleted=${s.deleted} scheduleUpdated=${s.scheduleUpdated}${c.reset}`);
+      return { ok: true, durationMs: Date.now() - t0, stats: s };
+    } else if (step.handler === 'refresh-mv') {
+      console.log(`  ${c.green}✓${c.reset} ${c.gray}(${dur}) mv_rows=${r.stats.rowCount}${c.reset}`);
+      return { ok: true, durationMs: Date.now() - t0, stats: r.stats };
+    }
+    return { ok: true, durationMs: Date.now() - t0 };
   }
   // CLI step: spawnSync del comando.
   const cmdStr = `${c.dim}node ${step.cmd.join(' ')}${c.reset}`;
@@ -521,6 +686,35 @@ async function main() {
   console.log(`${c.bold}AeroAdmin AFM — DJI pipeline runner${c.reset}`);
   console.log(`${c.gray}  days=${opts.days} tolerance=${opts.tolerance}m dryRun=${opts.dryRun}${c.reset}`);
   console.log(`${c.gray}  range: step ${startIdx} → ${stopIdx}${c.reset}`);
+
+  // S1 (audit 2026-07-22, H2). Pre-flight circuit breaker check.
+  // Si el circuit está abierto por logins fallidos recientes, NO
+  // spawneamos ningún child. Salimos con exit 1 + mensaje claro.
+  // En --dry-run también aplica (queremos ver la decisión, no
+  // saltearnos la check). No aplica en --skip-scrape (los children
+  // que no scrapean no hacen login, así que pueden correr
+  // tranquilos). Pero como `login()` se hace en TODOS los children
+  // (incluyendo `scripts/fetch-lands-from-djiag.js` step 7 y
+  // `scripts/scrape_djiag_*.js` steps 1-2), dejamos la check
+  // incondicional — el skip lo manejan los children internamente.
+  //
+  // Hacemos la check ANTES del empty-line para que el mensaje de
+  // error (si lo hay) quede arriba, sin "perder" el header en un
+  // scroll. Usamos console.log + colores para mantener el orden
+  // con el header (console.error va a stderr y se flushea antes).
+  const cbCheck = checkCircuitBreaker();
+  if (cbCheck.checked && cbCheck.skipped) {
+    console.log('');
+    console.log(`${c.red}✗ circuit breaker abierto: ${cbCheck.reason}${c.reset}`);
+    console.log(`${c.red}  No se va a intentar login contra DJI. Esperá al cooldown.${c.reset}`);
+    process.exit(cbCheck.exitCode ?? 1);
+    return; // unreachable pero ayuda al type-checker
+  }
+  if (cbCheck.checked) {
+    console.log(`${c.gray}  circuit breaker: ${cbCheck.skipped ? 'open' : 'closed'}${c.reset}`);
+  } else if (cbCheck.reason) {
+    console.log(`${c.yellow}  ⚠ circuit breaker no se pudo chequear: ${cbCheck.reason}${c.reset}`);
+  }
   console.log('');
 
   const t0 = Date.now();
@@ -606,6 +800,15 @@ if (require.main !== module) {
     // tiene side effects de process.exit y consola difíciles de
     // mockear; los tests de run-pipeline se enfocan en las funciones
     // puras.
-    runBackfillHttpStep
+    runBackfillHttpStep,
+    // Sprint H2 follow-up: refresh MV step (idéntica razón que arriba —
+    // exportada para tests unitarios de la rama de error cuando la
+    // migration no se aplicó).
+    runRefreshMvStep,
+    // S1 (audit 2026-07-22, H2). Pre-flight check del circuit breaker
+    // antes de spawnear children. Exportada para que
+    // tests/scripts-run-pipeline-circuit-breaker.test.ts la pueda
+    // testear con healthFilePath apuntando a un tmpdir.
+    checkCircuitBreaker
   };
 }

@@ -12,6 +12,7 @@ import {
   DRONE_MODELS,
   getFlights,
   getFumigations,
+  getFumigationsMonthly,
   getHealth,
   getImportBatches,
   getParcelSummaries,
@@ -55,21 +56,12 @@ export default async function DashboardPage() {
   const vol30 = sum(last30.map((f) => f.volume_l))
   const volPrev = sum(prev30.map((f) => f.volume_l))
 
-  // Serie mensual (12 meses)
-  const monthly: MonthlyBar[] = Array.from({ length: 12 }, (_, i) => {
-    const d = new Date(Date.UTC(NOW.getUTCFullYear(), NOW.getUTCMonth() - (11 - i), 1))
-    const start = d.getTime()
-    const end = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1)).getTime()
-    const evs = fumigations.filter((f) => {
-      const t = new Date(f.executed_at).getTime()
-      return t >= start && t < end
-    })
-    return {
-      label: d.toLocaleDateString("es-CO", { month: "short", timeZone: "UTC" }),
-      ha: Math.round(sum(evs.map((e) => e.area_treated_ha))),
-      flights: sum(evs.map((e) => e.flights_count)),
-    }
-  })
+  // Serie mensual (12 meses) — Sprint H2 follow-up: ahora viene de la
+  // materialized view `mv_fumigations_monthly` (refrescada por el step 11
+  // del pipeline) en vez de iterar las 17k fumigaciones en cada render.
+  // La cache wrapper (5min TTL, tag `afm:fumigations-monthly`) la deja
+  // prácticamente gratis entre renders.
+  const monthly: MonthlyBar[] = await getFumigationsMonthly()
 
   const fleet = DRONE_MODELS.filter((m) => m.id !== 0).map((m) => ({
     model: m,

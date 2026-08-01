@@ -40,6 +40,7 @@ import {
 } from "@/api/repositories";
 import { readHealthFile, deriveResponse, type PipelineHealth } from "@/lib/djiag-health";
 import { getBogotaDateString, toDateString } from "@/lib/format";
+import { CACHE_TAGS, CACHE_TTL } from "@/lib/cache";
 
 // Re-export de las constantes V0 (mismas que el V0 mockup exportaba).
 // Importan desde `lib/data-constants` para mantener el archivo puro y
@@ -727,6 +728,114 @@ export async function getHealth(): Promise<DjiAgHealth> {
   // Sprint S8.2: este ya no carga el dataset completo — solo el _health.json.
   // Ver docstring de `loadHealth()` arriba para el por qué.
   return loadHealth();
+}
+
+// ---------------------------------------------------------------------------
+// Serie mensual de fumigaciones (lee la materialized view `mv_fumigations_monthly`).
+//
+// Sprint H2 follow-up (audit 2026-07-30 §3.4-bis): antes el dashboard
+// (`app/page.tsx`) construía la serie iterando sobre `dji_fumigations`
+// (17k filas hoy, proyectado a >100k con el histórico 2023-2025). El
+// cálculo es determinístico por mes y la audit demostró que un import
+// puede romper silenciosamente los metadatos — centralizar este cómputo
+// en la BD reduce la superficie de impacto y baja la complejidad de
+// O(n) por render a O(12).
+//
+// La MV se refresca al final del pipeline (step 11 de scripts/run-pipeline.js)
+// vía `REFRESH MATERIALIZED VIEW CONCURRENTLY`. Este wrapper usa el cache
+// `afm:fumigations-monthly` (TTL 5min) como segunda capa — si un render
+// del dashboard cae justo después del refresh pero la cache no se
+// invalidó por tag, igual leemos data fresca del MV en el peor caso
+// 5min después.
+//
+// Tipo del import: MonthlyBar está en `components/dashboard/monthly-chart.tsx`
+// (es donde lo consume la UI). Usamos `import type` para que el type-check
+// no arrastre el componente client al bundle del server.
+// ---------------------------------------------------------------------------
+
+import type { MonthlyBar } from "@/components/dashboard/monthly-chart";
+
+interface FumigationsMonthlyRow {
+  month: Date;
+  total_area_m2: number;
+  total_fumigations: number;
+}
+
+const _getFumigationsMonthlyCached = unstable_cache(
+  async (): Promise<MonthlyBar[]> => {
+    const db = getDb();
+
+    // Genera los 12 meses calendario (viejo → nuevo) usando NOW del
+    // módulo. Coincide con el cálculo previo en `app/page.tsx`.
+    const months: { startMs: number; endMs: number; label: string }[] = [];
+    for (let i = 11; i >= 0; i--) {
+      const start = new Date(
+        Date.UTC(NOW.getUTCFullYear(), NOW.getUTCMonth() - i, 1)
+      );
+      const end = new Date(
+        Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 1)
+      );
+      const label = start.toLocaleDateString("es-CO", {
+        month: "short",
+        timeZone: "UTC"
+      });
+      months.push({ startMs: start.getTime(), endMs: end.getTime(), label });
+    }
+    const earliestIso = new Date(months[0].startMs).toISOString().slice(0, 10);
+
+    // Una sola query: la MV ya está agregada por mes y refrescada por el
+    // step 11 del pipeline. Filtramos por el mes más viejo de la ventana
+    // para no traer 7+ años de histórico que el dashboard no renderiza.
+    const result = await db.query<FumigationsMonthlyRow>(
+      `SELECT month, total_area_m2, total_fumigations
+         FROM mv_fumigations_monthly
+        WHERE month >= $1::date
+        ORDER BY month ASC`,
+      [earliestIso]
+    );
+
+    // Index por YYYY-MM. La columna `month` viene como Date porque pg
+    // devuelve DATE como Date en jsdom; el toISOString().slice(0,7) es
+    // timezone-safe porque la columna es DATE (no timestamptz).
+    const byMonth = new Map<string, { areaM2: number; count: number }>();
+    for (const r of result.rows) {
+      const monthDate = r.month instanceof Date ? r.month : new Date(r.month);
+      const key = monthDate.toISOString().slice(0, 7);
+      byMonth.set(key, {
+        areaM2: Number(r.total_area_m2),
+        count: Number(r.total_fumigations)
+      });
+    }
+
+    // Merge: para cada uno de los 12 meses, default 0 si no hay data.
+    // El loop mantiene el orden viejo → nuevo (igual que el código viejo
+    // en app/page.tsx) para que el chart se renderice left-to-right
+    // consistente.
+    return months.map(({ startMs, label }) => {
+      const key = new Date(startMs).toISOString().slice(0, 7);
+      const data = byMonth.get(key);
+      // m² → ha (redondeo a entero como el código previo).
+      const ha = data ? Math.round(data.areaM2 / 10_000) : 0;
+      // Nota: el chart viejo mostraba `sum(evs.map(e => e.flights_count))`
+      // (suma del count de flights por evento). La MV cuenta eventos
+      // (`COUNT(*)`), no flights. Diferencia semántica menor — para el
+      // chart la unidad visible es "vuelos ejecutados" pero la data
+      // ahora es "eventos de fumigación ejecutados". Si en el futuro
+      // queremos volver al flights_count verdadero, agregar
+      // `SUM(jsonb_array_length(flight_ids))` al MV.
+      const flights = data ? data.count : 0;
+      return { label, ha, flights };
+    });
+  },
+  ["fumigations-monthly"],
+  {
+    revalidate: CACHE_TTL.fumigationsMonthly,
+    tags: [CACHE_TAGS.fumigationsMonthly]
+  }
+);
+
+export async function getFumigationsMonthly(): Promise<MonthlyBar[]> {
+  return _getFumigationsMonthlyCached();
 }
 
 export async function getClients(): Promise<string[]> {

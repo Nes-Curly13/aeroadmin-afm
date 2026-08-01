@@ -32,11 +32,14 @@ next-dev.log
 # s8.8 (2026-07-31): backups pre-migration de docker (~220MB total)
 backups/
 
-# s8.8 (2026-07-31): mockup V0 del Figma en `docs/fumigation-management-dashboard/`
-# Ya fue porteado al repo principal (lib/data.ts, components/, app/).
-# El mockup original se conserva en historial local pero no se commitea
-# (es muy grande, tiene pnpm-lock.yaml que no aplica, etc).
+# s8.8 (2026-07-31) + reconciliación 2026-07-29: mockup V0 del Figma.
+# Originalmente en `docs/fumigation-management-dashboard/`, movido a
+# `docs/v0-2026-07-28/` para que no confunda a `arch:check` ni a
+# nuevos devs. Sigue gitignored porque es referencia histórica (no se
+# ejecuta, no se commitea). El código de producción vive en
+# `app/`, `components/`, `lib/`, `api/`.
 docs/fumigation-management-dashboard/
+docs/v0-2026-07-28/
 
 # s8.8 (2026-07-31): preview HTML estatico generado por scripts/generate-polygon-preview.js
 # Output de un script, no se commitea.

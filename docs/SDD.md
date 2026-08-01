@@ -9,7 +9,9 @@
 > sprint S5 (2026-07-28). AGENTS.md sigue siendo el índice canónico y el
 > living doc de reglas operativas; este archivo es la spec de producto.
 >
-> Última actualización: 2026-07-28 (sprint S5 cerrado, S6 en curso).
+> Última actualización: 2026-07-29 (sprint de reconciliación de drift:
+> V0 mockup movido a `docs/v0-2026-07-28/`, lib/data.ts reconocido como
+> V0 adapter, route names actualizados a `/geovisor` + `/parcelas`).
 
 ---
 
@@ -100,21 +102,46 @@ Detalle y gotchas por capa en `docs/STACK.md`.
 ## 4. Capas del repositorio
 
 ```
-app/         Next.js App Router (server components, route handlers, layouts)
-api/         Data access: repositories.ts (queries pre-armadas con cache)
-lib/         Lógica de negocio pura, framework-agnostic
-components/  React components, reciben datos por props
-  ├── ui/        Primitives accesibles (shadcn-style, propios)
-  ├── map/       Wrappers del mapa (MapLibre) y derivados V0
-  ├── parcels/   Detalle de parcela
-  ├── dashboard/, history/, devices/, task-history/
-  ├── app-shell.tsx, map-view.tsx, metric-card.tsx, ...
-scripts/     CLI del pipeline DJI
-db/migrations/   SQL migrations
-tests/       Unit + integration (Vitest) + e2e (Playwright)
-docs/        Producto, arquitectura, methodology
+app/             Next.js App Router (server components, route handlers, layouts)
+  ├── page.tsx               → /           (dashboard)
+  ├── geovisor/page.tsx      → /geovisor   (vista estrella con mapa, V0)
+  ├── parcelas/page.tsx      → /parcelas   (inventario, V0)
+  ├── parcelas/[id]/page.tsx → /parcelas/N (detalle de parcela, V0)
+  ├── admin/parcels/         → /admin/parcels (admin)
+  ├── login/                 → /login
+  └── api/                   → route handlers (auth, admin)
+api/             Data access: repositories.ts + queries.ts (único punto
+                 de queries a BD desde app/).
+lib/             Lógica de negocio pura, framework-agnostic
+  ├── data.ts    ★ V0 adapter — mapea api/repositories → V0 shapes
+  │               y re-exporta constantes V0 (NOW, DRONE_MODELS, ...).
+  │               Marcado `import "server-only"`.
+  ├── data-constants.ts  Constantes V0 seguras para client components.
+  ├── types.ts            Types V0 (DjiParcel, DjiFumigationV0, etc.).
+components/      React components, reciben datos por props
+  ├── ui/            Primitives accesibles (shadcn-style, propios)
+  ├── geovisor/      Vista V0 del geovisor (geovisor-client, time-range)
+  ├── map/           Wrappers del mapa (MapLibre). Hoy: geo-map.tsx
+  ├── parcels/       Inventario y detalle de parcela
+  ├── dashboard/     Paneles del dashboard (kpi-card, health-panel, ...)
+  ├── app-shell.tsx, nav-links.tsx, page-header.tsx
+scripts/         CLI del pipeline DJI
+db/migrations/   SQL migrations (las 25 viven acá desde 2026-07-29)
+supabase/        config.toml + seed.sql (migrations NO acá)
+tests/           Unit + integration (Vitest) + e2e (Playwright)
+docs/            Producto, arquitectura, methodology
+  ├── v0-2026-07-28/   ★ Mockup V0 archivado (referencia histórica, no se ejecuta)
+  └── make-blueprints/ ★ Blueprints de Make.com (referencia histórica)
 djiag_exports/   Output crudo del scraper (gitignored)
 ```
+
+> **★ `lib/data.ts` — V0 adapter**. Es el bridge entre el código V0 (que
+> consume shapes tipo `DjiParcel`, `DjiFumigationV0`, `GeovisorPayload`
+> declaradas en `lib/types.ts`) y el proyecto real (que consume
+> `api/repositories.ts`). Es un **módulo escrito por nosotros**, no
+> copiado del V0 — la diferencia es que mapea filas PostGIS a las
+> shapes V0 en vez de generar mocks con `mulberry32`. Ver header del
+> archivo y `docs/ARCHITECTURE.md` §2.6.
 
 ### 4.1 Reglas duras de capa (R1–R6 en AGENTS.md)
 
@@ -139,10 +166,15 @@ Estas son **invariantes arquitectónicas** que la fitness function de
    base, ver `docs/files_TDD/ADOPTION.md` para subir a 80/75).
 6. **Toda fecha que sale al usuario** pasa por `lib/format.ts`
    (`toDateString`, `formatToDateString`). TZ = `America/Bogota`.
+7. **`lib/data.ts` es el ÚNICO adapter V0 ↔ proyecto real.** Las pages
+   V0 importan de `lib/data.ts`, que a su vez es el único módulo del
+   árbol runtime que conoce ambos shapes (V0 y nativo). Romper este
+   contrato acopla las pages V0 a `api/repositories` y bloquea futuros
+   refactors de la capa de data access.
 
 ---
 
-## 5. Data flow (un roundtrip de ejemplo: `/map`)
+## 5. Data flow (un roundtrip de ejemplo: `/geovisor`)
 
 ```
                                           ┌──────────────────────────┐
@@ -154,37 +186,81 @@ Estas son **invariantes arquitectónicas** que la fitness function de
                                                        │  pg (sql parametrizado)
                                                        ▼
    ┌─────────────────────────────────────────────────────────────┐
-   │  app/map/page.tsx (server component)                        │
-   │  - parse searchParams (drone, crop, fumigated)              │
-   │  - Promise.all de queries en api/repositories.ts:           │
-   │      getParcelsNormalized()                                 │
-   │      getFumigatedParcelIdsSince()                           │
-   │      getParcelsSummary()                                    │
-   │      getFumigationsByMonth({})                              │
-   │      getFumigationsSummary({parcelIds: visible})            │
-   │  - Aplica filtros en memoria (sobre result set chico)       │
-   │  - Pasa datos ya cocinados al client component              │
+   │  api/repositories.ts                                       │
+   │  - getParcelsNormalized()                                  │
+   │  - getFumigationEventsByParcel()                           │
+   │  - getRecentFumigations()                                  │
+   │  - getFlightPoints()                                       │
+   │  - ...                                                     │
+   │  SQL parametrizado vía lib/db.ts (pool Next-friendly).     │
+   │  Queries pre-armadas (string templates) viven en           │
+   │  api/queries.ts (ej. djiParcelsQuery).                     │
+   │  Cache selectiva con unstable_cache en lib/cache.ts        │
+   │  (CACHE_TAGS, invalidation por mutación).                  │
    └─────────────────────────┬───────────────────────────────────┘
-                             │ props (serializables: Set<number> ok)
+                             │  shape nativo (DjiParcelRecord, ...)
                              ▼
    ┌─────────────────────────────────────────────────────────────┐
-   │  components/map/map-page-client.tsx ("use client")         │
+   │  lib/data.ts  ★  V0 adapter (import "server-only")         │
+   │  - Mapea filas PostGIS → V0 shapes (DjiParcel,             │
+   │    DjiFumigationV0, GeovisorPayload, ...)                   │
+   │  - Re-exporta constantes V0 (NOW, DRONE_MODELS, STATUS_META)│
+   │    desde lib/data-constants.ts (seguro para client).       │
+   │  - getGeovisorPayload() arma el payload completo del mapa. │
+   │  - getParcelSummaries() arma el inventario de /parcelas.   │
+   │  - getParcelDetail() arma el detalle de /parcelas/[id].    │
+   └─────────────────────────┬───────────────────────────────────┘
+                             │  V0 shape (DjiParcel[], GeovisorPayload, ...)
+                             ▼
+   ┌─────────────────────────────────────────────────────────────┐
+   │  app/geovisor/page.tsx (server component, V0)              │
+   │  - await getGeovisorPayload()                               │
+   │  - export const dynamic = "force-dynamic"                  │
+   │  - <GeovisorClient payload={...} />                        │
+   └─────────────────────────┬───────────────────────────────────┘
+                             │  props (serializable, V0 types)
+                             ▼
+   ┌─────────────────────────────────────────────────────────────┐
+   │  components/geovisor/geovisor-client.tsx ("use client")    │
    │  Estado: filterCollapsed, timeRange, playing,               │
-   │          selectedParcelId, liveSummary (fetch al cambiar     │
-   │          timeRange via /api/map/summary)                    │
+   │          selectedParcelId, liveSummary.                     │
    │  Renderiza:                                                 │
-   │      <PageHeader>  → wrapper simple (no es el de V0)        │
-   │      <MapView>     → MapLibreView (WebGL)                   │
+   │      <PageHeader>  (de components/ui/page-header)          │
+   │      <MapView>     → components/map/geo-map.tsx            │
    │        KpiPill overlay (Aplicaciones/Ha/L/Vuelos)           │
-   │        TimeRange slider (bottom)                            │
-   │      <MapFilterSidebar>  (drawer a la derecha, colapsable)  │
+   │        TimeRange slider (bottom) → components/geovisor/    │
+   │                                    time-range.tsx          │
    │      <ParcelsList>   (rail derecho, click → flyTo)          │
    └─────────────────────────────────────────────────────────────┘
 ```
 
-El client component **NO importa `api/**` ni `pg`**. Solo recibe
-datos del server y los pasa a primitives y al mapa. Las queries
-vuelven a poder ejecutarse por mutaciones de fumigación vía
+### 5.1 Por qué hay un adapter (no un bypass)
+
+**`lib/data.ts` es el ÚNICO módulo del árbol runtime que conoce las
+dos shapes a la vez** (V0 type de `lib/types.ts` y row nativo de
+`api/repositories`). Las pages V0 (`app/geovisor`, `app/parcelas`,
+`app/parcelas/[id]`) importan de `lib/data.ts`, **no** de
+`api/repositories` directo. Esto:
+
+1. **Aísla el refactor**: si mañana cambiamos la shape de
+   `DjiParcelRecord` o la estrategia de cacheo, solo tocamos
+   `lib/data.ts` y `api/`. Las pages V0 no se enteran.
+2. **Hace explícito el contrato V0**: el header de `lib/data.ts`
+   documenta qué campos del V0 caen a defaults (e.g. `client_name`,
+   `farm_name`, `municipality`, `variety` si la migration no se
+   aplicó).
+3. **Protege al cliente**: `import "server-only"` garantiza que
+   `lib/data.ts` (que arrastra `pg` y `node:fs` indirectamente vía
+   `api/repositories` + `lib/djiag-health`) no se bundlea en el
+   navegador. Las constantes V0 que sí son seguras para el cliente
+   (`NOW`, `DRONE_MODELS`, etc.) viven en `lib/data-constants.ts`,
+   que es puro y se puede importar desde client components sin
+   riesgo.
+
+El client component (`GeovisorClient`) **NO importa `api/**`, ni
+`lib/data.ts`, ni `pg`**. Solo recibe `GeovisorPayload` por props
+y lo pasa al mapa y a primitives. Las queries vuelven a poder
+ejecutarse por mutaciones de fumigación vía
 `invalidateAfterFumigationMutation()` (`lib/cache.ts`).
 
 ---
@@ -198,15 +274,17 @@ panel oscuro "Reporte 2026", `RecentFlightsList` con export CSV,
 `UpcomingFumigations` según cadencia. AppShell con sidebar y
 bloque "Estado actual".
 
-### 6.2 Mapa (`/map`) — vista estrella
+### 6.2 Mapa (`/geovisor`) — vista estrella
 
-Server component con `MapPageClient` (v2.0, sprint S5). Layout:
+Server component (`app/geovisor/page.tsx`) que importa
+`getGeovisorPayload()` de `lib/data.ts` y delega a
+`components/geovisor/geovisor-client.tsx` ("use client"). Layout:
 
 - Page header compacto: logo + título + subtítulo + chip "X Parcelas" + botón "Filtros".
 - Body flex-row (mobile → flex-col): mapa a la izquierda, rail derecho con lista de parcelas.
-- Mapa: MapLibre GL JS, 5 capas toggleables (`parcels`, `waypoints`, `alerts`, `flights`, `flight-plan`), basemap satellite/streets persistido en localStorage, popups HTML, click → flyTo + highlight, fitBounds automático.
-- KPIs overlay pill (Aplicaciones / Ha tratadas / Volumen / Vuelos) sobre el mapa, esquina superior izquierda, recalculan al cambiar el TimeRange via `/api/map/summary`.
-- TimeRange slider con histograma de actividad mensual y play/pause (respeta `prefers-reduced-motion`), bottom-center.
+- Mapa: MapLibre GL JS (`components/map/geo-map.tsx`), 5 capas toggleables (`parcels`, `waypoints`, `alerts`, `flights`, `flight-plan`), basemap satellite/streets persistido en localStorage, popups HTML, click → flyTo + highlight, fitBounds automático.
+- KPIs overlay pill (Aplicaciones / Ha tratadas / Volumen / Vuelos) sobre el mapa, esquina superior izquierda, recalculan al cambiar el TimeRange.
+- TimeRange slider con histograma de actividad mensual y play/pause (`components/geovisor/time-range.tsx`, respeta `prefers-reduced-motion`), bottom-center.
 - Drawer de filtros colapsable a la derecha (default cerrado): drone model, crop, fumigadas (6m), limpiar.
 - Rail derecho con `ParcelsList` ordenada por status de cadencia, click → flyTo + detalle expandido.
 
@@ -222,10 +300,12 @@ hay filtros de vuelo → desde `dji_flights`; si no → desde
 `dji_daily_summaries`; si no existe → fallback a `dji_flights`.
 Polígonos fumigados en rango via `lib/djiag-spatial-aggregator`.
 
-### 6.5 Detalle de parcela (`/parcels/[id]`)
-`ParcelDetail` (info, fumigaciones, cadencia, mini-mapa), lista de
-fumigaciones, `ParcelEditPanel` (PUT a `/api/parcels/[id]` con
-`requireAuth`).
+### 6.5 Detalle de parcela (`/parcelas/[id]`)
+Server component (`app/parcelas/[id]/page.tsx`) que importa de
+`lib/data.ts#getParcelDetail()`. Renderiza: info de la parcela, mini-mapa
+(`components/parcels/parcel-map.tsx`), fumigaciones
+(`components/parcels/fumigation-timeline.tsx`), cadencia esperada,
+`components/parcels/interval-chart.tsx` (historial de cadencia).
 
 ### 6.6 Dispositivos (`/devices`)
 Lista limpia. **Sin form vacío** (decisión de producto).
@@ -279,10 +359,11 @@ Schema detail: `docs/STACK.md` §4.
 
 ### 8.1 Qué es V0
 
-`docs/fumigation-management-dashboard/` es un **mockup navegable**
-(Figma-style, pero hecho con Next.js) que el operador-cliente armó como
-referencia visual de cómo quería el producto. No es producción: usa
-datos mock deterministas (`lib/data.ts` con `mulberry32(20260728)`).
+`docs/v0-2026-07-28/` (movido desde `docs/fumigation-management-dashboard/`
+el 2026-07-29 para no confundir a `arch:check` ni a nuevos devs) es un
+**mockup navegable** (Figma-style, pero hecho con Next.js) que el
+operador-cliente armó como referencia visual de cómo quería el producto.
+**No es producción: NO SE EJECUTA.** Es solo referencia histórica.
 
 El stack del V0 es: shadcn CLI + @base-ui/react 1.5 +
 class-variance-authority + maplibre-gl 6.0 + lucide-react + next 16.
@@ -299,13 +380,14 @@ rompe la coherencia y agrega un registry externo. La alternativa es
 
 ### 8.3 Features portada 1:1 en S5
 
-- Migración Leaflet → MapLibre (`MapLibreView`, `MapView`,
-  `ParcelMiniMap`, `TaskHistoryMapView`). `react-leaflet` y `leaflet`
-  eliminados de `package.json`.
-- KPI overlay pill sobre el mapa (`KpiPill`).
-- TimeRange slider con histograma y play/pause (`TimeRange`).
-- Rail derecho con lista de parcelas por cadencia (`ParcelsList`).
-- Drawer de filtros colapsable (`MapFilterSidebar`).
+- Migración Leaflet → MapLibre (`components/map/geo-map.tsx`).
+  `react-leaflet` y `leaflet` eliminados de `package.json`.
+- KPI overlay pill sobre el mapa (`KpiPill` en `components/ui/`).
+- TimeRange slider con histograma y play/pause
+  (`components/geovisor/time-range.tsx`).
+- Rail derecho con lista de parcelas por cadencia (`ParcelsList`,
+  parte de `components/geovisor/geovisor-client.tsx`).
+- Drawer de filtros colapsable (en `geovisor-client.tsx`).
 - Primitives accesibles nuevos: `PageHeader`, `FieldSelect`,
   `ToggleButton`, `Switch`, `KpiPill`, `FilterSidebar` +
   `FilterSidebarSection`.
@@ -313,10 +395,11 @@ rompe la coherencia y agrega un registry externo. La alternativa es
 ### 8.4 Estado al cierre de S5 (2026-07-28)
 
 S5 cerrado, S6 en curso. El sprint S6 sigue copiando lógica del V0
-(parcial: `geovisor-client.tsx` ↔ `MapPageClient`, `time-range.tsx`
-↔ `components/map/time-range.tsx`, `geo-map.tsx` ↔
-`MapLibreView`, etc.). Lo que se copió y lo que se decidió distinto
-está documentado en `docs/V0_ADAPTATION.md`.
+(partial: `components/geovisor/geovisor-client.tsx` ↔ V0's
+`geovisor-client.tsx`, `components/geovisor/time-range.tsx` ↔ V0,
+`components/map/geo-map.tsx` ↔ V0's `geo-map.tsx`). Lo que se copió
+y lo que se decidió distinto está documentado en
+`docs/V0_ADAPTATION.md`.
 
 ### 8.5 Lo que NO migramos del V0
 
@@ -325,11 +408,20 @@ está documentado en `docs/V0_ADAPTATION.md`.
   un primitive demande comportamiento que no se puede resolver con
   HTML nativo (e.g. Slider doble, Combobox, Dialog con focus trap).
   No se usa en runtime todavía.
-- **Datos mock deterministas** — V0 los usa como demo; el proyecto
-  real lee de PostGIS. El S5 NO migró el `lib/data.ts` del V0.
-- **Páginas del V0 que no existen en el proyecto real** (`/parcelas`,
-  detalle `/parcelas/[id]`) — se mapean a `/parcels` y
-  `/parcels/[id]` del proyecto, con su propio `ParcelDetail`.
+- **Datos mock deterministas del V0 (`mulberry32(20260728)`)** — el
+  proyecto real lee de PostGIS. **Lo que SÍ escribimos** es un
+  `lib/data.ts` propio (NO copiado del V0) que sirve de **adapter
+  entre los componentes V0 y `api/repositories.ts`**: mapea filas
+  PostGIS a las shapes V0 (tipadas en `lib/types.ts`) y re-exporta
+  las constantes V0 (`NOW`, `DRONE_MODELS`, `STATUS_META`) desde
+  `lib/data-constants.ts` (seguro para client components). Marcado
+  con `import "server-only"`. Header del archivo lo explica.
+- **URLs del V0 (`/parcelas`, `/parcelas/[id]`)**: en este proyecto
+  esas URLs **SÍ existen y vienen del V0** (es lo que el operador
+  vio y pidió). La contraparte `/parcels` que el SDD original
+  mencionaba NO se implementó — el V0 ganó. Las pages
+  `app/parcelas/page.tsx` y `app/parcelas/[id]/page.tsx` son las
+  vistas oficiales del inventario + detalle.
 
 ---
 
@@ -357,11 +449,11 @@ Estado detallado en `docs/files_TDD/ADOPTION.md`.
 - **S4** (2026-07-28): Quality Gauntlet setup (arch:check, coverage
   umbral, weekly workflow, AGENTS.md canónico).
 - **S5** (2026-07-28): MapLibre migration + V0 port (primitives +
-  MapPageClient + KpiPill + TimeRange + ParcelsList + drawer).
+  GeovisorClient + KpiPill + TimeRange + ParcelsList + drawer).
 
 ### 10.2 En curso
 - **S6**: terminar el V0 port — accessible toggles de capa, más
-  filtros accesibles, polish de MapPageClient. Refinamiento de UX
+  filtros accesibles, polish de GeovisorClient. Refinamiento de UX
   del drawer y los KPIs.
 
 ### 10.3 Pendiente

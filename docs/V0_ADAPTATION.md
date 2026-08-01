@@ -9,18 +9,30 @@
 > Audiencia: un dev (humano o agente) que se pregunta "¿esto vino
 > del V0 o es nuestro?" o "¿por qué no usamos shadcn como el V0?".
 >
-> Última actualización: 2026-07-28.
+> Última actualización: 2026-07-29 (nota de archivo agregada: V0 movido
+> a `docs/v0-2026-07-28/`).
 
 ---
 
 ## 1. Contexto
 
-`docs/fumigation-management-dashboard/` es un **mockup navegable**
-armado por el operador-cliente como referencia visual del producto
-deseado. No es producción: usa datos mock deterministas
-(`lib/data.ts#mulberry32(20260728)`), no tiene auth, no toca PostGIS.
-Pero el stack que eligió (Next 16, MapLibre 6, shadcn + @base-ui,
-Tailwind 4, lucide-react) **sí es la dirección de producto**.
+`docs/v0-2026-07-28/` (antes `docs/fumigation-management-dashboard/`,
+**movido el 2026-07-29 al directorio de archivo**) es un **mockup
+navegable** armado por el operador-cliente como referencia visual del
+producto deseado. **No es producción: NO SE EJECUTA.** Es solo
+referencia histórica. El `lib/data.ts` original del V0 usaba datos
+mock deterministas (`mulberry32(20260728)`), no tenía auth, no tocaba
+PostGIS. Pero el stack que eligió (Next 16, MapLibre 6, shadcn +
+@base-ui, Tailwind 4, lucide-react) **sí es la dirección de producto**.
+
+> **Nota de archivo 2026-07-29**: el directorio del V0 fue movido
+> desde `docs/fumigation-management-dashboard/` a
+> `docs/v0-2026-07-28/` para que `arch:check` (y cualquier dev
+> nuevo) no confunda el mockup con código de producción. El
+> `README.md` de `docs/v0-2026-07-28/` deja explícito que es
+> referencia histórica y que no se ejecuta. **Las referencias a
+> `docs/fumigation-management-dashboard/` en este doc y en el resto
+> del repo se entienden como `docs/v0-2026-07-28/`.**
 
 A partir del sprint S5 (2026-07-28) decidimos **portar el V0 al
 proyecto real** con un método explícito (ver `docs/TDD.md` §1):
@@ -250,11 +262,41 @@ spec externo:
 
 ## 8. Referencias
 
-- `docs/fumigation-management-dashboard/` — el V0 original.
+- `docs/v0-2026-07-28/` — el V0 original (archivado, NO se ejecuta).
+  Antes vivía en `docs/fumigation-management-dashboard/`.
 - `docs/SDD.md` §8 — la decisión de adaptación (S5/S6).
 - `docs/TDD.md` §1 — la metodología de port 1:1.
-- `docs/ARCHITECTURE.md` — data flow del proyecto real.
+- `docs/ARCHITECTURE.md` — data flow del proyecto real, sección 2.6
+  documenta la decisión de mantener `api/queries.ts` como single
+  source of truth para la proyección de `dji_parcels`.
 - `docs/STACK.md` — stack vigente después del S5.
 - `docs/files_TDD/04_GAUNTLET_DE_CALIDAD.md` — las 7 compuertas
   que aplican a este sprint.
 - `docs/audit/BITACORA.md` — bitácora viva, incluye QW1/S1-S7.
+
+---
+
+## 9. Nota post-sprint S5 — reconciliación 2026-07-29
+
+El 2026-07-29 (sprint de reconciliación de drift) se hicieron tres
+cambios que afectan este doc:
+
+1. **V0 mockup movido**: `docs/fumigation-management-dashboard/`
+   → `docs/v0-2026-07-28/`. Razón: confundir a `arch:check` y a
+   nuevos devs. El nuevo `README.md` del directorio deja explícito
+   que es referencia histórica y que no se ejecuta. Este doc sigue
+   siendo válido pero las referencias a la ruta vieja ahora
+   apuntan a la nueva.
+2. **Migrations consolidadas**: los 25 archivos en
+   `supabase/migrations/` se movieron a `db/migrations/`.
+   `scripts/apply-pending-migrations.js` ahora lee de
+   `db/migrations/`. `supabase/` queda solo para `config.toml` y
+   `seed.sql`.
+3. **Blueprints de Make.com archivados**: los 2 archivos en
+   `make/*.make` (más `records.txt`) se movieron a
+   `docs/make-blueprints/` con un `README.md` que documenta que el
+   código runtime vive en `lib/djiag-from-make/`.
+
+Estos cambios son de housekeeping, no cambian ni la decisión de
+adaptación ni la metodología. El sprint S6 sigue trabajando sobre
+la base descrita en este doc.

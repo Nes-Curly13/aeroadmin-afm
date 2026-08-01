@@ -1,7 +1,7 @@
 # AeroAdmin AFM — Architecture
 
 > Documento vivo. Explica **de dónde vienen los datos** y **cómo fluyen** desde el dron físico hasta la pantalla del admin.
-> Última actualización: 2026-07-22 (post-sprint de resiliencia DJIAG).
+> Última actualización: 2026-07-29 (sprint de reconciliación de drift).
 
 ---
 
@@ -87,8 +87,8 @@ AeroAdmin AFM **no es un scraper HTML** y **no está enlazado oficialmente a DJI
    │  POSTGRES + POSTGIS         │
    │  ─────────────────────     │
    │  Tablas principales:        │
-   │   • dji_parcels (1207)      │
-   │   • dji_flights (16,353)    │
+   │   • dji_parcels (~1207)     │
+   │   • dji_flights (~16,353)   │
    │   • dji_fumigations         │
    │   • dji_fumigation_schedule │
    │  Geometry: PostGIS SRID 4326│
@@ -96,36 +96,49 @@ AeroAdmin AFM **no es un scraper HTML** y **no está enlazado oficialmente a DJI
    │  Audit: created_at, etc.    │
    └──────────┬──────────────────┘
               │
-              │  SQL queries con `unstable_cache` (Next)
-              │  Streaming con `<Suspense>` (v1.2)
+              │  SQL via api/queries.ts (djiParcelsQuery + queries
+              │  pre-armadas) y api/repositories.ts (CRUD + agregaciones).
+              │  Cache selectiva con unstable_cache en lib/cache.ts.
+              ▼
+   ┌────────────────────────────────────────────────────────────┐
+   │  V0 ADAPTER  ★  lib/data.ts  (import "server-only")        │
+   │  ────────────────────────────────────────────────────────  │
+   │  • Mapea filas PostGIS (DjiParcelRecord, ...)             │
+   │    → V0 shapes (DjiParcel, DjiFumigationV0,                │
+   │    GeovisorPayload, ... tipadas en lib/types.ts).          │
+   │  • Re-exporta constantes V0 (NOW, DRONE_MODELS,            │
+   │    STATUS_META, droneModel, complianceStatus) desde        │
+   │    lib/data-constants.ts (puro, seguro para client).       │
+   │  • getGeovisorPayload() arma el payload completo          │
+   │    del /geovisor.                                          │
+   │  • getParcelSummaries() / getParcelDetail() arman         │
+   │    /parcelas y /parcelas/[id].                             │
+   │  Único módulo del árbol runtime que conoce ambas shapes.  │
+   └──────────┬─────────────────────────────────────────────────┘
+              │  V0 types + props serializables
               ▼
    ┌─────────────────────────────┐
    │  NEXT.JS (AeroAdmin panel)  │
    │  ─────────────────────     │
    │  Server components:        │
-   │   • app/dashboard/page.tsx  │
-   │   • app/map/page.tsx        │
-   │   • app/task-history/...    │
-   │   • app/admin/auditoria/... │
+   │   • app/page.tsx (/)        │
+   │   • app/geovisor/page.tsx (/geovisor, V0) │
+   │   • app/parcelas/page.tsx (/parcelas, V0)  │
+   │   • app/parcelas/[id]/page.tsx (V0)         │
+   │   • app/admin/parcels/page.tsx              │
+   │  Client components:         │
+   │   • components/geovisor/geovisor-client.tsx │
+   │   • components/geovisor/time-range.tsx      │
+   │   • components/map/geo-map.tsx (MapLibre)    │
+   │   • components/parcels/parcels-table.tsx     │
+   │   • components/dashboard/* (kpi-card, etc.)  │
    │  API routes:                │
-   │   • /api/flights             │
-   │   • /api/fumigations         │
-   │   • /api/parcels            │
-   │   • /api/admin/djiag-health │ ← NUEVO (XS1)
-   │                              │
-   │  Cliente (Turso Postgres local-style)│
-   │   • RBAC: admin | supervisor │
-   │   • NextAuth v5 con JWT     │
-   │   • bcryptjs para passwords│
-   │  UI components:            │
-   │   • Bento dashboard         │
-   │   • MapLibre map + filters  │
-   │   • KpiPill + TimeRange     │
-   │   • ParcelsList rail        │
-   │   • Mobile sidebar drawer   │
-   │   • CSV export (Excel-es)   │
-   │   • Empty state pattern     │
-   │   • Atajos de teclado       │
+   │   • /api/auth/[...nextauth]  │
+   │   • /api/admin/djiag-health  │
+   │   • /api/admin/parcels/[id]/metadata  │
+   │  RBAC: admin | viewer (no supervisor)        │
+   │  NextAuth v5 con JWT, bcryptjs para passwords│
+   │  Primitives UI propios en components/ui/      │
    └─────────────────────────────┘
               │
               ▼
@@ -304,3 +317,57 @@ Patrones documented in:
 ## 6. Changelog interno
 
 - **2026-07-22** — Compilado por Mavis. Cubre la pregunta del PO "¿es un scraper o un sistema enlazado a DJI?". Diagrama end-to-end, decisiones de diseño, contrato operacional, failure modes, plan B. Vinculado a `docs/DJIAG_AUDIT.md` y `docs/DJI_CLOUD_API.md`.
+- **2026-07-29** — Reconciliación de drift. V0 mockup movido a
+  `docs/v0-2026-07-28/`. Migrations consolidadas en `db/migrations/`
+  (25 archivos, antes en `supabase/migrations/`). Blueprints de
+  Make.com archivados en `docs/make-blueprints/`. `lib/data.ts`
+  reconocido como V0 adapter (escrito por nosotros, NO copiado del
+  V0). Section 2.6 nueva documenta la decisión.
+
+---
+
+## 2.6 Decisión sobre `api/queries.ts` (sprint de reconciliación 2026-07-29)
+
+`api/queries.ts` contiene **una sola export**: `djiParcelsQuery` (un
+template SQL string que proyecta todas las columnas de `dji_parcels`
+con los joins a `dji_fumigations` y `dji_fumigation_schedule`).
+
+**Usos confirmados** (grep 2026-07-29):
+
+- `api/repositories.ts:2` — `getParcelsNormalizedUncached()` y
+  `getParcelById()` lo usan para fetch crudo.
+- `lib/cache.ts:52` — `fetchParcelsNormalizedRaw()` lo usa para el
+  query cacheado (paginado por `LIMIT/OFFSET`).
+- `lib/types.ts`, `lib/map-filter-logic.ts`, `db/migrations/20260728000000_add_v0_fields_to_dji_parcels.sql`,
+  `docs/review/SYNTHESIS.md`, `docs/review/SOFTWARE.md` — referencias
+  en comentarios/docs, no como import runtime.
+
+**Decisión: MANTENER `api/queries.ts`.**
+
+Razones:
+
+1. **Dos consumers, no uno.** El audit sugería que solo `lib/cache.ts`
+   lo usaba. Realmente son **dos** (`api/repositories.ts` +
+   `lib/cache.ts`). Inlining rompería la única fuente de verdad para
+   la proyección de `dji_parcels` y reintroduciría la divergencia
+   que el H2 del sprint A documentó (la query cached no devolvía
+   `crop_type`/`planting_date`/`owner_*`/`supervisor_notes`/
+   `location_label`).
+2. **El query es caro** (joins con `dji_fumigations` y
+   `dji_fumigation_schedule`, 1207 filas hoy, crece). Tener el
+   template centralizado hace que cualquier optimización (e.g. un
+   `JOIN` lateral más eficiente) se propague a cache y no-cache a
+   la vez.
+3. **El archivo es 1 export + JSDoc.** El "peso" de mantener el
+   archivo separado es 1 archivo. Inlining duplica ~80 líneas de
+   SQL en dos lugares y vuelve a abrir la puerta a divergencia
+   silenciosa.
+
+**Convención de uso** (header de `api/queries.ts`):
+
+- Si necesitás agregar un campo a las parcelas, agregalo a
+  `djiParcelsQuery` y al type `DjiParcelRecord`. No copies la query
+  a otro archivo.
+- Las queries pre-armadas (con `WHERE`/`ORDER BY`/`LIMIT`) viven
+  en `api/repositories.ts` o `lib/cache.ts` — este archivo es
+  solo la **proyección compartida**.

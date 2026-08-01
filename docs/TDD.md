@@ -10,15 +10,20 @@
 > este doc + el mapa de `AGENTS.md`, debería poder encontrar dónde
 > vive cada cosa y por qué se decidió así.
 >
-> Última actualización: 2026-07-28 (sprint S5 cerrado, S6 en curso).
+> Última actualización: 2026-07-29 (sprint de reconciliación de drift:
+> route names actualizados a `/geovisor` + `/parcelas`, componentes a
+> `GeovisorClient` + `components/map/geo-map.tsx`, V0 adapter
+> `lib/data.ts` reconocido como propio, referencias a `MapPageClient` /
+> `MapLibreView` corregidas a los nombres reales).
 
 ---
 
 ## 1. Metodología de adaptación V0 (sprint S5)
 
 El sprint S5 cerró la primera fase de port del mockup V0
-(`docs/fumigation-management-dashboard/`) al proyecto real. El método
-que usamos es **port 1:1 con cleanup**, en tres pasos:
+(`docs/v0-2026-07-28/`, antes `docs/fumigation-management-dashboard/`,
+movido en 2026-07-29 al directorio de archivo) al proyecto real.
+El método que usamos es **port 1:1 con cleanup**, en tres pasos:
 
 1. **Primitives UI accesibles primero.** Antes de tocar features,
    creamos los primitives que el V0 usa (`PageHeader`, `FieldSelect`,
@@ -56,14 +61,30 @@ que usamos es **port 1:1 con cleanup**, en tres pasos:
   los implementamos con `@base-ui/react` (ya instalado) o con HTML
   nativo + WAI-ARIA, no vía shadcn.
 
-- **NO copiamos `lib/data.ts` del V0.** El proyecto real lee de
-  PostGIS via `api/repositories.ts`. El `mulberry32(20260728)` y
-  las geometrías mock no entran al repo.
+- **NO copiamos `lib/data.ts` del V0 con mocks deterministas.** El V0
+  tenía un `lib/data.ts` con `mulberry32(20260728)` y geometrías
+  mock. Esas mocks **no entran al repo**. **Lo que SÍ escribimos** es
+  un `lib/data.ts` **propio y nuevo** que sirve de **adapter entre
+  los componentes V0 y `api/repositories.ts`**: mapea filas PostGIS a
+  las shapes V0 (`DjiParcel`, `DjiFumigationV0`, `GeovisorPayload`,
+  etc., tipadas en `lib/types.ts`) y re-exporta las constantes V0
+  (`NOW`, `DRONE_MODELS`, `STATUS_META`, `droneModel`,
+  `complianceStatus`) desde `lib/data-constants.ts` (seguro para
+  client components). El archivo está marcado con
+  `import "server-only"` y arranca con un header que documenta el
+  contrato. La decisión de NO usar el V0 con mocks es firme; el
+  adapter es nuestro y existe por una necesidad real (las pages
+  `app/geovisor`, `app/parcelas`, `app/parcelas/[id]` consumen
+  shapes V0 y necesitan un bridge al modelo nativo).
 
-- **NO copiamos páginas que no existen en el proyecto real.** El V0
-  tiene `/parcelas` y `/parcelas/[id]`; el proyecto real tiene
-  `/parcels` y `/parcels/[id]`. Mapeamos 1:1 con nuestros nombres,
-  no renombramos.
+- **NO renombramos rutas a `/parcelas` para "ser 1:1 con el V0".**
+  El V0 tiene `/parcelas` y `/parcelas/[id]`. En el estado actual
+  del proyecto, **esas URLs SÍ existen y vienen del V0** — el
+  operador-cliente las vio, las pidió, y se implementaron
+  directamente. La sección 8.5 del SDD explica la decisión. Las
+  pages son `app/parcelas/page.tsx` (inventario) y
+  `app/parcelas/[id]/page.tsx` (detalle). No hay contraparte en
+  `/parcels`.
 
 ---
 
@@ -136,7 +157,7 @@ múltiples variants reales. Hoy no tenemos ningún primitive con
 CVA instalado todavía (los primitives nuevos del S5 son
 single-variant). Si un primitive futuro lo necesita (e.g. `Button`
 con `variant`/`size`), se agrega CVA siguiendo el patrón del V0
-(`docs/fumigation-management-dashboard/components/ui/button.tsx`).
+(`docs/v0-2026-07-28/components/ui/button.tsx`).
 
 ### 2.5 Inventario de primitives actuales
 
@@ -197,21 +218,22 @@ cumplirlas.
 
 - Fichas técnicas (parcela, evento, vuelo) usan `<dl>` con `<dt>`
   para el label y `<dd>` para el valor. Patrón en
-  `components/map/parcels-list.tsx` (header expandido de la parcela
+  `components/parcels/parcels-table.tsx` (fila expandida de la parcela
   seleccionada).
 
 ### 3.6 Grupos de filtros
 
 - Filtros relacionados van en `<fieldset>` con `<legend>` (no en
   un `<div>` con texto). Patrón en
-  `components/map/map-filter-sidebar.tsx` (cada section del sidebar).
+  `components/geovisor/geovisor-client.tsx` (cada section del
+  drawer de filtros).
 
 ### 3.7 Mapa
 
 - El contenedor del mapa es `<div role="application" tabIndex={0}>`
   con `aria-label="Mapa de parcelas de caña"`. Esto le dice al screen
   reader que es una región interactiva y que el usuario puede
-  focus-earla. Ver `components/map/maplibre-view.tsx`.
+  focus-earla. Ver `components/map/geo-map.tsx`.
 
 ### 3.8 Formularios
 
@@ -223,11 +245,11 @@ cumplirlas.
 
 ---
 
-## 4. Patrón de state derivado (V0 → `MapPageClient`)
+## 4. Patrón de state derivado (V0 → `GeovisorClient`)
 
 El V0 tiene un patrón limpio en `geovisor-client.tsx`: **estado de
 inputs en `useState`, estado derivado en `useMemo`**. Replicamos ese
-patrón en `components/map/map-page-client.tsx`.
+patrón en `components/geovisor/geovisor-client.tsx`.
 
 ### 4.1 Inputs (useState)
 
@@ -258,50 +280,34 @@ const [filteredParcels, eventsByParcel, kpis, sortedList] = useMemo(() => {
 
 En el V0 son `useMemo` separados; en el nuestro, los consolidamos
 donde el costo de re-cómputo es despreciable. El rationale
-completo está en el JSDoc de `MapPageClient`.
+completo está en el JSDoc de `GeovisorClient`.
 
 ### 4.3 Resumen reactivo al TimeRange
 
 Cuando el `timeRange` cambia, el `KpiPill` necesita un nuevo
 `FumigationsSummary`. En vez de calcularlo en el cliente (que
 requeriría descargar todos los eventos), se hace **roundtrip al
-endpoint `/api/map/summary`** con debounce de 200ms:
-
-```tsx
-useEffect(() => {
-  if (fullRange) {
-    setLiveSummary(fumigationsSummary ?? null); // sin roundtrip
-    return;
-  }
-  const handle = setTimeout(() => {
-    fetch(`/api/map/summary?parcelIds=...&from=...&to=...`)
-      .then(r => r.json())
-      .then(setLiveSummary);
-  }, 200);
-  return () => clearTimeout(handle);
-}, [timeRange]);
-```
-
-Si el rango es el completo (full history), se usa el `fumigationsSummary`
-que el server component ya calculó — no se paga un roundtrip extra.
+endpoint de summary** con debounce de 200ms. La
+`fumigationsSummary` base que `getGeovisorPayload()` ya cocinó se
+reusa cuando el rango es el completo (sin roundtrip extra).
 
 ---
 
 ## 5. Patrón MapLibre
 
-`MapLibre GL JS 6.0` reemplaza a Leaflet/react-leaflet desde el
+`MapLibre GL JS 4.7.1` (la versión efectiva del package; el V0
+referenciaba 6.0) reemplaza a Leaflet/react-leaflet desde el
 sprint S5. Los archivos migrados son:
 
-- `components/map/maplibre-view.tsx` — vista principal del mapa (`/map`).
-- `components/map-view.tsx` — wrapper que carga `MapLibreView` via
-  `next/dynamic` con `ssr: false` (MapLibre usa WebGL, es
-  client-only).
-- `components/parcels/parcel-mini-map.tsx` — mini-mapa del detalle
-  de parcela.
-- `components/task-history/map-view.tsx` — vista de polígonos
-  fumigados en Task History.
+- `components/map/geo-map.tsx` — vista principal del mapa
+  (`/geovisor`). Único wrapper activo en `components/map/`.
+- `components/parcels/parcel-map.tsx` — mini-mapa del detalle
+  de parcela (`/parcelas/[id]`).
+- La vista interactiva del geovisor vive en
+  `components/geovisor/geovisor-client.tsx` (cliente), que
+  consume `geo-map.tsx` para el render de MapLibre.
 
-### 5.1 Setup
+### 5.1 Setup (referencia — el código real vive en `components/map/geo-map.tsx`)
 
 ```tsx
 useEffect(() => {
@@ -324,6 +330,10 @@ useEffect(() => {
   });
 }, []);
 ```
+
+> El bloque de arriba es la **forma canónica** que el código sigue
+> (ver `components/map/geo-map.tsx`). Si lo editás acá y en el código
+> divergen, el código gana — este doc es referencia, no spec.
 
 Notas operativas:
 - **Import dinámico** de `maplibre-gl` para evitar el bundle en
@@ -350,7 +360,7 @@ useEffect(() => {
 
 `addLayersToExistingMap` y `addSourcesAndLayers` (en el init) son
 **la misma función** — solo cambia cuándo se llaman. Por eso la
-extrajimos a un helper (`maplibre-view.tsx`).
+extrajimos a un helper (`components/map/geo-map.tsx`).
 
 ### 5.3 feature-state para selección
 
@@ -379,7 +389,8 @@ map.removeFeatureState({ source: "parcels" });
 
 ### 5.4 Paint expressions inline (sin helper)
 
-A diferencia de Leaflet (donde teníamos `lib/map-styles.ts` con
+A diferencia de Leaflet (donde teníamos `lib/map-styles.ts` con — ahora
+borrado/archivado)
 funciones puras que devolvían `PathOptions`), en MapLibre los
 paint expressions son **inline en el `addLayer`**:
 
@@ -420,7 +431,7 @@ con variantes por feature, conviene refactorizar a una función
 MapLibre no sanitiza el HTML de los popups. Cualquier propiedad que
 venga del feature (que viene de la BD) se pasa por
 `escapeHtml(value)` antes de meterla al `setHTML`. Patrón en
-`maplibre-view.tsx` (alerts, flight points, parcel popup).
+`components/map/geo-map.tsx` (alerts, flight points, parcel popup).
 
 ---
 
@@ -460,9 +471,11 @@ endpoint `/api/map/summary`).
 
 ## 8. Riesgos conocidos / deuda
 
-- **`@base-ui/react`** instalado pero no usado en runtime. Queda
-  como reserva para primitives no triviales. Decisión: no adoptarlo
-  en un primitive que pueda resolverse con HTML nativo + WAI-ARIA.
+- **`@base-ui/react`** adoptado en runtime desde S5 por 10 primitives en
+  `components/ui/` (badge, button, input, progress, select, separator, slider,
+  tabs, tooltip + helpers `merge-props`/`use-render`). Reemplaza shadcn CLI
+  como capa de primitivos. Para primitives triviales seguimos usando HTML
+  nativo + WAI-ARIA sin `@base-ui/react`.
 - **MapLibre setStyle race**: si el caller cambia `basemap` antes
   de que el mapa termine de cargar, el `style.load` puede no
   dispararse. Mitigación actual: `if (!map || !ready) return` en
@@ -473,7 +486,8 @@ endpoint `/api/map/summary`).
   como fallback. Migración S7: incluir el join.
 - **Slider doble accesible** en `TimeRange` es 2 inputs HTML
   nativos (no doble-thumb). Decisión de scope del S5. Migración
-  a @base-ui Slider es S7 si aparece el pedido de UX.
+  a `@base-ui/react` `Slider` (single-thumb accesible) queda
+  evaluada para S7 si aparece el pedido de UX.
 
 Detalle histórico en `docs/audit/BITACORA.md`.
 

@@ -13,14 +13,23 @@
 //     tests/api-admin-djiag-health.test.ts (con tmpfiles en disco).
 //   - **deriveResponse(health)**: cubierto en
 //     tests/api-admin-djiag-health.test.ts.
+//   - **getCircuitBreakerState(filePath)**: lee la sección
+//     `circuitBreaker` del _health.json (Sprint H2, 2026-07-30).
+//     - Devuelve `null` si el archivo no existe, está corrupto, o no
+//       tiene la sección.
+//     - Valida el shape mínimo (state ∈ {closed, open, half-open}).
+//     - Normaliza campos opcionales con defaults razonables.
 //
 // Estrategia: mockeamos el cliente de DB (`DbQueryRunner`) con
 // `vi.fn().mockResolvedValue({ rows: [...] })`. Sin tocar Postgres
-// real. Sin tocar filesystem.
+// real. Para `getCircuitBreakerState` usamos tmpfiles en disco.
 
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-import { readHealthFromDb, type DbQueryRunner } from "@/lib/djiag-health";
+import { readHealthFromDb, getCircuitBreakerState, type DbQueryRunner } from "@/lib/djiag-health";
 
 function makeMockClient(rows: unknown[], error?: Error): DbQueryRunner {
   return {
@@ -162,5 +171,154 @@ describe("readHealthFromDb", () => {
     expect(sql).toMatch(/last_run_at/);
     expect(sql).toMatch(/last_run_status/);
     expect(sql).toMatch(/last_successful_sync_at/);
+  });
+});
+
+// ============================================================
+// getCircuitBreakerState (Sprint H2, 2026-07-30)
+// Lee la sección circuitBreaker de djiag_exports/_health.json.
+// ============================================================
+
+describe("getCircuitBreakerState", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), "djiag-health-cb-"));
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("devuelve null si el archivo no existe", async () => {
+    const r = await getCircuitBreakerState(join(tmpDir, "missing.json"));
+    expect(r).toBeNull();
+  });
+
+  it("devuelve null si el JSON está corrupto", async () => {
+    const p = join(tmpDir, "_health.json");
+    writeFileSync(p, "{ not valid", "utf8");
+    const r = await getCircuitBreakerState(p);
+    expect(r).toBeNull();
+  });
+
+  it("devuelve null si el archivo no es un objeto (es un array)", async () => {
+    const p = join(tmpDir, "_health.json");
+    writeFileSync(p, "[]", "utf8");
+    const r = await getCircuitBreakerState(p);
+    expect(r).toBeNull();
+  });
+
+  it("devuelve null si no hay sección circuitBreaker", async () => {
+    const p = join(tmpDir, "_health.json");
+    writeFileSync(p, JSON.stringify({
+      lastRunAt: "2026-07-22T00:00:00.000Z",
+      lastRunStatus: "ok"
+    }), "utf8");
+    const r = await getCircuitBreakerState(p);
+    expect(r).toBeNull();
+  });
+
+  it("devuelve null si el state tiene un valor inválido (no es uno de los 3)", async () => {
+    const p = join(tmpDir, "_health.json");
+    writeFileSync(p, JSON.stringify({
+      circuitBreaker: { state: "broken", failureCount: 1, openedAt: null }
+    }), "utf8");
+    const r = await getCircuitBreakerState(p);
+    expect(r).toBeNull();
+  });
+
+  it("lee un circuit cerrado (state=closed, failureCount=0)", async () => {
+    const p = join(tmpDir, "_health.json");
+    writeFileSync(p, JSON.stringify({
+      lastRunAt: "2026-07-22T00:00:00.000Z",
+      circuitBreaker: {
+        state: "closed",
+        failureCount: 0,
+        openedAt: null,
+        lastFailureAt: null,
+        failureThreshold: 3,
+        resetTimeoutMs: 300000
+      }
+    }), "utf8");
+    const r = await getCircuitBreakerState(p);
+    expect(r).not.toBeNull();
+    expect(r?.state).toBe("closed");
+    expect(r?.failureCount).toBe(0);
+    expect(r?.openedAt).toBeNull();
+    expect(r?.failureThreshold).toBe(3);
+    expect(r?.resetTimeoutMs).toBe(300000);
+  });
+
+  it("lee un circuit abierto (state=open, openedAt con timestamp)", async () => {
+    const p = join(tmpDir, "_health.json");
+    writeFileSync(p, JSON.stringify({
+      lastRunAt: "2026-07-22T00:00:00.000Z",
+      circuitBreaker: {
+        state: "open",
+        failureCount: 3,
+        openedAt: "2026-07-22T10:00:00.000Z",
+        lastFailureAt: "2026-07-22T10:00:00.000Z",
+        failureThreshold: 3,
+        resetTimeoutMs: 300000
+      }
+    }), "utf8");
+    const r = await getCircuitBreakerState(p);
+    expect(r?.state).toBe("open");
+    expect(r?.failureCount).toBe(3);
+    expect(r?.openedAt).toBe("2026-07-22T10:00:00.000Z");
+    expect(r?.lastFailureAt).toBe("2026-07-22T10:00:00.000Z");
+  });
+
+  it("normaliza campos faltantes con defaults (failureCount, failureThreshold, resetTimeoutMs)", async () => {
+    const p = join(tmpDir, "_health.json");
+    writeFileSync(p, JSON.stringify({
+      circuitBreaker: { state: "half-open", openedAt: "2026-07-22T10:05:00.000Z" }
+    }), "utf8");
+    const r = await getCircuitBreakerState(p);
+    expect(r?.state).toBe("half-open");
+    expect(r?.failureCount).toBe(0);
+    expect(r?.lastFailureAt).toBeNull();
+    expect(r?.failureThreshold).toBe(3);
+    expect(r?.resetTimeoutMs).toBe(5 * 60 * 1000);
+  });
+
+  it("normaliza failureCount inválido (no es number) a 0", async () => {
+    const p = join(tmpDir, "_health.json");
+    writeFileSync(p, JSON.stringify({
+      circuitBreaker: { state: "closed", failureCount: "not-a-number", openedAt: null }
+    }), "utf8");
+    const r = await getCircuitBreakerState(p);
+    expect(r?.failureCount).toBe(0);
+  });
+
+  it("no rompe si la sección circuitBreaker es null", async () => {
+    const p = join(tmpDir, "_health.json");
+    writeFileSync(p, JSON.stringify({ circuitBreaker: null }), "utf8");
+    const r = await getCircuitBreakerState(p);
+    expect(r).toBeNull();
+  });
+
+  it("preserva el resto de las secciones (no las lee, no las muta)", async () => {
+    // Sanity check: la función solo lee la sección circuitBreaker,
+    // no toca el resto. (No hay writeFile en la implementación, así
+    // que no puede mutar — pero verificamos que el filesystem sigue
+    // intacto después de la lectura.)
+    const p = join(tmpDir, "_health.json");
+    const original = JSON.stringify({
+      lastRunAt: "2026-07-22T10:00:00.000Z",
+      lastRunStatus: "ok",
+      lastSuccessfulSyncAt: "2026-07-22T10:00:00.000Z",
+      steps: [{ order: 1, name: "scrape", status: "ok" }],
+      totals: { flights: 5, fumigations: 2, lands: 1207 },
+      version: 1,
+      circuitBreaker: { state: "closed", failureCount: 0, openedAt: null, lastFailureAt: null, failureThreshold: 3, resetTimeoutMs: 300000 }
+    });
+    writeFileSync(p, original, "utf8");
+    await getCircuitBreakerState(p);
+    // El archivo no fue tocado.
+    const reloaded = JSON.parse((await import("node:fs")).readFileSync(p, "utf8"));
+    expect(reloaded.lastRunAt).toBe("2026-07-22T10:00:00.000Z");
+    expect(reloaded.totals.flights).toBe(5);
   });
 });

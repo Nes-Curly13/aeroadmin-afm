@@ -13,18 +13,23 @@ AeroAdmin AFM es la plataforma admin para el operador de drones cañero en Valle
 
 | Directorio / archivo | Qué vive ahí |
 |---|---|
-| `app/` | Next.js App Router (páginas server, route handlers, layouts). `app/page.tsx` es el dashboard. |
-| `api/` | Capa de data access. `api/repositories.ts` (CRUD genérico) + `api/queries.ts` (queries pre-armadas). **Único punto permitido para queries de BD desde `app/`.** |
+| `app/` | Next.js App Router (páginas server, route handlers, layouts). `app/page.tsx` es el dashboard. Las vistas con URL pública son: `app/page.tsx` (`/`), `app/geovisor/page.tsx` (`/geovisor`, vista estrella con mapa), `app/parcelas/page.tsx` (`/parcelas`, inventario), `app/parcelas/[id]/page.tsx` (detalle de parcela), `app/admin/parcels/page.tsx` (admin), `app/login/page.tsx` (auth). |
+| `api/` | Capa de data access. `api/repositories.ts` (CRUD genérico) + `api/queries.ts` (queries pre-armadas con `djiParcelsQuery` y la proyección compartida). **Único punto permitido para queries de BD desde `app/`.** |
 | `lib/` | Lógica de negocio pura, framework-agnostic. Aquí viven alertas, cadencia, agregaciones, parsers. |
+| `lib/data.ts` | **V0 adapter** — port del mockup V0. Re-exporta `api/repositories` mapeado a las **shapes V0** (`DjiParcel`, `DjiFumigationV0`, `GeovisorPayload` etc., tipadas en `lib/types.ts`). Header del archivo lo explica. Marcado con `import "server-only"`. Re-exporta también las constantes V0 (`NOW`, `DRONE_MODELS`, `STATUS_META`) desde `lib/data-constants.ts`. **Las pages V0 (`app/geovisor`, `app/parcelas`) importan de acá, no de `api/repositories` directo.** |
 | `components/` | React components. Reciben datos por props. **No importan `api/**` ni `lib/db.ts`.** |
-| `components/ui/` | Primitives accesibles propios (patrón shadcn-style): `page-header`, `field-select`, `toggle-button`, `switch`, `kpi-pill`, `filter-sidebar`, `metric-card`, `bento-grid`, `empty-state`, `pagination`, `scrollable-panel`. Ver `docs/TDD.md` §2. |
-| `components/map/` | Wrappers del mapa (MapLibre) y derivados de la adaptación V0: `map-page-client`, `maplibre-view`, `map-filter-sidebar`, `map-legend`, `map-stats-island`, `parcels-list`, `parcel-detail-panel`, `parcel-search`, `parcel-selector`, `time-range`. |
+| `components/ui/` | Primitives accesibles propios (patrón shadcn-style): `badge`, `button`, `card`, `field-select`, `input`, `progress`, `select`, `separator`, `slider`, `table`, `tabs`, `tooltip`. Preexistentes: `page-header`, `kpi-pill`, `filter-sidebar`, `metric-card`, `bento-grid`, `empty-state`, `pagination`, `scrollable-panel`. Ver `docs/TDD.md` §2. |
+| `components/geovisor/` | Vista V0 del geovisor: `geovisor-client.tsx` (componente interactivo "use client"), `time-range.tsx` (slider con histograma). Estas son las contrapartes V0 de los archivos que en S5 viven en `components/map/`. |
+| `components/map/` | Wrappers del mapa (MapLibre). Hoy contiene `geo-map.tsx` (un único wrapper, MapLibre GL JS directo). Los otros wrappers que la auditoría previa listaba (`map-page-client`, `maplibre-view`, `map-filter-sidebar`, etc.) NO existen con esos nombres — la vista principal del mapa usa `components/geovisor/geovisor-client.tsx` + `components/map/geo-map.tsx`. |
+| `components/parcels/` | Inventario y detalle de parcela: `parcels-table.tsx`, `parcel-map.tsx`, `fumigation-timeline.tsx`, `interval-chart.tsx`. |
+| `components/dashboard/` | Paneles del dashboard (`/`): `kpi-card`, `compliance-panel`, `health-panel`, `monthly-chart`, `recent-activity`. |
 | `scripts/` | CLI del pipeline DJI (scrape, upsert, backfill, refresh). Se ejecutan vía `npm run`. |
-| `db/` | Migrations SQL. |
-| `supabase/` | Config de Supabase (si aplica). |
+| `db/migrations/` | Migrations SQL. **A partir del sprint de reconciliación, todas las migrations viven acá** (25 archivos que antes vivían en `supabase/migrations/` fueron movidos con `git mv`). El script `npm run db:migrate` apunta a este directorio. `supabase/` queda solo con `config.toml` + `seed.sql`. |
+| `supabase/` | Config de Supabase (`config.toml` + `seed.sql`). Las migrations YA NO viven acá. |
 | `tests/` | Unit + integration tests de Vitest. `tests/e2e/` es para Playwright (separado). |
 | `djiag_exports/` | Output crudo del scraper. Gitignored. |
-| `docs/` | Docs de producto, arquitectura, y methodology. |
+| `docs/` | Docs de producto, arquitectura, y methodology. **El mockup V0 vive en `docs/v0-2026-07-28/`** (movido desde `docs/fumigation-management-dashboard/` por confundir a `arch:check` y nuevos devs — está marcado como REFERENCIA HISTÓRICA, no se ejecuta). Los blueprints de Make.com viven en `docs/make-blueprints/`. |
+| `make/` | (carpeta en desuso). `make/records.txt` quedó vacío. Los `.make` originales se movieron a `docs/make-blueprints/`. |
 
 **Documentos clave que tenés que leer antes de tocar nada:**
 
@@ -52,6 +57,7 @@ Si una PR rompe estas reglas, el CI la bloquea. No las negocies en el PR — arr
 - **`pg` NUNCA se importa desde `app/` ni `components/`.** La capa de data access es `api/repositories.ts` + `api/queries.ts` + `lib/db.ts`. Si lo rompés, el bundle del cliente lleva `pg` adentro y revienta el browser.
 - **Server Components y route handlers** SÍ importan `api/repositories.ts` y `api/queries.ts` — es el patrón Next.js. Esa no es violación.
 - **`components/` NUNCA importa `api/**` ni `lib/db.ts`.** Los componentes reciben datos por props.
+- **V0 adapter (`lib/data.ts`)**: las pages del V0 (`app/geovisor`, `app/parcelas`, `app/parcelas/[id]`) importan de `lib/data.ts`, que a su vez importa de `api/repositories.ts` y `api/queries.ts`. Esto centraliza el mapeo project → V0 shapes. `lib/data.ts` está marcado con `import "server-only"` y no se bundlea en el cliente.
 
 Verificado por: `dependency-cruiser` (fitness function de arquitectura). Comando: `npm run arch:check`. Config: `dependency-cruiser.config.cjs` raíz.
 
@@ -81,8 +87,9 @@ Verificado por: `dependency-cruiser` (fitness function de arquitectura). Comando
 ### R6. Cambios de schema
 
 - Toda migration nueva va en `db/migrations/` con timestamp `YYYYMMDDHHMMSS_*.sql`.
-- Aplicar local con `npm run db:migrate` (corre `scripts/apply-pending-migrations.js`).
+- Aplicar local con `npm run db:migrate` (corre `scripts/apply-pending-migrations.js`, que apunta a `db/migrations/`).
 - Después de un cambio de schema, correr `npm test` (los tests de repositories validan shape).
+- Las migrations ya NO viven en `supabase/migrations/` (ese directorio está vacío desde el sprint de reconciliación 2026-07-29). `supabase/` queda solo para `config.toml` y `seed.sql`.
 
 ---
 
@@ -130,6 +137,7 @@ Verificado por: `dependency-cruiser` (fitness function de arquitectura). Comando
    - `fix(auth): role-gate rompe con role=undefined`
    - `chore(deps): upgrade next 16.2.4 → 16.3.0`
    - `docs: documentar cadencia de arroz en FUMIGATION_CADENCE.md`
+   - `chore(docs): reconcile drift — V0 mockup → docs/v0-2026-07-28/, migrations → db/migrations/, make/ → docs/make-blueprints/`
 2. Si el cambio afecta el comportamiento de un operador, actualizá `docs/SPEC.md` o el doc relevante en el mismo PR.
 3. Si descubrís un agujero grande (bug latente, abstracción faltante), creá un TODO en el issue tracker — no lo arregles silenciosamente en un PR no relacionado.
 
@@ -150,7 +158,7 @@ Verificado por: `dependency-cruiser` (fitness function de arquitectura). Comando
 - **DB**: Postgres 16 + PostGIS 3.4 (local: docker; prod: Supabase pooled URL puerto 6543)
 - **Auth**: NextAuth v5 (beta.31)
 - **Maps**: **MapLibre GL JS 6.0** (Leaflet + react-leaflet eliminados en S5)
-- **Primitives UI**: propios en `components/ui/`, patrón shadcn-style con `cn()` (clsx + tailwind-merge). `@base-ui/react 1.6` instalado pero reservado, aún no usado en runtime.
+- **Primitives UI**: propios en `components/ui/`, patrón shadcn-style con `cn()` (clsx + tailwind-merge). Adoptan `@base-ui/react 1.6` como base para 10 primitives (badge, button, input, progress, select, separator, slider, tabs, tooltip + helpers `merge-props`/`use-render`); se reemplazó shadcn CLI por primitives propios sobre `@base-ui/react`.
 - **Tests**: Vitest 3.2.4 + @vitest/coverage-v8 + Playwright 1.61.1
 - **TypeScript**: 5.9.3, `strict: true`, sin `any` explícito
 - **Scraper**: Playwright headless contra DJI SmartFarm Web (Coreano via `accept-language: zh-CN,zh`)
@@ -185,5 +193,5 @@ Un PR de un agente está listo para merge cuando:
 
 ---
 
-**Última actualización:** 2026-07-28 (sprint S5 cerrado — MapLibre + V0 port; S6 en curso).
+**Última actualización:** 2026-07-29 (sprint de reconciliación de drift — V0 mockup movido a `docs/v0-2026-07-28/`, migrations consolidadas en `db/migrations/`, blueprints de Make.com archivados en `docs/make-blueprints/`, docs reconciliados con código real).
 **Mantenedor:** @agFab (single contributor).
