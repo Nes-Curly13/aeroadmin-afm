@@ -141,6 +141,23 @@ export interface DjiParcelsFilter {
   droneModelCode?: number;
   minSprayAreaM2?: number;
   fieldType?: string;
+  /**
+   * Filtros "mostrar solo con X vacío" para /admin/parcels (QA
+   * gap cerrado 2026-08-02). El operador fumigador tiene 1213
+   * parcelas y los 4 campos V0 arrancan vacíos en la BD. Sin
+   * este filtro tendría que ir página por página (24 páginas)
+   * para encontrar cuáles faltan poblar. Con cualquier subset
+   * de estos flags activos, la query agrega `IS NULL OR = ''`
+   * al WHERE.
+   *
+   * Sprint 2026-08-02: agregado. Si en el futuro hay más campos
+   * V0 (e.g. `crop_type`, `municipality` ya está), extender el
+   * interface con un patrón consistente.
+   */
+  missingClientName?: boolean;
+  missingFarmName?: boolean;
+  missingMunicipality?: boolean;
+  missingVariety?: boolean;
 }
 
 /**
@@ -171,7 +188,11 @@ export async function getParcelsNormalized(page = 1, limit = 20, filter: DjiParc
     filter.isOrchard !== undefined ||
     filter.droneModelCode !== undefined ||
     filter.minSprayAreaM2 !== undefined ||
-    filter.fieldType !== undefined;
+    filter.fieldType !== undefined ||
+    filter.missingClientName === true ||
+    filter.missingFarmName === true ||
+    filter.missingMunicipality === true ||
+    filter.missingVariety === true;
 
   if (hasFilter) {
     return getParcelsNormalizedUncached(page, limit, filter);
@@ -205,6 +226,30 @@ async function getParcelsNormalizedUncached(page: number, limit: number, filter:
   if (filter.fieldType) {
     where.push(`field_type = $${p++}`);
     params.push(filter.fieldType);
+  }
+  // QA gap cerrado 2026-08-02: filtros "mostrar solo con X vacío".
+  // El operador fumigador tiene 1213 parcelas y los 4 campos V0
+  // arrancan NULL. Con estos flags puede ver solo las que faltan
+  // poblar (sin tener que ir página por página). Cada flag agrega
+  // un `IS NULL OR = ''` al WHERE — varios flags activos se
+  // combinan con AND (la parcela debe tener TODOS los campos
+  // marcados como vacíos).
+  //
+  // Performance: con índices actuales, IS NULL es un seq scan
+  // parcial (Postgres). Con 1213 filas es instantáneo. Si el
+  // dataset crece a >100k, considerar partial indexes sobre
+  // `WHERE client_name IS NULL OR client_name = ''` etc.
+  if (filter.missingClientName) {
+    where.push(`(client_name IS NULL OR client_name = '')`);
+  }
+  if (filter.missingFarmName) {
+    where.push(`(farm_name IS NULL OR farm_name = '')`);
+  }
+  if (filter.missingMunicipality) {
+    where.push(`(municipality IS NULL OR municipality = '')`);
+  }
+  if (filter.missingVariety) {
+    where.push(`(variety IS NULL OR variety = '')`);
   }
   // Sprint B — H1: soft delete. La migration 20260720000000 dejó la columna
   // `deleted_at` lista; este filtro activa el soft delete en la query de

@@ -1,5 +1,5 @@
 import { AdminParcelsClient } from "./admin-parcels-client";
-import { getParcelsNormalized } from "@/api/repositories";
+import { getParcelsNormalized, type DjiParcelsFilter } from "@/api/repositories";
 import { PageHeader } from "@/components/page-header";
 
 /**
@@ -28,6 +28,13 @@ import { PageHeader } from "@/components/page-header";
  *     redirect a /login. El handler del API tiene `requireRole("admin")`
  *     como segunda capa.
  *
+ * QA gap cerrado 2026-08-02: filtros "missing_X" server-side.
+ * El operador tiene 1213 parcelas y los 4 campos arrancan vacíos.
+ * Sin este filtro tendría que ir página por página (24 páginas)
+ * para encontrar las que faltan. Con `?missing_client=1` (o
+ * cualquiera de los 4) el server filtra y solo devuelve las
+ * parcelas que cumplen. Combinables con AND (varios flags).
+ *
  * Render: 50 filas por pagina × 24 paginas = 1213 parcelas (dataset
  * actual). Suficiente para la operatoria normal — si la lista crece a
  * >5000 parcelas, agregar server-side cursor pagination.
@@ -43,16 +50,49 @@ export const dynamic = "force-dynamic";
 
 const PAGE_SIZE = 50;
 
+/**
+ * Parsea los searchParams del filtro "missing_X" en un boolean.
+ * Acepta '1' / 'true' como truthy. Cualquier otro valor (incluido
+ * ausente) es falsy. Esto matchea la convención de Next.js
+ * searchParams (todo es string).
+ */
+function parseBoolParam(v: string | undefined): boolean {
+  return v === "1" || v === "true";
+}
+
 export default async function AdminParcelsPage({
   searchParams
 }: {
-  searchParams: Promise<{ page?: string; q?: string }>;
+  searchParams: Promise<{
+    page?: string;
+    q?: string;
+    missing_client?: string;
+    missing_farm?: string;
+    missing_municipality?: string;
+    missing_variety?: string;
+  }>;
 }) {
   const sp = await searchParams;
   const page = Math.max(1, Number(sp.page ?? 1) || 1);
   const query = (sp.q ?? "").trim();
 
-  const result = await getParcelsNormalized(page, PAGE_SIZE, {});
+  // Filtros "missing_X" (QA 2026-08-02). El page server los pasa
+  // al repo que arma el WHERE. El client component los expone
+  // como checkboxes que se sincronizan con la URL via router.push.
+  const filter: DjiParcelsFilter = {
+    missingClientName: parseBoolParam(sp.missing_client),
+    missingFarmName: parseBoolParam(sp.missing_farm),
+    missingMunicipality: parseBoolParam(sp.missing_municipality),
+    missingVariety: parseBoolParam(sp.missing_variety)
+  };
+
+  const result = await getParcelsNormalized(page, PAGE_SIZE, filter);
+
+  const activeMissingCount =
+    (filter.missingClientName ? 1 : 0) +
+    (filter.missingFarmName ? 1 : 0) +
+    (filter.missingMunicipality ? 1 : 0) +
+    (filter.missingVariety ? 1 : 0);
 
   return (
     <>
@@ -60,7 +100,11 @@ export default async function AdminParcelsPage({
         title="Admin · Parcelas"
         description={`Pobla los 4 campos del V0 (cliente, hacienda, municipio, variedad) que el operador fumigador conoce de campo. ${
           result.total
-        } parcelas en dataset · ${PAGE_SIZE} por página · página ${page}/${result.totalPages || 1}.`}
+        } parcelas en dataset · ${PAGE_SIZE} por página · página ${page}/${result.totalPages || 1}${
+          activeMissingCount > 0
+            ? ` · ${activeMissingCount} filtro${activeMissingCount === 1 ? "" : "s"} de campos vacíos activo${activeMissingCount === 1 ? "" : "s"}`
+            : ""
+        }.`}
       />
       <div className="px-4 py-6 sm:px-6">
         <AdminParcelsClient
@@ -70,6 +114,12 @@ export default async function AdminParcelsPage({
           totalPages={result.totalPages}
           pageSize={PAGE_SIZE}
           initialQuery={query}
+          missingFilter={{
+            client: filter.missingClientName ?? false,
+            farm: filter.missingFarmName ?? false,
+            municipality: filter.missingMunicipality ?? false,
+            variety: filter.missingVariety ?? false
+          }}
         />
       </div>
     </>

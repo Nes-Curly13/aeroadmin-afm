@@ -42,6 +42,19 @@ interface AdminParcelsClientProps {
   totalPages: number;
   pageSize: number;
   initialQuery: string;
+  /**
+   * Estado inicial de los filtros "mostrar solo con X vacío"
+   * (QA gap cerrado 2026-08-02). El page server los parsea de
+   * searchParams y los pasa acá. El client los refleja como
+   * checkboxes que al cambiar hacen `router.push` con la nueva URL
+   * (el server re-fetcha la lista con el filtro activo).
+   */
+  missingFilter: {
+    client: boolean;
+    farm: boolean;
+    municipality: boolean;
+    variety: boolean;
+  };
 }
 
 interface Draft {
@@ -59,10 +72,15 @@ export function AdminParcelsClient({
   page,
   totalPages,
   pageSize,
-  initialQuery
+  initialQuery,
+  missingFilter
 }: AdminParcelsClientProps) {
   const router = useRouter();
   const [query, setQuery] = useState(initialQuery);
+  // Filtros "missing_X" (QA 2026-08-02). Reflejan el state de la URL
+  // (server-authoritative). El user cambia un checkbox → onClick
+  // hace `go(1)` con la nueva URL → server re-fetcha → re-render.
+  const [missing, setMissing] = useState(missingFilter);
   const [drafts, setDrafts] = useState<Record<number, Draft>>(() => buildDrafts(initialData));
   const [statuses, setStatuses] = useState<Record<number, Status>>({});
   const [errors, setErrors] = useState<Record<number, string>>({});
@@ -195,11 +213,48 @@ export function AdminParcelsClient({
     setErrors((prev) => ({ ...prev, [parcel.id]: "" }));
   }
 
-  // Paginacion
+  // Paginacion. Incluye los filtros "missing_X" en la URL para
+  // que persistan entre páginas. El handler del page server los
+  // re-parsea (searchParams).
+  function buildSearchParams(extraPage: number): URLSearchParams {
+    const params = new URLSearchParams();
+    params.set("page", String(extraPage));
+    if (query) params.set("q", query);
+    if (missing.client) params.set("missing_client", "1");
+    if (missing.farm) params.set("missing_farm", "1");
+    if (missing.municipality) params.set("missing_municipality", "1");
+    if (missing.variety) params.set("missing_variety", "1");
+    return params;
+  }
   function go(p: number) {
     if (p < 1 || p > totalPages || p === page) return;
+    router.push(`/admin/parcels?${buildSearchParams(p).toString()}`);
+  }
+
+  // Toggle de un filtro "missing_X". Re-fetcha a la primera página
+  // (los filtros cambian el total, hay que resetear la paginación).
+  function toggleMissing(field: keyof typeof missing) {
+    const next = { ...missing, [field]: !missing[field] };
+    setMissing(next);
+    // Construir params con el nuevo state (no `missing` del closure,
+    // que todavía tiene el valor anterior a setMissing).
     const params = new URLSearchParams();
-    params.set("page", String(p));
+    params.set("page", "1");
+    if (query) params.set("q", query);
+    if (next.client) params.set("missing_client", "1");
+    if (next.farm) params.set("missing_farm", "1");
+    if (next.municipality) params.set("missing_municipality", "1");
+    if (next.variety) params.set("missing_variety", "1");
+    router.push(`/admin/parcels?${params.toString()}`);
+  }
+
+  // Limpia todos los filtros missing. (El search input tiene su
+  // propio state local — no se limpia acá porque no se borra
+  // la query escrita por el user.)
+  function clearMissingFilters() {
+    setMissing({ client: false, farm: false, municipality: false, variety: false });
+    const params = new URLSearchParams();
+    params.set("page", "1");
     if (query) params.set("q", query);
     router.push(`/admin/parcels?${params.toString()}`);
   }
@@ -223,6 +278,54 @@ export function AdminParcelsClient({
         <p className="font-mono text-[11px] text-muted-foreground">
           {`${filtered.length} de ${total} parcelas · página ${page}/${totalPages || 1} · ${pageSize}/página`}
         </p>
+      </div>
+
+      {/* Filtros "mostrar solo con X vacío" (QA 2026-08-02). El
+          operador fumigador tiene 1213 parcelas y los 4 campos V0
+          arrancan vacíos — sin este filtro tendría que ir página
+          por página para encontrarlas. Cada checkbox dispara un
+          `router.push` con la nueva URL; el server re-fetcha con
+          el WHERE clause apropiado. El badge "X filtros activos"
+          aparece a la derecha cuando hay alguno. */}
+      <div
+        role="group"
+        aria-label="Filtrar parcelas con campos vacíos"
+        className="flex flex-col gap-2 rounded-md border border-border bg-muted/40 p-3 sm:flex-row sm:flex-wrap sm:items-center"
+      >
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Solo campos vacíos
+        </span>
+        <div className="flex flex-wrap items-center gap-3">
+          {([
+            { field: "client" as const, label: "Cliente", param: "missing_client" },
+            { field: "farm" as const, label: "Hacienda", param: "missing_farm" },
+            { field: "municipality" as const, label: "Municipio", param: "missing_municipality" },
+            { field: "variety" as const, label: "Variedad", param: "missing_variety" }
+          ]).map(({ field, label, param }) => (
+            <label
+              key={field}
+              className="flex cursor-pointer items-center gap-1.5 text-xs"
+            >
+              <input
+                type="checkbox"
+                checked={missing[field]}
+                onChange={() => toggleMissing(field)}
+                aria-label={`Filtrar solo parcelas con ${label.toLowerCase()} vacío`}
+                className="size-3.5 cursor-pointer accent-primary"
+              />
+              <span>{label}</span>
+            </label>
+          ))}
+        </div>
+        {(missing.client || missing.farm || missing.municipality || missing.variety) && (
+          <button
+            type="button"
+            onClick={clearMissingFilters}
+            className="ml-auto text-[11px] font-semibold text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+          >
+            Limpiar filtros
+          </button>
+        )}
       </div>
 
       <Card>

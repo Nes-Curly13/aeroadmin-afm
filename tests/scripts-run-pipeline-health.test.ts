@@ -44,6 +44,11 @@ const pipeline = require("../scripts/run-pipeline.js") as {
     finishedAt: number;
     runStatus: "ok" | "partial" | "failed";
     prevLastSuccessfulSyncAt?: string | null;
+    // Sprint H2 follow-up (2026-08-02): buildHealthPayload acepta
+    // circuitBreaker opcional. La forma exacta del snapshot está
+    // en `lib/djiag-health-types.ts` pero acá la declaramos como
+    // `unknown` para no duplicar el type en el test.
+    circuitBreaker?: unknown;
   }) => {
     lastRunAt: string;
     lastRunStatus: string;
@@ -51,6 +56,9 @@ const pipeline = require("../scripts/run-pipeline.js") as {
     steps: unknown[];
     totals: { flights: number; fumigations: number; lands: number };
     version: 1;
+    // Sprint H2 follow-up (2026-08-02): circuitBreaker opcional
+    // en el payload. `unknown` para no duplicar el type.
+    circuitBreaker?: unknown;
   };
   writeHealthFile: (payload: {
     lastRunAt: string;

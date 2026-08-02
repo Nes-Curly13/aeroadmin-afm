@@ -1,5 +1,8 @@
 import Image from "next/image"
+import { LogOut } from "lucide-react"
 import { fmtRelative } from "@/lib/format"
+import { logoutAction } from "@/app/login/actions"
+import { Button } from "@/components/ui/button"
 import type { DjiAgHealth } from "@/lib/types"
 import { NavLinks } from "./nav-links"
 
@@ -22,6 +25,13 @@ import { NavLinks } from "./nav-links"
  * Para el dashboard `/admin/djiag-health` (donde el health ES el
  * contenido de la pagina), el page server debe llamar `getHealth()`
  * y pasarlo a `<AppShell health={h}>`.
+ *
+ * v2.7.1 (Sprint 2026-08-02 — QA): agregamos botón de logout al pie
+ * de la sidebar. Antes no había forma de salir del panel — el
+ * operador quedaba logueado para siempre. Usa un form con
+ * `logoutAction` (server action) para que el POST no requiera JS
+ * del cliente (mejor accesibilidad + no rompe si el bundle del
+ * cliente tiene un error).
  */
 export function AppShell({
   children,
@@ -55,22 +65,43 @@ export function AppShell({
 
         <NavLinks />
 
-        {health ? (
-          <div className="mt-auto hidden rounded-md border border-sidebar-border bg-sidebar-accent/60 p-3 lg:block">
-            <div className="flex items-center gap-2">
-              <span className={`inline-block size-2 rounded-full ${statusColor}`} aria-hidden />
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/70">
-                Pipeline DJI AG
-              </span>
+        <div className="mt-auto flex flex-col gap-3">
+          {health ? (
+            <div className="hidden rounded-md border border-sidebar-border bg-sidebar-accent/60 p-3 lg:block">
+              <div className="flex items-center gap-2">
+                <span className={`inline-block size-2 rounded-full ${statusColor}`} aria-hidden />
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/70">
+                  Pipeline DJI AG
+                </span>
+              </div>
+              <p className="mt-2 font-mono text-xs text-sidebar-foreground/80">
+                Último run {fmtRelative(health.last_run_at)}
+              </p>
+              <p className="font-mono text-xs text-sidebar-foreground/60">
+                {health.parcels_synced} parcelas · {health.flights_synced} vuelos
+              </p>
             </div>
-            <p className="mt-2 font-mono text-xs text-sidebar-foreground/80">
-              Último run {fmtRelative(health.last_run_at)}
-            </p>
-            <p className="font-mono text-xs text-sidebar-foreground/60">
-              {health.parcels_synced} parcelas · {health.flights_synced} vuelos
-            </p>
-          </div>
-        ) : null}
+          ) : null}
+
+          {/* Logout button (QA gap cerrado 2026-08-02). El form con
+              server action funciona sin JS del cliente — accesible
+              desde keyboard, screen reader, y si el bundle falla
+              no rompe el flow de logout. El button size='sm' + ghost
+              variant + fullWidth en mobile (sidebar top bar) para
+              que sea visible sin importar el breakpoint. */}
+          <form action={logoutAction} className="lg:self-stretch">
+            <Button
+              type="submit"
+              variant="ghost"
+              size="sm"
+              className="w-full justify-start gap-2 text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+              aria-label="Cerrar sesión"
+            >
+              <LogOut className="size-3.5" aria-hidden />
+              <span className="text-xs">Cerrar sesión</span>
+            </Button>
+          </form>
+        </div>
       </aside>
 
       <main className="min-w-0 flex-1">{children}</main>
