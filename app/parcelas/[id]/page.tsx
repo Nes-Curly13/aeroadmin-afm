@@ -1,9 +1,10 @@
-import { ArrowLeft, CalendarClock, Droplets, History, Plane, Sprout } from "lucide-react"
+import { ArrowLeft, CalendarClock, Droplets, History, Plane, Plus, Sprout } from "lucide-react"
 import Link from "next/link"
 import { notFound } from "next/navigation"
 import { FumigationTimeline } from "@/components/parcels/fumigation-timeline"
 import { IntervalChart } from "@/components/parcels/interval-chart"
 import { ParcelMap } from "@/components/parcels/parcel-map"
+import { RegisterFumigationForm } from "@/components/parcels/register-fumigation-form"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -28,6 +29,11 @@ export default async function ParcelaPage({ params }: { params: Promise<{ id: st
   if (!summary) notFound()
 
   const { parcel, schedule } = summary
+  // El id del parcel puede llegar como string ("abc") desde la URL;
+  // los repos esperan number. Validamos acá para no tirar 500 si
+  // el operador escribe un id mal en la barra.
+  const parcelIdNum = Number(parcel.id)
+  if (!Number.isFinite(parcelIdNum) || parcelIdNum <= 0) notFound()
   // Sprint 2026-08-01 — fetch de cycle data en paralelo con flights/fumigations.
   // `getCycleForParcel` degrada a {null, null} si la migration no se aplicó.
   const [fumigations, flights, history, cycle] = await Promise.all([
@@ -234,6 +240,31 @@ export default async function ParcelaPage({ params }: { params: Promise<{ id: st
                     <dd className="font-mono text-sm font-semibold tabular-nums">{fmtInt(pilots.length)}</dd>
                   </div>
                 </dl>
+              </CardContent>
+            </Card>
+
+            {/* Sprint 2026-08-02 — feature/manual-fumigation-ui.
+                Cierra el gap #1 del QA review: antes el operador
+                no podía registrar fumigaciones manuales. El form
+                hace POST a /api/admin/fumigations. El client
+                component hace router.refresh() al success para
+                que el timeline de abajo se re-fetche. */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Plus className="size-4 text-primary" aria-hidden />
+                  Registrar fumigación manual
+                </CardTitle>
+                <CardDescription>
+                  Usa esto si DJI no reportó una fumigación que el
+                  operador ya hizo (e.g. re-tratamiento, aplicación
+                  manual de herbicida, fumigación fuera del rango de
+                  fechas que DJI sincroniza). El ICA requiere los
+                  campos de compliance abajo para auditoría.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <RegisterFumigationForm parcelId={parcelIdNum} />
               </CardContent>
             </Card>
 
