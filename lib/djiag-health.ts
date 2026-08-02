@@ -160,7 +160,8 @@ export async function readHealthFromDb(
   try {
     result = await client.query(
       `SELECT last_run_at, last_run_status, last_successful_sync_at,
-              flights_count, fumigations_count, lands_count, steps
+              flights_count, fumigations_count, lands_count, steps,
+              circuit_breaker
        FROM djiag_health
        WHERE id = 1
        LIMIT 1`
@@ -185,10 +186,19 @@ export async function readHealthFromDb(
         fumigations_count: number | null;
         lands_count: number | null;
         steps: import("@/lib/djiag-health-types").StepHealth[] | null;
+        circuit_breaker:
+          | import("@/lib/djiag-health-types").CircuitBreakerSnapshot
+          | null;
       }
     | undefined;
   if (!row) return null;
   // Mapear columnas DB → shape PipelineHealth.
+  // `circuit_breaker` se valida con la misma lógica que
+  // `getCircuitBreakerState()` (state ∈ {closed, open, half-open}),
+  // para que el shape servido sea consistente venga del filesystem
+  // o de la DB. Si el shape no matchea, descartamos la sección y
+  // devolvemos null (mismo comportamiento defensivo).
+  const circuitBreaker = normalizeCircuitBreaker(row.circuit_breaker);
   return {
     lastRunAt: row.last_run_at ? new Date(row.last_run_at).toISOString() : "",
     lastRunStatus:
@@ -207,6 +217,48 @@ export async function readHealthFromDb(
         typeof row.fumigations_count === "number" ? row.fumigations_count : 0,
       lands: typeof row.lands_count === "number" ? row.lands_count : 0
     },
+    circuitBreaker,
     version: 1
+  };
+}
+
+/**
+ * Valida y normaliza el shape `CircuitBreakerSnapshot`. Devuelve `null`
+ * si la sección no existe, no es un objeto, o el `state` no es uno de
+ * los 3 valores conocidos.
+ *
+ * Lógica equivalente a `getCircuitBreakerState()` (filesystem), pero
+ * operando sobre un valor en memoria en vez de un file path.
+ * Centralizada acá para que ambos paths (filesystem + DB) devuelvan
+ * el mismo shape — si el contrato cambia, se cambia en un solo lugar.
+ */
+function normalizeCircuitBreaker(
+  raw: unknown
+): import("@/lib/djiag-health-types").CircuitBreakerSnapshot | null {
+  if (!raw || typeof raw !== "object") return null;
+  const obj = raw as Record<string, unknown>;
+  const state = obj.state;
+  if (state !== "closed" && state !== "open" && state !== "half-open") {
+    return null;
+  }
+  return {
+    state,
+    failureCount:
+      typeof obj.failureCount === "number" && Number.isFinite(obj.failureCount)
+        ? obj.failureCount
+        : 0,
+    openedAt: typeof obj.openedAt === "string" ? obj.openedAt : null,
+    lastFailureAt:
+      typeof obj.lastFailureAt === "string" ? obj.lastFailureAt : null,
+    failureThreshold:
+      typeof obj.failureThreshold === "number" &&
+      Number.isFinite(obj.failureThreshold)
+        ? obj.failureThreshold
+        : 3,
+    resetTimeoutMs:
+      typeof obj.resetTimeoutMs === "number" &&
+      Number.isFinite(obj.resetTimeoutMs)
+        ? obj.resetTimeoutMs
+        : 5 * 60 * 1000
   };
 }

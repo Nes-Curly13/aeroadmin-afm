@@ -74,6 +74,12 @@ const pipeline = require("../scripts/run-pipeline.js") as {
     runStatus: "ok" | "partial" | "failed";
   }) => Promise<void>;
   readLastSuccessfulSyncAt: () => string | null;
+  // Sprint H2 follow-up (2026-08-02): lee la sección `circuitBreaker`
+  // del `_health.json` actual. Usado por `writeHealth` antes de
+  // overwritear el file con el payload del pipeline (para preservar
+  // la sección que el módulo circuit-breaker escribió durante los
+  // logins contra DJI).
+  readCircuitBreakerFromHealthFile: () => Record<string, unknown> | null;
 };
 
 interface MockPool {
@@ -219,6 +225,116 @@ describe("buildHealthPayload", () => {
       { order: 2, name: "upsert", status: "failed", durationMs: 500, error: "exit=1" }
     ]);
   });
+
+  // Sprint H2 follow-up (2026-08-02): el payload ahora puede incluir
+  // la sección `circuitBreaker` (espejo del state del circuit breaker
+  // del cliente DJI). El orchestrator (`writeHealth`) la lee del file
+  // pre-existente y la pasa acá.
+
+  it("incluye circuitBreaker en el payload cuando se pasa", () => {
+    const cb = {
+      state: "open" as const,
+      failureCount: 3,
+      openedAt: "2026-08-02T10:00:00.000Z",
+      lastFailureAt: "2026-08-02T10:00:00.000Z"
+    };
+    const payload = pipeline.buildHealthPayload({
+      steps: [],
+      finishedAt: Date.now(),
+      runStatus: "ok",
+      circuitBreaker: cb
+    });
+    expect(payload.circuitBreaker).toEqual(cb);
+  });
+
+  it("omite circuitBreaker del payload cuando es null (default)", () => {
+    const payload = pipeline.buildHealthPayload({
+      steps: [],
+      finishedAt: Date.now(),
+      runStatus: "ok"
+    });
+    // La key no debe estar presente (no `circuitBreaker: undefined`).
+    // Esto matchea el shape que consume `getCircuitBreakerState`: si
+    // la sección no está en el file, devuelve null.
+    expect("circuitBreaker" in payload).toBe(false);
+  });
+
+  it("omite circuitBreaker del payload cuando el caller pasa null explícito", () => {
+    const payload = pipeline.buildHealthPayload({
+      steps: [],
+      finishedAt: Date.now(),
+      runStatus: "ok",
+      circuitBreaker: null
+    });
+    expect("circuitBreaker" in payload).toBe(false);
+  });
+});
+
+// ============================================================
+// readCircuitBreakerFromHealthFile (filesystem real con tmpdir)
+// Sprint H2 follow-up (2026-08-02).
+// ============================================================
+
+describe("readCircuitBreakerFromHealthFile", () => {
+  let tmpDir: string;
+  let originalCwd: string;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), "run-pipeline-cb-"));
+    originalCwd = process.cwd();
+    process.chdir(tmpDir);
+    // Crear djiag_exports/ para que el path coincida con el código.
+    const { mkdirSync } = require("node:fs") as typeof import("node:fs");
+    mkdirSync(join(tmpDir, "djiag_exports"), { recursive: true });
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("devuelve null si el archivo no existe", () => {
+    expect(pipeline.readCircuitBreakerFromHealthFile()).toBeNull();
+  });
+
+  it("devuelve null si el JSON está corrupto", () => {
+    writeFileSync(join(tmpDir, "djiag_exports", "_health.json"), "{ not valid json", "utf8");
+    expect(pipeline.readCircuitBreakerFromHealthFile()).toBeNull();
+  });
+
+  it("devuelve null si el JSON no tiene la sección circuitBreaker", () => {
+    writeFileSync(
+      join(tmpDir, "djiag_exports", "_health.json"),
+      JSON.stringify({ lastRunAt: "2026-08-02T10:00:00.000Z" }),
+      "utf8"
+    );
+    expect(pipeline.readCircuitBreakerFromHealthFile()).toBeNull();
+  });
+
+  it("devuelve la sección circuitBreaker si está presente y válida", () => {
+    const cb = {
+      state: "open",
+      failureCount: 3,
+      openedAt: "2026-08-02T10:00:00.000Z",
+      lastFailureAt: "2026-08-02T10:00:00.000Z"
+    };
+    writeFileSync(
+      join(tmpDir, "djiag_exports", "_health.json"),
+      JSON.stringify({ lastRunAt: "2026-08-02T10:00:00.000Z", circuitBreaker: cb }),
+      "utf8"
+    );
+    expect(pipeline.readCircuitBreakerFromHealthFile()).toEqual(cb);
+  });
+
+  it("rechaza circuitBreaker con state inválido (defensivo)", () => {
+    writeFileSync(
+      join(tmpDir, "djiag_exports", "_health.json"),
+      JSON.stringify({ circuitBreaker: { state: "banana" } }),
+      "utf8"
+    );
+    // state debe ser uno de {closed, open, half-open}. Si no, descartar.
+    expect(pipeline.readCircuitBreakerFromHealthFile()).toBeNull();
+  });
 });
 
 // ============================================================
@@ -295,6 +411,9 @@ describe("writeHealthToDb", () => {
     expect(sql).toMatch(/INSERT INTO public\.djiag_health/);
     expect(sql).toMatch(/ON CONFLICT \(id\) DO UPDATE/);
     expect(sql).toMatch(/COALESCE\(EXCLUDED\.last_successful_sync_at/);
+    // Sprint H2 follow-up (2026-08-02): la columna circuit_breaker
+    // está en el INSERT y en el ON CONFLICT DO UPDATE.
+    expect(sql).toMatch(/circuit_breaker/);
     expect(params[0]).toBe(1); // id
     expect(params[1]).toBe("2026-07-24T10:00:00.000Z"); // last_run_at
     expect(params[2]).toBe("ok"); // last_run_status
@@ -304,6 +423,34 @@ describe("writeHealthToDb", () => {
     expect(params[6]).toBe(1207); // lands_count
     expect(typeof params[7]).toBe("string"); // steps JSON
     expect(JSON.parse(params[7] as string)).toEqual(payload.steps);
+    // Sprint H2 follow-up: circuit_breaker es null cuando el payload
+    // no incluye la sección (lectura del file falló o nunca hubo login).
+    expect(params[8]).toBeNull();
+  });
+
+  it("serializa circuitBreaker del payload como JSON string en el UPSERT", async () => {
+    const cb = {
+      state: "open" as const,
+      failureCount: 3,
+      openedAt: "2026-08-02T10:00:00.000Z",
+      lastFailureAt: "2026-08-02T10:00:00.000Z"
+    };
+    const payload = {
+      lastRunAt: "2026-08-02T10:00:00.000Z",
+      lastRunStatus: "ok",
+      lastSuccessfulSyncAt: "2026-08-02T10:00:00.000Z",
+      steps: [],
+      totals: { flights: 0, fumigations: 0, lands: 0 },
+      version: 1,
+      circuitBreaker: cb
+    };
+    await pipeline.writeHealthToDb(payload);
+    const [sql, params] = _mockPool.query.mock.calls[0] as [string, unknown[]];
+    expect(sql).toMatch(/circuit_breaker/);
+    // El param del INSERT debe ser el JSON stringificado (Postgres
+    // ::jsonb lo convierte a JSONB nativo).
+    expect(typeof params[8]).toBe("string");
+    expect(JSON.parse(params[8] as string)).toEqual(cb);
   });
 
   it("hace pool.end() después de la query (cleanup del connection)", async () => {

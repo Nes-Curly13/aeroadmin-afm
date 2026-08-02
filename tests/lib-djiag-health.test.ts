@@ -159,7 +159,8 @@ describe("readHealthFromDb", () => {
         flights_count: 1,
         fumigations_count: 1,
         lands_count: 1,
-        steps: []
+        steps: [],
+        circuit_breaker: null
       }
     ]);
     await readHealthFromDb(client);
@@ -171,6 +172,108 @@ describe("readHealthFromDb", () => {
     expect(sql).toMatch(/last_run_at/);
     expect(sql).toMatch(/last_run_status/);
     expect(sql).toMatch(/last_successful_sync_at/);
+    expect(sql).toMatch(/circuit_breaker/);
+  });
+
+  // ============================================================
+  // circuit_breaker column (Sprint H2 follow-up, 2026-08-02)
+  // Para deployments serverless (Vercel) donde el filesystem es
+  // ephemeral, la sección `circuitBreaker` del `_health.json` se
+  // espeja en la columna JSONB `circuit_breaker` de `djiag_health`.
+  // ============================================================
+
+  it("mapea circuit_breaker JSONB válido al shape circuitBreaker", async () => {
+    const client = makeMockClient([
+      {
+        last_run_at: new Date("2026-08-02T10:00:00.000Z"),
+        last_run_status: "ok",
+        last_successful_sync_at: new Date("2026-08-02T09:50:00.000Z"),
+        flights_count: 5,
+        fumigations_count: 2,
+        lands_count: 1207,
+        steps: [],
+        circuit_breaker: {
+          state: "open",
+          failureCount: 3,
+          openedAt: "2026-08-02T09:55:00.000Z",
+          lastFailureAt: "2026-08-02T09:55:00.000Z",
+          failureThreshold: 3,
+          resetTimeoutMs: 300000
+        }
+      }
+    ]);
+    const result = await readHealthFromDb(client);
+    expect(result?.circuitBreaker).toEqual({
+      state: "open",
+      failureCount: 3,
+      openedAt: "2026-08-02T09:55:00.000Z",
+      lastFailureAt: "2026-08-02T09:55:00.000Z",
+      failureThreshold: 3,
+      resetTimeoutMs: 300000
+    });
+  });
+
+  it("mapea circuit_breaker null a circuitBreaker: null (nunca login)", async () => {
+    const client = makeMockClient([
+      {
+        last_run_at: new Date(),
+        last_run_status: "ok",
+        last_successful_sync_at: new Date(),
+        flights_count: 0,
+        fumigations_count: 0,
+        lands_count: 0,
+        steps: [],
+        circuit_breaker: null
+      }
+    ]);
+    const result = await readHealthFromDb(client);
+    expect(result?.circuitBreaker).toBeNull();
+  });
+
+  it("rechaza circuit_breaker con state inválido (defensivo contra drift)", async () => {
+    const client = makeMockClient([
+      {
+        last_run_at: new Date(),
+        last_run_status: "ok",
+        last_successful_sync_at: new Date(),
+        flights_count: 0,
+        fumigations_count: 0,
+        lands_count: 0,
+        steps: [],
+        circuit_breaker: { state: "banana", failureCount: 1 }
+      }
+    ]);
+    const result = await readHealthFromDb(client);
+    // El check de la DB debería bloquear este valor, pero si llega
+    // acá (por drift o DB migration antigua sin check), descartamos
+    // la sección entera — mismo comportamiento que
+    // getCircuitBreakerState para el filesystem.
+    expect(result?.circuitBreaker).toBeNull();
+  });
+
+  it("normaliza campos faltantes de circuit_breaker con defaults", async () => {
+    const client = makeMockClient([
+      {
+        last_run_at: new Date(),
+        last_run_status: "ok",
+        last_successful_sync_at: new Date(),
+        flights_count: 0,
+        fumigations_count: 0,
+        lands_count: 0,
+        steps: [],
+        // Solo el state — sin failureCount, openedAt, etc.
+        circuit_breaker: { state: "half-open" }
+      }
+    ]);
+    const result = await readHealthFromDb(client);
+    expect(result?.circuitBreaker).toEqual({
+      state: "half-open",
+      failureCount: 0,
+      openedAt: null,
+      lastFailureAt: null,
+      failureThreshold: 3, // default
+      resetTimeoutMs: 300000 // default = 5min
+    });
   });
 });
 

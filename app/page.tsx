@@ -8,6 +8,7 @@ import { RecentActivity } from "@/components/dashboard/recent-activity"
 import { PageHeader } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import type { CyclePhase } from "@/lib/crop-cycle"
 import {
   DRONE_MODELS,
   getFlights,
@@ -17,6 +18,7 @@ import {
   getImportBatches,
   getParcelSummaries,
   getParcels,
+  getParcelsWithCycle,
   NOW,
 } from "@/lib/data"
 import { fmtDec, fmtInt, fmtLiters } from "@/lib/format"
@@ -36,6 +38,16 @@ export default async function DashboardPage() {
   const flights = await getFlights()
   const health = await getHealth()
   const batches = await getImportBatches()
+  // Sprint 2026-08-01 — "Fase de cultivo": el compliance panel muestra
+  // un chip de fase al lado del status dot. `getParcelsWithCycle()`
+  // mergea los cycle fields (planting_date, cycle_phase) a cada parcel
+  // con un try/catch resilente (degrada a null si la migration no
+  // se aplicó). Acá derivamos un Map<parcelId, cyclePhase> que es lo
+  // único que el panel necesita (no pasa el array entero).
+  const parcelsWithCycle = await getParcelsWithCycle()
+  const cycleByParcelId = new Map<string, CyclePhase | null>(
+    parcelsWithCycle.map((p) => [p.id, p.cycle_phase])
+  )
   const parcelById = new Map(parcels.map((p) => [p.id, p]))
 
   const inWindow = (iso: string, fromDays: number, toDays: number) => {
@@ -149,7 +161,7 @@ export default async function DashboardPage() {
 
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
           <div className="xl:col-span-2">
-            <CompliancePanel summaries={summaries} />
+            <CompliancePanel summaries={summaries} cycleByParcelId={cycleByParcelId} />
           </div>
           <HealthPanel health={health} batches={batches} />
         </div>

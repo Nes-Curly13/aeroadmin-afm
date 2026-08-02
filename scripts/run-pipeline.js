@@ -234,6 +234,51 @@ function fmtDuration(ms) {
 }
 
 /**
+ * Lee la sección `circuitBreaker` del `_health.json` actual (si existe).
+ *
+ * Sprint H2 follow-up (2026-08-02). El módulo `lib/djiag-circuit-breaker.js`
+ * persiste el state del circuit breaker en la sección `circuitBreaker` del
+ * mismo archivo que escribe este pipeline. Sin este read, el `writeHealthFile`
+ * que hace el pipeline AL FINAL clobberearía la sección (porque re-escribe
+ * el JSON entero). El fix es leerla antes y mergearla en el payload.
+ *
+ * Validación: state debe ser uno de {closed, open, half-open}, igual que
+ * `lib/djiag-health.ts#getCircuitBreakerState`. Si no matchea, descartamos
+ * (asumimos drift / versión incompatible del módulo circuit-breaker).
+ *
+ * Devuelve `null` si el archivo no existe, el JSON está corrupto, o la
+ * sección está ausente/inválida.
+ */
+function readCircuitBreakerFromHealthFile() {
+  const fs = require('fs');
+  const path = require('path');
+  const outPath = path.join(process.cwd(), 'djiag_exports', '_health.json');
+  let raw;
+  try {
+    raw = fs.readFileSync(outPath, 'utf8');
+  } catch {
+    return null; // archivo no existe, sin circuit breaker registrado
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null; // JSON corrupto
+  }
+  const cb = parsed?.circuitBreaker;
+  if (!cb || typeof cb !== 'object') return null;
+  if (cb.state !== 'closed' && cb.state !== 'open' && cb.state !== 'half-open') {
+    return null;
+  }
+  // Devolvemos la sección como está. Mantenemos los campos tal cual los
+  // escribió el módulo circuit-breaker (failureCount, openedAt, etc.).
+  // No normalizamos acá — el reader (lib/djiag-health.ts) normaliza al
+  // consumir, así que cualquier drift de defaults se maneja en un solo
+  // lugar (consistent con la regla "no duplicar lógica de validación").
+  return cb;
+}
+
+/**
  * XS1 (audit 2026-07-22, docs/DJIAG_AUDIT.md H1).
  * Sprint E — Task 2: también escribe a la tabla Postgres
  * `djiag_health` (singleton row id=1) para que el endpoint admin
@@ -247,8 +292,12 @@ function fmtDuration(ms) {
  * `totals` se estiman a partir de los step names (heurística: +1
  * por step "upsert X" OK). Si DJI cambia los nombres, este mapeo
  * se desactualiza — acceptable degradation, sigue siendo util.
+ *
+ * `circuitBreaker` (opcional): si se pasa, se incluye en el payload.
+ * El orchestrator (writeHealth) lo lee del file pre-existente antes
+ * de overwritear. Si no se pasa, no se incluye (null en la DB).
  */
-function buildHealthPayload({ steps, finishedAt, runStatus, prevLastSuccessfulSyncAt }) {
+function buildHealthPayload({ steps, finishedAt, runStatus, prevLastSuccessfulSyncAt, circuitBreaker = null }) {
   const totals = { flights: 0, fumigations: 0, lands: 0 };
   for (const s of steps) {
     if (s.status !== 'ok') continue;
@@ -258,7 +307,7 @@ function buildHealthPayload({ steps, finishedAt, runStatus, prevLastSuccessfulSy
   }
   const lastSuccessfulSyncAt =
     runStatus === 'ok' ? new Date(finishedAt).toISOString() : (prevLastSuccessfulSyncAt ?? null);
-  return {
+  const payload = {
     lastRunAt: new Date(finishedAt).toISOString(),
     lastRunStatus: runStatus,
     lastSuccessfulSyncAt,
@@ -272,6 +321,15 @@ function buildHealthPayload({ steps, finishedAt, runStatus, prevLastSuccessfulSy
     totals,
     version: 1
   };
+  // Solo incluir `circuitBreaker` si el caller lo proveyó (lectura
+  // exitosa del file). Si es null, NO incluimos la key — el shape
+  // esperado es "ausente" o "presente con state". Mantener
+  // `circuitBreaker: null` explícito en el payload también funciona,
+  // pero `undefined` (ausente) es lo que consume `getCircuitBreakerState`.
+  if (circuitBreaker) {
+    payload.circuitBreaker = circuitBreaker;
+  }
+  return payload;
 }
 
 /**
@@ -338,11 +396,19 @@ async function writeHealthToDb(payload) {
     // `last_successful_sync_at` se preserva del valor previo si
     // EXCLUDED.last_successful_sync_at es null. Eso cubre el caso
     // "esta corrida fue partial/failed pero la anterior fue ok".
+    // `circuit_breaker` se pasa como null si el payload no incluye la
+    // sección (lectura del file falló o nunca hubo login). La columna
+    // es nullable en la tabla (ver migration
+    // 20260802000000_add_circuit_breaker_to_djiag_health.sql).
+    const circuitBreakerJson = payload.circuitBreaker
+      ? JSON.stringify(payload.circuitBreaker)
+      : null;
     await pool.query(
       `INSERT INTO public.djiag_health (
         id, last_run_at, last_run_status, last_successful_sync_at,
-        flights_count, fumigations_count, lands_count, steps, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, now())
+        flights_count, fumigations_count, lands_count, steps,
+        circuit_breaker, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, now())
       ON CONFLICT (id) DO UPDATE SET
         last_run_at = EXCLUDED.last_run_at,
         last_run_status = EXCLUDED.last_run_status,
@@ -351,6 +417,7 @@ async function writeHealthToDb(payload) {
         fumigations_count = EXCLUDED.fumigations_count,
         lands_count = EXCLUDED.lands_count,
         steps = EXCLUDED.steps,
+        circuit_breaker = EXCLUDED.circuit_breaker,
         updated_at = now()`,
       [
         1,
@@ -360,11 +427,12 @@ async function writeHealthToDb(payload) {
         payload.totals.flights,
         payload.totals.fumigations,
         payload.totals.lands,
-        JSON.stringify(payload.steps)
+        JSON.stringify(payload.steps),
+        circuitBreakerJson
       ]
     );
     if (process.env.DEBUG_PIPELINE) {
-      console.error(`[health] wrote djiag_health (status=${payload.lastRunStatus}, steps=${payload.steps.length})`);
+      console.error(`[health] wrote djiag_health (status=${payload.lastRunStatus}, steps=${payload.steps.length}, cb=${payload.circuitBreaker?.state ?? 'none'})`);
     }
   } catch (err) {
     // No fallar el pipeline. La tabla puede no existir todavía
@@ -460,6 +528,12 @@ function checkCircuitBreaker({ healthFilePath, now } = {}) {
  * Orquestador: construye el payload y lo escribe a filesystem + DB.
  * Si el filesystem write falla, el DB write sigue intentando (y
  * viceversa). Best-effort, no rompe el pipeline.
+ *
+ * Sprint H2 follow-up (2026-08-02): antes de construir el payload,
+ * lee la sección `circuitBreaker` del `_health.json` actual (si
+ * existe) y la incluye. Sin esto, el `writeHealthFile` que overwrite
+ * el archivo clobberearía la sección que `lib/djiag-circuit-breaker.js`
+ * había escrito durante los logins.
  */
 async function writeHealth({ steps, startedAt, finishedAt, runStatus }) {
   // `startedAt` se conserva en la firma por compat con callers
@@ -467,11 +541,17 @@ async function writeHealth({ steps, startedAt, finishedAt, runStatus }) {
   // para lastRunAt/lastSuccessfulSyncAt).
   void startedAt;
   const prevLastSuccessfulSyncAt = readLastSuccessfulSyncAt();
+  // Leer el circuit breaker del file ANTES de overwritear. Si la
+  // sección no existe (nunca se intentó login o el module es de una
+  // versión anterior), `readCircuitBreakerFromHealthFile` devuelve
+  // `null` y `buildHealthPayload` no la incluye.
+  const circuitBreaker = readCircuitBreakerFromHealthFile();
   const payload = buildHealthPayload({
     steps,
     finishedAt,
     runStatus,
-    prevLastSuccessfulSyncAt
+    prevLastSuccessfulSyncAt,
+    circuitBreaker
   });
   // Filesystem write (síncrono, no puede tirar async).
   writeHealthFile(payload);
@@ -809,6 +889,11 @@ if (require.main !== module) {
     // antes de spawnear children. Exportada para que
     // tests/scripts-run-pipeline-circuit-breaker.test.ts la pueda
     // testear con healthFilePath apuntando a un tmpdir.
-    checkCircuitBreaker
+    checkCircuitBreaker,
+    // Sprint H2 follow-up (2026-08-02). Lee la sección `circuitBreaker`
+    // del `_health.json` actual. Exportada para tests que verifiquen
+    // que el payload incluye la sección cuando está presente y la omite
+    // cuando no.
+    readCircuitBreakerFromHealthFile
   };
 }

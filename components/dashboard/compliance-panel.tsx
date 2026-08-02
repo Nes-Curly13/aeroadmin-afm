@@ -1,13 +1,36 @@
 import { ArrowUpRight } from "lucide-react"
 import Link from "next/link"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { phaseChipClass, phaseLabel, type CyclePhase } from "@/lib/crop-cycle"
 import { STATUS_META } from "@/lib/data-constants"
 import { fmtDec, fmtRelative } from "@/lib/format"
 import type { ComplianceStatus, ParcelSummary } from "@/lib/types"
 
 const ORDER: ComplianceStatus[] = ["al_dia", "por_vencer", "vencido", "critico"]
 
-export function CompliancePanel({ summaries }: { summaries: ParcelSummary[] }) {
+/**
+ * Compliance panel: muestra distribución de cadencia (al_dia / por_vencer /
+ * vencido / crítico) y los top-N parcelas que requieren atención.
+ *
+ * Sprint 2026-08-01 — "Fase de cultivo y cadencia efectiva": ahora cada
+ * parcela en la lista de atención puede mostrar un chip de fase al
+ * lado del dot de estado. El caller pasa `cycleByParcelId` (Map<parcelId,
+ * CyclePhase>) que se construye desde `getParcelsWithCycle()` en
+ * `app/page.tsx`. Si no se pasa, el chip no se renderiza (backward-compat
+ * con callers que no quieren pagarlo — útil para tests).
+ *
+ * Por qué solo el `Map` y no la lista entera de `DjiParcelWithCycle[]`:
+ * este panel solo necesita `cyclePhase` (no `planting_date`). El caller
+ * deriva el Map de los parcels y se lo pasa; más eficiente que pasar
+ * el array y filtrar acá.
+ */
+export function CompliancePanel({
+  summaries,
+  cycleByParcelId
+}: {
+  summaries: ParcelSummary[]
+  cycleByParcelId?: Map<number | string, CyclePhase | null>
+}) {
   const total = summaries.length
   const counts = ORDER.map((s) => ({ status: s, count: summaries.filter((x) => x.status === s).length }))
   const attention = summaries
@@ -53,33 +76,56 @@ export function CompliancePanel({ summaries }: { summaries: ParcelSummary[] }) {
           </p>
           {attention.length === 0 && <p className="text-sm text-muted-foreground">Todo el portafolio está al día.</p>}
           <ul className="divide-y divide-border">
-            {attention.map((s) => (
-              <li key={s.parcel.id}>
-                <Link
-                  href={`/parcelas/${s.parcel.id}`}
-                  className="flex items-center gap-3 py-2 transition-colors hover:text-primary"
-                >
-                  <span
-                    className="size-2.5 shrink-0 rounded-sm"
-                    style={{ backgroundColor: STATUS_META[s.status].color }}
-                    aria-hidden
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-semibold">
-                      {s.parcel.name} · {s.parcel.farm_name}
+            {attention.map((s) => {
+              // Lookup de fase. Solo si cycleByParcelId se proveyó Y tiene
+              // el id de este parcel. Map.get() devuelve undefined si no
+              // está; con `?? null` lo normalizamos a null (= sin fase).
+              const phase = cycleByParcelId?.get(s.parcel.id) ?? null;
+              return (
+                <li key={s.parcel.id}>
+                  <Link
+                    href={`/parcelas/${s.parcel.id}`}
+                    className="flex items-center gap-3 py-2 transition-colors hover:text-primary"
+                  >
+                    <span
+                      className="size-2.5 shrink-0 rounded-sm"
+                      style={{ backgroundColor: STATUS_META[s.status].color }}
+                      aria-hidden
+                    />
+                    {/* Chip de fase (solo si cycleByParcelId se proveyó).
+                        Pequeño, debajo del dot, en una sola línea con
+                        shrink-0 para que no empuje el metadata. Si la
+                        fase es null (migration no aplicada o backfill
+                        pendiente), no se renderiza el chip. */}
+                    {cycleByParcelId !== undefined && (
+                      <span
+                        className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${phaseChipClass(phase)}`}
+                        title={
+                          phase
+                            ? `Fase de cultivo: ${phaseLabel(phase)}`
+                            : "Fase de cultivo desconocida (sin backfill de planting_date o migration no aplicada)"
+                        }
+                      >
+                        {`Fase: ${phaseLabel(phase)}`}
+                      </span>
+                    )}
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-semibold">
+                        {s.parcel.name} · {s.parcel.farm_name}
+                      </span>
+                      <span className="block text-[11px] text-muted-foreground">
+                        {fmtDec(s.parcel.area_ha)} ha · cadencia {s.schedule.cadence_days} d · última aplicación{" "}
+                        {fmtRelative(s.last_fumigation_at)}
+                      </span>
                     </span>
-                    <span className="block text-[11px] text-muted-foreground">
-                      {fmtDec(s.parcel.area_ha)} ha · cadencia {s.schedule.cadence_days} d · última aplicación{" "}
-                      {fmtRelative(s.last_fumigation_at)}
+                    <span className="tabular shrink-0 font-mono text-xs font-bold text-destructive">
+                      {`${Math.abs(s.days_to_due ?? 0)} d vencida`}
                     </span>
-                  </span>
-                  <span className="tabular shrink-0 font-mono text-xs font-bold text-destructive">
-                    {`${Math.abs(s.days_to_due ?? 0)} d vencida`}
-                  </span>
-                  <ArrowUpRight className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-                </Link>
-              </li>
-            ))}
+                    <ArrowUpRight className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                  </Link>
+                </li>
+              );
+            })}
           </ul>
         </div>
       </CardContent>
