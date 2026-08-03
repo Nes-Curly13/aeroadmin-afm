@@ -153,23 +153,6 @@ export function GeovisorClient({ payload }: { payload: GeovisorPayload }) {
           showFilters ? "lg:w-76" : "lg:w-0 lg:overflow-hidden lg:border-r-0 lg:p-0",
         )}
       >
-        {/* S8.8 (2026-07-31): logo AFM en el header del sidebar.
-            SVG es 485x695 (vertical), escalado a h-24 mantiene aspect ratio.
-            Link al dashboard para que el logo sirva de home. */}
-        <Link
-          href="/dashboard"
-          aria-label="Ir al panel principal"
-          className="flex justify-center border-b border-border pb-4 -mx-1"
-        >
-          <img
-            src="/afm-logo.svg"
-            alt="AeroAdmin Fumigación"
-            className="h-24 w-auto"
-            width={485}
-            height={695}
-          />
-        </Link>
-
         <div className="flex items-center gap-2">
           <SlidersHorizontal className="size-4 text-primary" aria-hidden />
           <h2 className="text-sm font-bold tracking-tight">Filtros</h2>

@@ -1,4 +1,5 @@
 import Image from "next/image"
+import Link from "next/link"
 import { LogOut } from "lucide-react"
 import { fmtRelative } from "@/lib/format"
 import { logoutAction } from "@/app/login/actions"
@@ -48,15 +49,30 @@ export function AppShell({
     <div className="flex min-h-svh flex-col lg:flex-row">
       <aside className="flex shrink-0 flex-col gap-6 border-b border-sidebar-border bg-sidebar px-4 py-4 text-sidebar-foreground lg:sticky lg:top-0 lg:h-svh lg:w-64 lg:border-b-0 lg:border-r lg:py-6">
         <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="flex size-10 items-center justify-center overflow-hidden rounded-md bg-white">
-              <Image src="/afm-logo.svg" alt="Logo AFM" width={40} height={40} className="size-10 object-contain" />
+          <Link
+            href="/dashboard"
+            aria-label="Ir al panel principal"
+            className="flex items-center gap-3"
+          >
+            {/* S8.8 (v2.7.1): el SVG es vertical (485x695). Para que se vea
+                completo en el sidebar horizontal, usamos object-contain
+                con un contenedor mas alto que ancho (h-12 w-auto, ratio 0.7).
+                La palabra "AFM Geovisor" + subtitulo van a la derecha. */}
+            <div className="flex h-12 w-[34px] items-center justify-center overflow-hidden rounded-md bg-white">
+              <Image
+                src="/afm-logo.svg"
+                alt="Logo AFM"
+                width={485}
+                height={695}
+                className="h-full w-full object-contain"
+                priority
+              />
             </div>
             <div className="flex flex-col leading-tight">
               <span className="text-sm font-extrabold tracking-tight">AFM Geovisor</span>
               <span className="text-[11px] text-sidebar-foreground/60">Fumigación de caña · Valle</span>
             </div>
-          </div>
+          </Link>
           <div className="lg:hidden">
             <span className={`inline-block size-2 rounded-full ${statusColor}`} aria-hidden />
             <span className="sr-only">{`Estado del pipeline: ${status}`}</span>

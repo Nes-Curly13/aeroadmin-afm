@@ -2,7 +2,7 @@ import { test, expect, type Page } from "@playwright/test"
 
 /**
  * S8.8 — Verifica los cambios de UI en el geovisor:
- *   1. Logo AFM en el sidebar izquierdo
+ *   1. Logo AFM en el sidebar IZQUIERDO (app shell) — NO en Filtros
  *   2. Sin VENTANA TEMPORAL (slider de tiempo)
  *   3. CAPAS tiene simbologia visible (cuadrado rojo, circulo amarillo, glyph "Aa")
  *   4. Sidebar de filtros se sigue renderizando
@@ -18,17 +18,17 @@ async function login(page: Page) {
   await page.waitForURL((u) => !u.toString().includes("/login"), { timeout: 15_000 })
 }
 
-test("geovisor UI v8.8: logo + sin ventana temporal + simbologia en CAPAS", async ({ page }) => {
+test("geovisor UI v8.8: logo en sidebar izquierdo + sin ventana temporal + simbologia en CAPAS", async ({ page }) => {
   await login(page)
   await page.goto("/geovisor")
   await expect(page).toHaveURL(/\/geovisor/)
   await page.waitForTimeout(5000)
 
-  // 1. Logo AFM en sidebar
-  const logo = page.getByRole("link", { name: /Ir al panel principal/i }).locator("img")
+  // 1. Logo AFM en sidebar IZQUIERDO (app shell). Buscamos el <img> con
+  //    src que apunte a /afm-logo.svg. El link al dashboard lo envuelve.
+  const logo = page.locator('img[src="/afm-logo.svg"]')
   await expect(logo).toBeVisible()
-  await expect(logo).toHaveAttribute("src", /\/afm-logo\.svg$/)
-  await expect(logo).toHaveAttribute("alt", /AeroAdmin Fumigaci.n/i)
+  await expect(logo).toHaveAttribute("alt", /Logo AFM/i)
 
   // 2. NO debe haber "Ventana temporal" en ningun lado
   await expect(page.getByText(/ventana temporal/i)).toHaveCount(0)
@@ -42,9 +42,6 @@ test("geovisor UI v8.8: logo + sin ventana temporal + simbologia en CAPAS", asyn
   await expect(labelsLayer).toBeVisible()
 
   // 4. La simbologia debe estar dentro de cada layer button
-  //   - Parcelas: span con background-color critico (rojo)
-  //   - Aplicaciones: span con background-color #f5e839 (amarillo)
-  //   - Etiquetas: span con texto "Aa"
   const parcelasSym = parcelasLayer.locator("span[aria-hidden]").first()
   const appsSym = appsLayer.locator("span[aria-hidden]").first()
   const labelsSym = labelsLayer.locator("span[aria-hidden]").first()
