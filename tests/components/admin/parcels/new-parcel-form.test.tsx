@@ -167,6 +167,43 @@ describe("NewParcelForm — submit OK", () => {
     });
   });
 
+  it("redirige a ?action=fumigar cuando el operador marca 'Fumigar inmediatamente'", async () => {
+    const user = userEvent.setup();
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 201,
+      json: async () => ({ parcel: { id: 100 } })
+    } as Response);
+
+    render(<NewParcelForm />);
+    await user.type(getInput(/Nombre del lote/), "Lote Fumigable");
+    await user.click(screen.getByTestId("fake-drawer"));
+    // Marcar el checkbox
+    const checkbox = screen.getByRole("checkbox", {
+      name: /Fumigar inmediatamente después/i
+    });
+    await user.click(checkbox);
+    expect(checkbox).toBeChecked();
+
+    fireEvent.submit(screen.getByRole("button", { name: /Crear parcela/ }).closest("form")!);
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+    // Redirige con ?action=fumigar
+    await waitFor(() => {
+      expect(mockPush).toHaveBeenCalledWith("/parcelas/100?action=fumigar");
+    });
+  });
+
+  it("el checkbox está desmarcado por default", () => {
+    render(<NewParcelForm />);
+    const checkbox = screen.getByRole("checkbox", {
+      name: /Fumigar inmediatamente después/i
+    });
+    expect(checkbox).not.toBeChecked();
+  });
+
   it("ignora campos vacíos en el body (los manda como null/los omite)", async () => {
     const user = userEvent.setup();
     mockFetch.mockResolvedValueOnce({

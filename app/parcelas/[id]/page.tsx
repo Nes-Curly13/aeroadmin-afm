@@ -6,6 +6,7 @@ import { FumigationTimeline } from "@/components/parcels/fumigation-timeline"
 import { IntervalChart } from "@/components/parcels/interval-chart"
 import { ParcelMap } from "@/components/parcels/parcel-map"
 import { RegisterFumigationForm } from "@/components/parcels/register-fumigation-form"
+import { AutoFocusFumigation } from "@/components/parcels/auto-focus-fumigation"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -281,7 +282,11 @@ export default async function ParcelaPage({ params }: { params: Promise<{ id: st
                 hace POST a /api/admin/fumigations. El client
                 component hace router.refresh() al success para
                 que el timeline de abajo se re-fetche. */}
-            <Card>
+            {/* Sub-sprint 3 (2026-08-04): si el URL tiene ?action=fumigar,
+                scrollea al form y enfoca el primer input. Usado cuando
+                el operador crea la parcela con "Fumigar inmediatamente". */}
+            <AutoFocusFumigation />
+            <Card id="fumigacion-card">
               <CardHeader className="pb-3">
                 <CardTitle className="flex items-center gap-2 text-base">
                   <Plus className="size-4 text-primary" aria-hidden />

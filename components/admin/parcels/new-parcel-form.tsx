@@ -49,6 +49,12 @@ interface FormState {
   owner_name: string;
   owner_contact: string;
   supervisor_notes: string;
+  /**
+   * Si está marcado, después de crear la parcela redirigimos al
+   * detalle con foco en el form de fumigación (sprint 2026-08-04,
+   * sub-sprint 3 — wizard integrado de alta + fumigación inicial).
+   */
+  fumigar_ahora: boolean;
 }
 
 function emptyForm(): FormState {
@@ -64,7 +70,8 @@ function emptyForm(): FormState {
     planting_date: "",
     owner_name: "",
     owner_contact: "",
-    supervisor_notes: ""
+    supervisor_notes: "",
+    fumigar_ahora: false
   };
 }
 
@@ -135,7 +142,14 @@ export function NewParcelForm() {
       }
       const data = (await res.json()) as { parcel: { id: number } };
       // Redirigir al detalle de la parcela recién creada.
-      router.push(`/parcelas/${data.parcel.id}`);
+      // Si el operador marcó "Fumigar inmediatamente", agregamos el
+      // query param `?action=fumigar` para que el detail page haga
+      // scroll al form de fumigación y lo enfoque. Esto cierra el
+      // sub-sprint 3 del wizard integrado (alta + fumigación inicial).
+      const dest = form.fumigar_ahora
+        ? `/parcelas/${data.parcel.id}?action=fumigar`
+        : `/parcelas/${data.parcel.id}`;
+      router.push(dest);
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "error de red");
@@ -348,6 +362,35 @@ export function NewParcelForm() {
             aria-label="Notas del supervisor"
           />
         </label>
+
+        {/* Sub-sprint 3: checkbox "Fumigar inmediatamente". Si está
+            marcado, después de crear la parcela redirigimos al detail
+            con foco en el form de fumigación. El operador llena
+            parcela + fumigación inicial en un solo flujo.
+
+            NOTA: usamos un <div> como wrapper (no <label>) para evitar
+            un bug de React 19 con <label><input type=checkbox/></label>
+            en el que el click resetea el state del form completo. */}
+        <div className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-sm">
+          <input
+            id="fumigar-ahora"
+            type="checkbox"
+            checked={form.fumigar_ahora}
+            onChange={(e) => {
+              const checked = e.target.checked;
+              setForm((prev) => ({ ...prev, fumigar_ahora: checked }));
+            }}
+            disabled={isPending}
+            className="size-4 accent-primary"
+            aria-describedby="fumigar-ahora-help"
+          />
+          <label htmlFor="fumigar-ahora" className="flex-1 cursor-pointer">
+            <span className="font-medium">Fumigar inmediatamente después</span>
+            <span id="fumigar-ahora-help" className="ml-2 text-xs text-muted-foreground">
+              Después de crear la parcela, te llevo al form de fumigación con la parcela ya elegida.
+            </span>
+          </label>
+        </div>
 
         <div className="flex justify-end pt-2">
           <Button type="submit" size="sm" disabled={isPending}>
