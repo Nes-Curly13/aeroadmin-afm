@@ -469,6 +469,311 @@ export async function updateParcelMetadata(
   );
 }
 
+// ============================================================
+// Alta manual de parcelas (sprint 2026-08-04, feature/parcel-onboarding)
+// ============================================================
+
+/**
+ * GeoJSON Polygon o MultiPolygon. Aceptamos Polygon simple y lo
+ * convertimos a MultiPolygon en SQL para mantener la columna como
+ * MultiPolygon (que es lo que espera `dji_parcels.spray_geom`).
+ *
+ * El operador puede entregar:
+ *   - GeoJSON Polygon  (frontend: terra-draw devuelve Polygon)
+ *   - GeoJSON MultiPolygon (frontend: si une varios polígonos)
+ */
+export type ManualParcelGeometry = {
+  type: "Polygon" | "MultiPolygon";
+  coordinates: number[][][] | number[][][][];
+};
+
+/** GeoJSON Point — para el centroid de la parcela. */
+export type ManualParcelPoint = {
+  type: "Point";
+  coordinates: [number, number];
+};
+
+/**
+ * Datos alfanuméricos para alta manual. NO incluye geometría
+ * (se pasa por separado para mantener la firma legible).
+ *
+ * Validación de lengths: el server pre-valida los límites
+ * razonables. La BD tiene CHECK constraints adicionales (ej
+ * `length(luck_name) <= 100`, `source IN ('dji','manual','imported')`).
+ * Si algún CHECK falla, pg tira 23514 que el route handler mapea a 400.
+ */
+export type CreateManualParcelInput = {
+  /** Nombre visible de la parcela (obligatorio, max 200). */
+  land_name: string;
+  /** Tipo de campo DJI (obligatorio, "Farmland" | "Orchards" | otro). */
+  field_type: string;
+  /** Suerte (opcional, max 100). */
+  luck_name?: string | null;
+  /** Cliente / ingenio (opcional, max 200). */
+  client_name?: string | null;
+  /** Hacienda (opcional, max 200). */
+  farm_name?: string | null;
+  /** Municipio (opcional, max 100). */
+  municipality?: string | null;
+  /** Variedad (opcional, max 100). */
+  variety?: string | null;
+  /** Cultivo declarado por el supervisor (opcional, max 100). */
+  crop_type?: string | null;
+  /** Fecha de siembra (opcional, formato YYYY-MM-DD). */
+  planting_date?: string | null;
+  /** Propietario (opcional, max 200). */
+  owner_name?: string | null;
+  /** Contacto del propietario (opcional, max 200). */
+  owner_contact?: string | null;
+  /** Notas del supervisor (opcional, max 2000). */
+  supervisor_notes?: string | null;
+  /** Geometría (obligatoria para alta manual). */
+  geometry: ManualParcelGeometry;
+  /** Geometría centroid (opcional, default = ST_Centroid(geometry)). */
+  reference_point?: ManualParcelPoint | null;
+};
+
+/**
+ * Helper para tirar un error de validación con un code distinguible.
+ * El route handler (`mapErrorToHttp`) usa `code === "VALIDATION"` para
+ * distinguir errores de validación (→ 400 con mensaje legible) de
+ * errores de BD o de red (→ 500). Sin esto, cualquier Error.message
+ * legible se mapea a 400 y un error de BD real quedaría como 400.
+ */
+function validationError(message: string): Error & { code: string } {
+  const err = new Error(message) as Error & { code: string };
+  err.code = "VALIDATION";
+  return err;
+}
+
+/**
+ * Valida los limits razonables. Tira Error con `code: "VALIDATION"`
+ * si algún campo excede el límite. La BD tiene los CHECK constraints
+ * como red de seguridad (devuelve 23514 → 400).
+ */
+function validateManualParcelInput(input: CreateManualParcelInput): void {
+  if (!input.land_name || input.land_name.trim().length === 0) {
+    throw validationError("land_name es obligatorio");
+  }
+  if (input.land_name.length > 200) {
+    throw validationError("land_name max 200 chars");
+  }
+  if (!input.field_type || input.field_type.trim().length === 0) {
+    throw validationError("field_type es obligatorio");
+  }
+  if (input.luck_name != null && input.luck_name.length > 100) {
+    throw validationError("luck_name max 100 chars");
+  }
+  if (input.client_name != null && input.client_name.length > 200) {
+    throw validationError("client_name max 200 chars");
+  }
+  if (input.farm_name != null && input.farm_name.length > 200) {
+    throw validationError("farm_name max 200 chars");
+  }
+  if (input.municipality != null && input.municipality.length > 100) {
+    throw validationError("municipality max 100 chars");
+  }
+  if (input.variety != null && input.variety.length > 100) {
+    throw validationError("variety max 100 chars");
+  }
+  if (input.crop_type != null && input.crop_type.length > 100) {
+    throw validationError("crop_type max 100 chars");
+  }
+  if (input.planting_date != null && !/^\d{4}-\d{2}-\d{2}$/.test(input.planting_date)) {
+    throw validationError("planting_date debe tener formato YYYY-MM-DD");
+  }
+  if (input.owner_name != null && input.owner_name.length > 200) {
+    throw validationError("owner_name max 200 chars");
+  }
+  if (input.owner_contact != null && input.owner_contact.length > 200) {
+    throw validationError("owner_contact max 200 chars");
+  }
+  if (input.supervisor_notes != null && input.supervisor_notes.length > 2000) {
+    throw validationError("supervisor_notes max 2000 chars");
+  }
+  // Geometría: validación laxa (decisión QA 2026-08-04). Solo
+  // chequeamos que el type sea Polygon|MultiPolygon. La BD no
+  // rechaza por auto-intersección (sin ST_IsValid) — si el
+  // operador dibujó mal, ve el resultado en el mapa y puede
+  // re-dibujar (PATCH /api/admin/parcels/[id]/geometry).
+  if (
+    !input.geometry ||
+    (input.geometry.type !== "Polygon" && input.geometry.type !== "MultiPolygon")
+  ) {
+    throw validationError("geometry debe ser Polygon o MultiPolygon GeoJSON");
+  }
+  if (input.geometry.type === "Polygon") {
+    const ring = (input.geometry.coordinates as number[][][])[0];
+    if (!Array.isArray(ring) || ring.length < 4) {
+      throw validationError("Polygon debe tener al menos 4 vértices (3 + cierre)");
+    }
+  } else {
+    const polys = input.geometry.coordinates as number[][][][];
+    if (!Array.isArray(polys) || polys.length === 0) {
+      throw validationError("MultiPolygon debe tener al menos un polígono");
+    }
+  }
+  if (
+    input.reference_point != null &&
+    input.reference_point.type !== "Point"
+  ) {
+    throw validationError("reference_point debe ser GeoJSON Point");
+  }
+}
+
+/**
+ * Crea una parcela manual. El server inyecta:
+ *   - source = 'manual'
+ *   - batch_id = NULL
+ *   - external_id = 'manual-{uuid-v4}'
+ *
+ * Devuelve el row completo (mismo shape que `getParcelById`).
+ *
+ * Importante: NO usamos `withLocalFallback` acá porque silenciaría
+ * los errores de CHECK constraint (23514) de la BD. Esos errores
+ * los necesitamos propagar al route handler para mapearlos a 400.
+ * Si la BD está caída, el error se propaga y el route handler lo
+ * mapea a 500 — que es el comportamiento correcto.
+ */
+export async function createManualParcel(
+  input: CreateManualParcelInput
+): Promise<DjiParcelRecord> {
+  validateManualParcelInput(input);
+
+  const db = getDb();
+  const externalId = `manual-${crypto.randomUUID()}`;
+  const result = await db.query<DjiParcelRecord>(
+    `
+      INSERT INTO dji_parcels (
+        batch_id, external_id, source,
+        land_name, field_type, is_orchard,
+        declared_area_ha, spray_area_m2,
+        luck_name, client_name, farm_name, municipality, variety,
+        crop_type, planting_date, owner_name, owner_contact, supervisor_notes,
+        spray_geom, reference_point
+      )
+      VALUES (
+        NULL, $1, 'manual',
+        $2, $3, false,
+        $4, $5,
+        $6, $7, $8, $9, $10,
+        $11, $12, $13, $14, $15,
+        ST_Multi(ST_GeomFromGeoJSON($16::text)),
+        CASE WHEN $17::text IS NULL
+             THEN ST_Centroid(ST_Multi(ST_GeomFromGeoJSON($16::text)))
+             ELSE ST_GeomFromGeoJSON($17::text)
+        END
+      )
+      RETURNING id
+    `,
+    [
+      externalId,
+      input.land_name.trim(),
+      input.field_type.trim(),
+      // declared_area_ha y spray_area_m2 los dejamos NULL: el
+      // operador los puede cargar después, o los derivamos
+      // de la geometría en otro sprint.
+      null,
+      null,
+      input.luck_name?.trim() ?? null,
+      input.client_name?.trim() ?? null,
+      input.farm_name?.trim() ?? null,
+      input.municipality?.trim() ?? null,
+      input.variety?.trim() ?? null,
+      input.crop_type?.trim() ?? null,
+      input.planting_date ?? null,
+      input.owner_name?.trim() ?? null,
+      input.owner_contact?.trim() ?? null,
+      input.supervisor_notes?.trim() ?? null,
+      JSON.stringify(input.geometry),
+      input.reference_point ? JSON.stringify(input.reference_point) : null
+    ]
+  );
+  const created = result.rows[0];
+  if (!created) {
+    throw new Error("INSERT no devolvió row");
+  }
+  invalidateAfterParcelMutation();
+  return getParcelById(Number(created.id)) as Promise<DjiParcelRecord>;
+}
+
+/**
+ * Reemplaza la geometría de una parcela. Usado cuando el operador
+ * re-dibuja el polígono. La fumigación pasada queda asociada a la
+ * geometría anterior (no se migra), pero el detalle de la parcela
+ * muestra la nueva forma a partir de este momento.
+ *
+ * Loguea el cambio en `djiag_audit_log` para que el supervisor pueda
+ * revisar quién modificó la geometría y cuándo.
+ *
+ * Mismo rationale que `createManualParcel`: NO usamos withLocalFallback
+ * para que los errores de BD (23514, 23502, 23503) se propaguen al
+ * route handler y se mapeen a 400.
+ */
+export async function updateParcelGeometry(
+  id: number,
+  geometry: ManualParcelGeometry,
+  changeReason: string
+): Promise<DjiParcelRecord | null> {
+  if (
+    !geometry ||
+    (geometry.type !== "Polygon" && geometry.type !== "MultiPolygon")
+  ) {
+    throw validationError("geometry debe ser Polygon o MultiPolygon GeoJSON");
+  }
+  if (geometry.type === "Polygon") {
+    const ring = (geometry.coordinates as number[][][])[0];
+    if (!Array.isArray(ring) || ring.length < 4) {
+      throw validationError("Polygon debe tener al menos 4 vértices (3 + cierre)");
+    }
+  } else {
+    const polys = geometry.coordinates as number[][][][];
+    if (!Array.isArray(polys) || polys.length === 0) {
+      throw validationError("MultiPolygon debe tener al menos un polígono");
+    }
+  }
+  if (!changeReason || changeReason.trim().length === 0) {
+    throw validationError("changeReason es obligatorio para auditoría");
+  }
+  if (changeReason.length > 500) {
+    throw validationError("changeReason max 500 chars");
+  }
+
+  const db = getDb();
+  // Verificar existencia (mismo criterio que updateParcelMetadata:
+  // NO actualizamos parcelas soft-deleted).
+  const existing = await db.query<{ id: number }>(
+    `SELECT id FROM dji_parcels WHERE id = $1 AND deleted_at IS NULL`,
+    [id]
+  );
+  if (existing.rows.length === 0) return null;
+
+  const geomJson = JSON.stringify(geometry);
+  await db.query(
+    `
+      UPDATE dji_parcels
+         SET spray_geom = ST_Multi(ST_GeomFromGeoJSON($2::text)),
+             reference_point = ST_Centroid(ST_Multi(ST_GeomFromGeoJSON($2::text)))
+       WHERE id = $1
+    `,
+    [id, geomJson]
+  );
+  // Log de auditoría: la tabla djiag_audit_log ya existe (ver
+  // migration 20260707000000). Si no existe en este entorno, lo
+  // capturamos silenciosamente (best-effort).
+  try {
+    await db.query(
+      `INSERT INTO djiag_audit_log (entity_type, entity_id, action, payload, recorded_at)
+         VALUES ('parcel', $1, 'geometry_update', $2::jsonb, NOW())`,
+      [id, JSON.stringify({ reason: changeReason, geom_type: geometry.type })]
+    );
+  } catch {
+    // Tabla no existe — el PATCH sigue siendo válido.
+  }
+  invalidateAfterParcelMutation();
+  return getParcelById(id);
+}
+
 /**
  * Devuelve una sola parcela por id, con todas sus geometrías como GeoJSON.
  * Devuelve null si no existe.
