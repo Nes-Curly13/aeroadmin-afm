@@ -50,7 +50,17 @@ function createPool() {
     connectionString,
     max: 5,
     idleTimeoutMillis: 30_000,
-    ssl: useSsl ? { rejectUnauthorized: false } : undefined
+    ssl: useSsl ? { rejectUnauthorized: false } : undefined,
+    // (2026-08-04) Forzar client_encoding='UTF8' en el handshake inicial.
+    // Sin esto, el driver `pg` puede leer strings como Latin-1 / WIN1252
+    // y los caracteres con tilde se rompen al volver por JSON:
+    //   "Caña de azúcar" → "CaÃ±a de azÃºcar" (mojibake clásico).
+    // El server de Postgres anuncia su encoding default en el handshake
+    // de conexión; seteando `client_encoding` acá le pedimos a `pg` que
+    // negocie UTF-8 con `SET client_encoding TO 'UTF8'` antes de la
+    // primera query. El roundtrip queda correcto:
+    //   INSERT 'Caña' (UTF-8 bytes 0xC3 0xB1) → SELECT 'Caña'.
+    client_encoding: "UTF8"
   });
 }
 
