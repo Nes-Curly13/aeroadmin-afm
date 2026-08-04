@@ -1,10 +1,11 @@
-import { ArrowLeft, CalendarClock, Droplets, History, Plane, Sprout } from "lucide-react"
+import { ArrowLeft, CalendarClock, Droplets, History, Pencil, Plane, Sprout } from "lucide-react"
 import Link from "next/link"
 import { notFound } from "next/navigation"
 import { FumigationTimeline } from "@/components/parcels/fumigation-timeline"
 import { IntervalChart } from "@/components/parcels/interval-chart"
 import { ParcelMap } from "@/components/parcels/parcel-map"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   NOW,
@@ -144,6 +145,24 @@ export default async function ParcelaPage({ params }: { params: Promise<{ id: st
               </dd>
             </div>
           </dl>
+          {/* Sprint 2026-08-04 — entry-point al panel admin. La
+              edición inline de client_name / farm_name / municipality /
+              variety está en /admin/parcels (tabla con 4 inputs por
+              row + Guardar). Desde acá el operador llega a la lista y
+              puede usar el filtro "missing_X" para encontrar las
+              parcelas con metadata incompleta. */}
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              render={
+                <Link href="/admin/parcels" aria-label="Ir al panel admin para editar metadata">
+                  <Pencil className="size-3.5" aria-hidden />
+                  Editar metadata
+                </Link>
+              }
+            />
+          </div>
         </div>
       </header>
 

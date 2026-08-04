@@ -25,7 +25,8 @@
  *   - El input sigue respondiendo a cambios mientras el PATCH corre.
  */
 
-import { Check, Loader2, RotateCcw, Save, Search } from "lucide-react";
+import { Check, Loader2, Plus, RotateCcw, Save, Search } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
@@ -275,9 +276,23 @@ export function AdminParcelsClient({
             className="pl-8"
           />
         </div>
-        <p className="font-mono text-[11px] text-muted-foreground">
-          {`${filtered.length} de ${total} parcelas · página ${page}/${totalPages || 1} · ${pageSize}/página`}
-        </p>
+        <div className="flex items-center gap-3">
+          <p className="font-mono text-[11px] text-muted-foreground">
+            {`${filtered.length} de ${total} parcelas · página ${page}/${totalPages || 1} · ${pageSize}/página`}
+          </p>
+          <Button
+            size="sm"
+            render={
+              <Link
+                href="/admin/parcels/new"
+                aria-label="Crear parcela nueva (alta manual)"
+              >
+                <Plus className="size-3.5" aria-hidden />
+                Crear parcela
+              </Link>
+            }
+          />
+        </div>
       </div>
 
       {/* Filtros "mostrar solo con X vacío" (QA 2026-08-02). El
@@ -365,9 +380,13 @@ export function AdminParcelsClient({
                       )}
                     >
                       <td className="px-3 py-2.5">
-                        <p className="font-semibold text-foreground">
+                        <Link
+                          href={`/parcelas/${p.id}`}
+                          className="font-semibold text-foreground hover:underline focus-visible:underline focus-visible:outline-none"
+                          aria-label={`Ver detalle de ${p.land_name ?? "Parcela " + p.id}`}
+                        >
                           {p.land_name ?? `Parcela #${p.id}`}
-                        </p>
+                        </Link>
                         <p className="font-mono text-[11px] text-muted-foreground">
                           {`#${p.id} · ${fmtDec(p.declared_area_ha ?? 0)} ha · ${p.field_type ?? "?"}`}
                         </p>
