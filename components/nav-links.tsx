@@ -1,6 +1,6 @@
 "use client"
 
-import { LayoutDashboard, Map, Sprout } from "lucide-react"
+import { LayoutDashboard, Map, Sprout, History } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
@@ -9,6 +9,11 @@ const LINKS = [
   { href: "/", label: "Panel", icon: LayoutDashboard },
   { href: "/geovisor", label: "Geovisor", icon: Map },
   { href: "/parcelas", label: "Parcelas", icon: Sprout },
+  // Sprint 2026-08-04 — feature/parcel-onboarding. El operador
+  // pidio un listado unificado de fumigaciones (en vez de tener
+  // que abrir parcela por parcela). El link en la nav lo hace
+  // accesible desde cualquier pagina.
+  { href: "/fumigaciones", label: "Fumigaciones", icon: History },
 ]
 
 export function NavLinks() {
