@@ -5,6 +5,10 @@
  * pueda dibujar el polígono de la parcela manualmente.
  *
  * Sprint 2026-08-04 — feature/parcel-onboarding (sub-sprint 1).
+ * Update 2026-08-04 (sub-sprint 2): agregado `initialPolygon` opcional
+ * para soportar el re-dibujo desde el detail page (componente
+ * `RedrawGeometryButton`). Cuando se pasa, el mapa centra en el
+ * centroide del polígono y pre-carga la geometría en terra-draw.
  *
  * Funcionalidad:
  *   - Mapa centrado en Valle del Cauca (Palmira como default — 3.45, -76.31)
@@ -34,35 +38,82 @@ import maplibregl, { Map as MlMap } from "maplibre-gl";
 import {
   TerraDraw,
   TerraDrawPolygonMode,
+  type GeoJSONStoreFeatures
 } from "terra-draw";
 import { TerraDrawMapLibreGLAdapter } from "terra-draw-maplibre-gl-adapter";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Eraser, MapPin } from "lucide-react";
 
+/** Geometría GeoJSON Polygon (formato compartido con la API y lib/types). */
+type PolygonGeom = { type: "Polygon"; coordinates: number[][][] };
+
 export interface ParcelDrawerProps {
   /** Callback con el polígono dibujado en formato GeoJSON Polygon. */
-  onPolygonChange: (geom: { type: "Polygon"; coordinates: number[][][] } | null) => void;
+  onPolygonChange: (geom: PolygonGeom | null) => void;
   /** Coordenadas iniciales del centro del mapa [lng, lat]. Default Palmira. */
   initialCenter?: [number, number];
   /** Zoom inicial. Default 12. */
   initialZoom?: number;
+  /**
+   * Geometría inicial a pre-cargar en el mapa. Default `undefined` →
+   * drawer arranca vacío (modo "alta nueva"). Si se pasa, se centra en
+   * el centroide del polígono y se carga con `draw.addFeatures`, dejando
+   * el botón "Limpiar" habilitado (el operador puede volver a empezar).
+   */
+  initialPolygon?: PolygonGeom | null;
+}
+
+/**
+ * Centroide aproximado de un polígono GeoJSON: promedio de los vértices
+ * del primer ring (excluyendo el closing point). Suficiente para centrar
+ * el mapa al re-dibujar — la precisión sub-metro no importa para esto.
+ */
+function polygonCentroid(p: PolygonGeom): [number, number] {
+  const ring = p.coordinates[0];
+  if (!ring || ring.length === 0) return [-76.31, 3.45];
+  // Si el último punto == primero, lo salteamos.
+  const closed = ring[ring.length - 1];
+  const first = ring[0];
+  const pts =
+    closed[0] === first[0] && closed[1] === first[1]
+      ? ring.slice(0, -1)
+      : ring;
+  if (pts.length === 0) return [-76.31, 3.45];
+  let lng = 0;
+  let lat = 0;
+  for (const [x, y] of pts) {
+    lng += x;
+    lat += y;
+  }
+  return [lng / pts.length, lat / pts.length];
 }
 
 export function ParcelDrawer({
   onPolygonChange,
   initialCenter = [-76.31, 3.45],
-  initialZoom = 12
+  initialZoom = 12,
+  initialPolygon
 }: ParcelDrawerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MlMap | null>(null);
   const drawRef = useRef<TerraDraw | null>(null);
-  const [hasPolygon, setHasPolygon] = useState(false);
+  const [hasPolygon, setHasPolygon] = useState(initialPolygon != null);
   const onChangeRef = useRef(onPolygonChange);
   // Mantener el callback actualizado sin re-inicializar el mapa.
   useEffect(() => {
     onChangeRef.current = onPolygonChange;
   }, [onPolygonChange]);
+
+  // Si hay initialPolygon, centramos en su centroide. Si no, usamos el
+  // initialCenter que nos pasaron (default Palmira). Memoizamos para
+  // que el effect de inicialización no se re-dispare en cada render.
+  const { center, zoom } = useMemo(() => {
+    if (initialPolygon) {
+      return { center: polygonCentroid(initialPolygon), zoom: 14 };
+    }
+    return { center: initialCenter, zoom: initialZoom };
+  }, [initialPolygon, initialCenter, initialZoom]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -95,8 +146,8 @@ export function ParcelDrawer({
           }
         ]
       },
-      center: initialCenter,
-      zoom: initialZoom
+      center,
+      zoom
     });
     mapRef.current = map;
 
@@ -120,6 +171,21 @@ export function ParcelDrawer({
       drawRef.current = draw;
       draw.start();
       draw.setMode("polygon");
+
+      // Sprint 2026-08-04 (sub-sprint 2): si recibimos initialPolygon,
+      // lo pre-cargamos como feature del modo "polygon" para que el
+      // operador lo vea y lo pueda re-dibujar encima. El addFeatures
+      // requiere `properties.mode` para que terra-draw sepa qué modo
+      // valida la geometría.
+      if (initialPolygon) {
+        const feature: GeoJSONStoreFeatures = {
+          type: "Feature",
+          geometry: initialPolygon,
+          properties: { mode: "polygon" }
+        };
+        draw.addFeatures([feature]);
+        onChangeRef.current(initialPolygon);
+      }
 
       // Cuando el operador termina de dibujar, mandamos el polígono.
       draw.on("finish", () => {
@@ -145,7 +211,7 @@ export function ParcelDrawer({
       mapRef.current = null;
       drawRef.current = null;
     };
-  }, [initialCenter, initialZoom]);
+  }, [center, zoom, initialPolygon]);
 
   function handleClear() {
     if (!drawRef.current) return;

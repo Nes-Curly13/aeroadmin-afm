@@ -1,6 +1,7 @@
 import { ArrowLeft, CalendarClock, Droplets, History, Pencil, Plane, Sprout } from "lucide-react"
 import Link from "next/link"
 import { notFound } from "next/navigation"
+import { RedrawGeometryButton } from "@/components/admin/parcels/redraw-geometry-button"
 import { FumigationTimeline } from "@/components/parcels/fumigation-timeline"
 import { IntervalChart } from "@/components/parcels/interval-chart"
 import { ParcelMap } from "@/components/parcels/parcel-map"
@@ -327,6 +328,34 @@ export default async function ParcelaPage({ params }: { params: Promise<{ id: st
                     NOW.toISOString(),
                   )}`}
                 </p>
+              </CardContent>
+            </Card>
+
+            {/* Sprint 2026-08-04 (sub-sprint 2) — entry-point para
+                re-dibujar el polígono desde el detail page. Cierra el
+                último gap del sub-sprint 1: el endpoint PATCH
+                /api/admin/parcels/[id]/geometry ya existía pero solo
+                se podía invocar via curl. Este Card vive al final del
+                grid de Cards (right column) y abre un Dialog con el
+                ParcelDrawer pre-cargado + textarea para change_reason.
+                NO toqué los Cards existentes ni el <dl> del header. */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Pencil className="size-4 text-primary" aria-hidden />
+                  Geometría — re-dibujo manual
+                </CardTitle>
+                <CardDescription>
+                  Corregí el polígono si la forma de DJI no coincide con
+                  el lote real. El cambio queda auditado en
+                  djiag_audit_log.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <RedrawGeometryButton
+                  parcelId={Number(id)}
+                  currentGeometry={parcel.geom}
+                />
               </CardContent>
             </Card>
           </div>
