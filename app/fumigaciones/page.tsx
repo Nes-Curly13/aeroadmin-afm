@@ -1,8 +1,9 @@
 import Link from "next/link"
-import { Calendar, Droplets, History, Plus, Sprout } from "lucide-react"
+import { Calendar, Droplets, History, Sprout } from "lucide-react"
 import { PageHeader } from "@/components/page-header"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { NewFumigationDialog } from "@/components/admin/fumigations/new-fumigation-dialog"
 import { getRecentFumigations } from "@/api/repositories"
 import { fmtDate, fmtDateTime, fmtDec, fmtInt } from "@/lib/format"
 import type { DjiFumigationEvent } from "@/lib/types"
@@ -165,17 +166,12 @@ export default async function FumigacionesPage({ searchParams }: PageProps) {
           <p className="font-mono text-[11px] text-muted-foreground">
             {`${total} fumigaciones · página ${safePage}/${totalPages || 1} · ${PAGE_SIZE}/página`}
           </p>
-          {/* Botón de nueva fumigación. Lleva al inventario de parcelas
-              — el operador elige la parcela y ahi usa el form del detail
-              page. Esto es más simple que un wizard de 2 pasos. */}
-          <Link
-            href="/parcelas"
-            className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-            aria-label="Ir al inventario para registrar una nueva fumigación"
-          >
-            <Plus className="size-3.5" aria-hidden />
-            Nueva fumigación
-          </Link>
+          {/* Botón de nueva fumigación. Antes linkeaba a /parcelas (2
+              pasos). Ahora abre un dialog con wizard:
+                Step 1: elegir parcela existente o dibujar nueva
+                Step 2: form de fumigación (reuso de RegisterFumigationForm)
+              Ver components/admin/fumigations/new-fumigation-dialog.tsx. */}
+          <NewFumigationDialog />
         </div>
       </form>
 
