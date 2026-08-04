@@ -80,6 +80,18 @@ export default async function ParcelaPage({ params }: { params: Promise<{ id: st
     { label: "dji_land_id", value: parcel.dji_land_id },
     { label: "Alta en sistema", value: fmtDate(parcel.created_at) },
   ]
+  // Sprint 2026-08-04 — fix UX: para parcelas con source='manual' el
+  // external_id es 'manual-{uuid}' y mostrar "dji_land_id" confunde al
+  // operador (ese ID no existe en DJI). Ocultamos la fila entera en ese
+  // caso. Misma condicion se podria haber implementado con un
+  // `{parcel.source !== "manual" && (...)}` envolviendo el JSX, pero
+  // como la fila viene del array `ficha`, filtrar aca es mas limpio
+  // (no toca el JSX del map). El campo `parcel.source` se cablea
+  // via DjiParcel (lib/types.ts) — el adapter V0 (lib/data.ts
+  // adaptParcel) lo popula desde p.source, que viene de
+  // djiParcelsQuery. Ver migration
+  // 20260804081000_add_manual_parcels_support.sql para el schema.
+  .filter((f) => !(f.label === "dji_land_id" && parcel.source === "manual"))
 
   return (
     <>
