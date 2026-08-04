@@ -12,6 +12,17 @@ export type AlertLevel = "LOW" | "MEDIUM" | "HIGH";
 export interface DjiParcelRecord {
   id: number;
   external_id: string;
+  /**
+   * Origen del registro. Migration 20260804081000 lo agregó a `dji_parcels`.
+   * - `dji`: scrapeado de DJI SmartFarm
+   * - `manual`: creado desde la UI (`/admin/parcels/new`)
+   * - `imported`: import GIS batch (sub-sprint 2, pendiente)
+   *
+   * Por qué es opcional: queries viejos que no proyectan `source` siguen
+   * compilando. El adapter (`adaptParcel` en `lib/data.ts`) lo trata como
+   * `"dji"` por default (compat con fixtures de tests pre-existentes).
+   */
+  source?: "dji" | "manual" | "imported" | string;
   land_name: string | null;
   field_type: "Farmland" | "Orchards" | string;
   declared_area_ha: number | null;
@@ -415,12 +426,11 @@ export interface DjiParcel {
   // Sprint 2026-08-04 — feature/parcel-onboarding. Migration
   // 20260804081000_add_manual_parcels_support.sql agrega la columna
   // `source` a `dji_parcels` ('dji' default | 'manual' | 'imported').
-  // El adapter V0 (lib/data.ts adaptParcel) aún NO la propaga — el
-  // campo queda undefined en runtime hasta que se cablee en el query +
-  // adapter. Mientras tanto el type lo declara como opcional para
-  // que el fix de UI en app/parcelas/[id]/page.tsx compile. Ver
-  // sprint 2026-08-04 followup: propagar source en djiParcelsQuery +
-  // adaptParcel.
+  // Cableado end-to-end: la proyecta `djiParcelsQuery` (api/queries.ts),
+  // la propaga `adaptParcel` (lib/data.ts) con default "dji" para
+  // compat con fixtures viejos. El detail page la usa para ocultar
+  // `dji_land_id` cuando source='manual' (no tiene sentido mostrar
+  // un ID de DJI en una parcela que DJI no conoce).
   source?: "dji" | "manual" | "imported" | string;
   // Sprint "Crop time / fase de cultivo" (2026-08-01). Null hasta que
   // se popule planting_date (lo llena el supervisor). Los chips de UI

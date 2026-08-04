@@ -58,6 +58,14 @@ export const djiParcelsQuery = `
   SELECT
     p.id,
     p.external_id,
+    -- p.source: origen del registro (sprint 2026-08-04, migration
+    -- 20260804081000). Valores posibles: 'dji' (sync), 'manual' (UI
+    -- alta), 'imported' (GIS batch, sub-sprint 2 pendiente). El detail
+    -- page lo usa para decidir si mostrar u ocultar el dji_land_id
+    -- (las parcelas manuales no tienen ID real de DJI). Default
+    -- 'dji' en runtime para compat con queries/fixtures viejos que
+    -- no proyectan la columna.
+    p.source AS source,
     p.land_name,
     p.field_type,
     -- location_label: address humana de DJI (re-scrape 2026-07-09,

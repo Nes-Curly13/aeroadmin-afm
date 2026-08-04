@@ -313,7 +313,11 @@ function adaptParcel(
     centroid_lat: center.lat,
     geom,
     created_at: p.fetched_at ?? new Date().toISOString(),
-    is_active: !p.is_orchard || p.field_type !== "Orchards" || true
+    is_active: !p.is_orchard || p.field_type !== "Orchards" || true,
+    // source: cableado para que el detail page pueda distinguir
+    // parcelas manuales de DJI. Default "dji" para compat con
+    // fixtures/queries que no proyectan el campo.
+    source: (p.source ?? "dji") as "dji" | "manual" | "imported"
   };
 }
 
