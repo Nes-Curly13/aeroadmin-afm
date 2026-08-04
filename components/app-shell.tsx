@@ -1,9 +1,12 @@
 import Image from "next/image"
 import Link from "next/link"
-import { LogOut } from "lucide-react"
+import { LogOut, UserCircle2 } from "lucide-react"
 import { fmtRelative } from "@/lib/format"
 import { logoutAction } from "@/app/login/actions"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { auth } from "@/lib/auth"
+import type { AppRole } from "@/lib/auth/role"
 import type { DjiAgHealth } from "@/lib/types"
 import { NavLinks } from "./nav-links"
 
@@ -33,8 +36,17 @@ import { NavLinks } from "./nav-links"
  * `logoutAction` (server action) para que el POST no requiera JS
  * del cliente (mejor accesibilidad + no rompe si el bundle del
  * cliente tiene un error).
+ *
+ * v2.8 (Sprint 2026-08-04 — UX): agregamos top header con email + role
+ * del usuario actual. El operador fumigador pidió "ver qué tipo de
+ * usuario soy" en cada página — antes el role solo aparecía en el
+ * middleware logs. El badge es un `Badge` de base-ui con variant
+ * distinto por role (admin = default/primary, supervisor = secondary,
+ * viewer = outline) para que sea visualmente distinguible de un
+ * vistazo. `await auth()` lee del JWT (no pega a la BD), no es un
+ * issue de performance.
  */
-export function AppShell({
+export async function AppShell({
   children,
   health
 }: {
@@ -44,6 +56,21 @@ export function AppShell({
   const status = health?.status ?? "unknown";
   const statusColor =
     status === "ok" ? "bg-chart-1" : status === "partial" ? "bg-chart-4" : status === "unknown" ? "bg-muted-foreground/30" : "bg-destructive";
+
+  // Sesión actual (lee del JWT firmado, no query a la BD).
+  // El middleware ya filtra /admin/* por role, así que si llegamos
+  // acá siempre hay sesión — pero el `?` es defensa.
+  const session = await auth();
+  const user = session?.user;
+  const role: AppRole | undefined = user?.role;
+
+  // Variant del badge según role. "admin" usa default (primary color),
+  // "supervisor" usa secondary, viewer y unknowns usan outline.
+  // Sin esto el operador no distingue visualmente a simple vista.
+  const roleVariant: "default" | "secondary" | "outline" =
+    role === "admin" ? "default" : role === "supervisor" ? "secondary" : "outline";
+  const roleLabel =
+    role === "admin" ? "Admin" : role === "supervisor" ? "Supervisor" : role === "viewer" ? "Viewer" : "—";
 
   return (
     <div className="flex min-h-svh flex-col lg:flex-row">
@@ -120,7 +147,48 @@ export function AppShell({
         </div>
       </aside>
 
-      <main className="min-w-0 flex-1">{children}</main>
+      <main className="min-w-0 flex-1">
+        {/* Top header (v2.8 — sprint 2026-08-04). Identifica al usuario
+            actual en TODAS las páginas: email + role badge. Sticky en
+            top con `backdrop-blur` para que se vea bien cuando el
+            contenido scrollea. El role del badge tiene variant distinto
+            (default/secondary/outline) segun el rol — admin se ve
+            "relleno" (primary), supervisor "atenuado" (secondary),
+            viewer "contorno" (outline). Asi el operador distingue
+            visualmente sin leer texto. */}
+        <header
+          className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b border-border bg-card/90 px-4 py-2 backdrop-blur supports-[backdrop-filter]:bg-card/70 sm:px-6"
+          role="banner"
+        >
+          <div className="min-w-0 flex-1" aria-hidden />
+          <div className="flex items-center gap-2 sm:gap-3">
+            {user ? (
+              <>
+                <UserCircle2 className="size-4 text-muted-foreground" aria-hidden />
+                <span
+                  className="hidden text-xs text-muted-foreground sm:inline"
+                  title={user.email ?? undefined}
+                >
+                  {user.email}
+                </span>
+                <Badge
+                  variant={roleVariant}
+                  className="px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider"
+                  aria-label={`Rol del usuario: ${roleLabel}`}
+                  title={`Rol: ${roleLabel}`}
+                >
+                  {roleLabel}
+                </Badge>
+              </>
+            ) : (
+              <Badge variant="outline" className="text-[10px]">
+                Sin sesión
+              </Badge>
+            )}
+          </div>
+        </header>
+        {children}
+      </main>
     </div>
   )
 }
