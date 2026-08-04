@@ -25,7 +25,7 @@
  *   - El input sigue respondiendo a cambios mientras el PATCH corre.
  */
 
-import { Check, Loader2, Plus, RotateCcw, Save, Search } from "lucide-react";
+import { Check, Loader2, Plus, RotateCcw, Save, Search, Upload } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
@@ -280,18 +280,33 @@ export function AdminParcelsClient({
           <p className="font-mono text-[11px] text-muted-foreground">
             {`${filtered.length} de ${total} parcelas · página ${page}/${totalPages || 1} · ${pageSize}/página`}
           </p>
-          <Button
-            size="sm"
-            render={
-              <Link
-                href="/admin/parcels/new"
-                aria-label="Crear parcela nueva (alta manual)"
-              >
-                <Plus className="size-3.5" aria-hidden />
-                Crear parcela
-              </Link>
-            }
-          />
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              render={
+                <Link
+                  href="/admin/parcels/import"
+                  aria-label="Importar parcelas desde archivo GIS (KML/SHP/GPKG)"
+                >
+                  <Upload className="size-3.5" aria-hidden />
+                  Importar GIS
+                </Link>
+              }
+            />
+            <Button
+              size="sm"
+              render={
+                <Link
+                  href="/admin/parcels/new"
+                  aria-label="Crear parcela nueva (alta manual)"
+                >
+                  <Plus className="size-3.5" aria-hidden />
+                  Crear parcela
+                </Link>
+              }
+            />
+          </div>
         </div>
       </div>
 

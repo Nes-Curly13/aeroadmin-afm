@@ -698,6 +698,107 @@ export async function createManualParcel(
 }
 
 /**
+ * Crea N parcelas manuales en una sola transacción. Usado por el
+ * import GIS para que el operador suba un SHP/KML/GPKG y en 1 click
+ * se creen todas (o ninguna, si alguna falla la validación).
+ *
+ * Decisiones:
+ *   - Reusa la misma validación que `createManualParcel` (cada feature
+ *     se valida por separado antes del INSERT).
+ *   - Si UNA falla, ROLLBACK — no se crea ninguna. El operador
+ *     puede editar nombres y reintentar.
+ *   - Devuelve los rows completos en el mismo orden que el input.
+ *   - NO usa withLocalFallback (mismo rationale que createManualParcel).
+ *   - source = 'imported' (distinto de 'manual' = alta desde el form)
+ *     para poder filtrar después si el operador quiere.
+ *
+ * Decisión de scope: el MVP solo soporta crear parcelas desde GIS.
+ * No actualizamos parcelas existentes (el matching por external_id se
+ * puede agregar después si el operador lo pide).
+ */
+export async function createManualParcelsBulk(
+  inputs: CreateManualParcelInput[]
+): Promise<DjiParcelRecord[]> {
+  if (inputs.length === 0) return [];
+  // Validamos TODO antes de empezar la transacción — si alguno falla,
+  // no abrimos la tx y devolvemos el error de validación al cliente.
+  for (let i = 0; i < inputs.length; i++) {
+    try {
+      validateManualParcelInput(inputs[i]);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "validación";
+      throw new Error(`Parcela #${i + 1} (${inputs[i].land_name}): ${msg}`);
+    }
+  }
+
+  const db = getDb();
+  // pool.connect() nos da un cliente dedicado para la transacción.
+  const client = await db.connect();
+  const created: DjiParcelRecord[] = [];
+  try {
+    await client.query("BEGIN");
+    for (const input of inputs) {
+      const externalId = `imported-${crypto.randomUUID()}`;
+      const result = await client.query<{ id: number }>(
+        `
+          INSERT INTO dji_parcels (
+            batch_id, external_id, source,
+            land_name, field_type, is_orchard,
+            declared_area_ha, spray_area_m2,
+            luck_name, client_name, farm_name, municipality, variety,
+            crop_type, planting_date, owner_name, owner_contact, supervisor_notes,
+            spray_geom, reference_point
+          )
+          VALUES (
+            NULL, $1, 'imported',
+            $2, $3, false,
+            NULL, NULL,
+            $4, $5, $6, $7, $8,
+            $9, $10, $11, $12, $13,
+            ST_Multi(ST_GeomFromGeoJSON($14::text)),
+            ST_Centroid(ST_Multi(ST_GeomFromGeoJSON($14::text)))
+          )
+          RETURNING id
+        `,
+        [
+          externalId,
+          input.land_name.trim(),
+          input.field_type,
+          input.luck_name?.trim() ?? null,
+          input.client_name?.trim() ?? null,
+          input.farm_name?.trim() ?? null,
+          input.municipality?.trim() ?? null,
+          input.variety?.trim() ?? null,
+          input.crop_type?.trim() ?? null,
+          input.planting_date ?? null,
+          input.owner_name?.trim() ?? null,
+          input.owner_contact?.trim() ?? null,
+          input.supervisor_notes?.trim() ?? null,
+          JSON.stringify(input.geometry)
+        ]
+      );
+      const newId = Number(result.rows[0]?.id);
+      if (!newId) throw new Error("INSERT no devolvió id");
+      const fullRow = await client.query<DjiParcelRecord>(
+        `SELECT * FROM dji_parcels WHERE id = $1`,
+        [newId]
+      );
+      const row = fullRow.rows[0];
+      if (!row) throw new Error(`No se pudo leer la parcela recién creada #${newId}`);
+      created.push(row);
+    }
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+  invalidateAfterParcelMutation();
+  return created;
+}
+
+/**
  * Reemplaza la geometría de una parcela. Usado cuando el operador
  * re-dibuja el polígono. La fumigación pasada queda asociada a la
  * geometría anterior (no se migra), pero el detalle de la parcela
