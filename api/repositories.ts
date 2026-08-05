@@ -1021,6 +1021,169 @@ export async function getFumigationEventsByParcel(parcelId: number): Promise<Dji
 }
 
 /**
+ * Sprint 2026-08-05 (sub-sprint navegabilidad fumigaciones):
+ * devuelve UN evento de fumigación por id, con la misma proyección
+ * que `getRecentFumigations` (incluye lat/lng centroide calculado
+ * desde dji_flights, y n_matched_flights).
+ *
+ * Devuelve `null` si no existe o si está soft-deleted.
+ *
+ * Usado por la página /fumigacion/[id] para mostrar la ficha
+ * completa de un evento con mapa, links al parcel, y a la lista
+ * de fumigaciones.
+ */
+export async function getFumigationById(id: number): Promise<DjiFumigationEvent | null> {
+  const db = getDb();
+  try {
+    const result = await db.query<DjiFumigationEvent>(
+      `SELECT
+          f.id,
+          f.parcel_id,
+          f.fumigation_date,
+          f.product_used,
+          f.dose_l_per_ha,
+          f.area_fumigated_m2,
+          f.drone_code_used,
+          f.duration_minutes,
+          f.notes,
+          f.human_notes,
+          f.recorded_by,
+          f.product_registered_ica,
+          f.pilot_license,
+          f.recorded_at,
+          f.source,
+          f.flight_ids,
+          count(fl.id)::int AS n_matched_flights,
+          CASE
+            WHEN count(fl.id) = 0 THEN NULL
+            ELSE ST_Y(ST_Centroid(ST_Collect(fl.point)))::numeric
+          END AS lat,
+          CASE
+            WHEN count(fl.id) = 0 THEN NULL
+            ELSE ST_X(ST_Centroid(ST_Collect(fl.point)))::numeric
+          END AS lng
+         FROM dji_fumigations f
+         LEFT JOIN dji_flights fl ON fl.flight_id = ANY(f.flight_ids)
+        WHERE f.id = $1
+          AND f.deleted_at IS NULL
+        GROUP BY f.id`,
+      [id]
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+    return {
+      ...row,
+      fumigation_date: toDateString(row.fumigation_date) ?? ""
+    };
+  } catch (err) {
+    // Modo offline de tests sin Docker: devolvemos null en vez de tirar.
+    if (process.env.NODE_ENV !== "production") {
+      return null;
+    }
+    throw err;
+  }
+}
+
+/**
+ * Devuelve los dji_flights asociados a un evento de fumigación.
+ * Usado por /fumigacion/[id] para mostrar la lista de vuelos con
+ * piloto, dron, duración y área.
+ *
+ * Si la fumigación no tiene `flight_ids` (caso típico: fumigación
+ * manual sin asociar) o si el array está vacío, devuelve [].
+ *
+ * @param flightIds array de IDs de dji_flights (bigint[] en BD, number[] en JS)
+ */
+export interface FumigationFlightRow {
+  flight_id: number;
+  start_at: string;
+  pilot_name: string | null;
+  drone_nickname: string | null;
+  area_m2: number | null;
+  spray_usage_ml: number | null;
+  duration_min: number | null;
+  /** Lat/lng del flight para el mapa. */
+  lng: number | null;
+  lat: number | null;
+}
+
+export async function getFumigationFlights(
+  flightIds: number[] | null | undefined
+): Promise<FumigationFlightRow[]> {
+  if (!flightIds || flightIds.length === 0) return [];
+  const db = getDb();
+  try {
+    const result = await db.query<FumigationFlightRow>(
+      `SELECT
+          flight_id,
+          start_at,
+          pilot_name,
+          drone_nickname,
+          area_m2,
+          spray_usage_ml,
+          duration_min,
+          ST_X(point)::numeric AS lng,
+          ST_Y(point)::numeric AS lat
+         FROM dji_flights
+        WHERE flight_id = ANY($1::bigint[])`,
+      [flightIds]
+    );
+    return result.rows;
+  } catch (err) {
+    if (process.env.NODE_ENV !== "production") return [];
+    throw err;
+  }
+}
+
+/**
+ * Shape reducido de una parcela para usar en pickers/autocomplete
+ * (sprint 2026-08-05, /fumigaciones/nueva). Solo trae los campos
+ * que el operador necesita para identificar visualmente la parcela.
+ *
+ *   - id: para POST a /api/admin/fumigations
+ *   - land_name: nombre humano
+ *   - external_id: "DJI-LAND-1234" o "manual-uuid"
+ *   - client_name, farm_name, municipality: contexto V0
+ *   - source: "dji" | "manual" | "imported" — para diferenciar visualmente
+ */
+export interface ParcelPickerRow {
+  id: number;
+  land_name: string | null;
+  external_id: string;
+  source: string | null;
+  client_name: string | null;
+  farm_name: string | null;
+  municipality: string | null;
+}
+
+export async function getRecentParcelsForPicker(
+  limit: number = 500
+): Promise<ParcelPickerRow[]> {
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      const result = await db.query<ParcelPickerRow>(
+        `SELECT
+            id,
+            land_name,
+            external_id,
+            source,
+            client_name,
+            farm_name,
+            municipality
+           FROM dji_parcels
+          WHERE deleted_at IS NULL
+          ORDER BY id DESC
+          LIMIT $1`,
+        [limit]
+      );
+      return result.rows;
+    },
+    async () => []
+  );
+}
+
+/**
  * M3-M5 Track A (commit 2): devuelve el Set<number> de `parcel_id` con
  * al menos un evento de fumigación >= `since` (YYYY-MM-DD). Sirve a
  * `app/map/page.tsx` para derivar el flag `hasFumigation` por parcela y

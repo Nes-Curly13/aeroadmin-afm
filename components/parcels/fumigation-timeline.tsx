@@ -1,4 +1,5 @@
 import { Droplets, Plane, User } from "lucide-react"
+import Link from "next/link"
 import { Badge } from "@/components/ui/badge"
 import { droneModel } from "@/lib/data"
 import { SOURCE_LABEL, fmtDate, fmtDec, fmtHa, fmtLiters, fmtTime } from "@/lib/format"
@@ -50,6 +51,14 @@ export function FumigationTimeline({
                 <Badge variant="outline" className={`text-[10px] font-medium ${SOURCE_STYLE[f.source] ?? ""}`}>
                   {SOURCE_LABEL[f.source] ?? f.source}
                 </Badge>
+                {/* Sprint 2026-08-05: link a la ficha individual /fumigacion/[id] */}
+                <Link
+                  href={`/fumigacion/${f.id}`}
+                  className="rounded border border-border bg-muted/40 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
+                  aria-label={`Ver ficha de fumigación #${f.id}`}
+                >
+                  {`#${f.id}`}
+                </Link>
                 {gap !== null && (
                   <span className="font-mono text-[11px] text-muted-foreground">
                     {`${gap} d desde la anterior`}

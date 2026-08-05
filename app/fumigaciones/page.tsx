@@ -1,9 +1,9 @@
 import Link from "next/link"
-import { Calendar, Droplets, History, Sprout } from "lucide-react"
+import { Calendar, Droplets, History, Plus, Sprout } from "lucide-react"
 import { PageHeader } from "@/components/page-header"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { NewFumigationDialog } from "@/components/admin/fumigations/new-fumigation-dialog"
 import { getRecentFumigations } from "@/api/repositories"
 import { fmtDate, fmtDateTime, fmtDec, fmtInt } from "@/lib/format"
 import type { DjiFumigationEvent } from "@/lib/types"
@@ -166,12 +166,20 @@ export default async function FumigacionesPage({ searchParams }: PageProps) {
           <p className="font-mono text-[11px] text-muted-foreground">
             {`${total} fumigaciones · página ${safePage}/${totalPages || 1} · ${PAGE_SIZE}/página`}
           </p>
-          {/* Botón de nueva fumigación. Antes linkeaba a /parcelas (2
-              pasos). Ahora abre un dialog con wizard:
-                Step 1: elegir parcela existente o dibujar nueva
-                Step 2: form de fumigación (reuso de RegisterFumigationForm)
-              Ver components/admin/fumigations/new-fumigation-dialog.tsx. */}
-          <NewFumigationDialog />
+          {/* Botón de nueva fumigación. Sprint 2026-08-05: en vez del
+              dialog chico (max-w-2xl) ahora abre una página completa
+              con mapa satelital y form con más espacio. Ver
+              /fumigaciones/nueva y components/admin/fumigations/
+              new-fumigation-page-client.tsx. */}
+          <Button
+            size="sm"
+            render={
+              <Link href="/fumigaciones/nueva" aria-label="Registrar nueva fumigación (página completa)" />
+            }
+          >
+            <Plus className="size-3.5" aria-hidden />
+            Nueva fumigación
+          </Button>
         </div>
       </form>
 
@@ -258,7 +266,20 @@ function FumigationRow({ f }: { f: DjiFumigationEvent }) {
         </Link>
       </td>
       <td className="px-3 py-2.5">
-        <p className="font-medium text-foreground">{f.product_used ?? "—"}</p>
+        {/* El producto + ID de fumigación son links a la ficha individual.
+            Esto resuelve el pedido del operador de poder navegar
+            fumigaciones por URL propia. Sprint 2026-08-05. */}
+        <Link
+          href={`/fumigacion/${f.id}`}
+          className="group flex flex-col text-foreground hover:underline focus-visible:underline focus-visible:outline-none"
+        >
+          <p className="font-mono text-[10px] text-muted-foreground">
+            {`#${f.id}`}
+          </p>
+          <p className="font-medium group-hover:text-primary">
+            {f.product_used ?? "—"}
+          </p>
+        </Link>
         {f.product_registered_ica ? (
           <p className="font-mono text-[10px] text-muted-foreground">
             ICA {f.product_registered_ica}
