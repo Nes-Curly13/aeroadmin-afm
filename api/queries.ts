@@ -152,3 +152,98 @@ export const djiParcelsQuery = `
   ) last_fum ON true
   LEFT JOIN dji_fumigation_schedule s ON s.parcel_id = p.id
 `;
+
+/**
+ * `djiParcelsMetadataQuery` — versión liviana de `djiParcelsQuery` sin los
+ * campos de geometría pesados (waypoints_geometry, reference_point).
+ *
+ * Por qué existe:
+ *   El cache unstable_cache de Next.js 16 tiene un límite HARD de 2MB por
+ *   item. El dataset completo (1213 parcels con waypoints, cada waypoint
+ *   con 50-200 puntos) pesa ~4MB serializado, lo que rompe el cache con
+ *   "items over 2MB can not be cached" y el unhandledRejection hace que
+ *   /parcelas, /geovisor y / devuelvan 404 via el not-found boundary.
+ *
+ *   Esta query es la misma projection EXCEPTO que omite:
+ *   - `waypoints_geometry` (LineString con 50-200 puntos por parcela) — solo
+ *     se usa en el re-draw del admin (que tiene su propio query puntual).
+ *   - `reference_point` (Point geometry) — solo lo usa el re-draw.
+ *
+ *   Mantiene `spray_geometry` porque `adaptParcel` lo necesita para el
+ *   cascade real > hull > buffer > N-gon synth.
+ *
+ * Caller:
+ *   - `fetchParcelsMetadataCached` en `lib/cache.ts` (cache TTL 60s, tag
+ *     afm:parcels-metadata).
+ *   - `loadDataset` en `lib/data.ts` lo usa en vez de
+ *     `fetchParcelsNormalizedCached` para evitar el 2MB cache limit.
+ *
+ * Si en el futuro algún caller necesita waypoints para todos los parcels
+ * (no solo para uno), crear OTRO cache específico (e.g.
+ * `fetchAllParcelsWithWaypoints`) con paginacion cursor y agregar el
+ * resultado en runtime al summary. NO revivir `djiParcelsQuery` para 2000
+ * rows en un solo cache unstable_cache.
+ */
+export const djiParcelsMetadataQuery = `
+  SELECT
+    p.id,
+    p.external_id,
+    p.source AS source,
+    p.land_name,
+    p.field_type,
+    p.location_label,
+    p.declared_area_ha,
+    p.spray_area_m2,
+    p.drone_model_code,
+    p.drone_model_name,
+    p.spray_width_m,
+    p.work_speed_mps,
+    p.optimal_heading_deg,
+    p.radar_height_m,
+    p.edge_offset_m,
+    p.obstacle_offset_m,
+    p.climb_height_m,
+    p.no_spray_zone_m2,
+    p.droplet_size,
+    p.sweep_direction,
+    p.is_orchard,
+    p.uses_side_spray,
+    -- Mismo case de spray_geometry que djiParcelsQuery (normalizar a Polygon).
+    CASE WHEN p.spray_geom IS NULL THEN NULL
+         WHEN ST_GeometryType(p.spray_geom) = 'ST_MultiPolygon'
+              THEN ST_AsGeoJSON(ST_GeometryN(p.spray_geom, 1))::json
+         ELSE ST_AsGeoJSON(p.spray_geom)::json
+    END AS spray_geometry,
+    -- OMITIDO: waypoints_geometry (LineString pesado, 50-200 puntos por parcela).
+    -- OMITIDO: reference_point (Point geometry, solo re-draw).
+    p.waypoint_count,
+    p.source_url_geometry,
+    p.source_url_parameter,
+    -- OMITIDO: source_url_waypoint (solo re-draw).
+    p.fetched_at,
+    p.crop_type,
+    p.planting_date,
+    p.owner_name,
+    p.owner_contact,
+    p.supervisor_notes,
+    last_fum.fumigation_date AS last_fumigation_date,
+    CASE
+      WHEN last_fum.fumigation_date IS NULL THEN NULL
+      ELSE (CURRENT_DATE - last_fum.fumigation_date)
+    END AS days_since_last_fumigation,
+    s.recommended_cadence_days AS recommended_cadence_days,
+    p.client_name AS client_name,
+    p.farm_name AS farm_name,
+    p.municipality AS municipality,
+    p.variety AS variety
+  FROM dji_parcels p
+  LEFT JOIN LATERAL (
+    SELECT fumigation_date
+      FROM dji_fumigations
+     WHERE parcel_id = p.id
+       AND deleted_at IS NULL
+     ORDER BY fumigation_date DESC
+     LIMIT 1
+  ) last_fum ON true
+  LEFT JOIN dji_fumigation_schedule s ON s.parcel_id = p.id
+`;

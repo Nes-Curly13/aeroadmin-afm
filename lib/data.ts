@@ -30,6 +30,7 @@ import { unstable_cache } from "next/cache";
 import { getDb } from "@/lib/db";
 import {
   getParcelsNormalized,
+  getParcelsNormalizedMetadata,
   getParcelById,
   getFumigationEventsByParcel,
   getRecentFumigations,
@@ -447,88 +448,31 @@ interface Dataset {
   fetchedAt: string;
 }
 
-const _loadDatasetCached = unstable_cache(
-  async (): Promise<Dataset> => {
-    // 1) Parcels (traemos todos — la BD tiene ~1200, fits in memory).
-    const parcelsResult = await getParcelsNormalized(1, 2000, {});
-    const parcelRecords: DjiParcelRecord[] = parcelsResult.data;
-    const schedulesMap = await getAllFumigationSchedules();
-    // unstable_cache no preserva `Map` al serializar — usar objeto plano.
-    const schedules: DjiFumigationSchedule[] = Array.from(schedulesMap.values());
-    const schedulesByParcelId: Record<number, DjiFumigationSchedule> = {};
-    for (const s of schedules) schedulesByParcelId[s.parcel_id] = s;
-
-    // 2) Fumigation events (los más recientes 2000 — la BD tiene ~17k).
-    const fumigationEvents = await getRecentFumigations(2000);
-
-    // 3) Flight points (max 2000 por la cache).
-    const flightPoints = await getFlightPoints(2000);
-
-    // 4) v2.5.5 — flight hulls (PostGIS ST_ConvexHull agrupado por parcel).
-    // Query cara (~200ms en Supabase sobre 8k flights), cacheada aparte en
-    // `fetchFlightHullsByParcelCached` con TTL 10min. Devuelve una entrada
-    // por parcel con flights válidos (incluyendo parcels con 1-2 flights
-    // que tendran `hullGeometry: null`).
-    const flightHulls = await getFlightHullsByParcel();
-    const flightHullsByParcelId: Dataset["flightHullsByParcelId"] = {};
-    for (const h of flightHulls) {
-      flightHullsByParcelId[h.parcelId] = {
-        flightCount: h.flightCount,
-        centroid: h.centroid,
-        hullGeometry: h.hullGeometry
-      };
-    }
-
-    // 5) Health (leído del _health.json en `loadHealth()` aparte, ver arriba).
-    //    Acá solo necesitamos los import batches derivados del health raw.
-    const healthRaw = await readHealthFile(HEALTH_FILE_PATH);
-    const healthResponse = deriveResponse(healthRaw);
-
-    // 6) Import batches — derivamos de health.steps como un solo batch.
-    const importBatches: DjiImportBatch[] = healthRaw
-      ? [
-          {
-            id: "1",
-            started_at: healthRaw.lastRunAt,
-            finished_at: healthRaw.lastRunAt,
-            status: healthRaw.lastRunStatus === "ok" ? "ok" : healthRaw.lastRunStatus === "partial" ? "partial" : "error",
-            parcels_upserted: healthRaw.totals?.lands ?? 0,
-            flights_upserted: healthRaw.totals?.flights ?? 0,
-            fumigations_upserted: healthRaw.totals?.fumigations ?? 0,
-            message: null
-          }
-        ]
-      : [];
-
-    // 7) Schedule history — vacío por ahora (el proyecto no tiene tabla
-    //    `dji_fumigation_schedule_history` aún).
-    const scheduleHistory: Record<string, DjiScheduleHistory[]> = {};
-
-    // 8) Adaptar parcels — v2.5.5 cascade: real > hull > buffer > N-gon synth.
-    const parcels: DjiParcel[] = parcelRecords.map((p) =>
-      adaptParcel(p, schedulesByParcelId[p.id] ?? null, flightHullsByParcelId[p.id] ?? null)
-    );
-
-    // NOTA: `health` ya no se devuelve desde acá. Está en `loadHealth()`
-    // que se llama independiente (sin cargar parcels/fumigations/flights).
-    return {
-      parcels,
-      schedules,
-      schedulesByParcelId,
-      fumigationEvents,
-      flightPoints,
-      importBatches,
-      scheduleHistory,
-      flightHullsByParcelId,
-      fetchedAt: new Date().toISOString()
-    };
-  },
-  ["v0-dataset"],
-  {
-    revalidate: 60,
-    tags: ["afm:v0-dashboard"]
-  }
-);
+// ---------------------------------------------------------------------------
+// Carga unificada de datos — no usa unstable_cache propio.
+//
+// Por que NO usar unstable_cache para el dataset entero:
+//   unstable_cache tiene un límite HARD de 2MB por item (Next.js 16).
+//   El dataset es ~4MB principalmente por los GeoJSON waypoints de los
+//   parcels (spray_geometry, waypoints_geometry) y los hulls de flights.
+//   Cuando el mega-cache tiraba "items over 2MB can not be cached", el
+//   unhandledRejection rompía el render de /parcelas y /geovisor y el
+//   not-found boundary las mostraba como 404.
+//
+//   Antes intentamos partirlo en 2 caches chicos pero las geometrias
+//   de los parcels solos ya pasan 4MB. Conclusion: NO cachear el dataset
+//   compuesto. Cada input YA tiene su propio cache en lib/cache.ts:
+//
+//   - parcels:        fetchParcelsNormalizedCached (TTL 60s, tag afm:parcels)
+//   - schedules:      sin cache (DB query ~30ms, llamado 1x por request)
+//   - hulls:          fetchFlightHullsByParcelCached (TTL 10min)
+//   - flights:        fetchFlightPointsCached
+//   - recent fum:     query directo (no cache, ~50ms)
+//
+//   El composer solo pega las piezas. Cada una es un cache hit. ~80ms
+//   de overhead total por request (la mayoria de las queries), aceptable
+//   para paginas server-rendered.
+// ---------------------------------------------------------------------------
 
 function mapHealthStatus(s: "ok" | "partial" | "stale" | "unknown" | "failed"): DjiAgHealth["status"] {
   if (s === "ok") return "ok";
@@ -536,8 +480,81 @@ function mapHealthStatus(s: "ok" | "partial" | "stale" | "unknown" | "failed"): 
   return "error";
 }
 
+/** Composer no-cached que une las piezas (cada una ya cacheada en
+ *  lib/cache.ts via `fetchParcelsNormalizedCached`,
+ *  `fetchFlightHullsByParcelCached`, etc).
+ *
+ *  Ver docstring arriba para entender por qué evitamos unstable_cache
+ *  acá (límite 2MB de Next.js 16).
+ */
 async function loadDataset(): Promise<Dataset> {
-  return _loadDatasetCached();
+  const [parcelsResult, schedulesMap, fumigationEvents, flightPoints, flightHulls] = await Promise.all([
+    // fetchParcelsMetadataCached (lib/cache.ts) — TTL 60s, tag afm:parcels.
+    // Usa djiParcelsMetadataQuery (sin waypoints) para fitear bajo el
+    // límite 2MB de unstable_cache. Ver docstring arriba.
+    getParcelsNormalizedMetadata(1, 2000),
+    // getAllFumigationSchedules — sin cache (query ~30ms, no es hot path).
+    getAllFumigationSchedules(),
+    // getRecentFumigations — sin cache (query ~50ms, dataset limitado a 2000).
+    getRecentFumigations(2000),
+    // getFlightPoints — fetchFlightPointsCached, TTL 30s, tag afm:flights.
+    getFlightPoints(2000),
+    // fetchFlightHullsByParcelCached — TTL 10min, tag afm:flight-hulls.
+    getFlightHullsByParcel()
+  ]);
+
+  const parcelRecords: DjiParcelRecord[] = parcelsResult.data;
+  const schedules: DjiFumigationSchedule[] = Array.from(schedulesMap.values());
+  const schedulesByParcelId: Record<number, DjiFumigationSchedule> = {};
+  for (const s of schedules) schedulesByParcelId[s.parcel_id] = s;
+
+  const flightHullsByParcelId: Dataset["flightHullsByParcelId"] = {};
+  for (const h of flightHulls) {
+    flightHullsByParcelId[h.parcelId] = {
+      flightCount: h.flightCount,
+      centroid: h.centroid,
+      hullGeometry: h.hullGeometry
+    };
+  }
+
+  // Import batches — derivamos de health.steps como un solo batch.
+  const healthRaw = await readHealthFile(HEALTH_FILE_PATH);
+  const importBatches: DjiImportBatch[] = healthRaw
+    ? [
+        {
+          id: "1",
+          started_at: healthRaw.lastRunAt,
+          finished_at: healthRaw.lastRunAt,
+          status: healthRaw.lastRunStatus === "ok" ? "ok" : healthRaw.lastRunStatus === "partial" ? "partial" : "error",
+          parcels_upserted: healthRaw.totals?.lands ?? 0,
+          flights_upserted: healthRaw.totals?.flights ?? 0,
+          fumigations_upserted: healthRaw.totals?.fumigations ?? 0,
+          message: null
+        }
+      ]
+    : [];
+
+  // Schedule history — vacío por ahora (el proyecto no tiene tabla de
+  // dji_fumigation_schedule_history aún).
+  const scheduleHistory: Record<string, DjiScheduleHistory[]> = {};
+
+  // Adaptar parcels — v2.5.5 cascade: real > hull > buffer > N-gon synth.
+  // Corre en cada request (~5-10ms para 1213 parcels).
+  const parcels: DjiParcel[] = parcelRecords.map((p) =>
+    adaptParcel(p, schedulesByParcelId[p.id] ?? null, flightHullsByParcelId[p.id] ?? null)
+  );
+
+  return {
+    parcels,
+    schedules,
+    schedulesByParcelId,
+    fumigationEvents,
+    flightPoints,
+    importBatches,
+    scheduleHistory,
+    flightHullsByParcelId,
+    fetchedAt: new Date().toISOString()
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -650,12 +667,24 @@ export type {
 // Selectores V0 (los que usan las pages del V0).
 // ---------------------------------------------------------------------------
 
-let _summariesCache: { key: string; summaries: ParcelSummary[] } | null = null;
+let _summariesCache:
+  | {
+      /** Content-based fingerprint: clave estable mientras los inputs no
+       *  cambien, asi re-runs de getSummaries() en el mismo request
+       *  reusan el computo. Como `loadDataset()` ya no esta cacheado
+       *  (cada call devuelve un `fetchedAt` fresco), usamos el largo
+       *  de las listas como fingerprint pobre. Si los inputs no
+       *  cambiaron, los largos no cambian. */
+      key: string;
+      summaries: ParcelSummary[];
+    }
+  | null = null;
 
 async function getSummaries(): Promise<ParcelSummary[]> {
   const ds = await loadDataset();
-  // Cache dentro del mismo request.
-  if (_summariesCache && _summariesCache.key === ds.fetchedAt) {
+  // Content-based dedup key (estable dentro de la misma ventana de cache).
+  const key = `${ds.parcels.length}:${ds.fumigationEvents.length}:${ds.flightPoints.length}`;
+  if (_summariesCache && _summariesCache.key === key) {
     return _summariesCache.summaries;
   }
   const summaries = buildSummaries(
@@ -664,7 +693,7 @@ async function getSummaries(): Promise<ParcelSummary[]> {
     ds.fumigationEvents,
     ds.flightPoints
   );
-  _summariesCache = { key: ds.fetchedAt, summaries };
+  _summariesCache = { key, summaries };
   return summaries;
 }
 

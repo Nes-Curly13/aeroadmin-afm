@@ -18,6 +18,7 @@ import {
   fetchFlightPointsCached,
   fetchOverdueParcelsCached,
   fetchParcelsNormalizedCached,
+  fetchParcelsMetadataNoCache,
   fetchParcelsSummaryCached,
   fetchUpcomingFumigationsCached,
   fetchActivityComparisonCached,
@@ -198,6 +199,28 @@ export async function getParcelsNormalized(page = 1, limit = 20, filter: DjiParc
     return getParcelsNormalizedUncached(page, limit, filter);
   }
   return fetchParcelsNormalizedCached(page, limit);
+}
+
+/**
+ * `getParcelsNormalizedMetadata` — wrapper sobre `djiParcelsMetadataQuery`
+ * (sin waypoints). Usado por `loadDataset` (lib/data.ts) para listar TODAS
+ * las parcelas (~1213) en memoria sin romper el límite 2MB de
+ * `unstable_cache`. NO soporta filters (es solo para el dataset completo).
+ *
+ * Sprint S10 (2026-08-05) — fix del unhandledRejection "items over 2MB can
+ * not be cached" en /parcelas + /geovisor. Ver docstring de
+ * `djiParcelsMetadataQuery` (api/queries.ts) para el por qué.
+ *
+ * Importante: usa `fetchParcelsMetadataNoCache` (sin unstable_cache) porque
+ * el dataset bulk de 1213 parcelas metadata todavía pesa ~2.35MB y supera
+ * el límite 2MB. El detalle page y /admin/parcels siguen usando
+ * `fetchParcelsNormalizedCached` (paginada en bloques de 50, fit bajo 2MB).
+ */
+export async function getParcelsNormalizedMetadata(
+  page = 1,
+  limit = 2000
+): Promise<{ data: DjiParcelRecord[]; total: number; page: number; limit: number; totalPages: number }> {
+  return fetchParcelsMetadataNoCache(page, limit);
 }
 
 /**

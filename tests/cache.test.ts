@@ -52,6 +52,8 @@ import {
   CACHE_TAGS,
   CACHE_TTL,
   fetchDashboardMetricsCached,
+  fetchParcelsMetadataCached,
+  fetchParcelsMetadataNoCache,
   fetchParcelsNormalizedCached,
   fetchUpcomingFumigationsCached,
   invalidateAfterFlightMutation,
@@ -72,6 +74,11 @@ afterEach(() => {
 
 // ─── 1) Contract: cada wrapper se cachea con el TTL y tag correctos ─────
 
+// Snapshot del calls log al momento del import (los wrappers se registran
+// vía unstable_cache al cargar el módulo, no al llamarlos). Permite
+// verificar el contrato TTL/tag sin depender del beforeEach.
+const initialUnstableCacheCalls = [...unstableCacheCalls];
+
 describe("CACHE_TTL — duración esperada por dominio", () => {
   it("metrics 5min, alerts 5min, parcels 1min, parcels-summary 1min, upcoming 1min, flights 30s", () => {
     expect(CACHE_TTL.metrics).toBe(300);
@@ -91,6 +98,15 @@ describe("CACHE_TTL — duración esperada por dominio", () => {
     expect(CACHE_TAGS.flights).toBe("afm:flights");
     // Sprint A — F4.0: tag para la comparativa ayer/hoy del dashboard.
     expect(CACHE_TAGS.activityComparison).toBe("afm:activity-comparison");
+  });
+
+  // Sprint S10 (2026-08-05): el metadata cache debe estar registrado con el
+  // TTL + tag correctos al momento del import del módulo.
+  it("parcels-metadata cache se registra con TTL 60s y tag afm:parcels", () => {
+    const metaCall = initialUnstableCacheCalls.find(c => c.keyParts[0] === "parcels-metadata");
+    expect(metaCall).toBeDefined();
+    expect(metaCall!.options.revalidate).toBe(CACHE_TTL.parcels);
+    expect(metaCall!.options.tags).toContain(CACHE_TAGS.parcels);
   });
 });
 
@@ -129,6 +145,41 @@ describe("cache wrappers — el callback subyacente se ejecuta", () => {
     expect(queryMock).toHaveBeenCalledTimes(2);
     const [params] = queryMock.mock.calls[0].slice(1) as [unknown[]];
     expect(params).toEqual([25, 25]); // LIMIT 25 OFFSET (2-1)*25 = 25
+  });
+
+  // Sprint S10 (2026-08-05) — fix unhandledRejection "items over 2MB can not
+  // be cached" en /parcelas + /geovisor. La metadata query omite waypoints
+  // para fitear bajo el límite 2MB de unstable_cache.
+  it("fetchParcelsMetadataCached usa djiParcelsMetadataQuery (sin waypoints) y se cachea con TTL/tag de parcels", async () => {
+    queryMock.mockResolvedValueOnce({ rows: [{ id: 1, land_name: "P1" }] });
+    queryMock.mockResolvedValueOnce({ rows: [{ total: "1213" }] });
+    const r = await fetchParcelsMetadataCached(1, 2000);
+    expect(r.total).toBe(1213);
+    expect(queryMock).toHaveBeenCalledTimes(2);
+    // El SQL debe usar el metadata query (sin waypoints_geometry).
+    const sql = queryMock.mock.calls[0][0] as string;
+    expect(sql).toMatch(/FROM\s+dji_parcels/is);
+    // Buscar SOLO "AS waypoints_geometry" (campo proyectado), no la palabra
+    // suelta en comments. La metadata query NO proyecta waypoints_geometry.
+    expect(sql).not.toMatch(/\bAS\s+waypoints_geometry\b/i);
+    expect(sql).not.toMatch(/\bAS\s+reference_point\b/i);
+  });
+
+  it("fetchParcelsMetadataNoCache NO usa unstable_cache (evita 2MB limit)", async () => {
+    queryMock.mockResolvedValueOnce({ rows: [{ id: 1 }] });
+    queryMock.mockResolvedValueOnce({ rows: [{ total: "1213" }] });
+    // Snapshot del calls log antes de la llamada.
+    const callsBefore = unstableCacheCalls.length;
+    const r = await fetchParcelsMetadataNoCache(1, 2000);
+    expect(r.total).toBe(1213);
+    // NO se debe haber registrado un nuevo unstable_cache call para
+    // "parcels-metadata-no-cache" — la idea es evitar unstable_cache
+    // para este bulk load.
+    const newCalls = unstableCacheCalls.slice(callsBefore);
+    const noCacheCall = newCalls.find(c => c.keyParts.some(k => k.includes("no-cache")));
+    expect(noCacheCall).toBeUndefined();
+    // La query SI se ejecuta (no es un cache, va a la BD).
+    expect(queryMock).toHaveBeenCalledTimes(2);
   });
 
   it("fetchUpcomingFumigationsCached(limit) recorta al limit pedido", async () => {

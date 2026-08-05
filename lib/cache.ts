@@ -45,7 +45,7 @@ import {
   computeSeverity,
   sortOverdueByPriority
 } from "@/lib/overdue-parcels";
-import { djiParcelsQuery } from "@/api/queries";
+import { djiParcelsQuery, djiParcelsMetadataQuery } from "@/api/queries";
 import type {
   DashboardMetrics,
   DjiAlertRecord,
@@ -170,6 +170,67 @@ export const fetchParcelsNormalizedCached = unstable_cache(
   ["parcels-normalized"],
   { revalidate: CACHE_TTL.parcels, tags: [CACHE_TAGS.parcels] }
 );
+
+// ---------------------------------------------------------------------------
+// Metadata-only cache: para listar las 2000+ parcelas sin waypoints.
+// ---------------------------------------------------------------------------
+// El dataset completo (con waypoints) pesa ~4MB y rompe el límite de 2MB
+// de unstable_cache. Esta versión metadata-only omite `waypoints_geometry`,
+// `reference_point` y `source_url_waypoint` para fitear bajo el límite.
+// Usado por `loadDataset` (en lib/data.ts) que necesita TODAS las parcelas
+// en memoria para el geovisor/dashboard/parcelas. El detail page NO usa
+// esta cache — cuando necesita waypoints, hace una query puntual.
+
+async function fetchParcelsMetadataRaw(
+  page: number,
+  limit: number
+): Promise<{ data: DjiParcelRecord[]; total: number; page: number; limit: number; totalPages: number }> {
+  const db = getDb();
+  const offset = (page - 1) * limit;
+  // s8.8+ (2026-07-31) + H1: soft delete filter. Igual que el otro query.
+  const result = await db.query<DjiParcelRecord>(
+    `${djiParcelsMetadataQuery} WHERE p.deleted_at IS NULL ORDER BY land_name ASC NULLS LAST, id ASC LIMIT $1 OFFSET $2`,
+    [limit, offset]
+  );
+  const countResult = await db.query<{ total: string }>(
+    "SELECT COUNT(*)::int AS total FROM dji_parcels WHERE deleted_at IS NULL"
+  );
+  const total = Number(countResult.rows[0]?.total ?? 0);
+  return {
+    data: result.rows,
+    total,
+    page,
+    limit,
+    totalPages: Math.ceil(total / limit)
+  };
+}
+
+export const fetchParcelsMetadataCached = unstable_cache(
+  async (page: number, limit: number) => fetchParcelsMetadataRaw(page, limit),
+  ["parcels-metadata"],
+  { revalidate: CACHE_TTL.parcels, tags: [CACHE_TAGS.parcels] }
+);
+
+// ---------------------------------------------------------------------------
+// Metadata-only SIN unstable_cache — para el caso de las 1213 parcelas en bulk.
+// ---------------------------------------------------------------------------
+// unstable_cache tiene un límite HARD de 2MB por item. Aunque saquemos los
+// waypoints, los 1213 parcels metadata (con spray_geometry + joins last_fum
+// + schedule) pesan ~2.35MB serializado. Todavía supera el límite.
+//
+// Solución: NO cachear este bulk. Cada request a loadDataset corre un query
+// a la BD (~50-100ms con índices). El cache de 60s no compensa la fragilidad
+// del 2MB limit y agrega complejidad. El dataset NO cambia intra-día (los
+// scrapes son diarios), así que el costo de un query fresco es aceptable.
+//
+// Detalle page /admin/parcels (que muestra 50 por página) sigue usando
+// `fetchParcelsNormalizedCached` (paginada, cabe bajo 2MB por página).
+export async function fetchParcelsMetadataNoCache(
+  page: number,
+  limit: number
+): Promise<{ data: DjiParcelRecord[]; total: number; page: number; limit: number; totalPages: number }> {
+  return fetchParcelsMetadataRaw(page, limit);
+}
 
 interface ParcelsSummaryRow {
   total_parcels: string;
