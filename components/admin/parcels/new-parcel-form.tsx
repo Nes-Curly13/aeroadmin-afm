@@ -33,8 +33,9 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FieldSelect } from "@/components/ui/field-select";
+import { SpinnerInline } from "@/components/ui/loading";
 import { ParcelDrawer } from "./parcel-drawer";
-import { Loader2, Save } from "lucide-react";
+import { Save } from "lucide-react";
 
 interface FormState {
   land_name: string;
@@ -396,7 +397,7 @@ export function NewParcelForm() {
           <Button type="submit" size="sm" disabled={isPending}>
             {isPending ? (
               <>
-                <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                <SpinnerInline />
                 Guardando…
               </>
             ) : (

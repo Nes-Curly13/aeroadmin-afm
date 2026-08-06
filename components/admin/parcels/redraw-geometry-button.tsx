@@ -44,7 +44,8 @@
  */
 
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
-import { Loader2, Pencil, X } from "lucide-react";
+import { SpinnerInline } from "@/components/ui/loading";
+import { Pencil, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -286,7 +287,7 @@ export function RedrawGeometryButton({
                 >
                   {isPending ? (
                     <>
-                      <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                      <SpinnerInline />
                       Guardando…
                     </>
                   ) : (

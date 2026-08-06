@@ -48,8 +48,9 @@ import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FieldSelect } from "@/components/ui/field-select";
+import { SpinnerInline } from "@/components/ui/loading";
 import { DRONE_MODELS } from "@/lib/data-constants";
-import { Loader2, Plus, X } from "lucide-react";
+import { Plus, X } from "lucide-react";
 
 interface RegisterFumigationFormProps {
   parcelId: number;
@@ -378,7 +379,7 @@ export function RegisterFumigationForm({ parcelId }: RegisterFumigationFormProps
         >
           {isPending ? (
             <>
-              <Loader2 className="size-3.5 animate-spin" aria-hidden />
+              <SpinnerInline />
               Guardando…
             </>
           ) : (

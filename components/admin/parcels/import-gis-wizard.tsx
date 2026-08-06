@@ -28,11 +28,11 @@ import { useRouter } from "next/navigation";
 import {
   CheckCircle2,
   FileUp,
-  Loader2,
   Save,
   TriangleAlert,
   Upload
 } from "lucide-react";
+import { Spinner } from "@/components/ui/loading";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { fmtDec } from "@/lib/format";
@@ -234,7 +234,7 @@ export function ImportGisWizard() {
 
       {phase === "committing" ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="size-4 animate-spin" aria-hidden />
+          <Spinner size={16} />
           Creando parcelas…
         </div>
       ) : null}
@@ -296,7 +296,7 @@ const UploadCard = forwardRef<HTMLInputElement, UploadCardProps>(function Upload
     >
       {isParsing ? (
         <>
-          <Loader2 className="size-10 animate-spin text-primary" aria-hidden />
+          <Spinner size={40} className="text-primary" />
           <p className="text-sm font-semibold">Parseando archivo…</p>
           <p className="text-xs text-muted-foreground">
             Detectando formato, extrayendo polígonos…
