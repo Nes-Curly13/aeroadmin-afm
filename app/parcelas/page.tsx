@@ -1,5 +1,7 @@
+import { Suspense } from "react"
 import { PageHeader } from "@/components/page-header"
 import { ParcelsTable } from "@/components/parcels/parcels-table"
+import { SkeletonTable } from "@/components/ui/loading"
 import { getViewerRole } from "@/lib/auth/role"
 import { getParcelSummaries, getParcelsWithCycle } from "@/lib/data"
 import type { CyclePhase } from "@/lib/types"
@@ -11,7 +13,28 @@ export const metadata = {
 
 export const dynamic = "force-dynamic"
 
-export default async function ParcelasPage() {
+export default function ParcelasPage() {
+  // S10 (2026-08-06): el header se renderiza instantaneamente. La
+  // ParcelsTable con las 1213 parcelas va dentro de <Suspense> con
+  // skeleton fallback — el usuario ve "Inventario de parcelas" +
+  // 8 filas de skeleton mientras se cargan las queries. Antes: el
+  // await de las queries bloqueaba TODO el render.
+  return (
+    <>
+      <PageHeader
+        title="Inventario de parcelas"
+        description="Cada parcela tiene su hoja de vida: cadencia esperada, historial de aplicaciones, vuelos ejecutados y trazabilidad del dato."
+      />
+      <div className="px-4 py-6 sm:px-6">
+        <Suspense fallback={<SkeletonTable rows={8} cols={7} />}>
+          <ParcelsContent />
+        </Suspense>
+      </div>
+    </>
+  )
+}
+
+async function ParcelsContent() {
   // Sprint 2026-08-01 — fetch summaries + cycle data en paralelo.
   // `getParcelsWithCycle` degrada a {null, null} si la migration
   // 20260801000000 no se aplicó (try/catch interno + warning rate-limited).
@@ -31,18 +54,10 @@ export default async function ParcelasPage() {
   }
 
   return (
-    <>
-      <PageHeader
-        title="Inventario de parcelas"
-        description="Cada parcela tiene su hoja de vida: cadencia esperada, historial de aplicaciones, vuelos ejecutados y trazabilidad del dato."
-      />
-      <div className="px-4 py-6 sm:px-6">
-        <ParcelsTable
-          summaries={summaries}
-          cycleByParcelId={cycleByParcelId}
-          isAdmin={role === "admin"}
-        />
-      </div>
-    </>
+    <ParcelsTable
+      summaries={summaries}
+      cycleByParcelId={cycleByParcelId}
+      isAdmin={role === "admin"}
+    />
   )
 }

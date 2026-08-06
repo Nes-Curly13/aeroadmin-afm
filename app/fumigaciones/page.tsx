@@ -1,9 +1,11 @@
 import Link from "next/link"
 import { Calendar, Droplets, History, Plus, Sprout } from "lucide-react"
+import { Suspense } from "react"
 import { PageHeader } from "@/components/page-header"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Skeleton, SkeletonTable } from "@/components/ui/loading"
 import { getRecentFumigations } from "@/api/repositories"
 import { fmtDate, fmtDateTime, fmtDec, fmtInt } from "@/lib/format"
 import type { DjiFumigationEvent } from "@/lib/types"
@@ -20,8 +22,8 @@ import type { DjiFumigationEvent } from "@/lib/types"
  *   - Server component (no client) para query directa a la BD via
  *     `getRecentFumigations`. Sin paginacion por ahora (12k vuelos
  *     → ~17k fumigaciones estimadas, se justifica cuando duplique).
- *   - Filtros server-side via searchParams: `?source=dji|manual`,
- *     `?q=<texto>` (busca en product, ICA, license, notes).
+ *   - Filtros server-side via searchParams: `?source=dji|manual`, `?q=<texto>`
+ *     (busca en product, ICA, license, notes).
  *   - Click en una fila navega al detail de la parcela
  *     (`/parcelas/[id]`). El operador sigue viendo la fumigacion
  *     en el timeline del detail.
@@ -30,82 +32,47 @@ import type { DjiFumigationEvent } from "@/lib/types"
  *     detail page). No abrimos un wizard de 2 pasos aca — es mas
  *     friccion que beneficio.
  *
+ * S10 (2026-08-06): Suspense boundaries. El header + form se
+ * renderizan instantaneamente; el <Suspense> envuelve la tabla y
+ * los counts para que el usuario pueda tipear/filtrar mientras la
+ * data carga (~500ms cold).
+ *
  * Auth: el middleware ya filtra por /admin/* y /parcelas/*, pero
  * /fumigaciones es un path libre. Confiamos en que el caller es
  * admin (la navbar tiene el badge de rol). Si en el futuro queremos
  * gate explicito, agregar `await requireRole("viewer")` aca.
  */
 
-export const dynamic = "force-dynamic";
+export const dynamic = "force-dynamic"
 
 export const metadata = {
   title: "Fumigaciones | AFM Geovisor",
   description:
     "Listado unificado de fumigaciones DJI + manuales con filtros por fecha, parcela y fuente."
-};
+}
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 50
 
 interface PageProps {
   searchParams: Promise<{
-    page?: string;
-    q?: string;
-    source?: "dji" | "manual" | "all" | string;
-  }>;
+    page?: string
+    q?: string
+    source?: "dji" | "manual" | "all" | string
+  }>
 }
 
 function parseSource(v: string | undefined): "djiscraper" | "import" | "manual" | null {
-  if (v === "dji") return "djiscraper";
-  if (v === "manual") return "manual";
-  return null;
+  if (v === "dji") return "djiscraper"
+  if (v === "manual") return "manual"
+  if (v === "import") return "import"
+  return null
 }
 
 export default async function FumigacionesPage({ searchParams }: PageProps) {
-  const sp = await searchParams;
-  const page = Math.max(1, Number(sp.page ?? 1) || 1);
-  const query = (sp.q ?? "").trim();
-  const sourceFilter = parseSource(sp.source);
-
-  // Traemos más de PAGE_SIZE para que el filtrado client-side (en este
-  // caso server-side) tenga margen. 2000 es el límite del repo actual.
-  // Si crece, cambiar a paginación SQL.
-  const all = await getRecentFumigations(2000);
-
-  // Filtros aplicados en server (mismo patron que /admin/parcels).
-  const filtered = all.filter((f) => {
-    if (sourceFilter && f.source !== sourceFilter) return false;
-    if (query) {
-      const q = query.toLowerCase();
-      const haystack = [
-        f.product_used ?? "",
-        f.notes ?? "",
-        f.human_notes ?? "",
-        f.product_registered_ica ?? "",
-        f.pilot_license ?? "",
-        f.recorded_by ?? "",
-        String(f.parcel_id)
-      ]
-        .join(" ")
-        .toLowerCase();
-      if (!haystack.includes(q)) return false;
-    }
-    return true;
-  });
-
-  // Paginación simple (slice en memoria).
-  const total = filtered.length;
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const safePage = Math.min(page, totalPages);
-  const start = (safePage - 1) * PAGE_SIZE;
-  const rows = filtered.slice(start, start + PAGE_SIZE);
-
-  // Contadores para el header (no dependen del filtro de página).
-  // "dji" en la URL = "djiscraper" o "import" en la BD (ambas vienen
-  // del scrape de DJI; "manual" es lo que el operador llena).
-  const djiCount = all.filter(
-    (f) => f.source === "djiscraper" || f.source === "import"
-  ).length;
-  const manualCount = all.filter((f) => f.source === "manual").length;
+  const sp = await searchParams
+  const page = Math.max(1, Number(sp.page ?? 1) || 1)
+  const query = (sp.q ?? "").trim()
+  const sourceFilter = parseSource(sp.source)
 
   return (
     <div className="flex flex-col gap-4 p-4 md:p-6">
@@ -114,13 +81,12 @@ export default async function FumigacionesPage({ searchParams }: PageProps) {
         description="Registro unificado de fumigaciones DJI + manuales. Click una fila para ver el detalle de la parcela."
       />
 
-      {/* Filtros + acción */}
+      {/* Filtros + acción — sync, sin queries */}
       <form
         method="get"
         className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"
       >
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:gap-3">
-          {/* Input de búsqueda (busca en product, notes, ICA, etc.) */}
           <div className="flex flex-col gap-1">
             <label
               htmlFor="q"
@@ -136,7 +102,6 @@ export default async function FumigacionesPage({ searchParams }: PageProps) {
               className="h-8 w-full rounded-md border border-input bg-background px-2.5 text-sm sm:w-72"
             />
           </div>
-          {/* Select de fuente (dji / manual / all) */}
           <div className="flex flex-col gap-1">
             <label
               htmlFor="source"
@@ -150,9 +115,9 @@ export default async function FumigacionesPage({ searchParams }: PageProps) {
               defaultValue={sourceFilter ?? "all"}
               className="h-8 rounded-md border border-input bg-background px-2 text-sm"
             >
-              <option value="all">Todas ({all.length})</option>
-              <option value="dji">DJI ({djiCount})</option>
-              <option value="manual">Manual ({manualCount})</option>
+              <option value="all">Todas</option>
+              <option value="dji">DJI</option>
+              <option value="manual">Manual</option>
             </select>
           </div>
           <button
@@ -163,14 +128,9 @@ export default async function FumigacionesPage({ searchParams }: PageProps) {
           </button>
         </div>
         <div className="flex items-center justify-between gap-3">
-          <p className="font-mono text-[11px] text-muted-foreground">
-            {`${total} fumigaciones · página ${safePage}/${totalPages || 1} · ${PAGE_SIZE}/página`}
-          </p>
-          {/* Botón de nueva fumigación. Sprint 2026-08-05: en vez del
-              dialog chico (max-w-2xl) ahora abre una página completa
-              con mapa satelital y form con más espacio. Ver
-              /fumigaciones/nueva y components/admin/fumigations/
-              new-fumigation-page-client.tsx. */}
+          <Suspense fallback={<Skeleton className="h-3 w-48" />}>
+            <FumigacionesCounts sourceFilter={sourceFilter} />
+          </Suspense>
           <Button
             size="sm"
             render={
@@ -198,46 +158,122 @@ export default async function FumigacionesPage({ searchParams }: PageProps) {
           </CardDescription>
         </CardHeader>
         <CardContent className="px-0 pb-0">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[900px] text-sm">
-              <thead className="border-y border-border bg-muted/60 text-xs uppercase tracking-wide text-muted-foreground">
-                <tr>
-                  <th className="px-3 py-2.5 text-left font-semibold">Fecha</th>
-                  <th className="px-3 py-2.5 text-left font-semibold">Parcela</th>
-                  <th className="px-3 py-2.5 text-left font-semibold">Producto</th>
-                  <th className="px-3 py-2.5 text-right font-semibold">Dosis</th>
-                  <th className="px-3 py-2.5 text-right font-semibold">Área</th>
-                  <th className="px-3 py-2.5 text-left font-semibold">Fuente</th>
-                  <th className="px-3 py-2.5 text-left font-semibold">Registrado por</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="px-3 py-12 text-center text-sm text-muted-foreground">
-                      Sin fumigaciones con esos filtros. Probá limpiar la búsqueda o cambiar la fuente.
-                    </td>
-                  </tr>
-                ) : (
-                  rows.map((f) => <FumigationRow key={f.id} f={f} />)
-                )}
-              </tbody>
-            </table>
-          </div>
-          {/* Paginación simple */}
-          {totalPages > 1 ? <Pagination page={safePage} totalPages={totalPages} /> : null}
+          <Suspense fallback={<SkeletonTable rows={10} cols={7} />}>
+            <FumigacionesTable query={query} sourceFilter={sourceFilter} page={page} />
+          </Suspense>
         </CardContent>
       </Card>
     </div>
-  );
+  )
+}
+
+// ============================================================
+// Sub-componentes async (dentro de <Suspense>)
+// ============================================================
+
+async function FumigacionesCounts({
+  sourceFilter
+}: {
+  sourceFilter: "djiscraper" | "import" | "manual" | null
+}) {
+  // Reutilizamos la misma query (cada una va al cache `afm:recent-fumigations`).
+  const all = await getRecentFumigations(2000)
+  const djiCount = all.filter(
+    (f) => f.source === "djiscraper" || f.source === "import"
+  ).length
+  const manualCount = all.filter((f) => f.source === "manual").length
+  return (
+    <p className="font-mono text-[11px] text-muted-foreground">
+      {sourceFilter === "manual"
+        ? `${manualCount} manuales`
+        : sourceFilter === "djiscraper"
+          ? `${djiCount} DJI`
+          : `${fmtInt(all.length)} fumigaciones`}
+    </p>
+  )
+}
+
+async function FumigacionesTable({
+  query,
+  sourceFilter,
+  page
+}: {
+  query: string
+  sourceFilter: "djiscraper" | "import" | "manual" | null
+  page: number
+}) {
+  const all = await getRecentFumigations(2000)
+
+  // Filtros aplicados en server (mismo patron que /admin/parcels).
+  const filtered = all.filter((f) => {
+    if (sourceFilter && f.source !== sourceFilter) return false
+    if (query) {
+      const q = query.toLowerCase()
+      const haystack = [
+        f.product_used ?? "",
+        f.notes ?? "",
+        f.human_notes ?? "",
+        f.product_registered_ica ?? "",
+        f.pilot_license ?? "",
+        f.recorded_by ?? "",
+        String(f.parcel_id)
+      ]
+        .join(" ")
+        .toLowerCase()
+      if (!haystack.includes(q)) return false
+    }
+    return true
+  })
+
+  // Paginación simple (slice en memoria).
+  const total = filtered.length
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const safePage = Math.min(page, totalPages)
+  const start = (safePage - 1) * PAGE_SIZE
+  const rows = filtered.slice(start, start + PAGE_SIZE)
+
+  return (
+    <>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[900px] text-sm">
+          <thead className="border-y border-border bg-muted/60 text-xs uppercase tracking-wide text-muted-foreground">
+            <tr>
+              <th className="px-3 py-2.5 text-left font-semibold">Fecha</th>
+              <th className="px-3 py-2.5 text-left font-semibold">Parcela</th>
+              <th className="px-3 py-2.5 text-left font-semibold">Producto</th>
+              <th className="px-3 py-2.5 text-right font-semibold">Dosis</th>
+              <th className="px-3 py-2.5 text-right font-semibold">Área</th>
+              <th className="px-3 py-2.5 text-left font-semibold">Fuente</th>
+              <th className="px-3 py-2.5 text-left font-semibold">Registrado por</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 ? (
+              <tr>
+                <td colSpan={7} className="px-3 py-12 text-center text-sm text-muted-foreground">
+                  Sin fumigaciones con esos filtros. Probá limpiar la búsqueda o cambiar la fuente.
+                </td>
+              </tr>
+            ) : (
+              rows.map((f) => <FumigationRow key={f.id} f={f} />)
+            )}
+          </tbody>
+        </table>
+      </div>
+      {totalPages > 1 ? <Pagination page={safePage} totalPages={totalPages} /> : null}
+      <p className="border-t border-border px-3 py-2 text-center font-mono text-[11px] text-muted-foreground">
+        {`página ${safePage} de ${totalPages} · ${fmtInt(total)} resultados`}
+      </p>
+    </>
+  )
 }
 
 function FumigationRow({ f }: { f: DjiFumigationEvent }) {
   // Variante del badge por fuente: DJI = secondary (gris, automático),
   // manual = default (primary, destacado, viene del operador).
   const sourceVariant: "default" | "secondary" =
-    f.source === "manual" ? "default" : "secondary";
-  const sourceLabel = f.source === "manual" ? "Manual" : "DJI";
+    f.source === "manual" ? "default" : "secondary"
+  const sourceLabel = f.source === "manual" ? "Manual" : "DJI"
 
   return (
     <tr className="border-b border-border/60 transition-colors last:border-0 hover:bg-muted/40">
@@ -311,7 +347,7 @@ function FumigationRow({ f }: { f: DjiFumigationEvent }) {
         </div>
       </td>
     </tr>
-  );
+  )
 }
 
 /**
@@ -321,19 +357,19 @@ function FumigationRow({ f }: { f: DjiFumigationEvent }) {
  * correctamente (number | null del query, no number | bigint | string).
  */
 function formatArea(m2: number | null | undefined): string {
-  if (m2 == null) return "—";
+  if (m2 == null) return "—"
   // ha con 2 decimales. fmtInt formatea a string con separador de
   // miles, asi que NO se puede dividir despues — operamos con number.
-  const ha = m2 / 10_000;
-  return `${(Math.round(ha * 100) / 100).toFixed(2)} ha`;
+  const ha = m2 / 10_000
+  return `${(Math.round(ha * 100) / 100).toFixed(2)} ha`
 }
 
 function Pagination({ page, totalPages }: { page: number; totalPages: number }) {
   // Paginación básica. 5 links visibles: 2 antes, actual, 2 después.
-  const start = Math.max(1, page - 2);
-  const end = Math.min(totalPages, start + 4);
-  const items: number[] = [];
-  for (let i = start; i <= end; i++) items.push(i);
+  const start = Math.max(1, page - 2)
+  const end = Math.min(totalPages, start + 4)
+  const items: number[] = []
+  for (let i = start; i <= end; i++) items.push(i)
   return (
     <nav
       className="flex items-center justify-center gap-1 border-t border-border px-3 py-3"
@@ -369,5 +405,5 @@ function Pagination({ page, totalPages }: { page: number; totalPages: number }) 
         </Link>
       ) : null}
     </nav>
-  );
+  )
 }
