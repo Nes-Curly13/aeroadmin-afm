@@ -1,9 +1,10 @@
 "use client"
 
-import { ArrowUpDown, Search } from "lucide-react"
+import { ArrowUpDown, Plus, Search, Upload } from "lucide-react"
 import Link from "next/link"
 import { useMemo, useState } from "react"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { FieldSelect } from "@/components/ui/field-select"
 import { Input } from "@/components/ui/input"
 import { STATUS_META, droneModel } from "@/lib/data-constants"
@@ -35,7 +36,8 @@ interface Row {
 
 export function ParcelsTable({
   summaries,
-  cycleByParcelId
+  cycleByParcelId,
+  isAdmin = false
 }: {
   summaries: ParcelSummary[]
   /**
@@ -46,6 +48,12 @@ export function ParcelsTable({
    * muestran "Fase: desconocida".
    */
   cycleByParcelId?: Record<string, CyclePhase | null>
+  /**
+   * Sprint S10 (2026-08-06): el sidebar linkea a /parcelas (no a /admin/parcels),
+   * asi que los admins necesitan ver los botones de alta/import ACÁ. Default
+   * false (backward compat) para callers que ya tenian el componente.
+   */
+  isAdmin?: boolean
 }) {
   const [query, setQuery] = useState("")
   const [client, setClient] = useState("todos")
@@ -168,6 +176,39 @@ export function ParcelsTable({
             </option>
           ))}
         </FieldSelect>
+        {/* Sprint S10 (2026-08-06): botones de admin en /parcelas. El sidebar
+            linkea a /parcelas (no a /admin/parcels), asi que el admin
+            necesita ver los accesos directos ACÁ. Solo admins los ven;
+            supervisores tienen vista read-only. */}
+        {isAdmin && (
+          <div className="flex shrink-0 items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              render={
+                <Link
+                  href="/admin/parcels/import"
+                  aria-label="Importar parcelas desde archivo GIS (KML/SHP/GPKG)"
+                >
+                  <Upload className="size-3.5" aria-hidden />
+                  Importar GIS
+                </Link>
+              }
+            />
+            <Button
+              size="sm"
+              render={
+                <Link
+                  href="/admin/parcels/new"
+                  aria-label="Crear parcela nueva (alta manual)"
+                >
+                  <Plus className="size-3.5" aria-hidden />
+                  Crear parcela
+                </Link>
+              }
+            />
+          </div>
+        )}
       </div>
 
       <div className="overflow-hidden rounded-lg border border-border bg-card">
