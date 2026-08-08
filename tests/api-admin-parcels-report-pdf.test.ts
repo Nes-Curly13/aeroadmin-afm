@@ -67,7 +67,12 @@ const FAKE_DATA = {
     lastFumigationDate: null,
     capReached: false
   },
-  coverage: { areaFumigableHa: 30, areaFumigadaHa: 0, coveragePct: 0 }
+  coverage: { areaFumigableHa: 30, areaFumigadaHa: 0, coveragePct: 0 },
+  // feature/reports-level-1 sub-sprint 2: la location es null en el
+  // fixture default. El template renderiza la sección "Ubicación" solo
+  // si hay location con bbox. Los tests específicos mockean location
+  // no-null para verificar el SVG.
+  location: null
 };
 
 function makeCtx(id: string) {
@@ -189,6 +194,60 @@ describe("GET .../report.pdf — success", () => {
   it("no cachea el PDF (header Cache-Control no-store)", async () => {
     const res = await GET(new Request("http://localhost/x"), makeCtx("42"));
     expect(res.headers.get("cache-control")).toBe("private, no-store");
+  });
+});
+
+// ============================================================
+// feature/reports-level-1 sub-sprint 2: sección "Ubicación" en el PDF
+// ============================================================
+
+describe("GET .../report.pdf — sección Ubicación", () => {
+  beforeEach(() => {
+    mockRequireRole.mockResolvedValue(undefined);
+  });
+
+  it("incluye el SVG del polígono cuando location no es null", async () => {
+    // Capturamos el HTML que se le pasa a renderHtmlToPdf.
+    let capturedHtml = "";
+    mockRenderPdf.mockImplementationOnce(async (html: string) => {
+      capturedHtml = html;
+      return FAKE_PDF;
+    });
+    // Mockeamos getParcelReportData con location no-null.
+    const { buildParcelLocation } = await import("@/lib/reports/parcel-svg");
+    mockFetchData.mockResolvedValueOnce({
+      ...FAKE_DATA,
+      location: buildParcelLocation({
+        type: "Polygon",
+        coordinates: [[
+          [-76.5005, 3.3995],
+          [-76.4995, 3.3995],
+          [-76.4995, 3.4005],
+          [-76.5005, 3.4005],
+          [-76.5005, 3.3995]
+        ]]
+      })
+    });
+    await GET(new Request("http://localhost/x"), makeCtx("42"));
+    // El HTML capturado debe tener la sección "Ubicación" + el SVG.
+    expect(capturedHtml).toContain("<h2>Ubicación</h2>");
+    expect(capturedHtml).toContain("<svg");
+    expect(capturedHtml).toContain("viewBox");
+    expect(capturedHtml).toContain('class="location-svg"');
+    expect(capturedHtml).toContain("Centroide");
+    expect(capturedHtml).toContain("Bbox");
+  });
+
+  it("muestra mensaje 'Sin geometría' cuando location es null", async () => {
+    let capturedHtml = "";
+    mockRenderPdf.mockImplementationOnce(async (html: string) => {
+      capturedHtml = html;
+      return FAKE_PDF;
+    });
+    mockFetchData.mockResolvedValueOnce({ ...FAKE_DATA, location: null });
+    await GET(new Request("http://localhost/x"), makeCtx("42"));
+    expect(capturedHtml).toContain("<h2>Ubicación</h2>");
+    expect(capturedHtml).toContain("Sin geometría");
   });
 });
 

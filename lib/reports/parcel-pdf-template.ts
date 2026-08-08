@@ -36,6 +36,7 @@
 //     feature de export de auditoría, scope separado).
 
 import type { CadenceStatus, ParcelReportData, ParcelReportEvent } from "./fetch-parcel-report-data";
+import { formatBbox } from "./parcel-svg";
 
 /** Formato es-CO para números (separador de miles con punto, decimales con coma). */
 function fmtNum(value: number, decimals: number): string {
@@ -140,6 +141,12 @@ const STYLES = `
   .footer { margin-top: 18px; font-size: 9px; color: #587064; text-align: center; border-top: 1px solid #d2ddd6; padding-top: 8px; }
   .empty { color: #587064; font-style: italic; padding: 8px 0; }
   .cap-warning { color: #a37200; font-size: 10px; margin-top: 4px; }
+  /* feature/reports-level-1 sub-sprint 2 — sección "Ubicación" del PDF.
+     Grid 2-col: SVG a la izquierda (240px), metadata a la derecha. */
+  .location { display: grid; grid-template-columns: 240px 1fr; gap: 16px; align-items: start; }
+  .location-svg { border: 1px solid #d2ddd6; border-radius: 6px; background: #f7f9fb; overflow: hidden; }
+  .location-svg svg { display: block; width: 100%; height: auto; }
+  .location-kv { font-size: 10.5px; }
 `;
 
 /**
@@ -229,6 +236,36 @@ export function buildParcelReportHtml(data: ParcelReportData): string {
           : ""
       }
     </div>
+
+    <h2>Ubicación</h2>
+    ${
+      // feature/reports-level-1 sub-sprint 2: mostramos un mini-mapa
+      // vectorial (SVG del polígono) + bbox + centroide. Si la parcela
+      // no tiene spray_geometry (parcel importada sin shape), location
+      // es null y mostramos solo el mensaje.
+      data.location === null
+        ? `<div class="empty">Sin geometría registrada para esta parcela.</div>`
+        : `
+        <div class="location">
+          <div class="location-svg">${data.location.svg}</div>
+          <dl class="kv location-kv">
+            <dt>Centroide</dt>
+            <dd>${escapeHtml(
+              data.location.centroid
+                ? `${fmtNum(data.location.centroid.lat, 5)}, ${fmtNum(data.location.centroid.lng, 5)}`
+                : "—"
+            )}</dd>
+            ${
+              data.location.bbox
+                ? `<dt>Bbox (WGS84)</dt><dd>${escapeHtml(formatBbox(data.location.bbox))}</dd>`
+                : ""
+            }
+            <dt>Vista</dt>
+            <dd>${escapeHtml("Vectorial — polígono de la parcela (sin imagen satelital)")}</dd>
+          </dl>
+        </div>
+      `
+    }
 
     <h2>Fumigaciones (${data.totals.count})</h2>
     ${

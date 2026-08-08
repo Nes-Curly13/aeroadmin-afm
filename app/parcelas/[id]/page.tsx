@@ -216,6 +216,12 @@ export default async function ParcelaPage({ params }: { params: Promise<{ id: st
               }
             />
           </div>
+          {/* feature/reports-level-1 — callout que avisa al operador que
+              puede exportar la data. Sin esto el feature existe pero es
+              invisible para el que no sepa que el botón descarga un reporte. */}
+          <p className="mt-1 text-right text-[11px] text-muted-foreground">
+            {`Reportes disponibles — PDF y CSV con cadencia, fumigaciones, totales y mapa del lote.`}
+          </p>
         </div>
       </header>
 

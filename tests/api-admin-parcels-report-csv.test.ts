@@ -58,7 +58,8 @@ const FAKE_DATA = {
     lastFumigationDate: null,
     capReached: false
   },
-  coverage: { areaFumigableHa: 30, areaFumigadaHa: 0, coveragePct: 0 }
+  coverage: { areaFumigableHa: 30, areaFumigadaHa: 0, coveragePct: 0 },
+  location: null
 };
 
 function makeCtx(id: string) {

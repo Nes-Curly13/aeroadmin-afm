@@ -30,6 +30,7 @@ import {
   getFumigationStatus
 } from "@/lib/fumigation-cadence";
 import { m2ToHa, toDateString } from "@/lib/format";
+import { buildParcelLocation, type ParcelLocation } from "@/lib/reports/parcel-svg";
 import type { DjiParcelRecord } from "@/lib/types";
 import type { FumigationTimelineInput } from "@/lib/types";
 
@@ -96,6 +97,11 @@ export interface ParcelReportData {
     areaFumigadaHa: number;
     coveragePct: number | null;
   };
+  /** Ubicación geográfica — SVG del polígono + bbox + centroide.
+   *  `null` si la parcela no tiene `spray_geometry` (ej. quedó en NULL
+   *  después de un import incompleto). El template PDF renderiza la
+   *  sección "Ubicación" solo si esto no es null. */
+  location: ParcelLocation | null;
 }
 
 /** Tamaño máximo de la lista de eventos en el PDF (50 = holgado para 1 mes). */
@@ -286,7 +292,12 @@ export async function fetchParcelReportData(
       areaFumigableHa,
       areaFumigadaHa: totalAreaHa,
       coveragePct
-    }
+    },
+    // Ubicación: SVG del polígono + bbox + centroide. feature/reports-
+    // level-1 sub-sprint 2 (2026-08-08). Si `spray_geometry` es null,
+    // devuelve el placeholder "Sin geometría" — el template decide si
+    // mostrar la sección o no según `bbox !== null`.
+    location: buildParcelLocation(parcel.spray_geometry ?? null)
   };
 }
 
