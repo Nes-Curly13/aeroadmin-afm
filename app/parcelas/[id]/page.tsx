@@ -1,4 +1,4 @@
-import { ArrowLeft, CalendarClock, Droplets, History, Pencil, Plane, Plus, Sprout } from "lucide-react"
+import { ArrowLeft, CalendarClock, Droplets, FileSpreadsheet, FileText, History, Pencil, Plane, Plus, Sprout } from "lucide-react"
 import Link from "next/link"
 import { notFound } from "next/navigation"
 import { RedrawGeometryButton } from "@/components/admin/parcels/redraw-geometry-button"
@@ -172,6 +172,39 @@ export default async function ParcelaPage({ params }: { params: Promise<{ id: st
               puede usar el filtro "missing_X" para encontrar las
               parcelas con metadata incompleta. */}
           <div className="flex items-center gap-2">
+            {/* feature/reports-level-1 (2026-08-08) — descarga de reportes.
+                PDFs y CSVs usan `<a download>` (no Next Link) para que el
+                browser gatille la descarga sin navegación. El server
+                pone `Content-Disposition: attachment` con filename
+                `reporte-{nombre}-parcela-{id}-{fecha}.{pdf|csv}`. */}
+            <Button
+              size="sm"
+              variant="outline"
+              render={
+                <a
+                  href={`/api/admin/parcels/${parcelIdNum}/report.pdf`}
+                  download
+                  aria-label="Descargar reporte PDF de esta parcela"
+                >
+                  <FileText className="size-3.5" aria-hidden />
+                  PDF
+                </a>
+              }
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              render={
+                <a
+                  href={`/api/admin/parcels/${parcelIdNum}/report.csv`}
+                  download
+                  aria-label="Descargar reporte CSV de esta parcela"
+                >
+                  <FileSpreadsheet className="size-3.5" aria-hidden />
+                  CSV
+                </a>
+              }
+            />
             <Button
               size="sm"
               variant="outline"
