@@ -23,6 +23,7 @@ import { requireRole } from "@/lib/auth/role";
 import { getParcelReportData } from "@/lib/reports/fetch-parcel-report-data";
 import { buildParcelReportHtml } from "@/lib/reports/parcel-pdf-template";
 import { renderHtmlToPdf } from "@/lib/reports/render-pdf";
+import { renderParcelMapToPng } from "@/lib/reports/render-map-screenshot";
 import { slugFilename } from "@/lib/csv";
 
 export const dynamic = "force-dynamic";
@@ -42,7 +43,7 @@ function todayBogotaDate(): string {
   return fmt.format(new Date());
 }
 
-export async function GET(_req: Request, ctx: RouteContext) {
+export async function GET(req: Request, ctx: RouteContext) {
   try {
     await requireRole(["admin", "supervisor"]);
   } catch (err) {
@@ -76,9 +77,31 @@ export async function GET(_req: Request, ctx: RouteContext) {
     return NextResponse.json({ error: "parcela no existe" }, { status: 404 });
   }
 
+  // feature/reports-level-1 sub-sprint 3: si la parcela tiene
+  // `spray_geometry`, intentamos generar un screenshot satelital
+  // server-side. Si falla (timeout, EOX caído, parcel sin geom),
+  // caemos al SVG vectorial. El caller nunca falla por esto.
+  let mapImageDataUrl: string | null = null;
+  if (data.location?.bbox) {
+    try {
+      const baseUrl = new URL(req.url).origin;
+      const png = await renderParcelMapToPng(id, baseUrl, {
+        timeoutMs: 8000,
+        viewport: { width: 800, height: 600 }
+      });
+      if (png) {
+        mapImageDataUrl = `data:image/png;base64,${png.toString("base64")}`;
+      }
+    } catch (err) {
+      // No fallar el request — el template usa el SVG como fallback.
+      // eslint-disable-next-line no-console
+      console.warn(`[report.pdf] renderParcelMapToPng(${id}) failed, falling back to SVG:`, err);
+    }
+  }
+
   let pdf: Buffer;
   try {
-    const html = buildParcelReportHtml(data);
+    const html = buildParcelReportHtml(data, { mapImageDataUrl });
     pdf = await renderHtmlToPdf(html);
   } catch (err) {
     // eslint-disable-next-line no-console

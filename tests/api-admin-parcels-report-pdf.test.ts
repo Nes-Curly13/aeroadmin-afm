@@ -24,6 +24,11 @@ vi.mock("@/lib/reports/render-pdf", () => ({
   renderHtmlToPdf: (...args: unknown[]) => mockRenderPdf(...args)
 }));
 
+const mockRenderMapPng = vi.fn();
+vi.mock("@/lib/reports/render-map-screenshot", () => ({
+  renderParcelMapToPng: (...args: unknown[]) => mockRenderMapPng(...args)
+}));
+
 const mockRequireRole = vi.fn();
 vi.mock("@/lib/auth/role", () => ({
   requireRole: (...args: unknown[]) => mockRequireRole(...args)
@@ -83,10 +88,13 @@ beforeEach(() => {
   mockRequireRole.mockReset();
   mockFetchData.mockReset();
   mockRenderPdf.mockReset();
-  // Defaults: auth OK, parcela existe, render OK.
+  mockRenderMapPng.mockReset();
+  // Defaults: auth OK, parcela existe, render OK, screenshot null
+  // (default fixture tiene location: null, así que no se llama).
   mockRequireRole.mockResolvedValue(undefined);
   mockFetchData.mockResolvedValue(FAKE_DATA);
   mockRenderPdf.mockResolvedValue(FAKE_PDF);
+  mockRenderMapPng.mockResolvedValue(null);
 });
 
 afterEach(() => {
@@ -248,6 +256,92 @@ describe("GET .../report.pdf — sección Ubicación", () => {
     await GET(new Request("http://localhost/x"), makeCtx("42"));
     expect(capturedHtml).toContain("<h2>Ubicación</h2>");
     expect(capturedHtml).toContain("Sin geometría");
+  });
+});
+
+// ============================================================
+// feature/reports-level-1 sub-sprint 3: imagen satelital en PDF
+// ============================================================
+
+describe("GET .../report.pdf — imagen satelital", () => {
+  beforeEach(() => {
+    mockRequireRole.mockResolvedValue(undefined);
+  });
+
+  it("incluye la imagen satelital cuando renderParcelMapToPng devuelve un PNG", async () => {
+    let capturedHtml = "";
+    mockRenderPdf.mockImplementationOnce(async (html: string) => {
+      capturedHtml = html;
+      return FAKE_PDF;
+    });
+    // Mockeamos getParcelReportData con location no-null.
+    const { buildParcelLocation } = await import("@/lib/reports/parcel-svg");
+    mockFetchData.mockResolvedValueOnce({
+      ...FAKE_DATA,
+      location: buildParcelLocation({
+        type: "Polygon",
+        coordinates: [[
+          [-76.5005, 3.3995],
+          [-76.4995, 3.3995],
+          [-76.4995, 3.4005],
+          [-76.5005, 3.4005],
+          [-76.5005, 3.3995]
+        ]]
+      })
+    });
+    // mockeamos render-map-screenshot para que devuelva un PNG.
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    mockRenderMapPng.mockResolvedValueOnce(png);
+    await GET(new Request("http://localhost/x"), makeCtx("42"));
+    // El HTML capturado debe tener un <img> con data URL PNG.
+    expect(capturedHtml).toContain("<img");
+    expect(capturedHtml).toMatch(/src="data:image\/png;base64,[A-Za-z0-9+/=]+"/);
+    expect(capturedHtml).toContain("Satelital");
+    expect(capturedHtml).toContain("Sentinel-2");
+  });
+
+  it("cae al SVG cuando renderParcelMapToPng devuelve null (EOX caído, timeout)", async () => {
+    let capturedHtml = "";
+    mockRenderPdf.mockImplementationOnce(async (html: string) => {
+      capturedHtml = html;
+      return FAKE_PDF;
+    });
+    const { buildParcelLocation } = await import("@/lib/reports/parcel-svg");
+    mockFetchData.mockResolvedValueOnce({
+      ...FAKE_DATA,
+      location: buildParcelLocation({
+        type: "Polygon",
+        coordinates: [[
+          [-76.5005, 3.3995],
+          [-76.4995, 3.3995],
+          [-76.4995, 3.4005],
+          [-76.5005, 3.4005],
+          [-76.5005, 3.3995]
+        ]]
+      })
+    });
+    // Screenshot devuelve null
+    mockRenderMapPng.mockResolvedValueOnce(null);
+    await GET(new Request("http://localhost/x"), makeCtx("42"));
+    // No debe haber <img> con data URL PNG.
+    expect(capturedHtml).not.toMatch(/data:image\/png;base64,/);
+    // Debe estar el SVG vectorial.
+    expect(capturedHtml).toContain("<svg");
+    expect(capturedHtml).toContain("Vectorial");
+  });
+
+  it("no intenta screenshot si la parcela no tiene location.bbox", async () => {
+    let capturedHtml = "";
+    mockRenderPdf.mockImplementationOnce(async (html: string) => {
+      capturedHtml = html;
+      return FAKE_PDF;
+    });
+    mockFetchData.mockResolvedValueOnce({ ...FAKE_DATA, location: null });
+    await GET(new Request("http://localhost/x"), makeCtx("42"));
+    // El screenshot no debería haberse llamado (location es null).
+    expect(mockRenderMapPng).not.toHaveBeenCalled();
+    expect(capturedHtml).toContain("Sin geometría");
+    expect(capturedHtml).not.toMatch(/data:image\/png;base64,/);
   });
 });
 
