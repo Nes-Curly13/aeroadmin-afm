@@ -83,7 +83,8 @@ function makeFixture(): ParcelReportData {
       areaFumigableHa: 30,
       areaFumigadaHa: 12.345,
       coveragePct: 41.2
-    }
+    },
+    location: null
   };
 }
 

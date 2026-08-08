@@ -1,6 +1,6 @@
 "use client"
 
-import { LayoutDashboard, Map, Sprout, History } from "lucide-react"
+import { LayoutDashboard, Map, Sprout, History, BarChart3 } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
@@ -14,6 +14,10 @@ const LINKS = [
   // que abrir parcela por parcela). El link en la nav lo hace
   // accesible desde cualquier pagina.
   { href: "/fumigaciones", label: "Fumigaciones", icon: History },
+  // feature/reports-level-2 (2026-08-08) — reportes por hacienda
+  // y vista general multi-hacienda. Lo pone accesible desde el
+  // sidebar (no requiere entrar a una parcela específica).
+  { href: "/reportes", label: "Reportes", icon: BarChart3 },
 ]
 
 export function NavLinks() {

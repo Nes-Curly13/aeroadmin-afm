@@ -169,11 +169,15 @@ export function buildParcelLocation(
 function extractCoordinates(geometry: Geometry | null | undefined): Array<[number, number]> {
   if (!geometry) return [];
   if (geometry.type === "Polygon") {
-    return geometry.coordinates.flatMap((ring) => ring as Array<[number, number]>);
+    return geometry.coordinates.flatMap((ring) =>
+      ring.map((c) => [c[0]!, c[1]!] as [number, number])
+    );
   }
   if (geometry.type === "MultiPolygon") {
     return geometry.coordinates.flatMap((poly) =>
-      poly.flatMap((ring) => ring as Array<[number, number]>)
+      poly.flatMap((ring) =>
+        ring.map((c) => [c[0]!, c[1]!] as [number, number])
+      )
     );
   }
   return [];
@@ -181,7 +185,7 @@ function extractCoordinates(geometry: Geometry | null | undefined): Array<[numbe
 
 /** Convierte un ring del GeoJSON a un string `d` de path SVG. */
 function ringToPath(
-  ring: Array<[number, number]>,
+  ring: ReadonlyArray<ReadonlyArray<number>>,
   cx: number,
   cy: number,
   scale: number,
@@ -191,7 +195,11 @@ function ringToPath(
   // Primer punto con M, los siguientes con L.
   const parts: string[] = [];
   for (let i = 0; i < ring.length; i++) {
-    const [lng, lat] = ring[i]!;
+    const point = ring[i]!;
+    // GeoJSON Position es number[]; acá asumimos siempre 2D
+    // (lng, lat). Si el dato viene 3D, ignoramos z/altura.
+    const lng = point[0]!;
+    const lat = point[1]!;
     const x = (lng - cx) * scale + size / 2;
     const y = -(lat - cy) * scale + size / 2;
     parts.push(`${i === 0 ? "M" : "L"}${x.toFixed(2)},${y.toFixed(2)}`);
