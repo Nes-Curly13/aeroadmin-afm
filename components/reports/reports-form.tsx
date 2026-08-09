@@ -99,6 +99,7 @@ export function ReportsForm({ defaults, farmOptions, pdfHref, csvHref }: Reports
         <Button
           size="sm"
           variant="outline"
+          nativeButton={false}
           render={
             <a href={pdfHref} download aria-label="Descargar reporte PDF">
               <FileText className="size-3.5" aria-hidden />
@@ -109,6 +110,7 @@ export function ReportsForm({ defaults, farmOptions, pdfHref, csvHref }: Reports
         <Button
           size="sm"
           variant="outline"
+          nativeButton={false}
           render={
             <a href={csvHref} download aria-label="Descargar reporte CSV">
               <FileSpreadsheet className="size-3.5" aria-hidden />

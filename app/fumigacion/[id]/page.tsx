@@ -109,6 +109,7 @@ export default async function FumigacionPage({ params }: PageProps) {
         <Button
           variant="ghost"
           size="sm"
+          nativeButton={false}
           render={<Link href="/fumigaciones" className="self-start" />}
         >
           <ArrowLeft className="size-3.5" aria-hidden />

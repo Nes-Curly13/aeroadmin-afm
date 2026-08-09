@@ -45,7 +45,7 @@ export default function DashboardPage() {
         title="Panel de operaciones"
         description="Portafolio consolidado de parcelas, fumigaciones y vuelos desde DJI AG."
         actions={
-          <Button render={<Link href="/geovisor" />} size="sm">
+          <Button render={<Link href="/geovisor" />} nativeButton={false} size="sm">
             <MapIcon className="size-3.5" />
             Abrir geovisor
           </Button>

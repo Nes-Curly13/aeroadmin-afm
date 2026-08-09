@@ -32,6 +32,7 @@ export default function NotFound() {
         <CardContent className="px-6">
           <Button
             render={<Link href="/" aria-label="Volver al panel principal" />}
+            nativeButton={false}
             className="w-full"
             size="default"
           >
