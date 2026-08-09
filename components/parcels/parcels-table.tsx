@@ -185,6 +185,7 @@ export function ParcelsTable({
             <Button
               size="sm"
               variant="outline"
+              nativeButton={false}
               render={
                 <Link
                   href="/admin/parcels/import"
@@ -197,6 +198,7 @@ export function ParcelsTable({
             />
             <Button
               size="sm"
+              nativeButton={false}
               render={
                 <Link
                   href="/admin/parcels/new"

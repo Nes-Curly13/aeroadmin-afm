@@ -133,6 +133,7 @@ export default async function FumigacionesPage({ searchParams }: PageProps) {
           </Suspense>
           <Button
             size="sm"
+            nativeButton={false}
             render={
               <Link href="/fumigaciones/nueva" aria-label="Registrar nueva fumigación (página completa)" />
             }

@@ -284,6 +284,7 @@ export function AdminParcelsClient({
             <Button
               size="sm"
               variant="outline"
+              nativeButton={false}
               render={
                 <Link
                   href="/admin/parcels/import"
@@ -296,6 +297,7 @@ export function AdminParcelsClient({
             />
             <Button
               size="sm"
+              nativeButton={false}
               render={
                 <Link
                   href="/admin/parcels/new"

@@ -496,7 +496,7 @@ export function GeovisorClient({ payload }: { payload: GeovisorPayload }) {
                 </div>
               ))}
             </dl>
-            <Button render={<Link href={`/parcelas/${selected.id}`} />} size="sm" className="w-full">
+            <Button render={<Link href={`/parcelas/${selected.id}`} />} nativeButton={false} size="sm" className="w-full">
               Ver hoja de vida
               <ArrowUpRight className="size-3.5" />
             </Button>

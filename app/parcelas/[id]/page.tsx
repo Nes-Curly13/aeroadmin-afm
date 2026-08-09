@@ -180,6 +180,7 @@ export default async function ParcelaPage({ params }: { params: Promise<{ id: st
             <Button
               size="sm"
               variant="outline"
+              nativeButton={false}
               render={
                 <a
                   href={`/api/admin/parcels/${parcelIdNum}/report.pdf`}
@@ -194,6 +195,7 @@ export default async function ParcelaPage({ params }: { params: Promise<{ id: st
             <Button
               size="sm"
               variant="outline"
+              nativeButton={false}
               render={
                 <a
                   href={`/api/admin/parcels/${parcelIdNum}/report.csv`}
@@ -208,6 +210,7 @@ export default async function ParcelaPage({ params }: { params: Promise<{ id: st
             <Button
               size="sm"
               variant="outline"
+              nativeButton={false}
               render={
                 <Link href="/admin/parcels" aria-label="Ir al panel admin para editar metadata">
                   <Pencil className="size-3.5" aria-hidden />
