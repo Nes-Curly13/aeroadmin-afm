@@ -147,6 +147,67 @@ la Opción 1.
 **No hacer nada en la BD**. Documentar este finding. Cerrar el feature
 sin tocar data. Dejar el plan para el sprint próximo.
 
+---
+
+## Verificación post-investigación (2026-08-09)
+
+Después del hallazgo original, el user pidió "implementar el fix del
+scraper DJI". Investigación adicional reveló que el problema es
+**estructural del backend de DJI** — no se puede arreglar desde
+nuestra app:
+
+- **Endpoint `/flight_records?page=N`** (per-flight list) — verificado
+  sobre `djiag_exports/perflight_records.json` (8759 vuelos
+  capturados). **NO expone** `product_id`, `dosage`, `product_name`,
+  `liquid_name`, `drone_name`, `pilot_name` en ningún vuelo. Solo
+  expone `usage_type`, `spray_usage` (mL), `nickname` (drone),
+  `team_name` (pilot).
+- **Endpoint `/flight_records/{id}`** (per-flight detail) — DJI
+  expone más campos acá (ej `hardware_id` para chassis del dron,
+  documentado en `docs/DJI_SCRAPER.md:76`). Probablemente también
+  expone `product_id` y `dosage`, pero **NO hay captura** y requiere
+  auth real con Playwright + credenciales del cliente.
+- **No existe tabla `products`** en la BD. `docs/review/BUSINESS.md:432`
+  lo lista como aspiracional ("lo que debería ser"). El campo
+  `dji_fumigations.product_used` es texto libre, sin FK.
+
+### Decisión revisada (2026-08-09)
+
+**Los nuevos registros hechos desde la app SÍ van a tener data
+completa**. No hay que tocar nada:
+
+- **Form manual** (`/parcelas/[id]` → "Registrar fumigación manual",
+  `components/parcels/register-fumigation-form.tsx:14-16`) — ambos
+  campos son **required**:
+  - `product_used` con `required` + `maxLength={200}` + placeholder
+    "ej. Glifosato 48%".
+  - `dose_l_per_ha` con `required` + `min="0.01"` + `max="1000"` +
+    `type="number"`.
+- **API POST** (`app/api/admin/fumigations/route.ts:106-122`) —
+  validación server-side rechaza con 400 si cualquiera de los dos
+  campos falta. Tests en `tests/api-admin-fumigations.test.ts`
+  cubren el path de error.
+- Las 2 fumigaciones manuales creadas en el sprint anterior (sub-3
+  del feature parcel-onboarding) tienen 100% de los datos.
+
+La deuda SOLO afecta a las 640 fumigaciones con `source='import'`
+(import batch del dataset DJI histórico). El operador fumigador, a
+medida que cargue fumigaciones manuales con todos los datos, va a
+mejorar progresivamente la cobertura del reporte. Las fumigaciones
+del dataset DJI histórico van a seguir mostrando 0 L hasta que el
+operador las recargue manualmente (no vamos a backfillear la BD con
+valores inventados).
+
+### Workaround de display (idea descartada)
+
+Consideramos agregar un "warning visual" en el PDF cuando una
+fumigación tiene `area_fumigated_m2 > 0` pero `dose_l_per_ha IS NULL`
+— para que el operador sepa que esa fila tiene data incompleta. **Lo
+descartamos** porque la columna "Volumen" ya muestra "—" cuando la
+dosis es null, y el operador entiende la diferencia entre DJI
+(automático, sin producto) y manual (con producto completo). Agregar
+otro warning sería ruido.
+
 ## Referencias
 
 - `app/api/admin/fumigations/route.ts:106-122` — validación del form
