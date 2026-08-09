@@ -311,3 +311,33 @@ Cuando el cliente confirme:
 4. Productos comerciales usados
 
 Actualizar el `seed-cadences.js` con sus valores y re-ejecutar.
+
+---
+
+## ⚠️ Deuda técnica: `dose_l_per_ha` y `product_used` en `dji_fumigations`
+
+**Estado al 2026-08-09**: 640/642 fumigaciones con `product_used = NULL`
+y 610/642 con `dose_l_per_ha = NULL`. La causa raíz es que **la API
+de DJI SmartFarm no expone esos campos** en los endpoints que
+consumimos (`flight_aggregation` ni `flight_records`).
+
+**Impacto**: los reportes por hacienda / por parcela
+(`/api/admin/reports/...`) muestran volúmenes totales muy bajos
+(1,25 L en 1.283 ha) porque el cálculo `Σ (dose × area)` da 0 cuando
+dose es null.
+
+**Workaround actual**: las fumigaciones manuales
+(`/parcelas/[id]` → "Registrar fumigación manual") SÍ capturan
+`product_used` y `dose_l_per_ha` con validación estricta. Las 2
+existentes tienen data completa. A medida que el operador cargue
+fumigaciones manuales, el reporte va a mejorar.
+
+**Workaround V0 detail page**: `lib/data.ts:331` hardcodea
+`dose_l_ha: 2.0` L/ha para todas las parcelas en el `ParcelSummary`.
+Eso da la sensación de que el dato existe, pero es un default falso.
+No tocar la BD con un backfill — eso sería mentirle al operador.
+
+**Fix plan**: ver `docs/audit/DOSE_FIELDS_BACKFILL.md` para el
+análisis completo y las 3 opciones (investigar endpoint detalle de
+DJI / tabla de dosis típicas / aceptar números bajos para DJI
+histórico).
