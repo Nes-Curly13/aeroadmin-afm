@@ -120,3 +120,14 @@ playwright-report/
 # ============================================================
 /backups/
 .vercel
+
+# ============================================================
+# s8.9 / S6 (2026-07-31): one-off tmp-* diagnostic artifacts
+# at repo root. Scripts, logs, and err files left behind by
+# sprints (e.g. feature/reports-level-2). Never operational —
+# recreated on demand if needed. Stash dir holds history.
+# ============================================================
+/tmp-*.js
+/tmp-*.log
+/tmp-*.err
+/tmp-trash/
