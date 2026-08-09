@@ -36,6 +36,7 @@
 //     feature de export de auditoría, scope separado).
 
 import type { CadenceStatus, ParcelReportData, ParcelReportEvent } from "./fetch-parcel-report-data";
+import { formatBbox } from "./parcel-svg";
 
 /** Formato es-CO para números (separador de miles con punto, decimales con coma). */
 function fmtNum(value: number, decimals: number): string {
@@ -140,14 +141,34 @@ const STYLES = `
   .footer { margin-top: 18px; font-size: 9px; color: #587064; text-align: center; border-top: 1px solid #d2ddd6; padding-top: 8px; }
   .empty { color: #587064; font-style: italic; padding: 8px 0; }
   .cap-warning { color: #a37200; font-size: 10px; margin-top: 4px; }
+  /* feature/reports-level-1 sub-sprint 2 — sección "Ubicación" del PDF.
+     Grid 2-col: SVG a la izquierda (240px), metadata a la derecha. */
+  .location { display: grid; grid-template-columns: 240px 1fr; gap: 16px; align-items: start; }
+  .location-svg { border: 1px solid #d2ddd6; border-radius: 6px; background: #f7f9fb; overflow: hidden; }
+  .location-svg svg { display: block; width: 100%; height: auto; }
+  /* sub-sprint 3: la imagen satelital reemplaza al SVG cuando está
+     disponible. Mismo wrapper para mantener el layout consistente. */
+  .location-svg img { display: block; width: 100%; height: auto; }
+  .location-kv { font-size: 10.5px; }
 `;
 
 /**
  * Construye el HTML self-contained del reporte de una parcela.
  * El resultado se pasa a `page.setContent()` de Playwright.
+ *
+ * Opciones:
+ *   - **mapImageDataUrl**: si viene un data URL PNG (generado por
+ *     `renderParcelMapToPng`), la sección "Ubicación" lo usa en vez del
+ *     SVG vectorial. Si no se provee o el parcel no tiene geom, se usa
+ *     el SVG como fallback. Esto permite degradar gracefully si el
+ *     screenshot server-side falla.
  */
-export function buildParcelReportHtml(data: ParcelReportData): string {
+export function buildParcelReportHtml(
+  data: ParcelReportData,
+  options: { mapImageDataUrl?: string | null } = {}
+): string {
   const status = statusVisual(data.cadence.status);
+  const mapImageDataUrl = options.mapImageDataUrl ?? null;
 
   const parcelFields: Array<[string, string | null | undefined]> = [
     ["ID interno", String(data.parcel.id)],
@@ -229,6 +250,46 @@ export function buildParcelReportHtml(data: ParcelReportData): string {
           : ""
       }
     </div>
+
+    <h2>Ubicación</h2>
+    ${
+      // feature/reports-level-1 sub-sprint 3: si el caller proveyó un
+      // screenshot satelital (data URL PNG del MapLibre render), lo
+      // usamos. Si no, caemos al SVG vectorial del sub-sprint 2. Si
+      // tampoco hay location, mensaje de "Sin geometría".
+      data.location === null
+        ? `<div class="empty">Sin geometría registrada para esta parcela.</div>`
+        : `
+        <div class="location">
+          <div class="location-svg">
+            ${
+              mapImageDataUrl
+                ? `<img src="${mapImageDataUrl}" alt="Vista satelital de la parcela" />`
+                : data.location.svg
+            }
+          </div>
+          <dl class="kv location-kv">
+            <dt>Centroide</dt>
+            <dd>${escapeHtml(
+              data.location.centroid
+                ? `${fmtNum(data.location.centroid.lat, 5)}, ${fmtNum(data.location.centroid.lng, 5)}`
+                : "—"
+            )}</dd>
+            ${
+              data.location.bbox
+                ? `<dt>Bbox (WGS84)</dt><dd>${escapeHtml(formatBbox(data.location.bbox))}</dd>`
+                : ""
+            }
+            <dt>Vista</dt>
+            <dd>${escapeHtml(
+              mapImageDataUrl
+                ? "Satelital — Sentinel-2 cloudless 2020 (EOX)"
+                : "Vectorial — polígono de la parcela (sin imagen satelital)"
+            )}</dd>
+          </dl>
+        </div>
+      `
+    }
 
     <h2>Fumigaciones (${data.totals.count})</h2>
     ${

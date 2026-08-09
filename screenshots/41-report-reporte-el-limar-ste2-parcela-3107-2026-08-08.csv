@@ -1,0 +1,38 @@
+﻿Sección;Cabecera
+Campo;Valor
+Operador;AeroAdmin
+Región;Valle del Cauca, Colombia
+Generado;08/08/2026, 16:04
+Ventana desde;2026-07-09
+Ventana hasta;2026-08-08
+
+Sección;Parcela
+Campo;Valor
+ID interno;3107
+ID externo;1268692918907510784-flyer-8fe7d93e-185a-4d4a-9eb3-6cecbfe6c2df
+Nombre;EL LIMAR STE2
+Tipo;Farmland
+Área declarada (ha);1,00
+Área fumigable (ha);0,08
+Cultivo;
+Fecha de siembra;
+Propietario;
+Cadencia recomendada (días);10
+Estado de cadencia;Sin historial
+Última fumigación;
+Próxima fumigación;
+Notas del supervisor;
+
+Sección;Fumigaciones (0)
+Fecha;Dron;Piloto/Registrador;Área fumigada (ha);Duración (min);Volumen (L);Producto;Notas
+
+Sección;Totales
+Concepto;Valor
+Fumigaciones en el rango;0
+Área fumigada total (ha);0,00
+Volumen aplicado total (L);0,00
+Área promedio por fumigación (ha);
+Última fumigación del rango;
+Cobertura del mes — área fumigable (ha);0,08
+Cobertura del mes — área fumigada (ha);0,00
+Cobertura del mes — porcentaje (%);0,0
