@@ -40,9 +40,8 @@ AeroAdmin AFM es la plataforma admin para el operador de drones cañero en Valle
 5. `docs/STACK.md` — versiones, decisiones de stack, gotchas.
 6. `docs/V0_ADAPTATION.md` — bitácora del sprint S5/S6 (qué se copió del mockup V0, qué se decidió distinto).
 7. `docs/FUMIGATION_CADENCE.md` — la regla de negocio más sensible (cuándo una parcela necesita fumigación).
-8. `docs/files_TDD/04_GAUNTLET_DE_CALIDAD.md` — la metodología de calidad (7 compuertas).
-9. `docs/files_TDD/ADOPTION.md` — estado actual de adopción de las compuertas, qué está activo, qué falta.
-10. `docs/DJI_SCRAPER.md` + `docs/DJI_CLOUD_API.md` — el scraper (la parte más frágil).
+8. `docs/QUALITY_GAUNTLET.md` — la metodología de calidad (7 compuertas) y su estado de adopción.
+9. `docs/DJI_SCRAPER.md` + `docs/DJI_CLOUD_API.md` — el scraper (la parte más frágil).
 
 > Este AGENTS.md hace de `03_MEJORES_PRACTICAS_AGENTES.md` (prácticas para agentes). `docs/SDD.md` y `docs/TDD.md` son los `01` y `02` formales (escritos en el sprint S5, 2026-07-28).
 
@@ -144,7 +143,6 @@ Verificado por: `dependency-cruiser` (fitness function de arquitectura). Comando
 ### Lo que NO hacés
 
 - **No instalar dependencias sin preguntar.** Si pensás que necesitás una lib nueva, proponé en el chat antes de correr `npm install`.
-- **No tocar `docs/files_TDD/`** (son los templates de la metodología, no la documentación del producto).
 - **No borrar tests** sin reemplazarlos por otros que cubran el mismo comportamiento. Si un test es flaky, arreglarlo, no borrarlo.
 - **No mergear con CI rojo**, ni siquiera con `continue-on-error`. Si el CI falló por algo transitorio, re-correlo.
 - **No escribir fixtures que contengan datos reales del operador.** Usá los de `tests/fixtures/` que ya están sanitizados o inventá uno nuevo con la misma forma.
@@ -179,7 +177,7 @@ Un PR de un agente está listo para merge cuando:
 - [ ] No agregaste dependencias sin avisar en el chat.
 - [ ] CI en GitHub Actions pasó todos los jobs.
 
-> **Nota 2026-07-28**: las compuertas 4-7 del Gauntlet (BDD Gherkin, mutation testing, smoke DB, métricas continuas) están documentadas pero **no activas todavía**. Ver `docs/files_TDD/ADOPTION.md` para el roadmap. Esto es el sprint de fase 1 (arquitectura + coverage global). Las fases 2-5 se activan progresivamente.
+> **Nota 2026-07-28**: las compuertas 4-7 del Gauntlet (BDD Gherkin, mutation testing, smoke DB, métricas continuas) están documentadas pero **no activas todavía**. Ver `docs/QUALITY_GAUNTLET.md` para el roadmap. Esto es el sprint de fase 1 (arquitectura + coverage global). Las fases 2-5 se activan progresivamente.
 
 ---
 

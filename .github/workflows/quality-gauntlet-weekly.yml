@@ -1,6 +1,6 @@
 # Quality Gauntlet — workflow semanal para compuertas fase 4-5.
 # No corre por-PR (son lentas y más útiles como señal de tendencia).
-# Ver docs/files_TDD/04_GAUNTLET_DE_CALIDAD.md §6, §8 y §9 (rollout).
+# Ver docs/QUALITY_GAUNTLET.md §1 (las 7 compuertas) y §4 (cómo extender).
 #
 # Trigger: lunes 6am Colombia + workflow_dispatch para correr manual.
 # Fases representadas:

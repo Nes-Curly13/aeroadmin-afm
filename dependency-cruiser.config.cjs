@@ -7,13 +7,12 @@
  *
  * Instalación: npm install --save-dev dependency-cruiser (ya instalado)
  * Uso local:  npm run arch:check
- * Ver §2 de docs/files_TDD/04_GAUNTLET_DE_CALIDAD.md para la justificación
- * de cada regla.
+ * Ver §2 de docs/QUALITY_GAUNTLET.md para la justificación de cada regla.
  *
  * Estado actual (2026-07-28, sprint de adopción):
  *   - 1 regla en `error` (única que rompe CI desde el día 1: pg directo).
- *   - 3 reglas en `warn` (aspiracionales; subir a `error` cuando los warnings
- *     queden en 0 — ver docs/files_TDD/ADOPTION.md).
+ *   - 4 reglas en `warn` (aspiracionales; subir a `error` cuando los warnings
+ *     queden en 0 — ver docs/QUALITY_GAUNTLET.md §2).
  *   - 1 regla en `info` (huérfanos — solo para auditoría manual).
  */
 

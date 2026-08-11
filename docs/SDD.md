@@ -429,7 +429,7 @@ y lo que se decidió distinto está documentado en
 ## 9. Calidad y testing
 
 El proyecto implementa las 7 compuertas del **Quality Gauntlet**
-(`docs/files_TDD/04_GAUNTLET_DE_CALIDAD.md`):
+(`docs/QUALITY_GAUNTLET.md`):
 
 - ✅ Compuerta 1: Lint + tipos (parcial, ESLint pendiente).
 - ✅ Compuerta 2: Fitness functions de arquitectura (`dependency-cruiser`).
@@ -439,7 +439,7 @@ El proyecto implementa las 7 compuertas del **Quality Gauntlet**
 - ✅ Compuerta 6: E2E (Playwright).
 - ⏸ Compuerta 7: Smoke DB + métricas (fase 5).
 
-Estado detallado en `docs/files_TDD/ADOPTION.md`.
+Estado detallado en `docs/QUALITY_GAUNTLET.md` §1.
 
 ---
 
@@ -480,6 +480,5 @@ Detalle en `docs/audit/BITACORA.md`.
 | `docs/DJI_SCRAPER.md` | Gotchas del scraper DJI |
 | `docs/FUMIGATION_CADENCE.md` | Cadencias por cultivo con fuentes |
 | `docs/audit/BITACORA.md` | Bitácora viva de auditoría + roadmap QW1/S1-S7/M1-M7/L1-L5 |
-| `docs/files_TDD/04_GAUNTLET_DE_CALIDAD.md` | Las 7 compuertas |
-| `docs/files_TDD/ADOPTION.md` | Estado de adopción del Gauntlet |
+| `docs/QUALITY_GAUNTLET.md` | Las 7 compuertas + estado de adopción |
 | `AGENTS.md` | Índice canónico, reglas operativas, prácticas para agentes |

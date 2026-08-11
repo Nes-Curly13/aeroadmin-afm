@@ -557,6 +557,5 @@ Detalle histórico en `docs/audit/BITACORA.md`.
 | `docs/V0_ADAPTATION.md` | Bitácora del sprint S5/S6 (qué se copió) |
 | `docs/ARCHITECTURE.md` | Data flow DJI → BD → UI, decisiones de scraping |
 | `docs/STACK.md` | Versiones, gotchas, decisiones de stack |
-| `docs/files_TDD/04_GAUNTLET_DE_CALIDAD.md` | Las 7 compuertas de calidad |
-| `docs/files_TDD/ADOPTION.md` | Estado de adopción de las compuertas |
+| `docs/QUALITY_GAUNTLET.md` | Las 7 compuertas de calidad y su estado de adopción |
 | `AGENTS.md` | Índice canónico, reglas operativas, prácticas |
