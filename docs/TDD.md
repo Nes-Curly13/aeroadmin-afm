@@ -291,6 +291,60 @@ endpoint de summary** con debounce de 200ms. La
 `fumigationsSummary` base que `getGeovisorPayload()` ya cocinó se
 reusa cuando el rango es el completo (sin roundtrip extra).
 
+### 4.4 Patrón de data access (V0 adapter vs repository directo)
+
+F5 (QA 2026-08-11) — los user stories del proyecto usan **dos
+patrones de data access** distintos. Documentamos acá para que
+futuros devs no lean el código y asuman drift.
+
+**Patrón A — V0 adapter (`@/lib/data`)** — para pages que
+consumen shapes del mockup V0 (`DjiParcel`, `DjiFumigationV0`,
+`GeovisorPayload` etc., tipadas en `lib/types.ts`):
+
+- `app/geovisor/page.tsx`
+- `app/parcelas/page.tsx`
+- `app/parcelas/[id]/page.tsx`
+
+Importan de `@/lib/data` que a su vez importa de
+`api/repositories.ts`. Razón: las pages V0 necesitan la **proyección**
+PostGIS → shapes V0 (incluye el algoritmo de geometría sintética,
+el `STATUS_META` derivado de cadencia, etc.). Mover esa lógica a
+`api/repositories.ts` lo ensucia con dependencias de UI.
+
+**Patrón B — repository directo (`@/api/repositories`)** — para
+pages que consumen las shapes nativas del proyecto (`DjiFumigationEvent`,
+`DjiParcelRecord`, etc.):
+
+- `app/page.tsx` (dashboard)
+- `app/fumigaciones/page.tsx` + `app/fumigaciones/nueva/page.tsx`
+- `app/fumigacion/[id]/page.tsx`
+- `app/admin/parcels/**` (todas las pages admin)
+- `app/reportes/page.tsx`
+- `app/api/**/route.ts` (route handlers)
+
+Importan de `@/api/repositories` directo. No usan el V0 adapter
+porque no necesitan la proyección a shapes V0. Las fumigaciones
+tienen su propio shape nativo (`DjiFumigationEvent`) con campos
+que el V0 no conoce (`dose_l_per_ha`, `recorded_by`, `notes`).
+
+**¿Cuándo usar cada uno?**
+
+- Si la page es V0 (geovisor, parcelas, parcelas/[id]) → **A**
+  (`@/lib/data`).
+- Si la page es post-V0 (cualquier feature nuevo, admin, fumigaciones,
+  reportes) → **B** (`@/api/repositories`).
+- Las **routes en `app/api/**/route.ts`** SIEMPRE van por
+  `api/repositories` o `api/queries`. Excepción documentada en
+  `dependency-cruiser.config.cjs` regla 2b.
+
+**Anti-patrones**:
+
+- ❌ Importar `getDb` de `@/lib/db` desde `app/**/page.tsx` o
+  `lib/reports/**`. Va por `@/api/repositories`. Regla warn en
+  `dependency-cruiser.config.cjs` regla 2b.
+- ❌ Importar `pg` desde `app/**` o `components/**`. Regla error
+  regla 1 (CI rompe).
+
 ---
 
 ## 5. Patrón MapLibre
