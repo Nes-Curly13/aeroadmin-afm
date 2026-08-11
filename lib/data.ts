@@ -328,7 +328,15 @@ function adaptSchedule(s: DjiFumigationSchedule | null | undefined, parcelId: st
     parcel_id: parcelId,
     cadence_days: s?.recommended_cadence_days ?? 14,
     product: s?.crop_type ?? "Madurante",
-    dose_l_ha: 2.0, // el proyecto no tiene este campo en schedule — default razonable
+    // F1 fix (2026-08-11): el campo `dose_l_per_ha` no existe en
+    // `dji_fumigation_schedule` (la BD no lo guarda). Antes
+    // hardcodeábamos 2.0 y la UI lo mostraba como "2,0 L/ha" en el
+    // parcel detail page — el operador creía que era dato real y
+    // era un default inventado. Decisión de producto
+    // (`docs/audit/DOSE_FIELDS_BACKFILL.md`): no backfillear con
+    // un valor ficticio. Devolvemos `null` y la UI muestra "—"
+    // o un callout.
+    dose_l_ha: null,
     window_start_hour: 6,
     window_end_hour: 18,
     updated_at: new Date().toISOString()

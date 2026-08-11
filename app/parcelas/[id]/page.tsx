@@ -82,7 +82,19 @@ export default async function ParcelaPage({ params }: { params: Promise<{ id: st
     { label: "Área catastral", value: fmtHa(parcel.area_ha) },
     { label: "Equipo asignado", value: `${model.name} · ${model.tank_l} L` },
     { label: "Producto", value: schedule.product },
-    { label: "Dosis", value: `${fmtDec(schedule.dose_l_ha)} L/ha` },
+    {
+      // F1 fix (2026-08-11): `dose_l_ha` ahora es `number | null`
+      // (ver `lib/data.ts:adaptSchedule`). Antes hardcodeábamos
+      // 2.0 y mostrábamos "2,0 L/ha" — el operador lo veía como
+      // dato real y era un default ficticio. 95% del dataset DJI
+      // histórico no tiene la dosis expuesta. Mostramos "—" con
+      // un callout hasta que el backfill / captura se arregle.
+      // Contexto completo: `docs/audit/DOSE_FIELDS_BACKFILL.md`.
+      label: "Dosis",
+      value: schedule.dose_l_ha != null
+        ? `${fmtDec(schedule.dose_l_ha)} L/ha`
+        : "— (DJI no expone este dato en este lote)"
+    },
     { label: "Ventana horaria", value: `${schedule.window_start_hour}:00 – ${schedule.window_end_hour}:00` },
     { label: "Centroide", value: `${parcel.centroid_lat.toFixed(5)}, ${parcel.centroid_lng.toFixed(5)}` },
     { label: "dji_land_id", value: parcel.dji_land_id },
