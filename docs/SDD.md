@@ -162,8 +162,9 @@ Estas son **invariantes arquitectónicas** que la fitness function de
    `lib/djiag-health.ts`, `lib/djiag-from-make/*` SÍ pueden usarse
    desde `app/api/**/route.ts` (lógica pura, no scraping).
 5. **Todo código nuevo en `lib/` viene con tests** (happy path + 1
-   edge case). Coverage global ≥ 75% lines / 70% branches (umbral
-   base, ver `docs/files_TDD/ADOPTION.md` para subir a 80/75).
+   edge case). Coverage global activo: **45% lines / 65% branches**
+   en `vitest.config.ts` (gate vigente desde S8.6 v2.5.3, 2026-08-04).
+   El 75/70 es aspiración. Bumpear al subir el piso, no al revés.
 6. **Toda fecha que sale al usuario** pasa por `lib/format.ts`
    (`toDateString`, `formatToDateString`). TZ = `America/Bogota`.
 7. **`lib/data.ts` es el ÚNICO adapter V0 ↔ proyecto real.** Las pages
@@ -428,7 +429,7 @@ y lo que se decidió distinto está documentado en
 ## 9. Calidad y testing
 
 El proyecto implementa las 7 compuertas del **Quality Gauntlet**
-(`docs/files_TDD/04_GAUNTLET_DE_CALIDAD.md`):
+(`docs/QUALITY_GAUNTLET.md`):
 
 - ✅ Compuerta 1: Lint + tipos (parcial, ESLint pendiente).
 - ✅ Compuerta 2: Fitness functions de arquitectura (`dependency-cruiser`).
@@ -438,7 +439,7 @@ El proyecto implementa las 7 compuertas del **Quality Gauntlet**
 - ✅ Compuerta 6: E2E (Playwright).
 - ⏸ Compuerta 7: Smoke DB + métricas (fase 5).
 
-Estado detallado en `docs/files_TDD/ADOPTION.md`.
+Estado detallado en `docs/QUALITY_GAUNTLET.md` §1.
 
 ---
 
@@ -479,6 +480,5 @@ Detalle en `docs/audit/BITACORA.md`.
 | `docs/DJI_SCRAPER.md` | Gotchas del scraper DJI |
 | `docs/FUMIGATION_CADENCE.md` | Cadencias por cultivo con fuentes |
 | `docs/audit/BITACORA.md` | Bitácora viva de auditoría + roadmap QW1/S1-S7/M1-M7/L1-L5 |
-| `docs/files_TDD/04_GAUNTLET_DE_CALIDAD.md` | Las 7 compuertas |
-| `docs/files_TDD/ADOPTION.md` | Estado de adopción del Gauntlet |
+| `docs/QUALITY_GAUNTLET.md` | Las 7 compuertas + estado de adopción |
 | `AGENTS.md` | Índice canónico, reglas operativas, prácticas para agentes |

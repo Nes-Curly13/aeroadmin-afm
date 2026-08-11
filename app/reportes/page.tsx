@@ -9,7 +9,7 @@
 // descarga son <a href> con los query params preservados.
 
 import { redirect } from "next/navigation";
-import { getDb } from "@/lib/db";
+import { getDistinctFarmsWithCounts } from "@/api/repositories";
 import { fetchFarmsReportData } from "@/lib/reports/fetch-farms-report-data";
 import { ReportsForm } from "@/components/reports/reports-form";
 import { LastFumigationCard } from "@/components/reports/last-fumigation-card";
@@ -61,7 +61,7 @@ export default async function ReportesPage({ searchParams }: ReportsPageProps) {
   // Cargamos la data y la lista de haciendas en paralelo.
   const [data, farmOptions] = await Promise.all([
     fetchFarmsReportData({ from, to, farmName: farm || null }),
-    loadFarmOptions()
+    getDistinctFarmsWithCounts()
   ]);
 
   // URLs para los botones de download (preservan los filtros).
@@ -237,26 +237,4 @@ function SummaryStat({ label, value }: { label: string; value: string }) {
       </CardContent>
     </Card>
   );
-}
-
-/** Lista de haciendas distintas (de dji_parcels.farm_name no null). */
-async function loadFarmOptions(): Promise<Array<{ name: string; count: number }>> {
-  try {
-    const db = getDb();
-    const r = await db.query<{ name: string; count: string }>(
-      `SELECT farm_name AS name, COUNT(*)::int AS count
-       FROM dji_parcels
-       WHERE deleted_at IS NULL AND farm_name IS NOT NULL
-       GROUP BY farm_name
-       ORDER BY farm_name ASC`
-    );
-    return r.rows
-      .filter((row) => row.name !== null)
-      .map((row) => ({ name: row.name, count: Number(row.count) }));
-  } catch (err) {
-    // No bloquear la página si la BD falla — solo el dropdown queda vacío.
-    // eslint-disable-next-line no-console
-    console.warn("[reportes] loadFarmOptions falló:", err);
-    return [];
-  }
 }

@@ -2602,3 +2602,145 @@ export async function getParcelsCycleData(): Promise<Map<number, ParcelCycleRow>
   }
   return map;
 }
+
+// ---------------------------------------------------------------------------
+// F4 fix (2026-08-11): helpers de reportes — antes vivían en
+// `app/reportes/page.tsx` y `lib/reports/fetch-farms-report-data.ts`
+// con `getDb()` directo. Movidos acá para que toda la data access pase
+// por `api/repositories.ts` (R1) y la dep-cruiser pueda rule-arlos.
+// ---------------------------------------------------------------------------
+
+/**
+ * Lista de haciendas distintas (de `dji_parcels.farm_name NOT NULL`)
+ * con el conteo de parcelas por hacienda. Usado por el dropdown de
+ * filtros en `app/reportes/page.tsx`. Orden alfabético.
+ *
+ * Devuelve `[]` si la query falla (la página no debe romper si la BD
+ * está caída — solo el dropdown queda vacío).
+ */
+export async function getDistinctFarmsWithCounts(): Promise<
+  Array<{ name: string; count: number }>
+> {
+  try {
+    const db = getDb();
+    const r = await db.query<{ name: string; count: string }>(
+      `SELECT farm_name AS name, COUNT(*)::int AS count
+         FROM dji_parcels
+        WHERE deleted_at IS NULL AND farm_name IS NOT NULL
+        GROUP BY farm_name
+        ORDER BY farm_name ASC`
+    );
+    return r.rows
+      .filter((row) => row.name !== null)
+      .map((row) => ({ name: row.name, count: Number(row.count) }));
+  } catch {
+    return [];
+  }
+}
+
+/** Filtros para `getFarmsReportFumigations`. */
+export interface FarmsReportFumigationsFilters {
+  /** YYYY-MM-DD (Bogota local). */
+  from: string;
+  /** YYYY-MM-DD (Bogota local). */
+  to: string;
+  /** Si está set, filtra por `p.farm_name = $3`. */
+  farmName?: string | null;
+  /** Cap de filas (default 200). El caller es responsable del cap. */
+  limit?: number;
+}
+
+/** Row cruda de `dji_fumigations` con JOIN a `dji_parcels` + subqueries
+ *  de `dji_flights` para drone_nickname / pilot_name. La shape es la
+ *  mínima que necesita `lib/reports/fetch-farms-report-data.ts` para
+ *  armar `FarmsReportData` — la agregación por parcela sigue siendo
+ *  responsabilidad del caller (el dataset es chico). */
+export interface FarmsReportFumigationRow {
+  id: number;
+  fumigation_date: Date | string;
+  parcel_id: number;
+  parcel_name: string;
+  farm_name: string | null;
+  land_name: string | null;
+  pilot_name: string | null;
+  drone_nickname: string | null;
+  area_fumigated_m2: number | string | null;
+  dose_l_per_ha: number | string | null;
+  product_used: string | null;
+  recorded_by: string | null;
+  notes: string | null;
+}
+
+/**
+ * Fumigaciones del rango para el reporte por hacienda (nivel 2 de
+ * `feature/reports-level`). Filtra por fecha + opcionalmente por
+ * `farm_name`. Cap por `limit` (default 200, igual que
+ * `MAX_FUMIGATIONS_IN_PDF` en el caller).
+ *
+ * Las subqueries de `drone_nickname` y `pilot_name` son el patrón
+ * existente en `getFumigationTimelineForParcel` (subquery correlacionada
+ * a `dji_flights` por `parcel_id` + fecha Bogota). Se repiten acá para
+ * mantener la query en un solo round-trip (sin N+1).
+ */
+export async function getFarmsReportFumigations(
+  filters: FarmsReportFumigationsFilters
+): Promise<FarmsReportFumigationRow[]> {
+  const db = getDb();
+  const { from, to, farmName, limit = 200 } = filters;
+
+  const params: unknown[] = [from, to];
+  let whereExtra = "";
+  if (farmName && farmName.trim() !== "") {
+    params.push(farmName);
+    whereExtra = ` AND p.farm_name = $${params.length}`;
+  }
+
+  const result = await db.query<FarmsReportFumigationRow>(
+    `
+      SELECT
+        f.id,
+        f.fumigation_date,
+        f.parcel_id,
+        p.land_name AS parcel_name,
+        p.farm_name,
+        p.land_name,
+        f.area_fumigated_m2,
+        f.dose_l_per_ha,
+        f.product_used,
+        f.recorded_by,
+        f.notes,
+        (
+          SELECT fl.drone_nickname
+            FROM dji_flights fl
+           WHERE fl.parcel_id = f.parcel_id
+             AND (fl.start_at AT TIME ZONE 'America/Bogota')::date = f.fumigation_date
+             AND fl.drone_nickname IS NOT NULL
+           GROUP BY fl.drone_nickname
+           ORDER BY COUNT(*) DESC
+           LIMIT 1
+        ) AS drone_nickname,
+        (
+          SELECT fl.pilot_name
+            FROM dji_flights fl
+           WHERE fl.parcel_id = f.parcel_id
+             AND (fl.start_at AT TIME ZONE 'America/Bogota')::date = f.fumigation_date
+             AND fl.pilot_name IS NOT NULL
+           GROUP BY fl.pilot_name
+           ORDER BY COUNT(*) DESC
+           LIMIT 1
+        ) AS pilot_name
+      FROM dji_fumigations f
+      JOIN dji_parcels p ON p.id = f.parcel_id
+      WHERE f.deleted_at IS NULL
+        AND p.deleted_at IS NULL
+        AND f.fumigation_date >= $1::date
+        AND f.fumigation_date <= $2::date
+        ${whereExtra}
+      ORDER BY f.fumigation_date DESC, f.id DESC
+      LIMIT ${limit}
+    `,
+    params
+  );
+
+  return result.rows;
+}

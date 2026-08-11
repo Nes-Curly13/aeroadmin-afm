@@ -457,7 +457,15 @@ export interface DjiFumigationScheduleV0 {
   parcel_id: string;
   cadence_days: number;
   product: string;
-  dose_l_ha: number;
+  /**
+   * Dosis en L/ha. `null` cuando el scraper DJI no la expone
+   * (95% del dataset histórico actual — ver
+   * `docs/audit/DOSE_FIELDS_BACKFILL.md`). La UI debe renderizar
+   * `null` como "—" o con un callout, **nunca** inventar un valor
+   * default porque confunde al operador (el cual cree que el dato
+   * es real cuando es ficticio).
+   */
+  dose_l_ha: number | null;
   window_start_hour: number;
   window_end_hour: number;
   updated_at: string;

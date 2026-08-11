@@ -5,7 +5,7 @@ import path from "node:path";
  * Vitest config + umbrales de coverage por criticidad.
  *
  * Sprint S4 (2026-07-28) — adopción del Quality Gauntlet (fase 1, ver
- * docs/files_TDD/04_GAUNTLET_DE_CALIDAD.md §4 y ADOPTION.md).
+ * docs/QUALITY_GAUNTLET.md §3).
  *
  * Estado actual de umbrales (2026-07-28):
  *   - Umbral GLOBAL: 80% lines / 75% branches — activo desde día 1.

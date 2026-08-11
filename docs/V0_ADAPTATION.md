@@ -270,8 +270,7 @@ spec externo:
   documenta la decisión de mantener `api/queries.ts` como single
   source of truth para la proyección de `dji_parcels`.
 - `docs/STACK.md` — stack vigente después del S5.
-- `docs/files_TDD/04_GAUNTLET_DE_CALIDAD.md` — las 7 compuertas
-  que aplican a este sprint.
+- `docs/QUALITY_GAUNTLET.md` — las 7 compuertas que aplican a este sprint.
 - `docs/audit/BITACORA.md` — bitácora viva, incluye QW1/S1-S7.
 
 ---

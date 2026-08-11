@@ -151,10 +151,7 @@ DroneFlightAFM/
 │   ├── db.ts                     # Pool pg + type parsers
 │   ├── auth.ts, auth.config.ts   # NextAuth (Node + edge)
 │   ├── cache.ts                  # unstable_cache + tags
-│   ├── alerts.ts                 # Reglas de alerta (area_mu, times_count)
-│   ├── devices.ts
 │   ├── format.ts                 # date/area/duration formatting
-│   ├── request.ts                # parseIntParam
 │   ├── types.ts                  # Records: DjiParcelRecord, DjiFlightRecord,
 │   │                             # DjiAlertRecord, DjiFumigationEvent, etc.
 │   ├── ui-tokens.ts              # Colores, spacing, surfaces

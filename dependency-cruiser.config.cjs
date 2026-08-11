@@ -7,13 +7,12 @@
  *
  * Instalación: npm install --save-dev dependency-cruiser (ya instalado)
  * Uso local:  npm run arch:check
- * Ver §2 de docs/files_TDD/04_GAUNTLET_DE_CALIDAD.md para la justificación
- * de cada regla.
+ * Ver §2 de docs/QUALITY_GAUNTLET.md para la justificación de cada regla.
  *
  * Estado actual (2026-07-28, sprint de adopción):
  *   - 1 regla en `error` (única que rompe CI desde el día 1: pg directo).
- *   - 3 reglas en `warn` (aspiracionales; subir a `error` cuando los warnings
- *     queden en 0 — ver docs/files_TDD/ADOPTION.md).
+ *   - 4 reglas en `warn` (aspiracionales; subir a `error` cuando los warnings
+ *     queden en 0 — ver docs/QUALITY_GAUNTLET.md §2).
  *   - 1 regla en `info` (huérfanos — solo para auditoría manual).
  */
 
@@ -57,6 +56,29 @@ module.exports = {
       severity: 'warn',
       from: { path: '^components/' },
       to: { path: '^(lib/db\\.ts$|api/repositories\\.ts$|api/queries\\.ts$)' },
+    },
+
+    // =====================================================================
+    // REGLA 2b (WARN, F4 fix 2026-08-11): app/** pages (NO app/api/**)
+    // no importan `getDb` directo de `lib/db`. Deben ir por
+    // `api/repositories.ts` (o `api/queries.ts`). Las routes en
+    // `app/api/**/route.ts` están excluidas — pueden tener queries
+    // ad-hoc que no encajan en el repo. Si el patrón crece, refactor
+    // a `api/repositories.ts`.
+    //
+    // Aspiración: subir a `error` cuando los 0 warnings actuales
+    // (post-F4) se mantengan. Si aparece uno, es un drift.
+    // =====================================================================
+    {
+      name: 'app-pages-must-go-through-repositories',
+      comment:
+        'app/** pages (excepto app/api/**) no importan `getDb` de ' +
+        '`lib/db` directo — van por `api/repositories.ts` o ' +
+        '`api/queries.ts`. Las routes en app/api/**/route.ts están ' +
+        'exceptuadas (queries ad-hoc que no entran en el repo).',
+      severity: 'warn',
+      from: { path: '^app/(?!api/)[^/]+/page\\.tsx?$' },
+      to: { path: '^lib/db\\.ts$' },
     },
 
     // =====================================================================

@@ -4,9 +4,9 @@
  * Este archivo NO se usa todavía — espera la compuerta 1 del Gauntlet
  * (lint + tipos) que se activará cuando se instale ESLint base.
  *
- * Está en la raíz (no en docs/files_TDD/) para que el día que se
- * agregue ESLint, la integración sea trivial: extends en la config
- * base y listo.
+ * Está en la raíz (no en docs/QUALITY_GAUNTLET.md) para que el día
+ * que se agregue ESLint, la integración sea trivial: extends en la
+ * config base y listo.
  *
  * Dependencias requeridas (cuando se active):
  *   npm install --save-dev eslint-plugin-sonarjs
@@ -17,8 +17,7 @@
  *     extends: [...tuConfigBase.extends, './.eslintrc.quality.cjs'],
  *   };
  *
- * Ver docs/files_TDD/04_GAUNTLET_DE_CALIDAD.md §2 y ADOPTION.md para
- * el rationale de cada regla.
+ * Ver docs/QUALITY_GAUNTLET.md §2 para el rationale de cada regla.
  */
 
 module.exports = {

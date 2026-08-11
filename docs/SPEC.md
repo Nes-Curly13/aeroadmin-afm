@@ -1,6 +1,23 @@
 # SPEC — AeroAdmin AFM Front-end Refactor
 
-> Documento vivo. Define el "qué" y el "por qué" de cada decisión de UI.
+> **F9 (QA 2026-08-11) — HISTÓRICO**: este documento describe el front-end
+> pre-S5 (Junio 2026). Las pages `/map`, `/history`, `/devices` y `/map/new`
+> que aparecen acá ya no existen — fueron reemplazadas en los sprints
+> S5 (MapLibre + V0 port) y S6 (V0 polish + features nuevas).
+>
+> **Para el estado actual del producto**:
+> - `docs/SDD.md` — diseño de producto vigente (escrito en S5, 2026-07-28)
+> - `docs/TDD.md` — diseño técnico + patrones de UI + state derivado
+> - `docs/SPEC.md` — este doc, conservado como referencia histórica
+>   de las decisiones de UI del refactor inicial
+>
+> NO usar las decisiones de UI de este doc como spec — varias fueron
+> reinterpretadas en S5 (ver `docs/V0_ADAPTATION.md` para el contraste
+> V0 → nuestra implementación).
+
+Documento vivo original (mantenido por valor histórico, NO spec activa):
+
+> Define el "qué" y el "por qué" de cada decisión de UI.
 > El "cómo" se valida con TDD (tests primero) en cada componente.
 
 Fecha: 2026-06-17
