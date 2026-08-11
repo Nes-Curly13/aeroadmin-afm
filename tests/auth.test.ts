@@ -108,10 +108,14 @@ describe("lib/auth — config + exports", () => {
     expect(authModule.AUTH_COOKIE_NAME).toBe("afm.session");
   });
 
-  it("exporta helpers requireAuth/requireRole", () => {
+  it("exporta helpers requireAuth", () => {
     expect(typeof authModule.requireAuth).toBe("function");
-    expect(typeof authModule.requireRole).toBe("function");
   });
+
+  // F8 fix (2026-08-11): `requireRole` ya NO se re-exporta desde
+  // `@/lib/auth` para romper el ciclo. Single source of truth es
+  // `@/lib/auth/role`. Test directo ahi:
+  //   tests/lib/auth/role.test.ts
 });
 
 // ═══════════════════════════════════════════════════════════════════════

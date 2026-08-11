@@ -38,7 +38,17 @@ import bcrypt from "bcryptjs";
 
 import { getDb } from "@/lib/db";
 import { authConfig } from "@/lib/auth.config";
-import { requireRole as requireRoleCanonical } from "@/lib/auth/role";
+// F8 fix (2026-08-11): el import de runtime `requireRoleCanonical`
+// rompia el ciclo. `lib/auth/role.ts` importa `auth` de `@/lib/auth`
+// (necesita el helper NextAuth en runtime para leer la sesion), y
+// `lib/auth.ts` re-exportaba `requireRole` desde ahi → ciclo.
+// Fix: `requireRole` se importa solo en archivos que NO estan en el
+// path de import de `lib/auth/role.ts`. Los callers server-side lo
+// importan directo desde `@/lib/auth/role` (single source of truth).
+//
+// `AppRole` sigue siendo import via `import type` (F8) — type-only
+// imports NO cuentan como dependencia runtime y depcruise los ignora
+// con tsPreCompilationDeps:false.
 import type { AppRole } from "@/lib/auth/role";
 
 // Re-export del app-role type y cookie name para callers que no quieren
@@ -47,10 +57,17 @@ import type { AppRole } from "@/lib/auth/role";
 // re-exporta; este archivo tambien.
 export type { AppRole };
 export { AUTH_COOKIE_NAME } from "@/lib/auth.config";
-// Re-export del requireRole canonico (v1.4): acepta string o array,
-// lee el role del JWT. Mantiene compat con callers existentes que
-// importan `requireRole` desde `@/lib/auth` (ej. change-password).
-export { requireRoleCanonical as requireRole };
+// F8 fix (2026-08-11): `requireRole` ya NO se re-exporta desde aca
+// para romper el ciclo `auth.ts → auth/role.ts → auth.ts`. Callers
+// que necesitan `requireRole` lo importan directo desde
+// `@/lib/auth/role` (que es la source of truth desde v1.4).
+//
+// Si en el futuro alguien quiere `requireRole` desde `@/lib/auth`,
+// que use una re-export inline con `export type` para evitar el
+// ciclo runtime:
+//
+//   export type { AppRole } from "@/lib/auth/role";  // type-only OK
+//   // NO hacer:  export { requireRole } from "@/lib/auth/role";  // ciclo
 
 /**
  * Extender el config edge-safe con el Credentials provider (Node runtime,
