@@ -179,7 +179,7 @@ Cada página es un **Server Component** (salvo `/login` y los clientes interacti
 ### 3.10 `/devices` — Gestión de dispositivos
 
 - **Tipo**: Server Component con role-gate. `role !== "admin"` → `redirect("/")`.
-- **Datos**: `DEFAULT_DEVICES` (hardcoded en `lib/devices.ts`). Lista ilustrativa.
+- **Datos**: hardcoded en el archivo de la page. Lista ilustrativa.
 - **Estado**: marcado "Próximamente" en UI. CRUD real se habilita cuando haya auth más robusta.
 - **Para V0**: grilla de tarjetas de dron (modelo, serial, estado, última fumigación) con banner amarillo "Próximamente". Solo visible para admin.
 
