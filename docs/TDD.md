@@ -458,9 +458,11 @@ endpoint `/api/map/summary`).
 - **Español en strings de UI, comentarios y mensajes.** Identifiers
   (archivos, funciones, columnas SQL, variables) en inglés.
 - **Path alias `@/*`** apunta a la raíz del repo.
-- **Cobertura**: el umbral global es 75/70 (líneas/branches). El
-  umbral solo sube, nunca baja, salvo excepción documentada en
-  `docs/files_TDD/ADOPTION.md`.
+- **Cobertura**: el umbral global activo en `vitest.config.ts` es
+  **45/65** (líneas/branches), bumpeado a la baja en S8.6 (v2.5.3,
+  2026-08-04) por módulos sin tests (ver comentario en
+  `vitest.config.ts:65-79`). El 75/70 histórico es aspiración. El
+  umbral solo sube, nunca baja, salvo excepción documentada en PR.
 - **Tests TZ-fragiles** con `toLocaleDateString` o `new Date()`:
   evitar asserting en strings exactos. Patrones en
   `lib/format.test.ts`.

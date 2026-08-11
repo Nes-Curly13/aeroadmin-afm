@@ -162,8 +162,9 @@ Estas son **invariantes arquitectónicas** que la fitness function de
    `lib/djiag-health.ts`, `lib/djiag-from-make/*` SÍ pueden usarse
    desde `app/api/**/route.ts` (lógica pura, no scraping).
 5. **Todo código nuevo en `lib/` viene con tests** (happy path + 1
-   edge case). Coverage global ≥ 75% lines / 70% branches (umbral
-   base, ver `docs/files_TDD/ADOPTION.md` para subir a 80/75).
+   edge case). Coverage global activo: **45% lines / 65% branches**
+   en `vitest.config.ts` (gate vigente desde S8.6 v2.5.3, 2026-08-04).
+   El 75/70 es aspiración. Bumpear al subir el piso, no al revés.
 6. **Toda fecha que sale al usuario** pasa por `lib/format.ts`
    (`toDateString`, `formatToDateString`). TZ = `America/Bogota`.
 7. **`lib/data.ts` es el ÚNICO adapter V0 ↔ proyecto real.** Las pages

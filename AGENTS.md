@@ -70,7 +70,7 @@ Verificado por: `dependency-cruiser` (fitness function de arquitectura). Comando
 ### R3. Tests
 
 - **Todo código nuevo en `lib/` viene con tests** que cubren al menos el happy path + 1 edge case obvio.
-- **Coverage global ≥ 75% lines / 70% branches** (umbral base, ver ADOPTION.md para subir a 80/75).
+- **Coverage global**: el umbral activo en `vitest.config.ts` es **45% lines / 65% branches** (con `functions: 65`, `statements: 45`). El 75/70 histórico está documentado como aspiración — bumpear al subir el piso, NO al revés. La doc previa decía 75/70 sin reflejar que el gate se bajó en S8.6 (v2.5.3, 2026-08-04) por módulos con 0% coverage (ver comentario en `vitest.config.ts:65-79`).
 - Los tests de integración con BD (los que dependen de `dji_flights.parcel_id`, `dji_daily_summaries`, etc.) van en `tests/e2e/` o en archivos marcados con `.integration.test.ts` y excluidos de la cobertura unitaria.
 - **Un test que verifica `expect(x).toBeDefined()` no cuenta como test.** Si Stryker sobrevive al mutante, escribí un test que verifique el valor real.
 
