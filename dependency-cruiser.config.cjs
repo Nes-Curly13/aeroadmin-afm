@@ -60,6 +60,29 @@ module.exports = {
     },
 
     // =====================================================================
+    // REGLA 2b (WARN, F4 fix 2026-08-11): app/** pages (NO app/api/**)
+    // no importan `getDb` directo de `lib/db`. Deben ir por
+    // `api/repositories.ts` (o `api/queries.ts`). Las routes en
+    // `app/api/**/route.ts` están excluidas — pueden tener queries
+    // ad-hoc que no encajan en el repo. Si el patrón crece, refactor
+    // a `api/repositories.ts`.
+    //
+    // Aspiración: subir a `error` cuando los 0 warnings actuales
+    // (post-F4) se mantengan. Si aparece uno, es un drift.
+    // =====================================================================
+    {
+      name: 'app-pages-must-go-through-repositories',
+      comment:
+        'app/** pages (excepto app/api/**) no importan `getDb` de ' +
+        '`lib/db` directo — van por `api/repositories.ts` o ' +
+        '`api/queries.ts`. Las routes en app/api/**/route.ts están ' +
+        'exceptuadas (queries ad-hoc que no entran en el repo).',
+      severity: 'warn',
+      from: { path: '^app/(?!api/)[^/]+/page\\.tsx?$' },
+      to: { path: '^lib/db\\.ts$' },
+    },
+
+    // =====================================================================
     // REGLA 3 (WARN, aspiracional): el cliente Playwright y los fetchers
     // HTTP de DJIAG no se importan desde app/**. Esos archivos son
     // infraestructura de scraping, no de UI.

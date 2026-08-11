@@ -3,10 +3,10 @@
 // Data layer del reporte por hacienda / multi-hacienda (nivel 2 de
 // feature/reports-level, 2026-08-08).
 //
-// Query único que devuelve TODAS las fumigaciones del rango (filtrado
-// por farmName opcional). La agregación por parcela se hace en TS —
-// el dataset esperado es chico (decenas a cientos de fumigaciones por
-// mes para 1 operador) y la lógica es trivial.
+// F4 fix (2026-08-11): el SQL se movió a
+// `api/repositories.ts#getFarmsReportFumigations`. Acá solo queda
+// la capa de agregación en TS (el dataset es chico — decenas a
+// cientos de fumigaciones por mes para 1 operador).
 //
 // Decisiones:
 //   - **Cap 200 fumigaciones** en el PDF. Si hay más, se reporta en el
@@ -31,7 +31,7 @@
 //   - Agregación por piloto o producto (nivel 3 si el operador lo pide).
 //   - Selección múltiple de haciendas (filtro = 1 hacienda a la vez).
 
-import { getDb } from "@/lib/db";
+import { getFarmsReportFumigations } from "@/api/repositories";
 import { m2ToHa, toDateString } from "@/lib/format";
 
 export interface FarmsReportFilters {
@@ -112,22 +112,6 @@ const MAX_FUMIGATIONS_IN_PDF = 200;
 /** Cap para la lista de parcelas en la vista general. */
 const MAX_PARCELS_IN_PDF = 50;
 
-interface QueryRow {
-  id: number;
-  fumigation_date: Date | string;
-  parcel_id: number;
-  parcel_name: string;
-  farm_name: string | null;
-  land_name: string | null;
-  pilot_name: string | null;
-  drone_nickname: string | null;
-  area_fumigated_m2: number | string | null;
-  dose_l_per_ha: number | string | null;
-  product_used: string | null;
-  recorded_by: string | null;
-  notes: string | null;
-}
-
 /**
  * Carga la data del reporte. Devuelve la lista de fumigaciones + los
  * agregados pre-calculados en TS (no en SQL — el dataset es chico).
@@ -139,68 +123,18 @@ interface QueryRow {
 export async function fetchFarmsReportData(
   filters: FarmsReportFilters
 ): Promise<FarmsReportData> {
-  const db = getDb();
   const { from, to, farmName } = filters;
 
-  // Construimos el query base. Si hay filtro de hacienda, lo agregamos.
-  // Hacemos LIMIT 1 más arriba del query de fumigaciones para mantener
-  // el dataset chico; el resto se computa en TS.
-  const params: unknown[] = [from, to];
-  let whereExtra = "";
-  if (farmName && farmName.trim() !== "") {
-    params.push(farmName);
-    whereExtra = ` AND p.farm_name = $${params.length}`;
-  }
+  // 1) Query unica via repo (F4 fix 2026-08-11 — antes era `getDb()` directo).
+  const rows = await getFarmsReportFumigations({
+    from,
+    to,
+    farmName: farmName ?? null,
+    limit: MAX_FUMIGATIONS_IN_PDF
+  });
 
-  const result = await db.query<QueryRow>(
-    `
-      SELECT
-        f.id,
-        f.fumigation_date,
-        f.parcel_id,
-        p.land_name AS parcel_name,
-        p.farm_name,
-        p.land_name,
-        f.area_fumigated_m2,
-        f.dose_l_per_ha,
-        f.product_used,
-        f.recorded_by,
-        f.notes,
-        (
-          SELECT fl.drone_nickname
-            FROM dji_flights fl
-           WHERE fl.parcel_id = f.parcel_id
-             AND (fl.start_at AT TIME ZONE 'America/Bogota')::date = f.fumigation_date
-             AND fl.drone_nickname IS NOT NULL
-           GROUP BY fl.drone_nickname
-           ORDER BY COUNT(*) DESC
-           LIMIT 1
-        ) AS drone_nickname,
-        (
-          SELECT fl.pilot_name
-            FROM dji_flights fl
-           WHERE fl.parcel_id = f.parcel_id
-             AND (fl.start_at AT TIME ZONE 'America/Bogota')::date = f.fumigation_date
-             AND fl.pilot_name IS NOT NULL
-           GROUP BY fl.pilot_name
-           ORDER BY COUNT(*) DESC
-           LIMIT 1
-        ) AS pilot_name
-      FROM dji_fumigations f
-      JOIN dji_parcels p ON p.id = f.parcel_id
-      WHERE f.deleted_at IS NULL
-        AND p.deleted_at IS NULL
-        AND f.fumigation_date >= $1::date
-        AND f.fumigation_date <= $2::date
-        ${whereExtra}
-      ORDER BY f.fumigation_date DESC, f.id DESC
-      LIMIT ${MAX_FUMIGATIONS_IN_PDF}
-    `,
-    params
-  );
-
-  // Mapear las filas a la shape del reporte.
-  const allFumigations: FarmsFumigationRow[] = result.rows.map((row) => {
+  // 2) Mapear las filas a la shape del reporte.
+  const allFumigations: FarmsFumigationRow[] = rows.map((row) => {
     const dateStr = toDateString(row.fumigation_date) ?? "";
     const areaHa =
       row.area_fumigated_m2 === null ? null : m2ToHa(Number(row.area_fumigated_m2));
