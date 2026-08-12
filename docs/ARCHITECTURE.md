@@ -9,6 +9,10 @@
 
 AeroAdmin AFM **no es un scraper HTML** y **no está enlazado oficialmente a DJI**. Es un **cliente headless de Playwright** que opera sobre la UI web de DJI SmartFarm para capturar las responses de su API interna (GraphQL no documentado). Es más estable que un scraper tradicional porque no depende del HTML visible, sino de la misma API que la UI usa internamente. Los datos se persisten en PostGIS vía scripts idempotentes, y el frontend Next.js los lee con cache de Next.
 
+> 📐 **Diagrama editorial:** [`docs/diagrams/01-system-architecture.html`](diagrams/01-system-architecture.html) — flujo end-to-end del sistema con la DB Postgres+PostGIS como nodo focal. El ASCII art de §1 está mantenido por accesibilidad y para diffs pequeños, pero el HTML es la versión canónica.
+>
+> 📐 **Diagrama del pipeline:** [`docs/diagrams/02-dji-data-pipeline.html`](diagrams/02-dji-data-pipeline.html) — los 9 pasos de `scripts/run-pipeline.js` con el spatial join como paso focal.
+
 ---
 
 ## 1. Diagrama end-to-end (fuente de información)

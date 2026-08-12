@@ -18,6 +18,8 @@ node scrape_djiag_perflight.js --days 30 --resume
 npm run pipeline:djiag:dry
 ```
 
+> 📐 **Diagrama editorial del pipeline:** [`docs/diagrams/02-dji-data-pipeline.html`](diagrams/02-dji-data-pipeline.html) — los 9 pasos idempotentes de `scripts/run-pipeline.js` con el spatial join (paso 4) como foco.
+
 ## Gotcha 1 — the zh-CN locale trap
 
 DJI's frontend routes to **one of two backends** based on the browser's

@@ -131,3 +131,16 @@ playwright-report/
 /tmp-*.log
 /tmp-*.err
 /tmp-trash/
+
+# ============================================================
+# S6 / diagrams (2026-08-12): local clone of the
+# cathrynlavery/diagram-design skill (used to author the
+# diagrams in docs/diagrams/). NOT committed — the skill is
+# re-cloned on demand by reading docs/diagrams/style-guide.md
+# (the project-owned brand skin override) and following
+# docs/diagrams/README.md "Cómo agregar un diagrama nuevo".
+# Also ignores the render previews (NN-preview.png) and the
+# render script's working dir artifacts.
+# ============================================================
+/.skills/
+

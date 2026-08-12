@@ -16,6 +16,8 @@
 | Orchards (frutales) — fungicida / insecticida | **10 días** | 7–14 días (general IPM) |
 | Default genérico (safety) | **14 días** | promedio operativo para Valle del Cauca |
 
+> 📐 **Diagrama editorial del state machine:** [`docs/diagrams/03-fumigation-cadence-state.html`](diagrams/03-fumigation-cadence-state.html) — los 4 estados (`no_history`, `ok`, `due_soon`, `overdue`) con la flecha de recovery `overdue → ok` en accent. La fórmula del guard (`diffDays`) está en el SVG mismo.
+
 > ⚠️ Estos son **defaults conservadores**. Una vez el cliente confirme
 > sus cadencias reales por tipo de cultivo, se actualizan via
 > `PATCH /api/fumigation-schedule/[parcelId]` o el script
