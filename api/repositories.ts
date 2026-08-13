@@ -1279,32 +1279,30 @@ export async function updateFumigationEvent(
 }
 
 /**
- * Soft-delete de una fumigación. Marca `deleted_at = NOW()`. La fumigación
- * sigue en la BD para auditoría pero desaparece de todos los listados.
+ * Soft-delete de una fumigación. Marca `deleted_at = NOW()` y registra
+ * `deleted_by` con el email del session user. La fumigación sigue en
+ * la BD para auditoría pero desaparece de todos los listados.
  *
  * Idempotente: si la fumigación ya está soft-deleted, devuelve la fila
  * tal cual sin error.
  *
- * Nota: por ahora solo guardamos timestamp. La columna `deleted_by`
- * (email del session user que borró) se agrega en una migration de
- * sub-4 cuando esté el endpoint DELETE. Hasta entonces, el log
- * queda solo con el timestamp.
- *
  * Sprint 2026-08-13 — feature/fumigacion-detail-v2 / sub-4.
  */
 export async function softDeleteFumigationEvent(
-  id: number
+  id: number,
+  deletedBy: string
 ): Promise<DjiFumigationEvent | null> {
   const db = getDb();
   return withLocalFallback(
     async () => {
       const result = await db.query<DjiFumigationEvent>(
         `UPDATE dji_fumigations
-            SET deleted_at = NOW()
+            SET deleted_at = NOW(),
+                deleted_by = $2
           WHERE id = $1
             AND deleted_at IS NULL
         RETURNING id`,
-        [id]
+        [id, deletedBy]
       );
       if (result.rows.length === 0) {
         // Ya estaba borrada o no existe. Devolvemos el row (que puede

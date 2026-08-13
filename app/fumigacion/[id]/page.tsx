@@ -4,6 +4,8 @@ import {
   ArrowLeft,
   CalendarDays,
   ClipboardList,
+  Download,
+  FileText,
   Droplets,
   MapPin,
   Pencil,
@@ -15,6 +17,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { DeleteFumigationButton } from "@/components/fumigations/delete-fumigation-button";
 import { FumigationMap } from "@/components/parcels/fumigation-map";
 import {
   getFumigationById,
@@ -155,20 +158,56 @@ export default async function FumigacionPage({ params }: PageProps) {
             Volver a fumigaciones
           </Button>
           {canEdit ? (
-            <Button
-              variant="outline"
-              size="sm"
-              nativeButton={false}
-              render={
-                <Link
-                  href={`/fumigacion/${fumigation.id}/edit`}
-                  aria-label={`Editar fumigación #${fumigation.id}`}
-                />
-              }
-            >
-              <Pencil className="size-3.5" aria-hidden />
-              Editar fumigación
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                nativeButton={false}
+                render={
+                  <a
+                    href={`/api/admin/fumigations/${fumigation.id}/report.pdf`}
+                    download={`fumigacion-${fumigation.id}.pdf`}
+                    aria-label={`Descargar reporte PDF de la fumigación #${fumigation.id}`}
+                  />
+                }
+              >
+                <FileText className="size-3.5" aria-hidden />
+                PDF
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                nativeButton={false}
+                render={
+                  <a
+                    href={`/api/admin/fumigations/${fumigation.id}/report.csv`}
+                    download={`fumigacion-${fumigation.id}.csv`}
+                    aria-label={`Descargar reporte CSV de la fumigación #${fumigation.id}`}
+                  />
+                }
+              >
+                <Download className="size-3.5" aria-hidden />
+                CSV
+              </Button>
+              <DeleteFumigationButton
+                fumigationId={fumigation.id}
+                description={fumigation.product_used ?? "sin producto"}
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                nativeButton={false}
+                render={
+                  <Link
+                    href={`/fumigacion/${fumigation.id}/edit`}
+                    aria-label={`Editar fumigación #${fumigation.id}`}
+                  />
+                }
+              >
+                <Pencil className="size-3.5" aria-hidden />
+                Editar fumigación
+              </Button>
+            </div>
           ) : null}
         </div>
 

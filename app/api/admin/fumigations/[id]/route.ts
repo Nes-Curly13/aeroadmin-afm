@@ -43,7 +43,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { requireRole } from "@/lib/auth/role";
-import { updateFumigationEvent } from "@/api/repositories";
+import { softDeleteFumigationEvent, updateFumigationEvent } from "@/api/repositories";
 
 export const dynamic = "force-dynamic";
 
@@ -309,6 +309,75 @@ export async function PATCH(
     }
     return NextResponse.json(
       { error: pgErr.message ?? "error interno" },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * DELETE /api/admin/fumigations/[id]
+ *
+ * Soft-delete de una fumigación. Marca `deleted_at = NOW()` y
+ * `deleted_by = session.email`. La fumigación sigue en la BD para
+ * auditoría pero desaparece de /fumigaciones y de los listados
+ * relacionados (timeline del parcel, dashboard, etc.).
+ *
+ * Sprint 2026-08-13 — feature/fumigacion-detail-v2 / sub-4.
+ *
+ * Auth: role=admin OR role=supervisor. Mismo gate que POST/PATCH.
+ *
+ * Idempotente: si la fumigación ya está soft-deleted, devuelve 200
+ * con la fumigación tal cual (no error). Esto simplifica el cliente
+ * (no necesita checkear antes de delete).
+ *
+ * Respuestas:
+ *   200 + { fumigation: DjiFumigationEvent } — soft-delete OK
+ *   400 + { error: "id inválido" } — id mal formado
+ *   401 / 403 — auth
+ *   404 + { error: "fumigación no encontrada" } — no existe
+ *   500 — error interno
+ */
+export async function DELETE(
+  _req: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  // 1) Auth
+  try {
+    await requireRole(["admin", "supervisor"]);
+  } catch (err) {
+    const e = err as { code?: string; message?: string };
+    if (e.code === "UNAUTHENTICATED") {
+      return NextResponse.json({ error: "no autenticado" }, { status: 401 });
+    }
+    if (e.code === "FORBIDDEN") {
+      return NextResponse.json({ error: "rol insuficiente" }, { status: 403 });
+    }
+    return NextResponse.json({ error: e.message ?? "auth error" }, { status: 500 });
+  }
+
+  // 2) Validar id
+  const { id } = await params;
+  const fumigationId = Number(id);
+  if (!Number.isFinite(fumigationId) || fumigationId <= 0) {
+    return NextResponse.json({ error: "id inválido" }, { status: 400 });
+  }
+
+  // 3) Email del session user para `deleted_by`. Si por alguna razón
+  // no hay session (raro: requireRole ya pasó), usamos unknown.
+  const session = await auth();
+  const deletedBy = session?.user?.email ?? "unknown@aeroadmin.local";
+
+  // 4) Soft-delete
+  try {
+    const result = await softDeleteFumigationEvent(fumigationId, deletedBy);
+    if (!result) {
+      return NextResponse.json({ error: "fumigación no encontrada" }, { status: 404 });
+    }
+    return NextResponse.json({ fumigation: result }, { status: 200 });
+  } catch (err) {
+    const e = err as { message?: string };
+    return NextResponse.json(
+      { error: e.message ?? "error interno" },
       { status: 500 }
     );
   }
