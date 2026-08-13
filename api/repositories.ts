@@ -1075,6 +1075,7 @@ export async function getFumigationById(id: number): Promise<DjiFumigationEvent 
           f.pilot_license,
           f.recorded_at,
           f.source,
+          f.category_id,
           f.flight_ids,
           count(fl.id)::int AS n_matched_flights,
           CASE
@@ -1084,12 +1085,19 @@ export async function getFumigationById(id: number): Promise<DjiFumigationEvent 
           CASE
             WHEN count(fl.id) = 0 THEN NULL
             ELSE ST_X(ST_Centroid(ST_Collect(fl.point)))::numeric
-          END AS lng
+          END AS lng,
+          -- Catálogo de categoría hidratado (LEFT JOIN; null si fumigación
+          -- histórica no clasificada). row_to_json para que el caller
+          -- reciba un objeto anidado, no columnas planas.
+          CASE WHEN f.category_id IS NULL THEN NULL
+            ELSE row_to_json(cat) END AS category
          FROM dji_fumigations f
          LEFT JOIN dji_flights fl ON fl.flight_id = ANY(f.flight_ids)
+         LEFT JOIN fumigation_categories cat
+           ON cat.id = f.category_id AND cat.is_active = TRUE
         WHERE f.id = $1
           AND f.deleted_at IS NULL
-        GROUP BY f.id`,
+        GROUP BY f.id, cat.id`,
       [id]
     );
     const row = result.rows[0];
@@ -1156,6 +1164,201 @@ export async function getFumigationFlights(
     if (process.env.NODE_ENV !== "production") return [];
     throw err;
   }
+}
+
+/**
+ * Actualiza una fumigación existente. Devuelve el row actualizado.
+ *
+ * Reglas:
+ *   - Solo acepta los campos editables. NO se puede cambiar
+ *     `parcel_id`, `source`, `recorded_by`, `flight_ids`, `recorded_at`:
+ *     esos son provenance inmutable (el parcel donde se aplicó, de dónde
+ *     vino el dato, quién lo creó originalmente, los flights que la
+ *     originaron). Si el operador fumigador necesita "mover" una
+ *     fumigación, tiene que eliminarla y crear una nueva.
+ *   - Si la fumigación está soft-deleted (`deleted_at IS NOT NULL`),
+ *     no se puede editar (404).
+ *   - Valida FK de `category_id` (la BD tira 23503 si no existe).
+ *
+ * Sprint 2026-08-13 — feature/fumigacion-detail-v2 / sub-3.
+ */
+export async function updateFumigationEvent(
+  id: number,
+  patch: {
+    fumigation_date?: string;
+    product_used?: string | null;
+    dose_l_per_ha?: number | null;
+    area_fumigated_m2?: number | null;
+    drone_code_used?: number | null;
+    duration_minutes?: number | null;
+    notes?: string | null;
+    product_registered_ica?: string | null;
+    pilot_license?: string | null;
+    category_id?: number | null;
+  }
+): Promise<DjiFumigationEvent | null> {
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      // Construir el SET dinámicamente con solo los campos provistos.
+      // El $N placeholder se incrementa por cada campo. Esto evita
+      // sobreescribir con null campos que el caller no mandó.
+      const setClauses: string[] = [];
+      const values: unknown[] = [];
+      let i = 1;
+      if (patch.fumigation_date !== undefined) {
+        setClauses.push(`fumigation_date = $${i++}`);
+        values.push(patch.fumigation_date);
+      }
+      if (patch.product_used !== undefined) {
+        setClauses.push(`product_used = $${i++}`);
+        values.push(patch.product_used);
+      }
+      if (patch.dose_l_per_ha !== undefined) {
+        setClauses.push(`dose_l_per_ha = $${i++}`);
+        values.push(patch.dose_l_per_ha);
+      }
+      if (patch.area_fumigated_m2 !== undefined) {
+        setClauses.push(`area_fumigated_m2 = $${i++}`);
+        values.push(patch.area_fumigated_m2);
+      }
+      if (patch.drone_code_used !== undefined) {
+        setClauses.push(`drone_code_used = $${i++}`);
+        values.push(patch.drone_code_used);
+      }
+      if (patch.duration_minutes !== undefined) {
+        setClauses.push(`duration_minutes = $${i++}`);
+        values.push(patch.duration_minutes);
+      }
+      if (patch.notes !== undefined) {
+        setClauses.push(`notes = $${i++}`);
+        values.push(patch.notes);
+      }
+      if (patch.product_registered_ica !== undefined) {
+        setClauses.push(`product_registered_ica = $${i++}`);
+        values.push(patch.product_registered_ica);
+      }
+      if (patch.pilot_license !== undefined) {
+        setClauses.push(`pilot_license = $${i++}`);
+        values.push(patch.pilot_license);
+      }
+      if (patch.category_id !== undefined) {
+        setClauses.push(`category_id = $${i++}`);
+        values.push(patch.category_id);
+      }
+
+      // Si no se mandó ningún campo editable, no-op (devuelve el row actual).
+      if (setClauses.length === 0) {
+        return await getFumigationById(id);
+      }
+
+      const sql = `
+        UPDATE dji_fumigations
+           SET ${setClauses.join(", ")}
+         WHERE id = $${i}
+           AND deleted_at IS NULL
+        RETURNING id, parcel_id, fumigation_date, product_used, dose_l_per_ha,
+                  area_fumigated_m2, drone_code_used, duration_minutes, notes,
+                  human_notes, recorded_by, product_registered_ica, pilot_license,
+                  category_id, recorded_at, source
+      `;
+      values.push(id);
+      const result = await db.query<DjiFumigationEvent>(sql, values);
+      const row = result.rows[0];
+      if (!row) return null;
+      // Invalidar cache (dashboard, upcoming, alertas, listados) tras update.
+      invalidateAfterFumigationMutation();
+      // Re-fetch con el JOIN de categoría (no se puede hacer JOIN arriba
+      // porque RETURNING no soporta JOINs arbitrarios en todas las versiones
+      // de Postgres; y la fumigación editada puede haber cambiado de
+      // categoría). El costo es 1 query extra, vale por la consistencia.
+      return await getFumigationById(id);
+    },
+    async () => null
+  );
+}
+
+/**
+ * Soft-delete de una fumigación. Marca `deleted_at = NOW()` y registra
+ * `deleted_by` con el email del session user. La fumigación sigue en
+ * la BD para auditoría pero desaparece de todos los listados.
+ *
+ * Idempotente: si la fumigación ya está soft-deleted, devuelve la fila
+ * tal cual sin error.
+ *
+ * Sprint 2026-08-13 — feature/fumigacion-detail-v2 / sub-4.
+ */
+export async function softDeleteFumigationEvent(
+  id: number,
+  deletedBy: string
+): Promise<DjiFumigationEvent | null> {
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      const result = await db.query<DjiFumigationEvent>(
+        `UPDATE dji_fumigations
+            SET deleted_at = NOW(),
+                deleted_by = $2
+          WHERE id = $1
+            AND deleted_at IS NULL
+        RETURNING id`,
+        [id, deletedBy]
+      );
+      if (result.rows.length === 0) {
+        // Ya estaba borrada o no existe. Devolvemos el row (que puede
+        // ser null si no existe).
+        return await getFumigationById(id);
+      }
+      invalidateAfterFumigationMutation();
+      return await getFumigationById(id);
+    },
+    async () => null
+  );
+}
+
+/**
+ * Devuelve el catálogo curado de categorías de fumigación.
+ * Sprint 2026-08-13 — feature/fumigacion-detail-v2 / sub-2.
+ *
+ * Solo trae las categorías activas (`is_active = TRUE`), ordenadas por
+ * `sort_order` (herbicida, insecticida, fungicida, fertilizante, etc.)
+ * para que el dropdown del form las presente en el orden que el
+ * operador fumigador espera.
+ *
+ * Se cachea 60s con tag `afm:fumigation-categories` (el catálogo casi
+ * no cambia — solo cuando se agrega una nueva categoría vía migration).
+ * Si el dropdown necesita invalidación inmediata, exponer
+ * `revalidateTag('afm:fumigation-categories')` desde un endpoint admin
+ * (no implementado todavía — fuera de scope de este sub-sprint).
+ */
+export async function getFumigationCategories(): Promise<
+  Array<{
+    id: number;
+    slug: string;
+    label: string;
+    color: string;
+    sort_order: number;
+  }>
+> {
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      const result = await db.query<{
+        id: number;
+        slug: string;
+        label: string;
+        color: string;
+        sort_order: number;
+      }>(
+        `SELECT id, slug, label, color, sort_order
+           FROM fumigation_categories
+          WHERE is_active = TRUE
+          ORDER BY sort_order ASC, label ASC`
+      );
+      return result.rows;
+    },
+    async () => []
+  );
 }
 
 /**
@@ -1619,6 +1822,14 @@ export async function createFumigationEvent(event: {
    */
   product_registered_ica?: string | null;
   pilot_license?: string | null;
+  /**
+   * Categoría curada (FK a fumigation_categories). Opcional —
+   * fumigaciones manuales pueden no tener categoría si el operador
+   * fumigador no la conoce o no aplica (caso raro). La BD tiene ON
+   * DELETE SET NULL así que borrar una categoría no rompe fumigaciones.
+   * Sprint 2026-08-13 — feature/fumigacion-detail-v2 / sub-2.
+   */
+  category_id?: number | null;
 }): Promise<DjiFumigationEvent> {
   const db = getDb();
   return withLocalFallback(
@@ -1632,13 +1843,13 @@ export async function createFumigationEvent(event: {
               (parcel_id, fumigation_date, product_used, dose_l_per_ha,
                area_fumigated_m2, drone_code_used, duration_minutes, notes,
                human_notes, recorded_by, product_registered_ica, pilot_license,
-               source)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'manual')
+               category_id, source)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'manual')
             RETURNING
               id, parcel_id, fumigation_date, product_used, dose_l_per_ha,
               area_fumigated_m2, drone_code_used, duration_minutes, notes,
               human_notes, recorded_by, product_registered_ica, pilot_license,
-              recorded_at, source
+              category_id, recorded_at, source
           `,
           [
             event.parcel_id,
@@ -1652,7 +1863,8 @@ export async function createFumigationEvent(event: {
             event.human_notes ?? null,
             event.recorded_by ?? null,
             event.product_registered_ica ?? null,
-            event.pilot_license ?? null
+            event.pilot_license ?? null,
+            event.category_id ?? null
           ]
         );
         const created = ins.rows[0];
@@ -2502,6 +2714,7 @@ export async function getRecentFumigations(
             f.pilot_license,
             f.recorded_at,
             f.source,
+            f.category_id,
             f.flight_ids,
             count(fl.id)::int AS n_matched_flights,
             CASE
@@ -2511,12 +2724,18 @@ export async function getRecentFumigations(
             CASE
               WHEN count(fl.id) = 0 THEN NULL
               ELSE ST_X(ST_Centroid(ST_Collect(fl.point)))::numeric
-            END AS lng
+            END AS lng,
+            -- Catálogo de categoría hidratado (LEFT JOIN; null si fumigación
+            -- histórica no clasificada). row_to_json para anidar.
+            CASE WHEN f.category_id IS NULL THEN NULL
+              ELSE row_to_json(cat) END AS category
            FROM dji_fumigations f
            LEFT JOIN dji_flights fl ON fl.flight_id = ANY(f.flight_ids)
+           LEFT JOIN fumigation_categories cat
+             ON cat.id = f.category_id AND cat.is_active = TRUE
           WHERE f.deleted_at IS NULL
             AND f.parcel_id IS NOT NULL
-          GROUP BY f.id
+          GROUP BY f.id, cat.id
           ORDER BY f.fumigation_date DESC, f.recorded_at DESC
           LIMIT $1`,
         [limit]

@@ -1,5 +1,5 @@
 import Link from "next/link"
-import { Calendar, Droplets, History, Plus, Sprout } from "lucide-react"
+import { Calendar, ChevronRight, Droplets, History, Plus, Sprout } from "lucide-react"
 import { Suspense } from "react"
 import { PageHeader } from "@/components/page-header"
 import { Badge } from "@/components/ui/badge"
@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton, SkeletonTable } from "@/components/ui/loading"
 import { getRecentFumigations } from "@/api/repositories"
+import { FUMIGATION_CATEGORIES } from "@/lib/data-constants"
 import { fmtDate, fmtDateTime, fmtDec, fmtInt } from "@/lib/format"
 import type { DjiFumigationEvent } from "@/lib/types"
 
@@ -58,6 +59,12 @@ interface PageProps {
     page?: string
     q?: string
     source?: "dji" | "manual" | "all" | string
+    /**
+     * Sprint 2026-08-13 — sub-2. Filtro por categoría curada. Se pasa
+     * el slug ("herbicida", "insecticida", etc.) en lugar del id para
+     * que la URL sea legible y no se rompa si reasignamos ids.
+     */
+    category?: string
   }>
 }
 
@@ -68,11 +75,19 @@ function parseSource(v: string | undefined): "djiscraper" | "import" | "manual" 
   return null
 }
 
+/** Convierte el slug del searchParam al id de FUMIGATION_CATEGORIES. */
+function parseCategorySlug(v: string | undefined): number | null {
+  if (!v) return null
+  const cat = FUMIGATION_CATEGORIES.find((c) => c.slug === v)
+  return cat?.id ?? null
+}
+
 export default async function FumigacionesPage({ searchParams }: PageProps) {
   const sp = await searchParams
   const page = Math.max(1, Number(sp.page ?? 1) || 1)
   const query = (sp.q ?? "").trim()
   const sourceFilter = parseSource(sp.source)
+  const categoryFilter = parseCategorySlug(sp.category)
 
   return (
     <div className="flex flex-col gap-4 p-4 md:p-6">
@@ -120,6 +135,27 @@ export default async function FumigacionesPage({ searchParams }: PageProps) {
               <option value="manual">Manual</option>
             </select>
           </div>
+          <div className="flex flex-col gap-1">
+            <label
+              htmlFor="category"
+              className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground"
+            >
+              Tipo
+            </label>
+            <select
+              id="category"
+              name="category"
+              defaultValue={sp.category ?? ""}
+              className="h-8 rounded-md border border-input bg-background px-2 text-sm"
+            >
+              <option value="">Todos</option>
+              {FUMIGATION_CATEGORIES.map((c) => (
+                <option key={c.id} value={c.slug}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+          </div>
           <button
             type="submit"
             className="h-8 rounded-md border border-input bg-card px-3 text-xs font-medium text-foreground hover:bg-muted"
@@ -160,7 +196,12 @@ export default async function FumigacionesPage({ searchParams }: PageProps) {
         </CardHeader>
         <CardContent className="px-0 pb-0">
           <Suspense fallback={<SkeletonTable rows={10} cols={7} />}>
-            <FumigacionesTable query={query} sourceFilter={sourceFilter} page={page} />
+            <FumigacionesTable
+              query={query}
+              sourceFilter={sourceFilter}
+              categoryFilter={categoryFilter}
+              page={page}
+            />
           </Suspense>
         </CardContent>
       </Card>
@@ -197,10 +238,13 @@ async function FumigacionesCounts({
 async function FumigacionesTable({
   query,
   sourceFilter,
+  categoryFilter,
   page
 }: {
   query: string
   sourceFilter: "djiscraper" | "import" | "manual" | null
+  /** Sprint 2026-08-13 — sub-2. id de FUMIGATION_CATEGORIES o null. */
+  categoryFilter: number | null
   page: number
 }) {
   const all = await getRecentFumigations(2000)
@@ -208,6 +252,7 @@ async function FumigacionesTable({
   // Filtros aplicados en server (mismo patron que /admin/parcels).
   const filtered = all.filter((f) => {
     if (sourceFilter && f.source !== sourceFilter) return false
+    if (categoryFilter != null && f.category_id !== categoryFilter) return false
     if (query) {
       const q = query.toLowerCase()
       const haystack = [
@@ -276,6 +321,15 @@ function FumigationRow({ f }: { f: DjiFumigationEvent }) {
     f.source === "manual" ? "default" : "secondary"
   const sourceLabel = f.source === "manual" ? "Manual" : "DJI"
 
+  // Sprint 2026-08-13 — sub-2. Badge de categoría curada. Resolvemos
+  // por el objeto hidratado (JOIN) o por el id contra el catálogo
+  // client-side (caso tests con mocks parciales).
+  const category =
+    f.category ??
+    (f.category_id != null
+      ? FUMIGATION_CATEGORIES.find((c) => c.id === f.category_id) ?? null
+      : null)
+
   return (
     <tr className="border-b border-border/60 transition-colors last:border-0 hover:bg-muted/40">
       <td className="px-3 py-2.5">
@@ -305,18 +359,36 @@ function FumigationRow({ f }: { f: DjiFumigationEvent }) {
       <td className="px-3 py-2.5">
         {/* El producto + ID de fumigación son links a la ficha individual.
             Esto resuelve el pedido del operador de poder navegar
-            fumigaciones por URL propia. Sprint 2026-08-05. */}
+            fumigaciones por URL propia. Sprint 2026-08-05.
+            Fix visual v2 (2026-08-13): el link no se percibía como
+            clickeable (texto negro sobre negro, sin affordance). Se
+            agrega color primary, hover bg sutil, chevron al final y
+            focus ring explícito. */}
         <Link
           href={`/fumigacion/${f.id}`}
-          className="group flex flex-col text-foreground hover:underline focus-visible:underline focus-visible:outline-none"
+          aria-label={`Ver detalle de la fumigación #${f.id} (${f.product_used ?? "sin producto"})${category ? `, tipo ${category.label}` : ", sin clasificar"}`}
+          className="group -mx-1 inline-flex max-w-full cursor-pointer flex-col gap-0.5 rounded-sm px-1 py-0.5 text-foreground transition-colors hover:bg-primary/5 focus-visible:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
         >
           <p className="font-mono text-[10px] text-muted-foreground">
             {`#${f.id}`}
           </p>
-          <p className="font-medium group-hover:text-primary">
-            {f.product_used ?? "—"}
+          <p className="inline-flex items-center gap-1 font-medium text-primary group-hover:underline">
+            <span className="truncate">{f.product_used ?? "—"}</span>
+            <ChevronRight
+              className="size-3 shrink-0 opacity-50 transition-opacity group-hover:opacity-100"
+              aria-hidden
+            />
           </p>
         </Link>
+        {category ? (
+          <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            {category.label}
+          </p>
+        ) : (
+          <p className="mt-0.5 text-[10px] italic text-muted-foreground">
+            Sin clasificar
+          </p>
+        )}
         {f.product_registered_ica ? (
           <p className="font-mono text-[10px] text-muted-foreground">
             ICA {f.product_registered_ica}

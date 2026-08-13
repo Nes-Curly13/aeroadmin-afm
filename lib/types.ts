@@ -222,6 +222,19 @@ export interface DjiFumigationEvent {
   recorded_at: string;
   source: "manual" | "djiscraper" | "import";
   /**
+   * Sprint 2026-08-13 — feature/fumigacion-detail-v2 / sub-2.
+   * Categoría curada de la fumigación (FK a `fumigation_categories`).
+   * NULL para fumigaciones históricas (pre-migration 20260813160000)
+   * — la UI las muestra como "Sin clasificar".
+   */
+  category_id?: number | null;
+  /**
+   * Catálogo de la categoría, hidratado vía LEFT JOIN con
+   * `fumigation_categories` en los queries de lectura. Undefined si
+   * la fumigación no tiene categoría (category_id IS NULL).
+   */
+  category?: FumigationCategory | null;
+  /**
    * Sprint G2 — array de dji_flights.id que originaron esta fumigación
    * del import. NULL o undefined para fumigaciones manuales o
    * pre-Sprint-G2. Lo popula `scripts/backfill-fumigations-from-
@@ -248,6 +261,25 @@ export interface DjiFumigationEvent {
    * asociados" o "sin match — la fumigacion no tiene flights en BD").
    */
   n_matched_flights?: number | null;
+}
+
+/**
+ * Categoría curada de fumigación. Vive en la tabla `fumigation_categories`
+ * (migration 20260813160000). El operador fumigador la elige al registrar
+ * una fumigación manual; las fumigaciones históricas (pre-migration)
+ * quedan con category_id=NULL.
+ *
+ * El `color` es una sugerencia semántica (red/green/amber/...) que la UI
+ * mapea a tokens de Tailwind para el badge. No es el color definitivo
+ * de cada fumigación — la UI puede ignorarlo.
+ */
+export interface FumigationCategory {
+  id: number;
+  slug: string;
+  label: string;
+  color: string;
+  sort_order: number;
+  is_active: boolean;
 }
 
 /**

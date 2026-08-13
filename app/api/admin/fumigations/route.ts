@@ -63,6 +63,14 @@ interface CreateFumigationBody {
   notes?: unknown;
   product_registered_ica?: unknown;
   pilot_license?: unknown;
+  /**
+   * Categoría curada (FK a fumigation_categories). Opcional — la
+   * fumigación puede existir sin categoría (caso histórico o
+   * operador que no la conoce). Validamos que sea integer positivo
+   * y que la categoría exista + esté activa.
+   * Sprint 2026-08-13 — feature/fumigacion-detail-v2 / sub-2.
+   */
+  category_id?: unknown;
 }
 
 /**
@@ -91,6 +99,7 @@ function parseAndValidate(
         notes: string | null;
         product_registered_ica: string | null;
         pilot_license: string | null;
+        category_id: number | null;
         recorded_by: string;
       };
     }
@@ -166,6 +175,20 @@ function parseAndValidate(
   ) {
     return { ok: false, error: "drone_code_used debe ser entero positivo o null" };
   }
+  // category_id: opcional, integer positivo. La BD valida FK al
+  // insertar (23503 si no existe). No hacemos lookup acá para no
+  // sumar una query — la BD es la fuente de verdad del catálogo.
+  let category: number | null = null;
+  if (input.category_id !== null && input.category_id !== undefined) {
+    if (
+      typeof input.category_id !== "number" ||
+      !Number.isInteger(input.category_id) ||
+      input.category_id <= 0
+    ) {
+      return { ok: false, error: "category_id debe ser entero positivo o null" };
+    }
+    category = input.category_id;
+  }
   // Strings opcionales: trim, max length (defensa contra inputs gigantes
   // antes de llegar a la BD)
   const trim = (v: unknown, max: number, field: string): string | null | { err: string } => {
@@ -202,6 +225,7 @@ function parseAndValidate(
       notes: notesRes as string | null,
       product_registered_ica: icaRes as string | null,
       pilot_license: licenseRes as string | null,
+      category_id: category,
       recorded_by: "" // se setea después con la sesión
     }
   };
