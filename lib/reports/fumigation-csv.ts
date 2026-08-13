@@ -7,9 +7,16 @@
 // asociados). NO es un listado — es un detalle con secciones.
 //
 // Decisiones (mismas que parcel-csv.ts):
-//   - Separador `;` + BOM para Excel-CO
-//   - RFC 4180 quoting
-//   - Decimales con coma
+//   - Separador `;` + BOM para Excel-CO (BOM UTF-8 ayuda a Excel a
+//     reconocer tildes y ñ sin pedir el wizard de encoding)
+//   - RFC 4180 quoting (caracteres `"`, `;`, `\n` dentro de un valor
+//     se escapan con `"..."`)
+//   - **Decimales con coma** vía `Intl.NumberFormat("de-DE", ...)`.
+//     Usamos de-DE (no es-CO) porque de-DE produce "12,50" mientras
+//     que es-CO produce "12,50" también pero con símbolo de agrupación
+//     por miles distinto. de-DE es el locale "neutral" que solo cambia
+//     separador decimal a coma. Ver parcel-csv.ts y lib/csv.ts para
+//     el mismo patrón.
 //   - Función pura, sin I/O
 //
 // Diferencias con parcel-csv:

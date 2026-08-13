@@ -57,16 +57,29 @@ export async function GET(
     return NextResponse.json({ error: "id inválido" }, { status: 400 });
   }
 
-  // Cargar data
-  const fumigation = await getFumigationById(fumigationId);
-  if (!fumigation) {
-    return NextResponse.json({ error: "fumigación no encontrada" }, { status: 404 });
+  // Cargar data (con try/catch para devolver JSON 500 consistente en
+  // vez de que Next.js devuelva un HTML 500. Consistente con el resto
+  // de los endpoints del repo. Fix sprint 2026-08-13 sub-4.)
+  let fumigation: Awaited<ReturnType<typeof getFumigationById>>;
+  let parcelData: Awaited<ReturnType<typeof getParcelById>>;
+  let flights: Awaited<ReturnType<typeof getFumigationFlights>>;
+  try {
+    fumigation = await getFumigationById(fumigationId);
+    if (!fumigation) {
+      return NextResponse.json({ error: "fumigación no encontrada" }, { status: 404 });
+    }
+    // Parcel + flights en paralelo (ambos leen tablas distintas)
+    [parcelData, flights] = await Promise.all([
+      getParcelById(fumigation.parcel_id),
+      getFumigationFlights(fumigation.flight_ids)
+    ]);
+  } catch (err) {
+    const e = err as { message?: string };
+    return NextResponse.json(
+      { error: `error cargando fumigación: ${e.message ?? "unknown"}` },
+      { status: 500 }
+    );
   }
-  // Parcel + flights en paralelo (ambos leen tablas distintas)
-  const [parcelData, flights] = await Promise.all([
-    getParcelById(fumigation.parcel_id),
-    getFumigationFlights(fumigation.flight_ids)
-  ]);
 
   // Resolver dron + categoría
   const drone =

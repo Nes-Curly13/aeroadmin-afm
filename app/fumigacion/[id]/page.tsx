@@ -27,7 +27,6 @@ import {
 import { droneModel } from "@/lib/data";
 import { FUMIGATION_CATEGORIES, type FumigationCategoryOption } from "@/lib/data-constants";
 import { fmtDate, fmtDateTime, fmtDec, fmtHa, fmtLiters } from "@/lib/format";
-import type { DjiFumigationEvent } from "@/lib/types";
 
 /**
  * /fumigacion/[id] — ficha de un evento individual de fumigación.
