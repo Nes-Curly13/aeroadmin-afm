@@ -1167,6 +1167,158 @@ export async function getFumigationFlights(
 }
 
 /**
+ * Actualiza una fumigación existente. Devuelve el row actualizado.
+ *
+ * Reglas:
+ *   - Solo acepta los campos editables. NO se puede cambiar
+ *     `parcel_id`, `source`, `recorded_by`, `flight_ids`, `recorded_at`:
+ *     esos son provenance inmutable (el parcel donde se aplicó, de dónde
+ *     vino el dato, quién lo creó originalmente, los flights que la
+ *     originaron). Si el operador fumigador necesita "mover" una
+ *     fumigación, tiene que eliminarla y crear una nueva.
+ *   - Si la fumigación está soft-deleted (`deleted_at IS NOT NULL`),
+ *     no se puede editar (404).
+ *   - Valida FK de `category_id` (la BD tira 23503 si no existe).
+ *
+ * Sprint 2026-08-13 — feature/fumigacion-detail-v2 / sub-3.
+ */
+export async function updateFumigationEvent(
+  id: number,
+  patch: {
+    fumigation_date?: string;
+    product_used?: string | null;
+    dose_l_per_ha?: number | null;
+    area_fumigated_m2?: number | null;
+    drone_code_used?: number | null;
+    duration_minutes?: number | null;
+    notes?: string | null;
+    product_registered_ica?: string | null;
+    pilot_license?: string | null;
+    category_id?: number | null;
+  }
+): Promise<DjiFumigationEvent | null> {
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      // Construir el SET dinámicamente con solo los campos provistos.
+      // El $N placeholder se incrementa por cada campo. Esto evita
+      // sobreescribir con null campos que el caller no mandó.
+      const setClauses: string[] = [];
+      const values: unknown[] = [];
+      let i = 1;
+      if (patch.fumigation_date !== undefined) {
+        setClauses.push(`fumigation_date = $${i++}`);
+        values.push(patch.fumigation_date);
+      }
+      if (patch.product_used !== undefined) {
+        setClauses.push(`product_used = $${i++}`);
+        values.push(patch.product_used);
+      }
+      if (patch.dose_l_per_ha !== undefined) {
+        setClauses.push(`dose_l_per_ha = $${i++}`);
+        values.push(patch.dose_l_per_ha);
+      }
+      if (patch.area_fumigated_m2 !== undefined) {
+        setClauses.push(`area_fumigated_m2 = $${i++}`);
+        values.push(patch.area_fumigated_m2);
+      }
+      if (patch.drone_code_used !== undefined) {
+        setClauses.push(`drone_code_used = $${i++}`);
+        values.push(patch.drone_code_used);
+      }
+      if (patch.duration_minutes !== undefined) {
+        setClauses.push(`duration_minutes = $${i++}`);
+        values.push(patch.duration_minutes);
+      }
+      if (patch.notes !== undefined) {
+        setClauses.push(`notes = $${i++}`);
+        values.push(patch.notes);
+      }
+      if (patch.product_registered_ica !== undefined) {
+        setClauses.push(`product_registered_ica = $${i++}`);
+        values.push(patch.product_registered_ica);
+      }
+      if (patch.pilot_license !== undefined) {
+        setClauses.push(`pilot_license = $${i++}`);
+        values.push(patch.pilot_license);
+      }
+      if (patch.category_id !== undefined) {
+        setClauses.push(`category_id = $${i++}`);
+        values.push(patch.category_id);
+      }
+
+      // Si no se mandó ningún campo editable, no-op (devuelve el row actual).
+      if (setClauses.length === 0) {
+        return await getFumigationById(id);
+      }
+
+      const sql = `
+        UPDATE dji_fumigations
+           SET ${setClauses.join(", ")}
+         WHERE id = $${i}
+           AND deleted_at IS NULL
+        RETURNING id, parcel_id, fumigation_date, product_used, dose_l_per_ha,
+                  area_fumigated_m2, drone_code_used, duration_minutes, notes,
+                  human_notes, recorded_by, product_registered_ica, pilot_license,
+                  category_id, recorded_at, source
+      `;
+      values.push(id);
+      const result = await db.query<DjiFumigationEvent>(sql, values);
+      const row = result.rows[0];
+      if (!row) return null;
+      // Invalidar cache (dashboard, upcoming, alertas, listados) tras update.
+      invalidateAfterFumigationMutation();
+      // Re-fetch con el JOIN de categoría (no se puede hacer JOIN arriba
+      // porque RETURNING no soporta JOINs arbitrarios en todas las versiones
+      // de Postgres; y la fumigación editada puede haber cambiado de
+      // categoría). El costo es 1 query extra, vale por la consistencia.
+      return await getFumigationById(id);
+    },
+    async () => null
+  );
+}
+
+/**
+ * Soft-delete de una fumigación. Marca `deleted_at = NOW()`. La fumigación
+ * sigue en la BD para auditoría pero desaparece de todos los listados.
+ *
+ * Idempotente: si la fumigación ya está soft-deleted, devuelve la fila
+ * tal cual sin error.
+ *
+ * Nota: por ahora solo guardamos timestamp. La columna `deleted_by`
+ * (email del session user que borró) se agrega en una migration de
+ * sub-4 cuando esté el endpoint DELETE. Hasta entonces, el log
+ * queda solo con el timestamp.
+ *
+ * Sprint 2026-08-13 — feature/fumigacion-detail-v2 / sub-4.
+ */
+export async function softDeleteFumigationEvent(
+  id: number
+): Promise<DjiFumigationEvent | null> {
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      const result = await db.query<DjiFumigationEvent>(
+        `UPDATE dji_fumigations
+            SET deleted_at = NOW()
+          WHERE id = $1
+            AND deleted_at IS NULL
+        RETURNING id`,
+        [id]
+      );
+      if (result.rows.length === 0) {
+        // Ya estaba borrada o no existe. Devolvemos el row (que puede
+        // ser null si no existe).
+        return await getFumigationById(id);
+      }
+      invalidateAfterFumigationMutation();
+      return await getFumigationById(id);
+    },
+    async () => null
+  );
+}
+
+/**
  * Devuelve el catálogo curado de categorías de fumigación.
  * Sprint 2026-08-13 — feature/fumigacion-detail-v2 / sub-2.
  *

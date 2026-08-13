@@ -2,7 +2,7 @@
 
 /**
  * RegisterFumigationForm — form para que el operador fumigador
- * registre una fumigación MANUAL (no escrapeda de DJI).
+ * registre O EDITE una fumigación.
  *
  * Sprint 2026-08-02 — feature/manual-fumigation-ui. Cierra el
  * gap #1 del QA review: antes de este form, el operador no
@@ -10,24 +10,33 @@
  * (e.g. aplicación manual, fuera del rango de fechas, re-tratamiento)
  * sin correr INSERT INTO dji_fumigations … desde SQL.
  *
- * Campos:
- *   - fumigation_date (required, default = hoy en local)
- *   - product_used (required, texto libre, ej "Glifosato 48%")
- *   - dose_l_per_ha (required, número positivo)
- *   - area_fumigated_m2 (opcional)
- *   - duration_minutes (opcional)
- *   - drone_code_used (opcional, dropdown de DRONE_MODELS)
- *   - notes (opcional, textarea)
- *   - product_registered_ica (opcional, ICA compliance)
- *   - pilot_license (opcional, Aerocivil compliance)
+ * Sprint 2026-08-13 — feature/fumigacion-detail-v2 / sub-3. Refactor
+ * para soportar mode="create" | "edit". En mode="edit", el form se
+ * inicializa con los valores del `initialFumigation` y hace PATCH en
+ * lugar de POST. Esto permite editar fumigaciones una a una (no bulk)
+ * desde /fumigacion/[id]/edit, sin perder trazabilidad (el id se
+ * mantiene, el `recorded_by` original no se toca, etc.).
  *
- * Después de registrar OK:
- *   - Muestra banner verde "Fumigación registrada" con el ID
- *   - Llama router.refresh() para que el server component
- *     (fumigations + timeline + summary) re-fetcheen y muestren
- *     el nuevo evento
- *   - NO limpia el form (el operador suele querer ver el ID
- *     confirmado antes de seguir)
+ * Campos editables (ambos modos):
+ *   - fumigation_date
+ *   - product_used
+ *   - dose_l_per_ha
+ *   - area_fumigated_m2
+ *   - duration_minutes
+ *   - drone_code_used
+ *   - notes
+ *   - product_registered_ica
+ *   - pilot_license
+ *   - category_id
+ *
+ * Campos INMUTABLES (rechazados por el PATCH handler):
+ *   - parcel_id, source, recorded_by, flight_ids, recorded_at
+ *
+ * Después de registrar/editar OK:
+ *   - Muestra banner verde con el ID
+ *   - Modo create: llama router.refresh() y queda en la misma página
+ *   - Modo edit: llama router.push(`/fumigacion/${id}`) para volver
+ *     al detail (que re-fetchea con el JOIN de categoría)
  *
  * Si falla:
  *   - Banner rojo con el error del server (validación o BD)
@@ -39,7 +48,7 @@
  *
  * Por qué "use client":
  *   - Necesita useState (form state) + useTransition (no
- *     bloquear la UI durante POST) + useRouter (refresh).
+ *     bloquear la UI durante POST) + useRouter (refresh/push).
  *   - El form es chico, no amerita server actions.
  */
 
@@ -50,10 +59,23 @@ import { Input } from "@/components/ui/input";
 import { FieldSelect } from "@/components/ui/field-select";
 import { SpinnerInline } from "@/components/ui/loading";
 import { DRONE_MODELS, FUMIGATION_CATEGORIES } from "@/lib/data-constants";
-import { Plus, X } from "lucide-react";
+import { Plus, Save, X } from "lucide-react";
+import type { DjiFumigationEvent } from "@/lib/types";
 
 interface RegisterFumigationFormProps {
   parcelId: number;
+  /**
+   * "create" → POST /api/admin/fumigations (default si no se pasa).
+   * "edit"   → PATCH /api/admin/fumigations/[id], usando initialFumigation
+   *            para inicializar el form y como id destino.
+   */
+  mode?: "create" | "edit";
+  /**
+   * Requerido en mode="edit". Contiene los valores actuales de la
+   * fumigación que se está editando. El parcel_id, source, recorded_by,
+   * flight_ids, recorded_at NO se exponen en el form (son inmutables).
+   */
+  initialFumigation?: DjiFumigationEvent;
 }
 
 interface FormState {
@@ -94,24 +116,70 @@ function emptyForm(): FormState {
   };
 }
 
-export function RegisterFumigationForm({ parcelId }: RegisterFumigationFormProps) {
+/**
+ * Mapea un DjiFumigationEvent (row de BD) al FormState del componente.
+ * En edit, normaliza nulls → strings vacíos y numbers → strings para
+ * que los inputs nativos funcionen. `human_notes` se ignora (no es
+ * editable vía este form — es un campo separado del operador fumigador
+ * que vive en otra tabla en sprints futuros, fuera de scope).
+ */
+function fromFumigation(f: DjiFumigationEvent): FormState {
+  return {
+    fumigation_date: f.fumigation_date || todayISO(),
+    category_id: f.category_id != null ? String(f.category_id) : "",
+    product_used: f.product_used ?? "",
+    dose_l_per_ha: f.dose_l_per_ha != null ? String(f.dose_l_per_ha) : "",
+    area_fumigated_m2: f.area_fumigated_m2 != null ? String(f.area_fumigated_m2) : "",
+    duration_minutes: f.duration_minutes != null ? String(f.duration_minutes) : "",
+    drone_code_used: f.drone_code_used != null ? String(f.drone_code_used) : "0",
+    notes: f.notes ?? "",
+    product_registered_ica: f.product_registered_ica ?? "",
+    pilot_license: f.pilot_license ?? ""
+  };
+}
+
+export function RegisterFumigationForm({
+  parcelId,
+  mode = "create",
+  initialFumigation
+}: RegisterFumigationFormProps) {
   const router = useRouter();
-  const [form, setForm] = useState<FormState>(emptyForm);
+  const [form, setForm] = useState<FormState>(() =>
+    mode === "edit" && initialFumigation
+      ? fromFumigation(initialFumigation)
+      : emptyForm()
+  );
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   // `isPending` lo manejamos con useState local (no con useTransition
   // — ese es solo para transiciones no-bloqueantes de React, y
-  // nuestro POST es un await explícito). `startTransition` se usa
+  // nuestro POST/PATCH es un await explícito). `startTransition` se usa
   // solo para envolver el router.refresh() y no bloquear la UI.
   const [isPending, setIsPending] = useState(false);
   const [, startTransition] = useTransition();
+
+  // Validación de props en dev (no rompemos en prod — solo log).
+  if (mode === "edit" && !initialFumigation) {
+    // En prod esto se renderiza como un form vacío que va a fallar
+    // al hacer PATCH (id undefined). Es preferible al crashear la
+    // página entera; el caller (la página /fumigacion/[id]/edit) se
+    // asegura de pasar initialFumigation.
+    if (process.env.NODE_ENV !== "production") {
+      // eslint-disable-next-line no-console
+      console.error("RegisterFumigationForm: mode=edit requiere initialFumigation");
+    }
+  }
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
   function reset() {
-    setForm(emptyForm());
+    if (mode === "edit" && initialFumigation) {
+      setForm(fromFumigation(initialFumigation));
+    } else {
+      setForm(emptyForm());
+    }
     setError(null);
     setSuccess(null);
   }
@@ -122,43 +190,100 @@ export function RegisterFumigationForm({ parcelId }: RegisterFumigationFormProps
     setSuccess(null);
     setIsPending(true);
 
-    // Construir body con solo los campos provistos. Convertir
-    // strings vacíos a null (server espera `string | null`).
-    const body: Record<string, unknown> = {
-      parcel_id: parcelId,
-      fumigation_date: form.fumigation_date,
-      product_used: form.product_used.trim(),
-      dose_l_per_ha: Number(form.dose_l_per_ha)
+    // Construir body según el modo.
+    //   - create: incluye parcel_id + todos los campos provistos
+    //   - edit: NO incluye parcel_id (es immutable); manda SOLO los
+    //     campos que difieren del initialFumigation (PATCH sparse).
+    //     Para "mismo valor", no mandamos el campo (server no-op).
+    const body: Record<string, unknown> = {};
+
+    if (mode === "create") {
+      body.parcel_id = parcelId;
+      body.fumigation_date = form.fumigation_date;
+      body.product_used = form.product_used.trim();
+      body.dose_l_per_ha = Number(form.dose_l_per_ha);
+    } else {
+      // mode === "edit"
+      if (form.fumigation_date !== (initialFumigation?.fumigation_date ?? "")) {
+        body.fumigation_date = form.fumigation_date;
+      }
+      const productTrimmed = form.product_used.trim();
+      const productOriginal = initialFumigation?.product_used ?? "";
+      if (productTrimmed !== productOriginal) {
+        body.product_used = productTrimmed;
+      }
+      const doseNum = Number(form.dose_l_per_ha);
+      if (
+        form.dose_l_per_ha.trim() !== "" &&
+        doseNum !== (initialFumigation?.dose_l_per_ha ?? null)
+      ) {
+        body.dose_l_per_ha = doseNum;
+      }
+    }
+
+    // Numéricos opcionales con default 0
+    const numOpt = (
+      v: string,
+      original: number | null | undefined
+    ): { send: boolean; value: number | null } => {
+      const t = v.trim();
+      if (t === "") return { send: false, value: null };
+      const n = Number(t);
+      if (Number.isNaN(n)) return { send: false, value: null };
+      if (n === (original ?? null)) return { send: false, value: null };
+      return { send: true, value: n };
     };
-    if (form.area_fumigated_m2.trim() !== "") {
-      body.area_fumigated_m2 = Number(form.area_fumigated_m2);
+
+    if (mode === "create") {
+      const a = numOpt(form.area_fumigated_m2, null);
+      if (a.send) body.area_fumigated_m2 = a.value;
+      const d = numOpt(form.duration_minutes, null);
+      if (d.send) body.duration_minutes = d.value;
+      if (form.drone_code_used !== "0") {
+        body.drone_code_used = Number(form.drone_code_used);
+      }
+    } else {
+      const a = numOpt(form.area_fumigated_m2, initialFumigation?.area_fumigated_m2);
+      if (a.send) body.area_fumigated_m2 = a.value;
+      const d = numOpt(form.duration_minutes, initialFumigation?.duration_minutes);
+      if (d.send) body.duration_minutes = d.value;
+      const droneNum = Number(form.drone_code_used);
+      if (droneNum !== (initialFumigation?.drone_code_used ?? 0)) {
+        body.drone_code_used = droneNum > 0 ? droneNum : null;
+      }
     }
-    if (form.duration_minutes.trim() !== "") {
-      body.duration_minutes = Number(form.duration_minutes);
-    }
-    if (form.drone_code_used !== "0") {
-      body.drone_code_used = Number(form.drone_code_used);
-    }
-    if (form.notes.trim() !== "") {
-      body.notes = form.notes.trim();
-    }
-    if (form.product_registered_ica.trim() !== "") {
-      body.product_registered_ica = form.product_registered_ica.trim();
-    }
-    if (form.pilot_license.trim() !== "") {
-      body.pilot_license = form.pilot_license.trim();
-    }
-    // category_id: opcional. Si el operador fumigador no la eligió
-    // (string vacío = "Sin clasificar"), NO mandamos el campo — el
-    // server lo trata como null. Mandarlo como null explícito
-    // también funciona pero genera ruido en logs.
-    if (form.category_id.trim() !== "") {
-      body.category_id = Number(form.category_id);
+
+    // Strings opcionales
+    const strOpt = (
+      v: string,
+      original: string | null | undefined
+    ): { send: boolean; value: string | null } => {
+      const t = v.trim();
+      if (t === "" && (original ?? "") === "") return { send: false, value: null };
+      if (t === (original ?? "")) return { send: false, value: null };
+      return { send: true, value: t === "" ? null : t };
+    };
+    const notesRes = strOpt(form.notes, initialFumigation?.notes);
+    if (notesRes.send) body.notes = notesRes.value;
+    const icaRes = strOpt(form.product_registered_ica, initialFumigation?.product_registered_ica);
+    if (icaRes.send) body.product_registered_ica = icaRes.value;
+    const licRes = strOpt(form.pilot_license, initialFumigation?.pilot_license);
+    if (licRes.send) body.pilot_license = licRes.value;
+
+    // category_id: opcional. Si difiere del original, mandamos.
+    const catNum = form.category_id.trim() === "" ? null : Number(form.category_id);
+    if (catNum !== (initialFumigation?.category_id ?? null)) {
+      body.category_id = catNum;
     }
 
     try {
-      const res = await fetch("/api/admin/fumigations", {
-        method: "POST",
+      const url =
+        mode === "edit" && initialFumigation
+          ? `/api/admin/fumigations/${initialFumigation.id}`
+          : "/api/admin/fumigations";
+      const method = mode === "edit" ? "PATCH" : "POST";
+      const res = await fetch(url, {
+        method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body)
       });
@@ -168,17 +293,29 @@ export function RegisterFumigationForm({ parcelId }: RegisterFumigationFormProps
         return;
       }
       const data = (await res.json()) as { fumigation?: { id: number } };
-      setSuccess(
-        data.fumigation
-          ? `Fumigación #${data.fumigation.id} registrada. El timeline se actualizará al recargar.`
-          : "Fumigación registrada."
-      );
-      // Refetch de la parcel detail (server component) para que el
-      // timeline + intervalo + próxima-cadencia reflejen el nuevo
-      // evento. Usamos startTransition para no bloquear la UI.
-      startTransition(() => {
-        router.refresh();
-      });
+      if (mode === "edit" && initialFumigation) {
+        setSuccess(`Fumigación #${initialFumigation.id} actualizada. Volviendo al detalle…`);
+        // Esperar 600ms para que el usuario vea el banner OK y luego
+        // navegar al detail (que re-fetchea con el JOIN de categoría).
+        setTimeout(() => {
+          startTransition(() => {
+            router.push(`/fumigacion/${initialFumigation.id}`);
+            router.refresh();
+          });
+        }, 600);
+      } else {
+        setSuccess(
+          data.fumigation
+            ? `Fumigación #${data.fumigation.id} registrada. El timeline se actualizará al recargar.`
+            : "Fumigación registrada."
+        );
+        // Refetch de la parcel detail (server component) para que el
+        // timeline + intervalo + próxima-cadencia reflejen el nuevo
+        // evento. Usamos startTransition para no bloquear la UI.
+        startTransition(() => {
+          router.refresh();
+        });
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "error de red");
     } finally {
@@ -190,7 +327,11 @@ export function RegisterFumigationForm({ parcelId }: RegisterFumigationFormProps
     <form
       onSubmit={onSubmit}
       className="flex flex-col gap-3"
-      aria-label="Registrar fumigación manual"
+      aria-label={
+        mode === "edit" && initialFumigation
+          ? `Editar fumigación #${initialFumigation.id}`
+          : "Registrar fumigación manual"
+      }
     >
       {error && (
         <p
@@ -402,7 +543,7 @@ export function RegisterFumigationForm({ parcelId }: RegisterFumigationFormProps
           disabled={isPending}
         >
           <X className="size-3.5" aria-hidden />
-          Limpiar
+          {mode === "edit" ? "Descartar cambios" : "Limpiar"}
         </Button>
         <Button
           type="submit"
@@ -413,6 +554,11 @@ export function RegisterFumigationForm({ parcelId }: RegisterFumigationFormProps
             <>
               <SpinnerInline />
               Guardando…
+            </>
+          ) : mode === "edit" ? (
+            <>
+              <Save className="size-3.5" aria-hidden />
+              Guardar cambios
             </>
           ) : (
             <>

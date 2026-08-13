@@ -6,6 +6,7 @@ import {
   ClipboardList,
   Droplets,
   MapPin,
+  Pencil,
   Plane,
   Sprout,
   Timer,
@@ -131,19 +132,45 @@ export default async function FumigacionPage({ params }: PageProps) {
         ) ?? null)
       : null);
 
+  // Sprint 2026-08-13 — sub-3. El botón "Editar" se muestra solo si
+  // el viewer tiene rol admin o supervisor (gate del PATCH). Si no,
+  // el botón no aparece (es preferible a un botón disabled que el
+  // usuario no entienda por qué).
+  const { getViewerRole } = await import("@/lib/auth/role");
+  const viewerRole = await getViewerRole().catch(() => null);
+  const canEdit = viewerRole === "admin" || viewerRole === "supervisor";
+
   return (
     <div className="flex flex-col gap-4 p-4 md:p-6">
       {/* Header */}
       <div className="flex flex-col gap-3">
-        <Button
-          variant="ghost"
-          size="sm"
-          nativeButton={false}
-          render={<Link href="/fumigaciones" className="self-start" />}
-        >
-          <ArrowLeft className="size-3.5" aria-hidden />
-          Volver a fumigaciones
-        </Button>
+        <div className="flex items-center justify-between gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            nativeButton={false}
+            render={<Link href="/fumigaciones" className="self-start" aria-label="Volver al listado de fumigaciones" />}
+          >
+            <ArrowLeft className="size-3.5" aria-hidden />
+            Volver a fumigaciones
+          </Button>
+          {canEdit ? (
+            <Button
+              variant="outline"
+              size="sm"
+              nativeButton={false}
+              render={
+                <Link
+                  href={`/fumigacion/${fumigation.id}/edit`}
+                  aria-label={`Editar fumigación #${fumigation.id}`}
+                />
+              }
+            >
+              <Pencil className="size-3.5" aria-hidden />
+              Editar fumigación
+            </Button>
+          ) : null}
+        </div>
 
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-extrabold tracking-tight text-balance">
