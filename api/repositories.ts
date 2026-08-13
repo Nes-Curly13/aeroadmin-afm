@@ -1317,6 +1317,73 @@ export async function softDeleteFumigationEvent(
 }
 
 /**
+ * Restaura una fumigación soft-deleted (un-delete). Limpia `deleted_at`
+ * y `deleted_by`. La fumigación vuelve a aparecer en listados, timeline
+ * y reportes.
+ *
+ * Idempotente: si la fumigación NO está soft-deleted, devuelve la fila
+ * tal cual sin error (es un no-op, no falla).
+ *
+ * Si la fumigación tiene `next_due_date` o `last_fumigation_date`
+ * desactualizados, NO los recalcula. La fumigación vuelve al estado
+ * pre-delete; los cálculos de cadencia se ajustan en la próxima
+ * fumigación (mismo patrón que `softDeleteFumigationEvent` — no
+ * toca el schedule).
+ *
+ * No tiene UI todavía. El admin lo invoca via curl si borra por error:
+ *   curl -X POST https://aeroadmin.local/api/admin/fumigations/123/restore
+ *
+ * Sprint 2026-08-13 — feature/fumigaciones-detail-polish.
+ */
+export async function restoreFumigationEvent(
+  id: number,
+  restoredBy: string
+): Promise<DjiFumigationEvent | null> {
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      // Para restaurar, primero necesitamos la fumigación SIN el filtro
+      // de deleted_at IS NULL (sino getFumigationById devuelve null).
+      // Hacemos un SELECT directo. Si la fumigación no existe (ni
+      // siquiera soft-deleted), devolvemos null.
+      const exists = await db.query<{ id: number }>(
+        `SELECT id FROM dji_fumigations WHERE id = $1`,
+        [id]
+      );
+      if (exists.rows.length === 0) {
+        return null;
+      }
+
+      // Idempotente: si no estaba soft-deleted, no hay UPDATE.
+      // Devolvemos el row con el JOIN de categoría hidratado.
+      const result = await db.query<DjiFumigationEvent>(
+        `UPDATE dji_fumigations
+            SET deleted_at = NULL,
+                deleted_by = NULL
+          WHERE id = $1
+            AND deleted_at IS NOT NULL
+        RETURNING id`,
+        [id]
+      );
+
+      // Log del restore para auditoría (no tenemos tabla de audit log
+      // todavía — ver backlog item #12). El console.log es suficiente
+      // hasta que se implemente audit_log. El session user queda
+      // registrado via `restoredBy` aunque no se persista en BD.
+      if (result.rows.length > 0) {
+        // eslint-disable-next-line no-console
+        console.log(
+          `[fumigaciones] restore: id=${id} restoredBy=${restoredBy} at=${new Date().toISOString()}`
+        );
+        invalidateAfterFumigationMutation();
+      }
+      return await getFumigationById(id);
+    },
+    async () => null
+  );
+}
+
+/**
  * Devuelve el catálogo curado de categorías de fumigación.
  * Sprint 2026-08-13 — feature/fumigacion-detail-v2 / sub-2.
  *
