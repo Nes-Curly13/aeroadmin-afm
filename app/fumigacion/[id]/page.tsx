@@ -21,6 +21,7 @@ import {
   getParcelById
 } from "@/api/repositories";
 import { droneModel } from "@/lib/data";
+import { FUMIGATION_CATEGORIES, type FumigationCategoryOption } from "@/lib/data-constants";
 import { fmtDate, fmtDateTime, fmtDec, fmtHa, fmtLiters } from "@/lib/format";
 import type { DjiFumigationEvent } from "@/lib/types";
 
@@ -59,6 +60,22 @@ const SOURCE_STYLE: Record<string, string> = {
   manual: "border-chart-3/40 bg-chart-3/10 text-chart-3",
   import: "border-chart-2/40 bg-chart-2/10 text-chart-2",
   djiscraper: "border-chart-1/40 bg-chart-1/10 text-chart-1"
+};
+
+/**
+ * Sprint 2026-08-13 — sub-2. Mapea el slug/color de la categoría
+ * curada a clases Tailwind del badge. Lo hacemos en código (no en BD)
+ * porque la BD solo guarda el color semántico (amber/red/...) y la
+ * decisión de cómo renderizarlo es responsabilidad de la UI.
+ */
+const CATEGORY_BADGE: Record<string, string> = {
+  amber: "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  red: "border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300",
+  purple: "border-purple-500/40 bg-purple-500/10 text-purple-700 dark:text-purple-300",
+  green: "border-green-500/40 bg-green-500/10 text-green-700 dark:text-green-300",
+  orange: "border-orange-500/40 bg-orange-500/10 text-orange-700 dark:text-orange-300",
+  yellow: "border-yellow-500/40 bg-yellow-500/10 text-yellow-700 dark:text-yellow-300",
+  slate: "border-slate-500/40 bg-slate-500/10 text-slate-700 dark:text-slate-300"
 };
 
 interface PageProps {
@@ -102,6 +119,18 @@ export default async function FumigacionPage({ params }: PageProps) {
       ? { lat: Number(fumigation.lat), lng: Number(fumigation.lng) }
       : null;
 
+  // Categoría curada (sprint 2026-08-13 — sub-2). Priorizamos el objeto
+  // `category` hidratado por el JOIN; caemos al catálogo client-side
+  // por `category_id` si el JOIN no devolvió (caso raro de tests con
+  // mocks parciales). Si tampoco, queda null → "Sin clasificar".
+  const category: FumigationCategoryOption | null =
+    fumigation.category ??
+    (fumigation.category_id != null
+      ? (FUMIGATION_CATEGORIES.find(
+          (c: FumigationCategoryOption) => c.id === fumigation.category_id
+        ) ?? null)
+      : null);
+
   return (
     <div className="flex flex-col gap-4 p-4 md:p-6">
       {/* Header */}
@@ -128,6 +157,25 @@ export default async function FumigacionPage({ params }: PageProps) {
           >
             {SOURCE_LABEL[fumigation.source] ?? fumigation.source}
           </Badge>
+          {category ? (
+            <Badge
+              variant="outline"
+              className={`text-[11px] font-semibold uppercase tracking-wider ${
+                CATEGORY_BADGE[category.color] ?? CATEGORY_BADGE.slate
+              }`}
+              aria-label={`Tipo de fumigación: ${category.label}`}
+            >
+              {category.label}
+            </Badge>
+          ) : (
+            <Badge
+              variant="outline"
+              className="text-[11px] font-normal italic text-muted-foreground"
+              aria-label="Tipo de fumigación sin clasificar"
+            >
+              Sin clasificar
+            </Badge>
+          )}
           <span className="font-mono text-sm text-muted-foreground">
             <CalendarDays className="mr-1 inline size-3.5" aria-hidden />
             {fmtDate(fumigation.fumigation_date)}
@@ -198,6 +246,22 @@ export default async function FumigacionPage({ params }: PageProps) {
             </CardHeader>
             <CardContent>
               <dl className="grid grid-cols-2 gap-3 text-sm">
+                <DetailRow
+                  label="Tipo"
+                  value={
+                    category ? (
+                      <span
+                        className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider ${
+                          CATEGORY_BADGE[category.color] ?? CATEGORY_BADGE.slate
+                        }`}
+                      >
+                        {category.label}
+                      </span>
+                    ) : (
+                      <span className="italic text-muted-foreground">Sin clasificar</span>
+                    )
+                  }
+                />
                 <DetailRow label="Producto" value={fumigation.product_used ?? "—"} />
                 <DetailRow
                   label="Dosis"

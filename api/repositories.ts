@@ -1075,6 +1075,7 @@ export async function getFumigationById(id: number): Promise<DjiFumigationEvent 
           f.pilot_license,
           f.recorded_at,
           f.source,
+          f.category_id,
           f.flight_ids,
           count(fl.id)::int AS n_matched_flights,
           CASE
@@ -1084,12 +1085,19 @@ export async function getFumigationById(id: number): Promise<DjiFumigationEvent 
           CASE
             WHEN count(fl.id) = 0 THEN NULL
             ELSE ST_X(ST_Centroid(ST_Collect(fl.point)))::numeric
-          END AS lng
+          END AS lng,
+          -- Catálogo de categoría hidratado (LEFT JOIN; null si fumigación
+          -- histórica no clasificada). row_to_json para que el caller
+          -- reciba un objeto anidado, no columnas planas.
+          CASE WHEN f.category_id IS NULL THEN NULL
+            ELSE row_to_json(cat) END AS category
          FROM dji_fumigations f
          LEFT JOIN dji_flights fl ON fl.flight_id = ANY(f.flight_ids)
+         LEFT JOIN fumigation_categories cat
+           ON cat.id = f.category_id AND cat.is_active = TRUE
         WHERE f.id = $1
           AND f.deleted_at IS NULL
-        GROUP BY f.id`,
+        GROUP BY f.id, cat.id`,
       [id]
     );
     const row = result.rows[0];
@@ -1156,6 +1164,51 @@ export async function getFumigationFlights(
     if (process.env.NODE_ENV !== "production") return [];
     throw err;
   }
+}
+
+/**
+ * Devuelve el catálogo curado de categorías de fumigación.
+ * Sprint 2026-08-13 — feature/fumigacion-detail-v2 / sub-2.
+ *
+ * Solo trae las categorías activas (`is_active = TRUE`), ordenadas por
+ * `sort_order` (herbicida, insecticida, fungicida, fertilizante, etc.)
+ * para que el dropdown del form las presente en el orden que el
+ * operador fumigador espera.
+ *
+ * Se cachea 60s con tag `afm:fumigation-categories` (el catálogo casi
+ * no cambia — solo cuando se agrega una nueva categoría vía migration).
+ * Si el dropdown necesita invalidación inmediata, exponer
+ * `revalidateTag('afm:fumigation-categories')` desde un endpoint admin
+ * (no implementado todavía — fuera de scope de este sub-sprint).
+ */
+export async function getFumigationCategories(): Promise<
+  Array<{
+    id: number;
+    slug: string;
+    label: string;
+    color: string;
+    sort_order: number;
+  }>
+> {
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      const result = await db.query<{
+        id: number;
+        slug: string;
+        label: string;
+        color: string;
+        sort_order: number;
+      }>(
+        `SELECT id, slug, label, color, sort_order
+           FROM fumigation_categories
+          WHERE is_active = TRUE
+          ORDER BY sort_order ASC, label ASC`
+      );
+      return result.rows;
+    },
+    async () => []
+  );
 }
 
 /**
@@ -1619,6 +1672,14 @@ export async function createFumigationEvent(event: {
    */
   product_registered_ica?: string | null;
   pilot_license?: string | null;
+  /**
+   * Categoría curada (FK a fumigation_categories). Opcional —
+   * fumigaciones manuales pueden no tener categoría si el operador
+   * fumigador no la conoce o no aplica (caso raro). La BD tiene ON
+   * DELETE SET NULL así que borrar una categoría no rompe fumigaciones.
+   * Sprint 2026-08-13 — feature/fumigacion-detail-v2 / sub-2.
+   */
+  category_id?: number | null;
 }): Promise<DjiFumigationEvent> {
   const db = getDb();
   return withLocalFallback(
@@ -1632,13 +1693,13 @@ export async function createFumigationEvent(event: {
               (parcel_id, fumigation_date, product_used, dose_l_per_ha,
                area_fumigated_m2, drone_code_used, duration_minutes, notes,
                human_notes, recorded_by, product_registered_ica, pilot_license,
-               source)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'manual')
+               category_id, source)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'manual')
             RETURNING
               id, parcel_id, fumigation_date, product_used, dose_l_per_ha,
               area_fumigated_m2, drone_code_used, duration_minutes, notes,
               human_notes, recorded_by, product_registered_ica, pilot_license,
-              recorded_at, source
+              category_id, recorded_at, source
           `,
           [
             event.parcel_id,
@@ -1652,7 +1713,8 @@ export async function createFumigationEvent(event: {
             event.human_notes ?? null,
             event.recorded_by ?? null,
             event.product_registered_ica ?? null,
-            event.pilot_license ?? null
+            event.pilot_license ?? null,
+            event.category_id ?? null
           ]
         );
         const created = ins.rows[0];
@@ -2502,6 +2564,7 @@ export async function getRecentFumigations(
             f.pilot_license,
             f.recorded_at,
             f.source,
+            f.category_id,
             f.flight_ids,
             count(fl.id)::int AS n_matched_flights,
             CASE
@@ -2511,12 +2574,18 @@ export async function getRecentFumigations(
             CASE
               WHEN count(fl.id) = 0 THEN NULL
               ELSE ST_X(ST_Centroid(ST_Collect(fl.point)))::numeric
-            END AS lng
+            END AS lng,
+            -- Catálogo de categoría hidratado (LEFT JOIN; null si fumigación
+            -- histórica no clasificada). row_to_json para anidar.
+            CASE WHEN f.category_id IS NULL THEN NULL
+              ELSE row_to_json(cat) END AS category
            FROM dji_fumigations f
            LEFT JOIN dji_flights fl ON fl.flight_id = ANY(f.flight_ids)
+           LEFT JOIN fumigation_categories cat
+             ON cat.id = f.category_id AND cat.is_active = TRUE
           WHERE f.deleted_at IS NULL
             AND f.parcel_id IS NOT NULL
-          GROUP BY f.id
+          GROUP BY f.id, cat.id
           ORDER BY f.fumigation_date DESC, f.recorded_at DESC
           LIMIT $1`,
         [limit]

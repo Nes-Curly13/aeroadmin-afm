@@ -49,7 +49,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FieldSelect } from "@/components/ui/field-select";
 import { SpinnerInline } from "@/components/ui/loading";
-import { DRONE_MODELS } from "@/lib/data-constants";
+import { DRONE_MODELS, FUMIGATION_CATEGORIES } from "@/lib/data-constants";
 import { Plus, X } from "lucide-react";
 
 interface RegisterFumigationFormProps {
@@ -58,6 +58,8 @@ interface RegisterFumigationFormProps {
 
 interface FormState {
   fumigation_date: string;
+  /** Sprint 2026-08-13 — sub-2. "" = sin clasificar, "1".."7" = id de FUMIGATION_CATEGORIES. */
+  category_id: string;
   product_used: string;
   dose_l_per_ha: string;
   area_fumigated_m2: string;
@@ -80,6 +82,7 @@ function todayISO(): string {
 function emptyForm(): FormState {
   return {
     fumigation_date: todayISO(),
+    category_id: "",
     product_used: "",
     dose_l_per_ha: "",
     area_fumigated_m2: "",
@@ -144,6 +147,13 @@ export function RegisterFumigationForm({ parcelId }: RegisterFumigationFormProps
     }
     if (form.pilot_license.trim() !== "") {
       body.pilot_license = form.pilot_license.trim();
+    }
+    // category_id: opcional. Si el operador fumigador no la eligió
+    // (string vacío = "Sin clasificar"), NO mandamos el campo — el
+    // server lo trata como null. Mandarlo como null explícito
+    // también funciona pero genera ruido en logs.
+    if (form.category_id.trim() !== "") {
+      body.category_id = Number(form.category_id);
     }
 
     try {
@@ -247,6 +257,28 @@ export function RegisterFumigationForm({ parcelId }: RegisterFumigationFormProps
           aria-required="true"
           aria-label="Producto comercial usado"
         />
+      </label>
+
+      <label className="flex flex-col gap-1">
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Tipo de fumigación
+        </span>
+        <FieldSelect
+          label="Tipo de fumigación"
+          value={form.category_id}
+          onChange={(e) => update("category_id", e.target.value)}
+          disabled={isPending}
+        >
+          <option value="">Sin clasificar</option>
+          {FUMIGATION_CATEGORIES.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.label}
+            </option>
+          ))}
+        </FieldSelect>
+        <span className="text-[10px] text-muted-foreground">
+          Herbicida, insecticida, fertilizante, etc. Útil para reportes por tipo y auditoría ICA.
+        </span>
       </label>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

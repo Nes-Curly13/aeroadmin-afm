@@ -51,4 +51,39 @@ export const STATUS_META: Record<
   critico: { label: "Crítico", color: "#c0392b", token: "var(--destructive)" }
 };
 
+/**
+ * Catálogo curado de categorías de fumigación. Espejo client-side de la
+ * tabla `fumigation_categories` (migration 20260813160000). El form
+ * `RegisterFumigationForm` consume este array para popular el dropdown.
+ *
+ * Si en el futuro las categorías son 100% dinámicas (CRUD admin), se
+ * reemplaza este hardcode por fetch a `/api/admin/fumigation-categories`.
+ * Por ahora lo mantenemos sincronizado a mano con la migration.
+ *
+ * Sprint 2026-08-13 — feature/fumigacion-detail-v2 / sub-2.
+ */
+export interface FumigationCategoryOption {
+  id: number;
+  slug: string;
+  label: string;
+  /** Token de Tailwind (bg/text) usado para el badge. */
+  color: string;
+}
+
+export const FUMIGATION_CATEGORIES: FumigationCategoryOption[] = [
+  { id: 1, slug: "herbicida", label: "Herbicida", color: "amber" },
+  { id: 2, slug: "insecticida", label: "Insecticida", color: "red" },
+  { id: 3, slug: "fungicida", label: "Fungicida", color: "purple" },
+  { id: 4, slug: "fertilizante", label: "Fertilizante", color: "green" },
+  { id: 5, slug: "acaricida", label: "Acaricida", color: "orange" },
+  { id: 6, slug: "nematicida", label: "Nematicida", color: "yellow" },
+  { id: 7, slug: "otro", label: "Otro", color: "slate" }
+];
+
+/** Helper de lookup por id (compat con `droneModel`). */
+export const fumigationCategory = (id: number | null | undefined) =>
+  id == null
+    ? null
+    : FUMIGATION_CATEGORIES.find((c) => c.id === id) ?? null;
+
 export type { ComplianceStatus, DroneModelId };
