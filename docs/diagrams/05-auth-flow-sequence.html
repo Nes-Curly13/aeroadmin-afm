@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>AeroAdmin AFM — Auth Flow (NextAuth v5)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --paper:        #f0f4f1;
+      --paper-2:      #e6ede8;
+      --ink:          #1a2e22;
+      --muted:        #4f5d75;
+      --soft:         #7a8399;
+      --rule:         rgba(26,46,34,0.12);
+      --rule-solid:   #d2ddd6;
+      --accent:       #0b5f2d;
+      --accent-tint:  rgba(11,95,45,0.08);
+      --link:         #2e5aa8;
+      --concern:      #a93232;
+    }
+    html, body { margin: 0; padding: 0; background: var(--paper); color: var(--ink); }
+    body {
+      font-family: 'Geist', system-ui, sans-serif;
+      padding: 40px 32px 56px;
+      max-width: 1280px;
+      margin: 0 auto;
+    }
+    h1 {
+      font-family: 'Instrument Serif', serif;
+      font-weight: 400;
+      font-size: 1.75rem;
+      margin: 0 0 4px;
+      letter-spacing: -0.01em;
+    }
+    .subtitle {
+      color: var(--muted);
+      font-size: 13px;
+      margin-bottom: 24px;
+    }
+    .eyebrow {
+      font-family: 'Geist Mono', monospace;
+      font-size: 8px;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--soft);
+    }
+    .legend {
+      margin-top: 24px;
+      display: flex;
+      gap: 24px;
+      flex-wrap: wrap;
+      align-items: center;
+      color: var(--muted);
+      font-size: 11px;
+      border-top: 1px solid var(--rule);
+      padding-top: 16px;
+    }
+    .legend-item { display: flex; align-items: center; gap: 8px; }
+    .legend-swatch { display: inline-block; width: 24px; height: 2px; vertical-align: middle; }
+    .swatch--solid  { background: #4f5d75; }
+    .swatch--return { background: #4f5d75; border-top: 1px dashed #4f5d75; }
+    .swatch--focal  { background: #0b5f2d; height: 3px; }
+  </style>
+</head>
+<body>
+  <h1>Auth Flow — NextAuth v5 + RBAC gate</h1>
+  <p class="subtitle">Login con Credentials provider, JWT firmado, y validación de role en cada request. El Set-Cookie de la respuesta exitosa es la línea focal (coral). El <code style="font-family:'Geist Mono',monospace;background:rgba(26,46,34,0.05);padding:1px 5px;border-radius:3px">alt</code> cubre la rama de error (credenciales inválidas) vs éxito.</p>
+
+  <svg viewBox="0 0 1200 760" xmlns="http://www.w3.org/2000/svg" role="img"
+       aria-labelledby="seq-title seq-desc">
+    <title id="seq-title">AeroAdmin AFM — Auth Flow</title>
+    <desc id="seq-desc">
+      Diagrama de secuencia de NextAuth v5 con Credentials provider.
+      Actores: User (browser), Next.js Server, NextAuth, Postgres.
+      El login retorna un Set-Cookie con JWT en éxito (coral), o un
+      redirect a /login?error=CredentialsSignin en fallo. La segunda
+      parte muestra cómo auth() valida el JWT en cada request posterior.
+    </desc>
+
+    <defs>
+      <marker id="arr-muted" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+        <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
+      </marker>
+      <marker id="arr-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+        <polygon points="0 0, 8 3, 0 6" fill="#0b5f2d"/>
+      </marker>
+      <marker id="arr-concern" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+        <polygon points="0 0, 8 3, 0 6" fill="#a93232"/>
+      </marker>
+    </defs>
+
+    <!-- Background -->
+    <rect width="100%" height="100%" fill="#f0f4f1"/>
+
+    <!-- ============================================================ -->
+    <!-- ACTORS (top row)                                              -->
+    <!-- ============================================================ -->
+    <rect x="60" y="60" width="200" height="44" rx="6"
+          fill="rgba(79,93,117,0.10)" stroke="#4f5d75" stroke-width="1"/>
+    <text x="160" y="79" fill="#1a2e22" font-size="12" font-weight="600"
+          font-family="'Geist', sans-serif" text-anchor="middle">User</text>
+    <text x="160" y="95" fill="#4f5d75" font-size="9"
+          font-family="'Geist Mono', monospace" text-anchor="middle">browser</text>
+
+    <rect x="350" y="60" width="200" height="44" rx="6"
+          fill="#ffffff" stroke="#1a2e22" stroke-width="1"/>
+    <text x="450" y="79" fill="#1a2e22" font-size="12" font-weight="600"
+          font-family="'Geist', sans-serif" text-anchor="middle">Next.js Server</text>
+    <text x="450" y="95" fill="#4f5d75" font-size="9"
+          font-family="'Geist Mono', monospace" text-anchor="middle">server actions + route handlers</text>
+
+    <rect x="640" y="60" width="200" height="44" rx="6"
+          fill="#ffffff" stroke="#1a2e22" stroke-width="1"/>
+    <text x="740" y="79" fill="#1a2e22" font-size="12" font-weight="600"
+          font-family="'Geist', sans-serif" text-anchor="middle">NextAuth v5</text>
+    <text x="740" y="95" fill="#4f5d75" font-size="9"
+          font-family="'Geist Mono', monospace" text-anchor="middle">Credentials provider</text>
+
+    <rect x="930" y="60" width="200" height="44" rx="6"
+          fill="rgba(26,46,34,0.05)" stroke="#4f5d75" stroke-width="1"/>
+    <text x="1030" y="79" fill="#1a2e22" font-size="12" font-weight="600"
+          font-family="'Geist', sans-serif" text-anchor="middle">Postgres</text>
+    <text x="1030" y="95" fill="#4f5d75" font-size="9"
+          font-family="'Geist Mono', monospace" text-anchor="middle">app_users (bcrypt hash)</text>
+
+    <!-- Lifelines (dashed verticals from each actor) -->
+    <line x1="160" y1="104" x2="160" y2="720" stroke="rgba(26,46,34,0.20)" stroke-width="1" stroke-dasharray="3,3"/>
+    <line x1="450" y1="104" x2="450" y2="720" stroke="rgba(26,46,34,0.20)" stroke-width="1" stroke-dasharray="3,3"/>
+    <line x1="740" y1="104" x2="740" y2="720" stroke="rgba(26,46,34,0.20)" stroke-width="1" stroke-dasharray="3,3"/>
+    <line x1="1030" y1="104" x2="1030" y2="720" stroke="rgba(26,46,34,0.20)" stroke-width="1" stroke-dasharray="3,3"/>
+
+    <!-- ============================================================ -->
+    <!-- ACTIVATION BARS                                                -->
+    <!-- ============================================================ -->
+    <!-- Next.js #1: y=130-490 (login request) -->
+    <rect x="446" y="130" width="8" height="360" fill="rgba(26,46,34,0.06)" stroke="#4f5d75" stroke-width="0.8"/>
+    <!-- NextAuth #1: y=170-490 (signIn call) -->
+    <rect x="736" y="170" width="8" height="320" fill="rgba(26,46,34,0.06)" stroke="#4f5d75" stroke-width="0.8"/>
+    <!-- Postgres #1: y=210-250 (SELECT) -->
+    <rect x="1026" y="210" width="8" height="40" fill="rgba(26,46,34,0.06)" stroke="#4f5d75" stroke-width="0.8"/>
+    <!-- Next.js #2: y=540-690 (next request) -->
+    <rect x="446" y="540" width="8" height="150" fill="rgba(26,46,34,0.06)" stroke="#4f5d75" stroke-width="0.8"/>
+    <!-- NextAuth #2: y=580-680 (auth() call) -->
+    <rect x="736" y="580" width="8" height="100" fill="rgba(26,46,34,0.06)" stroke="#4f5d75" stroke-width="0.8"/>
+
+    <!-- ============================================================ -->
+    <!-- MESSAGES: LOGIN FLOW                                          -->
+    <!-- ============================================================ -->
+    <!-- 1. User -> Next.js: POST /login -->
+    <line x1="160" y1="130" x2="446" y2="130" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arr-muted)"/>
+    <rect x="248" y="118" width="120" height="12" rx="2" fill="#f0f4f1"/>
+    <text x="308" y="128" fill="#4f5d75" font-size="8"
+          font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.04em">POST /login (form)</text>
+
+    <!-- 2. Next.js -> NextAuth: signIn(credentials) -->
+    <line x1="450" y1="170" x2="736" y2="170" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arr-muted)"/>
+    <rect x="540" y="158" width="160" height="12" rx="2" fill="#f0f4f1"/>
+    <text x="620" y="168" fill="#4f5d75" font-size="8"
+          font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.04em">signIn('credentials')</text>
+
+    <!-- 3. NextAuth -> Postgres: SELECT -->
+    <line x1="740" y1="210" x2="1026" y2="210" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arr-muted)"/>
+    <rect x="830" y="198" width="160" height="12" rx="2" fill="#f0f4f1"/>
+    <text x="910" y="208" fill="#4f5d75" font-size="8"
+          font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.04em">SELECT * FROM app_users</text>
+
+    <!-- 4. Postgres -> NextAuth: return row (dashed) -->
+    <line x1="1030" y1="250" x2="744" y2="250" stroke="#4f5d75" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#arr-muted)"/>
+    <rect x="836" y="238" width="120" height="12" rx="2" fill="#f0f4f1"/>
+    <text x="896" y="248" fill="#7a8399" font-size="8"
+          font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.04em">user row or null</text>
+
+    <!-- ============================================================ -->
+    <!-- ALT FRAME: credenciales inválidas vs éxito                    -->
+    <!-- Spans lifelines 160-1030, y=280-490                           -->
+    <!-- ============================================================ -->
+    <rect x="120" y="280" width="940" height="210" rx="4"
+          fill="rgba(26,46,34,0.02)" stroke="rgba(26,46,34,0.22)" stroke-width="1"/>
+    <rect x="120" y="280" width="56" height="16" rx="2"
+          fill="#f0f4f1" stroke="rgba(26,46,34,0.22)" stroke-width="1"/>
+    <text x="148" y="292" fill="#4f5d75" font-size="8" font-weight="500"
+          font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.12em">ALT</text>
+    <text x="184" y="292" fill="#7a8399" font-size="8"
+          font-family="'Geist Mono', monospace" letter-spacing="0.04em">[credenciales inválidas]</text>
+
+    <!-- Region 1: credenciales inválidas (y=308-378) -->
+    <!-- NextAuth -> Next.js: AuthError (dashed, error return) -->
+    <line x1="740" y1="320" x2="454" y2="320" stroke="#a93232" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#arr-concern)"/>
+    <rect x="540" y="308" width="120" height="12" rx="2" fill="#f0f4f1"/>
+    <text x="600" y="318" fill="#a93232" font-size="8"
+          font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.04em">throw AuthError</text>
+
+    <!-- Next.js -> User: redirect /login?error (dashed) -->
+    <line x1="450" y1="360" x2="164" y2="360" stroke="#a93232" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#arr-concern)"/>
+    <rect x="220" y="348" width="220" height="12" rx="2" fill="#f0f4f1"/>
+    <text x="330" y="358" fill="#a93232" font-size="8"
+          font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.04em">302 → /login?error=CredentialsSignin</text>
+
+    <!-- alt divider -->
+    <line x1="128" y1="390" x2="1052" y2="390"
+          stroke="rgba(26,46,34,0.20)" stroke-width="1" stroke-dasharray="4,3"/>
+    <text x="184" y="402" fill="#7a8399" font-size="8"
+          font-family="'Geist Mono', monospace" letter-spacing="0.04em">[else · credenciales OK]</text>
+
+    <!-- Region 2: success (y=410-490) -->
+    <!-- NextAuth self-loop: bcrypt.compare + JWT encode -->
+    <path d="M 740,420 C 740,400 820,400 820,420" fill="none"
+          stroke="#4f5d75" stroke-width="1" marker-end="url(#arr-muted)"/>
+    <text x="800" y="408" fill="#7a8399" font-size="7"
+          font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.04em">bcrypt + jwt.sign</text>
+
+    <!-- NextAuth -> Next.js: session (FOCAL, coral/accent) -->
+    <line x1="740" y1="450" x2="454" y2="450" stroke="#0b5f2d" stroke-width="1.6" marker-end="url(#arr-accent)"/>
+    <rect x="540" y="438" width="160" height="12" rx="2" fill="#f0f4f1"/>
+    <text x="620" y="448" fill="#0b5f2d" font-size="8" font-weight="600"
+          font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.04em">session { sub, role, ... }</text>
+
+    <!-- Next.js -> User: 302 / + Set-Cookie (return, dashed accent) -->
+    <line x1="450" y1="480" x2="164" y2="480" stroke="#0b5f2d" stroke-width="1.4" stroke-dasharray="4,3" marker-end="url(#arr-accent)"/>
+    <rect x="220" y="468" width="180" height="12" rx="2" fill="#f0f4f1"/>
+    <text x="310" y="478" fill="#0b5f2d" font-size="8" font-weight="600"
+          font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.04em">302 / · Set-Cookie (jwt)</text>
+
+    <!-- ============================================================ -->
+    <!-- MESSAGES: NEXT REQUEST (RBAC check)                           -->
+    <!-- ============================================================ -->
+    <!-- 7. User -> Next.js: GET / (with cookie) -->
+    <line x1="160" y1="540" x2="446" y2="540" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arr-muted)"/>
+    <rect x="248" y="528" width="160" height="12" rx="2" fill="#f0f4f1"/>
+    <text x="328" y="538" fill="#4f5d75" font-size="8"
+          font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.04em">GET / (Cookie: jwt=...)</text>
+
+    <!-- 8. Next.js -> NextAuth: auth() -->
+    <line x1="450" y1="580" x2="736" y2="580" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arr-muted)"/>
+    <rect x="568" y="568" width="100" height="12" rx="2" fill="#f0f4f1"/>
+    <text x="618" y="578" fill="#4f5d75" font-size="8"
+          font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.04em">auth() validate</text>
+
+    <!-- 9. NextAuth -> Next.js: session (return) -->
+    <line x1="740" y1="620" x2="454" y2="620" stroke="#4f5d75" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#arr-muted)"/>
+    <rect x="540" y="608" width="120" height="12" rx="2" fill="#f0f4f1"/>
+    <text x="600" y="618" fill="#7a8399" font-size="8"
+          font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.04em">{ user, role }</text>
+
+    <!-- 10. Next.js internal: role check -->
+    <path d="M 450,660 C 450,640 520,640 520,660" fill="none"
+          stroke="#4f5d75" stroke-width="1" marker-end="url(#arr-muted)"/>
+    <text x="500" y="652" fill="#7a8399" font-size="7"
+          font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.04em">role gate</text>
+
+    <!-- 11. Next.js -> User: 200 page -->
+    <line x1="450" y1="690" x2="164" y2="690" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arr-muted)"/>
+    <rect x="248" y="678" width="100" height="12" rx="2" fill="#f0f4f1"/>
+    <text x="298" y="688" fill="#4f5d75" font-size="8"
+          font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.04em">200 page</text>
+
+    <!-- Editorial callout -->
+    <text x="600" y="740" fill="#4f5d75" font-size="10" font-style="italic"
+          font-family="'Instrument Serif', serif" text-anchor="middle">
+      El role gate (línea 10) es <tspan font-style="normal" font-family="'Geist Mono', monospace" font-size="9" fill="#1a2e22">role !== "admin" → notFound()</tspan> en <tspan font-style="normal" font-family="'Geist Mono', monospace" font-size="9" fill="#1a2e22">/admin/*</tspan>, y <tspan font-style="normal" font-family="'Geist Mono', monospace" font-size="9" fill="#1a2e22">redirect("/")</tspan> en <tspan font-style="normal" font-family="'Geist Mono', monospace" font-size="9" fill="#1a2e22">/devices</tspan>.
+    </text>
+  </svg>
+
+  <div class="legend">
+    <span class="eyebrow" style="margin-right: 8px;">Leyenda</span>
+    <div class="legend-item"><span class="legend-swatch swatch--solid"></span> llamada (sync)</div>
+    <div class="legend-item"><span class="legend-swatch swatch--return"></span> return (dashed)</div>
+    <div class="legend-item"><span class="legend-swatch swatch--focal"></span> focal · Set-Cookie / session (success)</div>
+    <div class="legend-item" style="color:#a93232">━━ error path (credenciales inválidas)</div>
+  </div>
+</body>
+</html>

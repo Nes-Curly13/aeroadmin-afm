@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>AeroAdmin AFM — RBAC Matrix</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --paper:        #f0f4f1;
+      --paper-2:      #e6ede8;
+      --ink:          #1a2e22;
+      --muted:        #4f5d75;
+      --soft:         #7a8399;
+      --rule:         rgba(26,46,34,0.12);
+      --rule-solid:   #d2ddd6;
+      --accent:       #0b5f2d;
+      --accent-tint:  rgba(11,95,45,0.08);
+      --link:         #2e5aa8;
+      --concern:      #a93232;
+    }
+    html, body { margin: 0; padding: 0; background: var(--paper); color: var(--ink); }
+    body {
+      font-family: 'Geist', system-ui, sans-serif;
+      padding: 40px 32px 56px;
+      max-width: 1280px;
+      margin: 0 auto;
+    }
+    h1 {
+      font-family: 'Instrument Serif', serif;
+      font-weight: 400;
+      font-size: 1.75rem;
+      margin: 0 0 4px;
+      letter-spacing: -0.01em;
+    }
+    .subtitle {
+      color: var(--muted);
+      font-size: 13px;
+      margin-bottom: 24px;
+    }
+    .eyebrow {
+      font-family: 'Geist Mono', monospace;
+      font-size: 8px;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--soft);
+    }
+    .legend {
+      margin-top: 24px;
+      display: flex;
+      gap: 24px;
+      flex-wrap: wrap;
+      align-items: center;
+      color: var(--muted);
+      font-size: 11px;
+      border-top: 1px solid var(--rule);
+      padding-top: 16px;
+    }
+    .legend-item { display: flex; align-items: center; gap: 8px; }
+    .legend-swatch {
+      display: inline-block;
+      width: 16px; height: 16px;
+      border-radius: 3px;
+      vertical-align: middle;
+    }
+  </style>
+</head>
+<body>
+  <h1>RBAC Matrix — páginas × roles</h1>
+  <p class="subtitle">El gate es server-side (<code style="font-family:'Geist Mono',monospace;background:rgba(26,46,34,0.05);padding:1px 5px;border-radius:3px">auth()</code> + role check en cada server component). Un curl sin cookie nunca ve la página — no es solo CSS condicional.</p>
+
+  <svg viewBox="0 0 1200 760" xmlns="http://www.w3.org/2000/svg" role="img"
+       aria-labelledby="rbac-title rbac-desc">
+    <title id="rbac-title">AeroAdmin AFM — RBAC Matrix</title>
+    <desc id="rbac-desc">
+      Grilla 9 páginas × 3 roles (guest, viewer, admin). Cada celda muestra
+      la acción del server-side gate: ✓ view (allow), 404 (notFound),
+      → / (redirect al dashboard), → /login (redirige si no hay sesión).
+      El server usa auth() + role check; nunca display:none.
+    </desc>
+
+    <!-- Background -->
+    <rect width="100%" height="100%" fill="#f0f4f1"/>
+
+    <!-- ============================================================ -->
+    <!-- COLUMN HEADERS (roles)                                         -->
+    <!-- ============================================================ -->
+    <!-- Page column header -->
+    <rect x="40" y="100" width="380" height="40" rx="4"
+          fill="rgba(26,46,34,0.05)" stroke="rgba(26,46,34,0.10)" stroke-width="0.8"/>
+    <text x="60" y="125" fill="#1a2e22" font-size="11" font-weight="600"
+          font-family="'Geist', sans-serif">Página / Ruta</text>
+
+    <!-- Guest column header -->
+    <rect x="430" y="100" width="240" height="40" rx="4"
+          fill="rgba(79,93,117,0.10)" stroke="#7a8399" stroke-width="0.8"/>
+    <text x="550" y="118" fill="#7a8399" font-size="8" font-weight="500"
+          font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.18em">GUEST</text>
+    <text x="550" y="133" fill="#4f5d75" font-size="9"
+          font-family="'Geist Mono', monospace" text-anchor="middle">sin sesión</text>
+
+    <!-- viewer column header -->
+    <rect x="680" y="100" width="240" height="40" rx="4"
+          fill="#ffffff" stroke="#1a2e22" stroke-width="1"/>
+    <text x="800" y="118" fill="#1a2e22" font-size="8" font-weight="500"
+          font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.18em">VIEWER</text>
+    <text x="800" y="133" fill="#4f5d75" font-size="9"
+          font-family="'Geist Mono', monospace" text-anchor="middle">supervisor</text>
+
+    <!-- admin column header (FOCAL) -->
+    <rect x="930" y="100" width="240" height="40" rx="4"
+          fill="rgba(11,95,45,0.08)" stroke="#0b5f2d" stroke-width="1.4"/>
+    <text x="1050" y="118" fill="#0b5f2d" font-size="8" font-weight="600"
+          font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.18em">ADMIN</text>
+    <text x="1050" y="133" fill="#0b5f2d" font-size="9" opacity="0.80"
+          font-family="'Geist Mono', monospace" text-anchor="middle">dueño</text>
+
+    <!-- ============================================================ -->
+    <!-- ROWS: 9 pages                                                  -->
+    <!-- ============================================================ -->
+
+    <!-- Row 1: / -->
+    <rect x="40" y="148" width="380" height="56" rx="4" fill="#ffffff" stroke="rgba(26,46,34,0.10)" stroke-width="0.8"/>
+    <text x="60" y="170" fill="#1a2e22" font-size="13" font-weight="600" font-family="'Geist Mono', monospace">/</text>
+    <text x="60" y="188" fill="#7a8399" font-size="9" font-family="'Geist Mono', monospace">app/page.tsx · Dashboard</text>
+    <!-- Guest cell: redirect /login -->
+    <rect x="430" y="148" width="240" height="56" rx="4" fill="rgba(79,93,117,0.10)" stroke="rgba(26,46,34,0.10)" stroke-width="0.8"/>
+    <text x="550" y="182" fill="#4f5d75" font-size="10" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">→ /login</text>
+    <!-- viewer cell: allow -->
+    <rect x="680" y="148" width="240" height="56" rx="4" fill="rgba(11,95,45,0.10)" stroke="rgba(26,46,34,0.10)" stroke-width="0.8"/>
+    <circle cx="720" cy="176" r="9" fill="rgba(11,95,45,0.20)" stroke="#0b5f2d" stroke-width="1"/>
+    <path d="M 715,176 L 719,180 L 725,172" fill="none" stroke="#0b5f2d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="800" y="180" fill="#0b5f2d" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">view</text>
+    <!-- admin cell: allow -->
+    <rect x="930" y="148" width="240" height="56" rx="4" fill="rgba(11,95,45,0.10)" stroke="rgba(11,95,45,0.30)" stroke-width="1.2"/>
+    <circle cx="970" cy="176" r="9" fill="rgba(11,95,45,0.20)" stroke="#0b5f2d" stroke-width="1"/>
+    <path d="M 965,176 L 969,180 L 975,172" fill="none" stroke="#0b5f2d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="1050" y="180" fill="#0b5f2d" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">view</text>
+
+    <!-- Row 2: /geovisor -->
+    <rect x="40" y="208" width="380" height="56" rx="4" fill="#ffffff" stroke="rgba(26,46,34,0.10)" stroke-width="0.8"/>
+    <text x="60" y="230" fill="#1a2e22" font-size="13" font-weight="600" font-family="'Geist Mono', monospace">/geovisor</text>
+    <text x="60" y="248" fill="#7a8399" font-size="9" font-family="'Geist Mono', monospace">app/geovisor/page.tsx · Mapa MapLibre</text>
+    <rect x="430" y="208" width="240" height="56" rx="4" fill="rgba(79,93,117,0.10)" stroke="rgba(26,46,34,0.10)" stroke-width="0.8"/>
+    <text x="550" y="242" fill="#4f5d75" font-size="10" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">→ /login</text>
+    <rect x="680" y="208" width="240" height="56" rx="4" fill="rgba(11,95,45,0.10)" stroke="rgba(26,46,34,0.10)" stroke-width="0.8"/>
+    <circle cx="720" cy="236" r="9" fill="rgba(11,95,45,0.20)" stroke="#0b5f2d" stroke-width="1"/>
+    <path d="M 715,236 L 719,240 L 725,232" fill="none" stroke="#0b5f2d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="800" y="240" fill="#0b5f2d" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">view</text>
+    <rect x="930" y="208" width="240" height="56" rx="4" fill="rgba(11,95,45,0.10)" stroke="rgba(11,95,45,0.30)" stroke-width="1.2"/>
+    <circle cx="970" cy="236" r="9" fill="rgba(11,95,45,0.20)" stroke="#0b5f2d" stroke-width="1"/>
+    <path d="M 965,236 L 969,240 L 975,232" fill="none" stroke="#0b5f2d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="1050" y="240" fill="#0b5f2d" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">view</text>
+
+    <!-- Row 3: /parcelas -->
+    <rect x="40" y="268" width="380" height="56" rx="4" fill="#ffffff" stroke="rgba(26,46,34,0.10)" stroke-width="0.8"/>
+    <text x="60" y="290" fill="#1a2e22" font-size="13" font-weight="600" font-family="'Geist Mono', monospace">/parcelas</text>
+    <text x="60" y="308" fill="#7a8399" font-size="9" font-family="'Geist Mono', monospace">app/parcelas/page.tsx · Listado</text>
+    <rect x="430" y="268" width="240" height="56" rx="4" fill="rgba(79,93,117,0.10)" stroke="rgba(26,46,34,0.10)" stroke-width="0.8"/>
+    <text x="550" y="302" fill="#4f5d75" font-size="10" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">→ /login</text>
+    <rect x="680" y="268" width="240" height="56" rx="4" fill="rgba(11,95,45,0.10)" stroke="rgba(26,46,34,0.10)" stroke-width="0.8"/>
+    <circle cx="720" cy="296" r="9" fill="rgba(11,95,45,0.20)" stroke="#0b5f2d" stroke-width="1"/>
+    <path d="M 715,296 L 719,300 L 725,292" fill="none" stroke="#0b5f2d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="800" y="300" fill="#0b5f2d" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">view</text>
+    <rect x="930" y="268" width="240" height="56" rx="4" fill="rgba(11,95,45,0.10)" stroke="rgba(11,95,45,0.30)" stroke-width="1.2"/>
+    <circle cx="970" cy="296" r="9" fill="rgba(11,95,45,0.20)" stroke="#0b5f2d" stroke-width="1"/>
+    <path d="M 965,296 L 969,300 L 975,292" fill="none" stroke="#0b5f2d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="1050" y="300" fill="#0b5f2d" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">view</text>
+
+    <!-- Row 4: /parcelas/[id] -->
+    <rect x="40" y="328" width="380" height="56" rx="4" fill="#ffffff" stroke="rgba(26,46,34,0.10)" stroke-width="0.8"/>
+    <text x="60" y="350" fill="#1a2e22" font-size="13" font-weight="600" font-family="'Geist Mono', monospace">/parcelas/[id]</text>
+    <text x="60" y="368" fill="#7a8399" font-size="9" font-family="'Geist Mono', monospace">app/parcelas/[id]/page.tsx · Detalle</text>
+    <rect x="430" y="328" width="240" height="56" rx="4" fill="rgba(79,93,117,0.10)" stroke="rgba(26,46,34,0.10)" stroke-width="0.8"/>
+    <text x="550" y="362" fill="#4f5d75" font-size="10" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">→ /login</text>
+    <rect x="680" y="328" width="240" height="56" rx="4" fill="rgba(11,95,45,0.10)" stroke="rgba(26,46,34,0.10)" stroke-width="0.8"/>
+    <circle cx="720" cy="356" r="9" fill="rgba(11,95,45,0.20)" stroke="#0b5f2d" stroke-width="1"/>
+    <path d="M 715,356 L 719,360 L 725,352" fill="none" stroke="#0b5f2d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="800" y="360" fill="#0b5f2d" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">view</text>
+    <rect x="930" y="328" width="240" height="56" rx="4" fill="rgba(11,95,45,0.10)" stroke="rgba(11,95,45,0.30)" stroke-width="1.2"/>
+    <circle cx="970" cy="356" r="9" fill="rgba(11,95,45,0.20)" stroke="#0b5f2d" stroke-width="1"/>
+    <path d="M 965,356 L 969,360 L 975,352" fill="none" stroke="#0b5f2d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="1050" y="360" fill="#0b5f2d" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">view</text>
+
+    <!-- Row 5: /parcelas/overdue -->
+    <rect x="40" y="388" width="380" height="56" rx="4" fill="#ffffff" stroke="rgba(26,46,34,0.10)" stroke-width="0.8"/>
+    <text x="60" y="410" fill="#1a2e22" font-size="13" font-weight="600" font-family="'Geist Mono', monospace">/parcelas/overdue</text>
+    <text x="60" y="428" fill="#7a8399" font-size="9" font-family="'Geist Mono', monospace">app/parcelas/overdue/page.tsx · Planificación</text>
+    <rect x="430" y="388" width="240" height="56" rx="4" fill="rgba(79,93,117,0.10)" stroke="rgba(26,46,34,0.10)" stroke-width="0.8"/>
+    <text x="550" y="422" fill="#4f5d75" font-size="10" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">→ /login</text>
+    <rect x="680" y="388" width="240" height="56" rx="4" fill="rgba(11,95,45,0.10)" stroke="rgba(26,46,34,0.10)" stroke-width="0.8"/>
+    <circle cx="720" cy="416" r="9" fill="rgba(11,95,45,0.20)" stroke="#0b5f2d" stroke-width="1"/>
+    <path d="M 715,416 L 719,420 L 725,412" fill="none" stroke="#0b5f2d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="800" y="420" fill="#0b5f2d" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">view</text>
+    <rect x="930" y="388" width="240" height="56" rx="4" fill="rgba(11,95,45,0.10)" stroke="rgba(11,95,45,0.30)" stroke-width="1.2"/>
+    <circle cx="970" cy="416" r="9" fill="rgba(11,95,45,0.20)" stroke="#0b5f2d" stroke-width="1"/>
+    <path d="M 965,416 L 969,420 L 975,412" fill="none" stroke="#0b5f2d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="1050" y="420" fill="#0b5f2d" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">view</text>
+
+    <!-- Row 6: /task-history -->
+    <rect x="40" y="448" width="380" height="56" rx="4" fill="#ffffff" stroke="rgba(26,46,34,0.10)" stroke-width="0.8"/>
+    <text x="60" y="470" fill="#1a2e22" font-size="13" font-weight="600" font-family="'Geist Mono', monospace">/task-history</text>
+    <text x="60" y="488" fill="#7a8399" font-size="9" font-family="'Geist Mono', monospace">app/task-history/page.tsx · Figma B</text>
+    <rect x="430" y="448" width="240" height="56" rx="4" fill="rgba(79,93,117,0.10)" stroke="rgba(26,46,34,0.10)" stroke-width="0.8"/>
+    <text x="550" y="482" fill="#4f5d75" font-size="10" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">→ /login</text>
+    <rect x="680" y="448" width="240" height="56" rx="4" fill="rgba(11,95,45,0.10)" stroke="rgba(26,46,34,0.10)" stroke-width="0.8"/>
+    <circle cx="720" cy="476" r="9" fill="rgba(11,95,45,0.20)" stroke="#0b5f2d" stroke-width="1"/>
+    <path d="M 715,476 L 719,480 L 725,472" fill="none" stroke="#0b5f2d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="800" y="480" fill="#0b5f2d" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">view</text>
+    <rect x="930" y="448" width="240" height="56" rx="4" fill="rgba(11,95,45,0.10)" stroke="rgba(11,95,45,0.30)" stroke-width="1.2"/>
+    <circle cx="970" cy="476" r="9" fill="rgba(11,95,45,0.20)" stroke="#0b5f2d" stroke-width="1"/>
+    <path d="M 965,476 L 969,480 L 975,472" fill="none" stroke="#0b5f2d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="1050" y="480" fill="#0b5f2d" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">view</text>
+
+    <!-- Row 7: /devices (admin only, viewer redirect) -->
+    <rect x="40" y="508" width="380" height="56" rx="4" fill="#ffffff" stroke="rgba(26,46,34,0.10)" stroke-width="0.8"/>
+    <text x="60" y="530" fill="#1a2e22" font-size="13" font-weight="600" font-family="'Geist Mono', monospace">/devices</text>
+    <text x="60" y="548" fill="#7a8399" font-size="9" font-family="'Geist Mono', monospace">app/devices/page.tsx · role-gate</text>
+    <rect x="430" y="508" width="240" height="56" rx="4" fill="rgba(79,93,117,0.10)" stroke="rgba(26,46,34,0.10)" stroke-width="0.8"/>
+    <text x="550" y="542" fill="#4f5d75" font-size="10" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">→ /login</text>
+    <rect x="680" y="508" width="240" height="56" rx="4" fill="rgba(212,178,60,0.15)" stroke="rgba(212,178,60,0.40)" stroke-width="0.8"/>
+    <text x="800" y="542" fill="#a07c20" font-size="11" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">redirect("/")</text>
+    <rect x="930" y="508" width="240" height="56" rx="4" fill="rgba(11,95,45,0.10)" stroke="rgba(11,95,45,0.30)" stroke-width="1.2"/>
+    <circle cx="970" cy="536" r="9" fill="rgba(11,95,45,0.20)" stroke="#0b5f2d" stroke-width="1"/>
+    <path d="M 965,536 L 969,540 L 975,532" fill="none" stroke="#0b5f2d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="1050" y="540" fill="#0b5f2d" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">view</text>
+
+    <!-- Row 8: /admin/orphan-fumigations (admin only) -->
+    <rect x="40" y="568" width="380" height="56" rx="4" fill="#ffffff" stroke="rgba(26,46,34,0.10)" stroke-width="0.8"/>
+    <text x="60" y="590" fill="#1a2e22" font-size="13" font-weight="600" font-family="'Geist Mono', monospace">/admin/orphan-fumigations</text>
+    <text x="60" y="608" fill="#7a8399" font-size="9" font-family="'Geist Mono', monospace">app/admin/orphan-fumigations/page.tsx · role-gate</text>
+    <rect x="430" y="568" width="240" height="56" rx="4" fill="rgba(79,93,117,0.10)" stroke="rgba(26,46,34,0.10)" stroke-width="0.8"/>
+    <text x="550" y="602" fill="#4f5d75" font-size="10" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">→ /login</text>
+    <rect x="680" y="568" width="240" height="56" rx="4" fill="rgba(169,50,50,0.08)" stroke="rgba(169,50,50,0.30)" stroke-width="0.8"/>
+    <text x="800" y="602" fill="#a93232" font-size="11" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">notFound() 404</text>
+    <rect x="930" y="568" width="240" height="56" rx="4" fill="rgba(11,95,45,0.10)" stroke="rgba(11,95,45,0.30)" stroke-width="1.2"/>
+    <circle cx="970" cy="596" r="9" fill="rgba(11,95,45,0.20)" stroke="#0b5f2d" stroke-width="1"/>
+    <path d="M 965,596 L 969,600 L 975,592" fill="none" stroke="#0b5f2d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="1050" y="600" fill="#0b5f2d" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">view</text>
+
+    <!-- Row 9: /history (deprecated, redirects to /task-history) -->
+    <rect x="40" y="628" width="380" height="56" rx="4" fill="#ffffff" stroke="rgba(26,46,34,0.10)" stroke-width="0.8"/>
+    <text x="60" y="650" fill="#1a2e22" font-size="13" font-weight="600" font-family="'Geist Mono', monospace">/history</text>
+    <text x="60" y="668" fill="#7a8399" font-size="9" font-family="'Geist Mono', monospace">DEPRECATED · next.config.js redirects → /task-history</text>
+    <rect x="430" y="628" width="240" height="56" rx="4" fill="rgba(79,93,117,0.10)" stroke="rgba(26,46,34,0.10)" stroke-width="0.8"/>
+    <text x="550" y="662" fill="#4f5d75" font-size="10" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">→ /login</text>
+    <rect x="680" y="628" width="240" height="56" rx="4" fill="rgba(11,95,45,0.10)" stroke="rgba(26,46,34,0.10)" stroke-width="0.8"/>
+    <text x="800" y="662" fill="#0b5f2d" font-size="11" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">→ /task-history</text>
+    <rect x="930" y="628" width="240" height="56" rx="4" fill="rgba(11,95,45,0.10)" stroke="rgba(11,95,45,0.30)" stroke-width="1.2"/>
+    <text x="1050" y="662" fill="#0b5f2d" font-size="11" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">→ /task-history</text>
+
+    <!-- Editorial callout -->
+    <text x="600" y="725" fill="#4f5d75" font-size="10" font-style="italic"
+          font-family="'Instrument Serif', serif" text-anchor="middle">
+      El patrón es siempre: <tspan font-style="normal" font-family="'Geist Mono', monospace" font-size="9" fill="#1a2e22">const session = await auth(); if (role !== "admin") notFound();</tspan> — el server devuelve 404 antes de renderizar. Nunca display:none.
+    </text>
+  </svg>
+
+  <div class="legend">
+    <span class="eyebrow" style="margin-right: 8px;">Leyenda</span>
+    <div class="legend-item">
+      <span class="legend-swatch" style="background:rgba(11,95,45,0.20);border:1px solid #0b5f2d"></span>
+      <svg width="14" height="14" viewBox="0 0 14 14" style="margin-left:-12px;margin-top:1px">
+        <path d="M 3,7 L 6,10 L 11,4" fill="none" stroke="#0b5f2d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span style="margin-left:6px">view (allow)</span>
+    </div>
+    <div class="legend-item"><span class="legend-swatch" style="background:rgba(212,178,60,0.15);border:1px solid rgba(212,178,60,0.40)"></span> redirect("/")</div>
+    <div class="legend-item"><span class="legend-swatch" style="background:rgba(169,50,50,0.08);border:1px solid rgba(169,50,50,0.30)"></span> notFound() 404</div>
+    <div class="legend-item"><span class="legend-swatch" style="background:rgba(79,93,117,0.10);border:1px solid #7a8399"></span> → /login (sin sesión)</div>
+  </div>
+</body>
+</html>

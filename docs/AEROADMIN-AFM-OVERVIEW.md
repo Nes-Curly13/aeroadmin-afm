@@ -27,6 +27,8 @@ Casos de uso núcleo:
 
 ## 2. Modelo de datos (PostGIS)
 
+> 📐 **Diagrama editorial:** [`docs/diagrams/04-data-model-er.html`](diagrams/04-data-model-er.html) — las 5 tablas núcleo con sus FKs y cardinalidades (`dji_parcels` como aggregate root, `djiag_health` como singleton).
+
 Tablas activas (single source of truth). Para la V0 no hace falta conocer todas las columnas, sí **qué entidad representa cada una**.
 
 | Tabla | Qué modela | Origen de los datos |
@@ -66,6 +68,8 @@ status:
 ---
 
 ## 3. Mapa de páginas → datos → utilidad
+
+> 📐 **Diagrama editorial:** [`docs/diagrams/07-page-hierarchy-tree.html`](diagrams/07-page-hierarchy-tree.html) — la jerarquía completa de `app/` con los 5 grupos de páginas y `/parcelas/[id]/timeline` como única ruta anidada.
 
 Cada página es un **Server Component** (salvo `/login` y los clientes interactivos). Todas las queries pasan por `api/repositories.ts`, que a su vez usa `lib/cache.ts` (Next `unstable_cache`, TTL 60s, tags por dominio).
 
@@ -255,6 +259,10 @@ Todos son `force-dynamic` y devuelven JSON. Requieren sesión (excepto `/api/aut
 ---
 
 ## 6. Roles y permisos (gate server-side)
+
+> 📐 **Diagramas editoriales:**
+> - [`docs/diagrams/05-auth-flow-sequence.html`](diagrams/05-auth-flow-sequence.html) — secuencia del login con NextAuth v5 (login + alt error/success + RBAC check en cada request).
+> - [`docs/diagrams/06-rbac-matrix.html`](diagrams/06-rbac-matrix.html) — la matriz completa de 9 páginas × 3 roles con la acción semántica por celda (`view` / `notFound()` / `redirect("/")` / `→ /login`).
 
 | Página | viewer (supervisor) | admin | Sin sesión |
 |---|---|---|---|

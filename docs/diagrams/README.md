@@ -11,6 +11,10 @@
 | [`01-system-architecture.html`](./01-system-architecture.html) | `architecture` | Flujo end-to-end: dron → DJI SmartFarm → cliente Playwright → scripts pipeline → Postgres+PostGIS → V0 adapter → Next.js → usuario. | Reemplaza el ASCII art de `docs/ARCHITECTURE.md §1`. |
 | [`02-dji-data-pipeline.html`](./02-dji-data-pipeline.html) | `architecture` (process-style) | 9 pasos idempotentes de `scripts/run-pipeline.js` en 2 filas (5+4). Foco en paso 4 (spatial join). | Reemplaza la lista de 9/10 pasos de `docs/ARCHITECTURE.md §1` y la descripción operativa de `docs/DJI_SCRAPER.md`. |
 | [`03-fumigation-cadence-state.html`](./03-fumigation-cadence-state.html) | `state` | Máquina de estados de cadencia (`no_history → ok → due_soon → overdue`) con flecha de recovery (`overdue → ok`). | Reemplaza el bloque de código de `lib/fumigation-cadence.ts` documentado en `docs/FUMIGATION_CADENCE.md`. |
+| [`04-data-model-er.html`](./04-data-model-er.html) | `er` | Las 5 tablas núcleo de PostGIS con sus campos y FKs. `dji_parcels` es el aggregate root (focal). | Complementa `docs/AEROADMIN-AFM-OVERVIEW.md §2` (modelo de datos). |
+| [`05-auth-flow-sequence.html`](./05-auth-flow-sequence.html) | `sequence` | Login con NextAuth v5 + RBAC check en cada request. 4 actores, 1 `alt` fragment (error vs success). Set-Cookie focal. | Complementa `docs/AEROADMIN-AFM-OVERVIEW.md §6` (auth). |
+| [`06-rbac-matrix.html`](./06-rbac-matrix.html) | custom grid (RBAC matrix) | Grilla 9 páginas × 3 roles con la acción semántica por celda (`view` / `notFound()` / `redirect("/")` / `→ /login`). | Reemplaza la tabla de `docs/AEROADMIN-AFM-OVERVIEW.md §6`. |
+| [`07-page-hierarchy-tree.html`](./07-page-hierarchy-tree.html) | `tree` | Jerarquía 3 niveles de `app/` (root → 5 grupos → 10 páginas → 1 nieto). `/parcelas/[id]` es el focal. | Complementa `docs/AEROADMIN-AFM-OVERVIEW.md §3` (mapa de páginas). |
 
 ## Brand skin
 
