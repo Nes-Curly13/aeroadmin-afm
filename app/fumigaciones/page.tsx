@@ -1,5 +1,5 @@
 import Link from "next/link"
-import { Calendar, Droplets, History, Plus, Sprout } from "lucide-react"
+import { Calendar, ChevronRight, Droplets, History, Plus, Sprout } from "lucide-react"
 import { Suspense } from "react"
 import { PageHeader } from "@/components/page-header"
 import { Badge } from "@/components/ui/badge"
@@ -305,20 +305,29 @@ function FumigationRow({ f }: { f: DjiFumigationEvent }) {
       <td className="px-3 py-2.5">
         {/* El producto + ID de fumigación son links a la ficha individual.
             Esto resuelve el pedido del operador de poder navegar
-            fumigaciones por URL propia. Sprint 2026-08-05. */}
+            fumigaciones por URL propia. Sprint 2026-08-05.
+            Fix visual v2 (2026-08-13): el link no se percibía como
+            clickeable (texto negro sobre negro, sin affordance). Se
+            agrega color primary, hover bg sutil, chevron al final y
+            focus ring explícito. */}
         <Link
           href={`/fumigacion/${f.id}`}
-          className="group flex flex-col text-foreground hover:underline focus-visible:underline focus-visible:outline-none"
+          aria-label={`Ver detalle de la fumigación #${f.id} (${f.product_used ?? "sin producto"})`}
+          className="group -mx-1 inline-flex max-w-full cursor-pointer flex-col gap-0.5 rounded-sm px-1 py-0.5 text-foreground transition-colors hover:bg-primary/5 focus-visible:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
         >
           <p className="font-mono text-[10px] text-muted-foreground">
             {`#${f.id}`}
           </p>
-          <p className="font-medium group-hover:text-primary">
-            {f.product_used ?? "—"}
+          <p className="inline-flex items-center gap-1 font-medium text-primary group-hover:underline">
+            <span className="truncate">{f.product_used ?? "—"}</span>
+            <ChevronRight
+              className="size-3 shrink-0 opacity-50 transition-opacity group-hover:opacity-100"
+              aria-hidden
+            />
           </p>
         </Link>
         {f.product_registered_ica ? (
-          <p className="font-mono text-[10px] text-muted-foreground">
+          <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">
             ICA {f.product_registered_ica}
           </p>
         ) : null}
