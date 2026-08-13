@@ -142,8 +142,52 @@ export default async function FumigacionPage({ params }: PageProps) {
   const viewerRole = await getViewerRole().catch(() => null);
   const canEdit = viewerRole === "admin" || viewerRole === "supervisor";
 
+  // Sprint 2026-08-13 — polish v1. Si el viewer es admin/supervisor
+  // no mostramos nada (las acciones de Editar/Eliminar/PDF/CSV ya
+  // están visibles a la derecha). Si NO hay sesión (o el role
+  // no es admin/supervisor), un banner sutil en el header avisa que
+  // está en modo lectura. Esto evita la confusión de "¿por qué no
+  // puedo editar?" cuando un futuro role con menos permisos entre
+  // al detail de una fumigación o alguien sin sesión intenta editar
+  // vía URL. El sistema actual solo tiene roles `admin` y
+  // `supervisor` (ver `lib/auth/role.ts` → `AppRole`), así que hoy
+  // este banner solo se muestra cuando `viewerRole == null`. Cuando
+  // se agregue un role `viewer` o `operator`, el chequeo se
+  // extiende a `!canEdit`.
+  const readOnlyReason = canEdit
+    ? null
+    : viewerRole == null
+      ? "no autenticado"
+      : `tu rol (${viewerRole}) no permite editar fumigaciones`;
+
   return (
     <div className="flex flex-col gap-4 p-4 md:p-6">
+      {/* Banner de modo lectura (sprint 2026-08-13 polish v1). */}
+      {readOnlyReason ? (
+        <p
+          role="status"
+          className="flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-300"
+        >
+          <svg
+            aria-hidden="true"
+            xmlns="http://www.w3.org/2000/svg"
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="8" x2="12" y2="12" />
+            <line x1="12" y1="16" x2="12.01" y2="16" />
+          </svg>
+          {`Modo lectura — ${readOnlyReason}. Las acciones de edición están deshabilitadas.`}
+        </p>
+      ) : null}
+
       {/* Header */}
       <div className="flex flex-col gap-3">
         <div className="flex items-center justify-between gap-2">

@@ -7,9 +7,18 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton, SkeletonTable } from "@/components/ui/loading"
 import { getRecentFumigations } from "@/api/repositories"
-import { FUMIGATION_CATEGORIES } from "@/lib/data-constants"
+import { DRONE_MODELS, FUMIGATION_CATEGORIES } from "@/lib/data-constants"
 import { fmtDate, fmtDateTime, fmtDec, fmtInt } from "@/lib/format"
 import type { DjiFumigationEvent } from "@/lib/types"
+import {
+  buildPageUrl,
+  parseCategorySlug,
+  parseDate,
+  parseDroneCode,
+  parseIntId,
+  parseSource,
+  type FumigacionesSearchParams
+} from "@/lib/fumigaciones-filters"
 
 /**
  * /fumigaciones — listado global de fumigaciones (Sprint 2026-08-04).
@@ -65,21 +74,18 @@ interface PageProps {
      * que la URL sea legible y no se rompa si reasignamos ids.
      */
     category?: string
+    /**
+     * Sprint 2026-08-13 — polish v1. Filtros de rango temporal,
+     * parcela específica y dron usado. Las fechas se pasan como
+     * YYYY-MM-DD (formato nativo del <input type="date">). El parcel
+     * es un id numérico (match con la URL del detail /parcelas/[id]).
+     * El drone es el code numérico (0, 72, 201, 210).
+     */
+    from?: string
+    to?: string
+    parcel?: string
+    drone?: string
   }>
-}
-
-function parseSource(v: string | undefined): "djiscraper" | "import" | "manual" | null {
-  if (v === "dji") return "djiscraper"
-  if (v === "manual") return "manual"
-  if (v === "import") return "import"
-  return null
-}
-
-/** Convierte el slug del searchParam al id de FUMIGATION_CATEGORIES. */
-function parseCategorySlug(v: string | undefined): number | null {
-  if (!v) return null
-  const cat = FUMIGATION_CATEGORIES.find((c) => c.slug === v)
-  return cat?.id ?? null
 }
 
 export default async function FumigacionesPage({ searchParams }: PageProps) {
@@ -88,6 +94,10 @@ export default async function FumigacionesPage({ searchParams }: PageProps) {
   const query = (sp.q ?? "").trim()
   const sourceFilter = parseSource(sp.source)
   const categoryFilter = parseCategorySlug(sp.category)
+  const fromDate = parseDate(sp.from)
+  const toDate = parseDate(sp.to)
+  const parcelFilter = parseIntId(sp.parcel)
+  const droneFilter = parseDroneCode(sp.drone)
 
   return (
     <div className="flex flex-col gap-4 p-4 md:p-6">
@@ -156,12 +166,96 @@ export default async function FumigacionesPage({ searchParams }: PageProps) {
               ))}
             </select>
           </div>
+          <div className="flex flex-col gap-1">
+            <label
+              htmlFor="from"
+              className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground"
+            >
+              Desde
+            </label>
+            <input
+              id="from"
+              name="from"
+              type="date"
+              defaultValue={fromDate ?? ""}
+              max={toDate ?? undefined}
+              className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm sm:w-36"
+              aria-label="Fecha de inicio del rango"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label
+              htmlFor="to"
+              className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground"
+            >
+              Hasta
+            </label>
+            <input
+              id="to"
+              name="to"
+              type="date"
+              defaultValue={toDate ?? ""}
+              min={fromDate ?? undefined}
+              className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm sm:w-36"
+              aria-label="Fecha de fin del rango"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label
+              htmlFor="parcel"
+              className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground"
+            >
+              Parcela #
+            </label>
+            <input
+              id="parcel"
+              name="parcel"
+              type="number"
+              inputMode="numeric"
+              min="1"
+              step="1"
+              defaultValue={sp.parcel ?? ""}
+              placeholder="ej. 3107"
+              className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm sm:w-28"
+              aria-label="ID de parcela específica"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label
+              htmlFor="drone"
+              className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground"
+            >
+              Dron
+            </label>
+            <select
+              id="drone"
+              name="drone"
+              defaultValue={sp.drone ?? ""}
+              className="h-8 rounded-md border border-input bg-background px-2 text-sm"
+            >
+              <option value="">Todos</option>
+              {DRONE_MODELS.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.id === 0 ? "Sin asignar" : `${d.name} (${d.tank_l} L)`}
+                </option>
+              ))}
+            </select>
+          </div>
           <button
             type="submit"
             className="h-8 rounded-md border border-input bg-card px-3 text-xs font-medium text-foreground hover:bg-muted"
           >
             Filtrar
           </button>
+          {(sp.from || sp.to || sp.parcel || sp.drone) ? (
+            <Link
+              href="/fumigaciones"
+              className="h-8 self-end rounded-md px-2 text-xs font-medium text-muted-foreground hover:text-foreground"
+              aria-label="Limpiar todos los filtros"
+            >
+              Limpiar
+            </Link>
+          ) : null}
         </div>
         <div className="flex items-center justify-between gap-3">
           <Suspense fallback={<Skeleton className="h-3 w-48" />}>
@@ -200,7 +294,12 @@ export default async function FumigacionesPage({ searchParams }: PageProps) {
               query={query}
               sourceFilter={sourceFilter}
               categoryFilter={categoryFilter}
+              fromDate={fromDate}
+              toDate={toDate}
+              parcelFilter={parcelFilter}
+              droneFilter={droneFilter}
               page={page}
+              rawSearchParams={sp}
             />
           </Suspense>
         </CardContent>
@@ -239,13 +338,29 @@ async function FumigacionesTable({
   query,
   sourceFilter,
   categoryFilter,
-  page
+  fromDate,
+  toDate,
+  parcelFilter,
+  droneFilter,
+  page,
+  rawSearchParams
 }: {
   query: string
   sourceFilter: "djiscraper" | "import" | "manual" | null
   /** Sprint 2026-08-13 — sub-2. id de FUMIGATION_CATEGORIES o null. */
   categoryFilter: number | null
+  /** Sprint 2026-08-13 — polish v1. Filtros temporales (YYYY-MM-DD). */
+  fromDate: string | null
+  toDate: string | null
+  parcelFilter: number | null
+  droneFilter: number | null
   page: number
+  /**
+   * SearchParams crudos del padre. Necesarios para que Pagination
+   * preserve los filtros activos al cambiar de página (fix bug
+   * pre-existente + polish v1).
+   */
+  rawSearchParams: FumigacionesSearchParams
 }) {
   const all = await getRecentFumigations(2000)
 
@@ -253,6 +368,10 @@ async function FumigacionesTable({
   const filtered = all.filter((f) => {
     if (sourceFilter && f.source !== sourceFilter) return false
     if (categoryFilter != null && f.category_id !== categoryFilter) return false
+    if (parcelFilter != null && f.parcel_id !== parcelFilter) return false
+    if (droneFilter != null && f.drone_code_used !== droneFilter) return false
+    if (fromDate && f.fumigation_date < fromDate) return false
+    if (toDate && f.fumigation_date > toDate) return false
     if (query) {
       const q = query.toLowerCase()
       const haystack = [
@@ -306,7 +425,13 @@ async function FumigacionesTable({
           </tbody>
         </table>
       </div>
-      {totalPages > 1 ? <Pagination page={safePage} totalPages={totalPages} /> : null}
+      {totalPages > 1 ? (
+        <Pagination
+          searchParams={rawSearchParams}
+          page={safePage}
+          totalPages={totalPages}
+        />
+      ) : null}
       <p className="border-t border-border px-3 py-2 text-center font-mono text-[11px] text-muted-foreground">
         {`página ${safePage} de ${totalPages} · ${fmtInt(total)} resultados`}
       </p>
@@ -437,7 +562,20 @@ function formatArea(m2: number | null | undefined): string {
   return `${(Math.round(ha * 100) / 100).toFixed(2)} ha`
 }
 
-function Pagination({ page, totalPages }: { page: number; totalPages: number }) {
+function Pagination({
+  searchParams,
+  page,
+  totalPages
+}: {
+  /**
+   * Sprint 2026-08-13 — polish v1. SearchParams activos. La paginación
+   * los preserva al cambiar de página — fix de bug pre-existente
+   * (antes cambiar de página perdía los filtros `q`, `source`, etc.).
+   */
+  searchParams: FumigacionesSearchParams
+  page: number
+  totalPages: number
+}) {
   // Paginación básica. 5 links visibles: 2 antes, actual, 2 después.
   const start = Math.max(1, page - 2)
   const end = Math.min(totalPages, start + 4)
@@ -450,8 +588,9 @@ function Pagination({ page, totalPages }: { page: number; totalPages: number }) 
     >
       {page > 1 ? (
         <Link
-          href={`?page=${page - 1}`}
+          href={buildPageUrl(searchParams, page - 1)}
           className="rounded-md border border-input bg-card px-2.5 py-1 text-xs hover:bg-muted"
+          aria-label={`Página anterior (${page - 1})`}
         >
           ← Anterior
         </Link>
@@ -459,20 +598,22 @@ function Pagination({ page, totalPages }: { page: number; totalPages: number }) 
       {items.map((i) => (
         <Link
           key={i}
-          href={`?page=${i}`}
+          href={buildPageUrl(searchParams, i)}
           className={`rounded-md border px-2.5 py-1 text-xs ${
             i === page
               ? "border-primary bg-primary text-primary-foreground"
               : "border-input bg-card hover:bg-muted"
           }`}
+          aria-label={i === page ? `Página actual (${i})` : `Ir a página ${i}`}
         >
           {i}
         </Link>
       ))}
       {page < totalPages ? (
         <Link
-          href={`?page=${page + 1}`}
+          href={buildPageUrl(searchParams, page + 1)}
           className="rounded-md border border-input bg-card px-2.5 py-1 text-xs hover:bg-muted"
+          aria-label={`Página siguiente (${page + 1})`}
         >
           Siguiente →
         </Link>

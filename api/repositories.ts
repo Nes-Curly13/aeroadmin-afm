@@ -1317,6 +1317,73 @@ export async function softDeleteFumigationEvent(
 }
 
 /**
+ * Restaura una fumigación soft-deleted (un-delete). Limpia `deleted_at`
+ * y `deleted_by`. La fumigación vuelve a aparecer en listados, timeline
+ * y reportes.
+ *
+ * Idempotente: si la fumigación NO está soft-deleted, devuelve la fila
+ * tal cual sin error (es un no-op, no falla).
+ *
+ * Si la fumigación tiene `next_due_date` o `last_fumigation_date`
+ * desactualizados, NO los recalcula. La fumigación vuelve al estado
+ * pre-delete; los cálculos de cadencia se ajustan en la próxima
+ * fumigación (mismo patrón que `softDeleteFumigationEvent` — no
+ * toca el schedule).
+ *
+ * No tiene UI todavía. El admin lo invoca via curl si borra por error:
+ *   curl -X POST https://aeroadmin.local/api/admin/fumigations/123/restore
+ *
+ * Sprint 2026-08-13 — feature/fumigaciones-detail-polish.
+ */
+export async function restoreFumigationEvent(
+  id: number,
+  restoredBy: string
+): Promise<DjiFumigationEvent | null> {
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      // Para restaurar, primero necesitamos la fumigación SIN el filtro
+      // de deleted_at IS NULL (sino getFumigationById devuelve null).
+      // Hacemos un SELECT directo. Si la fumigación no existe (ni
+      // siquiera soft-deleted), devolvemos null.
+      const exists = await db.query<{ id: number }>(
+        `SELECT id FROM dji_fumigations WHERE id = $1`,
+        [id]
+      );
+      if (exists.rows.length === 0) {
+        return null;
+      }
+
+      // Idempotente: si no estaba soft-deleted, no hay UPDATE.
+      // Devolvemos el row con el JOIN de categoría hidratado.
+      const result = await db.query<DjiFumigationEvent>(
+        `UPDATE dji_fumigations
+            SET deleted_at = NULL,
+                deleted_by = NULL
+          WHERE id = $1
+            AND deleted_at IS NOT NULL
+        RETURNING id`,
+        [id]
+      );
+
+      // Log del restore para auditoría (no tenemos tabla de audit log
+      // todavía — ver backlog item #12). El console.log es suficiente
+      // hasta que se implemente audit_log. El session user queda
+      // registrado via `restoredBy` aunque no se persista en BD.
+      if (result.rows.length > 0) {
+        // eslint-disable-next-line no-console
+        console.log(
+          `[fumigaciones] restore: id=${id} restoredBy=${restoredBy} at=${new Date().toISOString()}`
+        );
+        invalidateAfterFumigationMutation();
+      }
+      return await getFumigationById(id);
+    },
+    async () => null
+  );
+}
+
+/**
  * Devuelve el catálogo curado de categorías de fumigación.
  * Sprint 2026-08-13 — feature/fumigacion-detail-v2 / sub-2.
  *
@@ -2675,11 +2742,29 @@ export async function getFumigationYearTotals(
 
 /**
  * v2.1 (sprint S7) — fumigaciones más recientes para alimentar el
- * `RecentActivity` del dashboard.
+ * `RecentActivity` del dashboard y la lista de `/fumigaciones`.
  *
- * Trae los últimos N eventos (default 12) con `parcel_id` válido
- * y `deleted_at IS NULL`. Cacheada con TTL 60s y tag
- * `afm:recent-fumigations` (mismo patrón que el resto del dashboard).
+ * Trae los últimos N eventos (default 12, /fumigaciones usa 2000)
+ * con `parcel_id` válido y `deleted_at IS NULL`. Cacheada con TTL 60s
+ * y tag `afm:recent-fumigations` (mismo patrón que el resto del
+ * dashboard).
+ *
+ * **Schema requirement (sprint 2026-08-13, feature/fumigacion-detail-v2):**
+ * requiere la tabla `fumigation_categories` (migration
+ * `20260813160000_add_fumigation_category.sql`) y la columna
+ * `dji_fumigations.category_id`. Si la migration no se aplicó,
+ * la query explota con `relation "fumigation_categories" does not
+ * exist` (23501). El `withLocalFallback` solo atrapa errores de
+ * conexión, no errores de SQL — aplicar la migration antes de
+ * usar esta función.
+ *
+ * Joins activos:
+ *   - `dji_flights` (LEFT): para `lng`/`lat` centroide + `n_matched_flights`
+ *     (s8.8, 2026-07-31). Usado por el geovisor para plotear el evento.
+ *   - `fumigation_categories` (LEFT): para `category` (objeto hidratado
+ *     con id, slug, label, color) o `null` si fumigación histórica sin
+ *     clasificar (sprint 2026-08-13). Usado por /fumigaciones y
+ *     /fumigacion/[id] para mostrar el badge de tipo.
  */
 export async function getRecentFumigations(
   limit: number = 12
@@ -2697,6 +2782,12 @@ export async function getRecentFumigations(
       // El `n_matched_flights` es util para debugging y para el popup
       // ("5 de 7 flights asociados"). Si es 0, el centroide es NULL
       // y el evento NO deberia renderizarse en el mapa.
+      //
+      // sprint 2026-08-13: LEFT JOIN adicional con `fumigation_categories`
+      // para hidratar el campo `category` (row_to_json). Si la fumigación
+      // tiene `category_id IS NULL` (fumigación histórica pre-migration),
+      // la CASE devuelve NULL y el objeto `category` en el row es null.
+      // Mismo patrón que `getFumigationById` arriba.
       const result = await db.query<DjiFumigationEvent>(
         `SELECT
             f.id,
