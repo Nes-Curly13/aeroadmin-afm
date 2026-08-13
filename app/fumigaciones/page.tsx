@@ -10,6 +10,15 @@ import { getRecentFumigations } from "@/api/repositories"
 import { DRONE_MODELS, FUMIGATION_CATEGORIES } from "@/lib/data-constants"
 import { fmtDate, fmtDateTime, fmtDec, fmtInt } from "@/lib/format"
 import type { DjiFumigationEvent } from "@/lib/types"
+import {
+  buildPageUrl,
+  parseCategorySlug,
+  parseDate,
+  parseDroneCode,
+  parseIntId,
+  parseSource,
+  type FumigacionesSearchParams
+} from "@/lib/fumigaciones-filters"
 
 /**
  * /fumigaciones — listado global de fumigaciones (Sprint 2026-08-04).
@@ -77,79 +86,6 @@ interface PageProps {
     parcel?: string
     drone?: string
   }>
-}
-
-function parseSource(v: string | undefined): "djiscraper" | "import" | "manual" | null {
-  if (v === "dji") return "djiscraper"
-  if (v === "manual") return "manual"
-  if (v === "import") return "import"
-  return null
-}
-
-/** Convierte el slug del searchParam al id de FUMIGATION_CATEGORIES. */
-function parseCategorySlug(v: string | undefined): number | null {
-  if (!v) return null
-  const cat = FUMIGATION_CATEGORIES.find((c) => c.slug === v)
-  return cat?.id ?? null
-}
-
-/**
- * Valida una fecha YYYY-MM-DD. Devuelve la fecha si es válida, null
- * si no. Usado por los filtros `from` / `to` para no inyectar SQL
- * inválido a la BD si el usuario manipula la URL.
- */
-function parseDate(v: string | undefined): string | null {
-  if (!v) return null
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return null
-  // Validar que la fecha es real (no "2026-13-99")
-  const d = new Date(v + "T00:00:00Z");
-  if (Number.isNaN(d.getTime())) return null;
-  return v;
-}
-
-function parseIntId(v: string | undefined): number | null {
-  if (!v) return null
-  const n = Number(v);
-  if (!Number.isFinite(n) || !Number.isInteger(n) || n <= 0) return null;
-  return n;
-}
-
-/**
- * Drone codes válidos (0 = "Sin asignar", 72/201/210 = los 3 modelos
- * registrados en dji_drone_models). Si el query viene con un code
- * inválido (manipulación de URL), lo descartamos.
- */
-const VALID_DRONE_CODES = new Set<number>([0, 72, 201, 210]);
-function parseDroneCode(v: string | undefined): number | null {
-  if (!v) return null;
-  const n = Number(v);
-  if (!Number.isFinite(n) || !Number.isInteger(n) || !VALID_DRONE_CODES.has(n)) {
-    return null;
-  }
-  return n;
-}
-
-/**
- * Construye una URL preservando los searchParams activos y agregando
- * `page` con el valor provisto. Usado por el componente Pagination
- * para que cambiar de página NO pierda los filtros (bug pre-existente
- * en /fumigaciones, fixed en polish v1).
- */
-function buildPageUrl(
-  sp: Awaited<PageProps["searchParams"]>,
-  page: number
-): string {
-  const params = new URLSearchParams();
-  if (sp.q) params.set("q", sp.q);
-  if (sp.source) params.set("source", sp.source);
-  if (sp.category) params.set("category", sp.category);
-  if (sp.from) params.set("from", sp.from);
-  if (sp.to) params.set("to", sp.to);
-  if (sp.parcel) params.set("parcel", sp.parcel);
-  if (sp.drone) params.set("drone", sp.drone);
-  if (page > 1) params.set("page", String(page));
-  const qs = params.toString();
-  return qs ? `?${qs}` : "?page=1";
 }
 
 export default async function FumigacionesPage({ searchParams }: PageProps) {
@@ -424,7 +360,7 @@ async function FumigacionesTable({
    * preserve los filtros activos al cambiar de página (fix bug
    * pre-existente + polish v1).
    */
-  rawSearchParams: Awaited<PageProps["searchParams"]>
+  rawSearchParams: FumigacionesSearchParams
 }) {
   const all = await getRecentFumigations(2000)
 
@@ -636,7 +572,7 @@ function Pagination({
    * los preserva al cambiar de página — fix de bug pre-existente
    * (antes cambiar de página perdía los filtros `q`, `source`, etc.).
    */
-  searchParams: Awaited<PageProps["searchParams"]>
+  searchParams: FumigacionesSearchParams
   page: number
   totalPages: number
 }) {

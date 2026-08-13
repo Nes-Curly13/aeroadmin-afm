@@ -55,7 +55,7 @@ export async function POST(
   // 2) Validar id
   const { id } = await params;
   const fumigationId = Number(id);
-  if (!Number.isFinite(fumigationId) || fumigationId <= 0) {
+  if (!Number.isFinite(fumigationId) || !Number.isInteger(fumigationId) || fumigationId <= 0) {
     return NextResponse.json({ error: "id inválido" }, { status: 400 });
   }
 
