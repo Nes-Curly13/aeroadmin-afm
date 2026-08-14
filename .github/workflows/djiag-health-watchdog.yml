@@ -9,27 +9,29 @@ name: djiag-health-watchdog
 # Ver docs/HEALTH-WATCHDOG.md para setup completo + troubleshooting.
 #
 # =====================================================================
-# ACTIVACIÓN (OBLIGATORIO antes de mergear a master):
-#   1. Settings → Secrets and variables → Actions → New repository secret
-#   2. HEALTH_URL:  https://<tu-dominio-vercel>.vercel.app
-#                   (default sugerido: https://aeroadmin-afm.vercel.app)
-#   3. HEALTH_TOKEN: el mismo valor que está en el deploy de Vercel
-#                    (env var HEALTH_TOKEN del proyecto de Vercel).
-#                    Si el server NO tiene HEALTH_TOKEN configurado,
-#                    el endpoint rechaza el bearer y este workflow va
-#                    a fallar con 401 — es esperado, agregar el secret
-#                    y el server var antes de activar.
-#   4. Opcional: HEALTH_STALE_HOURS como variable (default 24).
+# ACTIVACIÓN (sprint 2026-08-13 — fix/ci-and-cleanup):
+#   WORKFLOW DESHABILITADO TEMPORALMENTE — falta configurar HEALTH_TOKEN
+#   y HEALTH_URL como secrets en GitHub Actions. Sin esos, el cron
+#   fallaba cada 6h con 401 (unauthorized) o "secret not configured",
+#   contaminando el panel de Actions del repo.
+#
+#   Para reactivar:
+#     1. Settings → Secrets and variables → Actions → New repository secret
+#     2. HEALTH_URL:  https://<tu-dominio-vercel>.vercel.app
+#     3. HEALTH_TOKEN: el mismo valor que está en el deploy de Vercel
+#                      (env var HEALTH_TOKEN del proyecto de Vercel).
+#     4. Opcional: HEALTH_STALE_HOURS como variable (default 24).
+#     5. Restaurar el bloque `on:` con `schedule: - cron: "0 */6 * * *"`
+#        debajo (reemplaza el `on:` actual que solo tiene workflow_dispatch).
+#
+#   Mientras tanto, el workflow sigue disponible para dispatch manual
+#   (útil para diagnóstico). El operador fumigador puede activarlo
+#   cuando tenga el watchdog server-side deployado.
 # =====================================================================
 
 on:
-  # Cada 6 horas. Menos agresivo que el refresh-fumigations (que es
-  # semanal) porque queremos detectar el scraper roto rápido — un
-  # pipeline de scraping diario que falla un día no es crítico, pero
-  # un pipeline que falla 3+ días sí lo es.
-  schedule:
-    - cron: "0 */6 * * *"
-  # Manual: para diagnóstico o para re-correr después de un fix.
+  # Manual only. Ver comentario arriba. Restaurar `schedule:` cuando
+  # se configuren los secrets.
   workflow_dispatch:
 
 permissions:
