@@ -49,6 +49,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { requireRole } from "@/lib/auth/role";
 import { createFumigationEvent } from "@/api/repositories";
+import { recordFumigationCreate } from "@/lib/fumigation-audit";
 
 export const dynamic = "force-dynamic";
 
@@ -281,6 +282,10 @@ export async function POST(req: Request) {
       ...parsed.data,
       recorded_by: recordedBy
     });
+    // Audit log: registramos la creación. Fire-and-forget — si falla,
+    // la fumigación ya quedó persistida y el cliente recibe 201.
+    // Sprint 2026-08-15 — feature/fumigation-audit-log / sub-2.
+    await recordFumigationCreate(fumigation, recordedBy);
     return NextResponse.json({ fumigation }, { status: 201 });
   } catch (err) {
     const pgErr = err as { code?: string; message?: string };

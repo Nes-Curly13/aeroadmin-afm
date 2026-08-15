@@ -30,7 +30,8 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { requireRole } from "@/lib/auth/role";
-import { restoreFumigationEvent } from "@/api/repositories";
+import { getFumigationRawById, restoreFumigationEvent } from "@/api/repositories";
+import { recordFumigationRestore } from "@/lib/fumigation-audit";
 
 export const dynamic = "force-dynamic";
 
@@ -65,10 +66,26 @@ export async function POST(
 
   // 4) Restore (con try/catch para devolver JSON 500 consistente)
   try {
+    // Audit log: necesitamos el row ANTES del restore (con deleted_at
+    // NOT NULL) para registrar el `restored_from` y para detectar si
+    // la fumigación realmente estaba soft-deleted. `getFumigationById`
+    // filtra estos rows, usamos `getFumigationRawById`.
+    // Sprint 2026-08-15 — feature/fumigation-audit-log / sub-2.
+    const before = await getFumigationRawById(fumigationId);
+    if (!before) {
+      return NextResponse.json({ error: "fumigación no encontrada" }, { status: 404 });
+    }
+
     const result = await restoreFumigationEvent(fumigationId, restoredBy);
     if (!result) {
       return NextResponse.json({ error: "fumigación no encontrada" }, { status: 404 });
     }
+
+    // after: fumigación restaurada (deleted_at null). El `result` que
+    // devuelve `restoreFumigationEvent` ya viene de `getFumigationById`
+    // (que hidrata con category y filtra), suficiente para el record.
+    await recordFumigationRestore(before, result, restoredBy);
+
     return NextResponse.json({ fumigation: result }, { status: 200 });
   } catch (err) {
     const e = err as { message?: string };

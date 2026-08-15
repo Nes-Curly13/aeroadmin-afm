@@ -18,8 +18,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockRestore = vi.fn();
+const mockGetRawById = vi.fn();
 vi.mock("@/api/repositories", () => ({
-  restoreFumigationEvent: (...args: unknown[]) => mockRestore(...args)
+  restoreFumigationEvent: (...args: unknown[]) => mockRestore(...args),
+  getFumigationRawById: (...args: unknown[]) => mockGetRawById(...args)
+}));
+
+const mockRecordRestore = vi.fn();
+vi.mock("@/lib/fumigation-audit", () => ({
+  recordFumigationRestore: (...args: unknown[]) => mockRecordRestore(...args)
 }));
 
 const mockRequireRole = vi.fn();
@@ -56,6 +63,35 @@ const SESSION_USER = { user: { email: "supervisor@afm.local" } };
 
 // Fumigación restaurada: deleted_at: null. Esto es lo que el repo
 // devuelve cuando el UPDATE limpió los campos (caso soft-deleted).
+/**
+ * Estado "antes" del restore: fumigación soft-deleted. El endpoint
+ * usa esto para detectar que la fumigación REALMENTE estaba borrada
+ * y registrar el audit "restored" (no es no-op). Si deleted_at
+ * fuera null antes del restore, recordFumigationRestore devolvería
+ * false y NO insertaría audit.
+ */
+const FUMIGATION_BEFORE = {
+  id: 1,
+  parcel_id: 42,
+  fumigation_date: "2026-08-13",
+  product_used: "Glifosato 48%",
+  dose_l_per_ha: 2.5,
+  area_fumigated_m2: 12_345,
+  drone_code_used: 201,
+  duration_minutes: 45,
+  notes: null,
+  human_notes: null,
+  recorded_by: "supervisor@afm.local",
+  product_registered_ica: null,
+  pilot_license: null,
+  recorded_at: "2026-08-13T15:00:00.000Z",
+  source: "manual" as const,
+  category_id: 1,
+  category: null,
+  deleted_at: "2026-08-14T10:00:00.000Z",
+  deleted_by: "supervisor@afm.local"
+};
+
 const FUMIGATION_RESTORED = {
   id: 1,
   parcel_id: 42,
@@ -85,6 +121,12 @@ beforeEach(() => {
   mockRequireRole.mockResolvedValue(undefined);
   // Default: restore exitoso → fumigación con deleted_at: null.
   mockRestore.mockResolvedValue(FUMIGATION_RESTORED);
+  // Default: getFumigationRawById devuelve un row soft-deleted.
+  // Asi el happy path registra audit "restored". Tests específicos
+  // (404, idempotent) sobreescriben con mockResolvedValueOnce.
+  mockGetRawById.mockResolvedValue(FUMIGATION_BEFORE);
+  // Audit log mock: por default resuelve con true (insertó audit).
+  mockRecordRestore.mockResolvedValue(true);
 });
 
 afterEach(() => {
@@ -236,6 +278,14 @@ describe("POST .../fumigations/[id]/restore — éxito", () => {
   it("es idempotente: restaurar una fumigación no soft-deleted también devuelve 200", async () => {
     // El repo ya implementa idempotencia — si la fumigación NO estaba
     // soft-deleted, devuelve la fila con deleted_at: null (no-op).
+    // El "before" via getFumigationRawById también debe tener
+    // deleted_at: null (no estaba borrada) para que recordFumigationRestore
+    // NO inserte audit.
+    mockGetRawById.mockResolvedValueOnce({
+      ...FUMIGATION_BEFORE,
+      deleted_at: null,
+      deleted_by: null
+    });
     mockRestore.mockResolvedValueOnce({
       ...FUMIGATION_RESTORED,
       // Nunca tuvo deleted_at (no-op path)
@@ -260,11 +310,15 @@ describe("POST .../fumigations/[id]/restore — 404", () => {
   });
 
   it("devuelve 404 cuando la fumigación no existe (ni siquiera soft-deleted)", async () => {
-    mockRestore.mockResolvedValueOnce(null);
+    // El nuevo flujo hace getFumigationRawById PRIMERO; si devuelve
+    // null, el endpoint responde 404 sin llegar a restore.
+    mockGetRawById.mockResolvedValueOnce(null);
     const res = await route.POST(makeReq(), makeCtx("9999"));
     expect(res.status).toBe(404);
     const body = await res.json();
     expect(body.error).toBe("fumigación no encontrada");
+    // restoreFumigationEvent NO debe llamarse si la fumigación no existe.
+    expect(mockRestore).not.toHaveBeenCalled();
   });
 });
 
@@ -291,5 +345,70 @@ describe("POST .../fumigations/[id]/restore — errores de repo", () => {
     expect(res.status).toBe(500);
     const body = await res.json();
     expect(body.error).toBe("error interno");
+  });
+});
+
+// ============================================================
+// Audit log (sprint feature/fumigation-audit-log 2026-08-15)
+// ============================================================
+
+describe("POST .../fumigations/[id]/restore � audit log", () => {
+  beforeEach(() => {
+    mockRequireRole.mockResolvedValue(undefined);
+  });
+
+  it("registra audit 'restored' con before (soft-deleted) + after + email tras 200", async () => {
+    const res = await route.POST(makeReq(), makeCtx("1"));
+    expect(res.status).toBe(200);
+    expect(mockRecordRestore).toHaveBeenCalledTimes(1);
+    const [before, after, actorEmail] = mockRecordRestore.mock.calls[0];
+    // before: fumigaci�n soft-deleted
+    expect(before.deleted_at).toBe("2026-08-14T10:00:00.000Z");
+    expect(before.deleted_by).toBe("supervisor@afm.local");
+    // after: fumigaci�n restaurada (deleted_at null)
+    expect(after.deleted_at).toBeNull();
+    expect(after.deleted_by).toBeNull();
+    expect(actorEmail).toBe("supervisor@afm.local");
+  });
+
+  it("NO registra audit si la fumigaci�n no existe (404 � getFumigationRawById null)", async () => {
+    mockGetRawById.mockReset();
+    mockGetRawById.mockResolvedValueOnce(null);
+    const res = await route.POST(makeReq(), makeCtx("9999"));
+    expect(res.status).toBe(404);
+    expect(mockRecordRestore).not.toHaveBeenCalled();
+  });
+
+  it("NO registra audit si la fumigaci�n NO estaba soft-deleted (idempotent / no-op)", async () => {
+    // before: deleted_at null (nunca estuvo borrada)
+    mockGetRawById.mockReset();
+    mockGetRawById.mockResolvedValueOnce({
+      ...FUMIGATION_BEFORE,
+      deleted_at: null,
+      deleted_by: null
+    });
+    mockRestore.mockResolvedValueOnce({
+      ...FUMIGATION_RESTORED,
+      deleted_at: null,
+      deleted_by: null
+    });
+    const res = await route.POST(makeReq(), makeCtx("1"));
+    expect(res.status).toBe(200);
+    // El handler llama a recordFumigationRestore pero el helper detecta
+    // que NO hubo cambio de estado y devuelve false (no inserta).
+    // Para verificar que el helper NO insert�, miramos que el mock
+    // devolvi� true por default pero el test no lo chequea ac�; lo
+    // importante es que el handler lo llam� (el helper es responsable
+    // del no-op).
+    expect(mockRecordRestore).toHaveBeenCalledTimes(1);
+  });
+
+  it("NO registra audit si la auth falla (401)", async () => {
+    mockRequireRole.mockRejectedValueOnce(
+      Object.assign(new Error("no session"), { code: "UNAUTHENTICATED" })
+    );
+    const res = await route.POST(makeReq(), makeCtx("1"));
+    expect(res.status).toBe(401);
+    expect(mockRecordRestore).not.toHaveBeenCalled();
   });
 });

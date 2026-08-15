@@ -18,8 +18,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockUpdate = vi.fn();
+const mockGetById = vi.fn();
 vi.mock("@/api/repositories", () => ({
-  updateFumigationEvent: (...args: unknown[]) => mockUpdate(...args)
+  updateFumigationEvent: (...args: unknown[]) => mockUpdate(...args),
+  getFumigationById: (...args: unknown[]) => mockGetById(...args)
+}));
+
+const mockRecordEdit = vi.fn();
+vi.mock("@/lib/fumigation-audit", () => ({
+  recordFumigationEdit: (...args: unknown[]) => mockRecordEdit(...args)
 }));
 
 const mockRequireRole = vi.fn();
@@ -60,6 +67,33 @@ function makeInvalidJsonReq(): Request {
 
 const SESSION_USER = { user: { email: "supervisor@afm.local" } };
 
+/**
+ * Estado "antes" del PATCH. Usado por el handler para computar la
+ * diff de audit log. Diferencias con FUMIGATION_UPDATED:
+ *   - product_used: "Roundup" (antes) vs "Glifosato 48%" (despuÃ©s)
+ *   - dose_l_per_ha: 2.0 (antes) vs 2.5 (despuÃ©s)
+ *   - notes: "old" (antes) vs null (despuÃ©s)
+ * Sprint 2026-08-15 â€” feature/fumigation-audit-log / sub-2.
+ */
+const FUMIGATION_BEFORE = {
+  id: 1,
+  parcel_id: 42,
+  fumigation_date: "2026-08-13",
+  product_used: "Roundup",
+  dose_l_per_ha: 2.0,
+  area_fumigated_m2: 12_345,
+  drone_code_used: 201,
+  duration_minutes: 45,
+  notes: "old",
+  human_notes: null,
+  recorded_by: "supervisor@afm.local",
+  product_registered_ica: "ICA-1234-PN",
+  pilot_license: "PCA-12345",
+  recorded_at: "2026-08-13T15:00:00.000Z",
+  source: "manual" as const,
+  category_id: 1
+};
+
 const FUMIGATION_UPDATED = {
   id: 1,
   parcel_id: 42,
@@ -84,6 +118,13 @@ beforeEach(() => {
   mockAuth.mockResolvedValue(SESSION_USER);
   mockRequireRole.mockResolvedValue(undefined);
   mockUpdate.mockResolvedValue(FUMIGATION_UPDATED);
+  // Audit log mock: por default el "before" existe (devolvemos
+  // FUMIGATION_BEFORE) y recordFumigationEdit resuelve con true
+  // (indica que sÃ­ insertÃ³ audit). Tests especÃ­ficos pueden
+  // sobreescribir con mockResolvedValue(null) si quieren testear
+  // el caso "fumigaciÃ³n no existe" â†’ 404.
+  mockGetById.mockResolvedValue(FUMIGATION_BEFORE);
+  mockRecordEdit.mockResolvedValue(true);
 });
 
 afterEach(() => {
@@ -549,5 +590,66 @@ describe("PATCH .../fumigations/[id] â€” errores PG", () => {
       makeCtx("1")
     );
     expect(res.status).toBe(500);
+  });
+});
+
+// ============================================================
+// Audit log (sprint feature/fumigation-audit-log 2026-08-15)
+// ============================================================
+
+describe("PATCH .../fumigations/[id] — audit log", () => {
+  beforeEach(() => {
+    mockRequireRole.mockResolvedValue(undefined);
+  });
+
+  it("registra audit 'edited' con before + after + email del session user tras 200", async () => {
+    const res = await route.PATCH(
+      makeReq({ product_used: "Glifosato 48%", dose_l_per_ha: 2.5 }),
+      makeCtx("1")
+    );
+    expect(res.status).toBe(200);
+    expect(mockRecordEdit).toHaveBeenCalledTimes(1);
+    const [before, after, actorEmail] = mockRecordEdit.mock.calls[0];
+    expect(before).toEqual(FUMIGATION_BEFORE);
+    expect(after).toEqual(FUMIGATION_UPDATED);
+    expect(actorEmail).toBe("supervisor@afm.local");
+  });
+
+  it("NO registra audit si la fumigación no existe (404 — getFumigationById null)", async () => {
+    mockGetById.mockResolvedValueOnce(null);
+    const res = await route.PATCH(
+      makeReq({ product_used: "Otro" }),
+      makeCtx("9999")
+    );
+    expect(res.status).toBe(404);
+    expect(mockRecordEdit).not.toHaveBeenCalled();
+  });
+
+  it("NO registra audit si la fumigación se soft-deleted entre fetch y update (404 — update null)", async () => {
+    mockUpdate.mockResolvedValueOnce(null);
+    const res = await route.PATCH(
+      makeReq({ product_used: "Otro" }),
+      makeCtx("1")
+    );
+    expect(res.status).toBe(404);
+    expect(mockRecordEdit).not.toHaveBeenCalled();
+  });
+
+  it("NO registra audit si la auth falla (401)", async () => {
+    mockRequireRole.mockRejectedValueOnce(
+      Object.assign(new Error("no session"), { code: "UNAUTHENTICATED" })
+    );
+    const res = await route.PATCH(
+      makeReq({ product_used: "Otro" }),
+      makeCtx("1")
+    );
+    expect(res.status).toBe(401);
+    expect(mockRecordEdit).not.toHaveBeenCalled();
+  });
+
+  it("NO registra audit si el body es inválido (campo inmutable)", async () => {
+    const res = await route.PATCH(makeReq({ parcel_id: 999 }), makeCtx("1"));
+    expect(res.status).toBe(400);
+    expect(mockRecordEdit).not.toHaveBeenCalled();
   });
 });

@@ -43,7 +43,8 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { requireRole } from "@/lib/auth/role";
-import { softDeleteFumigationEvent, updateFumigationEvent } from "@/api/repositories";
+import { getFumigationById, getFumigationRawById, softDeleteFumigationEvent, updateFumigationEvent } from "@/api/repositories";
+import { recordFumigationDelete, recordFumigationEdit } from "@/lib/fumigation-audit";
 
 export const dynamic = "force-dynamic";
 
@@ -282,10 +283,29 @@ export async function PATCH(
 
   // 6) Update
   try {
+    // Audit log: capturamos el "before" antes del update para poder
+    // computar la diff. Si la fumigación no existe (404), este
+    // getFumigationById devuelve null y no llegamos al UPDATE.
+    // Sprint 2026-08-15 — feature/fumigation-audit-log / sub-2.
+    const before = await getFumigationById(fumigationId);
+    if (!before) {
+      return NextResponse.json({ error: "fumigación no encontrada" }, { status: 404 });
+    }
+
     const updated = await updateFumigationEvent(fumigationId, parsed.data);
     if (!updated) {
       return NextResponse.json({ error: "fumigación no encontrada" }, { status: 404 });
     }
+
+    // Registrar la edición en el audit log. Fire-and-forget: si falla,
+    // logueamos warning pero no rompemos el 200 (la fumigación ya
+    // quedó actualizada). Si la diff está vacía (caller mandó un patch
+    // pero ningún campo cambió), recordFumigationEdit devuelve false
+    // y no inserta nada.
+    const session = await auth();
+    const actorEmail = session?.user?.email ?? "unknown@aeroadmin.local";
+    await recordFumigationEdit(before, updated, actorEmail);
+
     return NextResponse.json({ fumigation: updated }, { status: 200 });
   } catch (err) {
     const pgErr = err as { code?: string; message?: string };
@@ -369,10 +389,29 @@ export async function DELETE(
 
   // 4) Soft-delete
   try {
+    // Audit log: capturamos before (raw para detectar si ya estaba
+    // soft-deleted) y after (raw para tener el row con deleted_at
+    // seteado). `getFumigationById` filtra soft-deleted y no nos sirve
+    // para el after-state. Sprint 2026-08-15 — sub-2.
+    const before = await getFumigationRawById(fumigationId);
+    if (!before) {
+      return NextResponse.json({ error: "fumigación no encontrada" }, { status: 404 });
+    }
+
     const result = await softDeleteFumigationEvent(fumigationId, deletedBy);
     if (!result) {
       return NextResponse.json({ error: "fumigación no encontrada" }, { status: 404 });
     }
+
+    // Re-fetch con `getFumigationRawById` (no filtra deleted_at) para
+    // obtener el row con `deleted_at`/`deleted_by` seteados. El `result`
+    // del softDelete viene de `getFumigationById` que filtra y devuelve
+    // null en fumigaciones soft-deleted.
+    const after = await getFumigationRawById(fumigationId);
+    if (after) {
+      await recordFumigationDelete(before, after, deletedBy);
+    }
+
     return NextResponse.json({ fumigation: result }, { status: 200 });
   } catch (err) {
     const e = err as { message?: string };
