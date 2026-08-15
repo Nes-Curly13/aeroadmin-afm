@@ -1117,6 +1117,67 @@ export async function getFumigationById(id: number): Promise<DjiFumigationEvent 
 }
 
 /**
+ * Variante raw de `getFumigationById`: NO filtra por `deleted_at IS NULL`.
+ * Devuelve la fumigación esté soft-deleted o no, e hidrata los campos
+ * `deleted_at` y `deleted_by` (que `getFumigationById` filtra).
+ *
+ * Usado por el audit log (sub-2 del sprint feature/fumigation-audit-log)
+ * y por el endpoint restore (que necesita ver fumigaciones soft-deleted
+ * para restaurarlas). NO se usa en la UI pública — eso sigue pasando
+ * por `getFumigationById`.
+ *
+ * Devuelve `null` si la fumigación no existe (ni siquiera soft-deleted).
+ */
+export async function getFumigationRawById(
+  id: number
+): Promise<DjiFumigationEvent | null> {
+  const db = getDb();
+  try {
+    const result = await db.query<DjiFumigationEvent>(
+      `SELECT
+          f.id,
+          f.parcel_id,
+          f.fumigation_date,
+          f.product_used,
+          f.dose_l_per_ha,
+          f.area_fumigated_m2,
+          f.drone_code_used,
+          f.duration_minutes,
+          f.notes,
+          f.human_notes,
+          f.recorded_by,
+          f.product_registered_ica,
+          f.pilot_license,
+          f.recorded_at,
+          f.source,
+          f.category_id,
+          f.flight_ids,
+          f.deleted_at,
+          f.deleted_by,
+          CASE WHEN f.category_id IS NULL THEN NULL
+            ELSE row_to_json(cat) END AS category
+         FROM dji_fumigations f
+         LEFT JOIN fumigation_categories cat
+           ON cat.id = f.category_id AND cat.is_active = TRUE
+        WHERE f.id = $1
+        GROUP BY f.id, cat.id`,
+      [id]
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+    return {
+      ...row,
+      fumigation_date: toDateString(row.fumigation_date) ?? ""
+    };
+  } catch (err) {
+    if (process.env.NODE_ENV !== "production") {
+      return null;
+    }
+    throw err;
+  }
+}
+
+/**
  * Devuelve los dji_flights asociados a un evento de fumigación.
  * Usado por /fumigacion/[id] para mostrar la lista de vuelos con
  * piloto, dron, duración y área.
@@ -1367,20 +1428,150 @@ export async function restoreFumigationEvent(
         [id]
       );
 
-      // Log del restore para auditoría (no tenemos tabla de audit log
-      // todavía — ver backlog item #12). El console.log es suficiente
-      // hasta que se implemente audit_log. El session user queda
-      // registrado via `restoredBy` aunque no se persista en BD.
+      // Si realmente se restauró (no era no-op), invalidamos cache.
+      // La auditoría del restore la hace el endpoint (`recordFumigationRestore`
+      // en lib/fumigation-audit.ts, sprint 2026-08-15). Antes de ese
+      // sprint hacíamos console.log acá — el audit log lo reemplaza
+      // con un INSERT en `fumigation_audit_log`.
       if (result.rows.length > 0) {
-        // eslint-disable-next-line no-console
-        console.log(
-          `[fumigaciones] restore: id=${id} restoredBy=${restoredBy} at=${new Date().toISOString()}`
-        );
         invalidateAfterFumigationMutation();
       }
       return await getFumigationById(id);
     },
     async () => null
+  );
+}
+
+/**
+ * Valida que un valor sea una `FumigationAuditAction` válida. Usado
+ * por `insertFumigationAuditEvent` para defense-in-depth — el CHECK
+ * de la BD también valida, pero queremos devolver errores tipados en
+ * código (no `23514` opaco) si alguien pasa un action inválido.
+ *
+ * Sprint 2026-08-15 — feature/fumigation-audit-log / sub-1.
+ */
+const FUMIGATION_AUDIT_ACTIONS = [
+  "created",
+  "edited",
+  "deleted",
+  "restored"
+] as const;
+
+function isFumigationAuditAction(
+  v: string
+): v is (typeof FUMIGATION_AUDIT_ACTIONS)[number] {
+  return (FUMIGATION_AUDIT_ACTIONS as readonly string[]).includes(v);
+}
+
+/**
+ * Inserta un evento en la tabla `fumigation_audit_log`. Append-only:
+ * la tabla no se UPDATE ni se DELETE en operación normal. La usan los
+ * endpoints POST/PATCH/DELETE/restore para registrar quién hizo qué
+ * cuándo. La fumigación puede ser soft-deleted (deleted_at IS NOT
+ * NULL) — el audit log sigue existiendo.
+ *
+ * Sprint 2026-08-15 — feature/fumigation-audit-log / sub-1.
+ *
+ * @param event.fumigation_id - FK a dji_fumigations. CASCADE delete:
+ *   si en el futuro se hace un hard-delete, el audit log va con la
+ *   fumigación (no sobrevive como fantasma sin contexto).
+ * @param event.action - uno de los 4 valores del enum.
+ *   `created | edited | deleted | restored`.
+ * @param event.actor_email - email del session user (denormalizado).
+ * @param event.changes - JSONB con la diff o snapshot segun action.
+ *   Ver `FumigationAuditEvent.changes` en `lib/types.ts` para el
+ *   shape exacto de cada action.
+ *
+ * @returns La fila insertada, o `null` si la fumigación no existe
+ *   (en ese caso el FK falla con 23503 — la mapeamos a null para
+ *   no romper al caller con un error opaco).
+ */
+export async function insertFumigationAuditEvent(event: {
+  fumigation_id: number;
+  action: "created" | "edited" | "deleted" | "restored";
+  actor_email: string;
+  changes?: Record<string, unknown>;
+}): Promise<import("@/lib/types").FumigationAuditEvent | null> {
+  // Defense-in-depth: validar el action en código ademas del CHECK
+  // de la BD. Asi devolvemos un error tipado si el caller mete mal
+  // el string (no un PG 23514 "check_violation" opaco).
+  if (!isFumigationAuditAction(event.action)) {
+    throw new Error(
+      `insertFumigationAuditEvent: action inválido (${event.action}). Esperado uno de: ${FUMIGATION_AUDIT_ACTIONS.join(", ")}`
+    );
+  }
+  if (
+    typeof event.actor_email !== "string" ||
+    event.actor_email.trim().length === 0
+  ) {
+    throw new Error(
+      "insertFumigationAuditEvent: actor_email requerido (string no vacío)"
+    );
+  }
+  if (!Number.isInteger(event.fumigation_id) || event.fumigation_id <= 0) {
+    throw new Error(
+      "insertFumigationAuditEvent: fumigation_id requerido (entero positivo)"
+    );
+  }
+
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      const changes = event.changes ?? {};
+      const result = await db.query<import("@/lib/types").FumigationAuditEvent>(
+        `INSERT INTO fumigation_audit_log
+            (fumigation_id, action, actor_email, changes)
+         VALUES ($1, $2, $3, $4::jsonb)
+         RETURNING id, fumigation_id, action, actor_email, changes, created_at`,
+        [
+          event.fumigation_id,
+          event.action,
+          event.actor_email.trim(),
+          JSON.stringify(changes)
+        ]
+      );
+      const row = result.rows[0];
+      if (!row) return null;
+      // PG devuelve `changes` como objeto (no string) porque `pg` parsea
+      // JSONB automáticamente. Lo devolvemos tal cual.
+      return row;
+    },
+    async () => null
+  );
+}
+
+/**
+ * Devuelve la historia de auditoría de una fumigación, ordenada de la
+ * más reciente a la más vieja. Usado por la sección "Historial" del
+ * detail page `/fumigacion/[id]`.
+ *
+ * Devuelve `[]` si la fumigación no tiene eventos (caso normal para
+ * fumigaciones históricas que se crearon antes de este sprint — el
+ * audit log solo se popula desde la implementación en adelante).
+ *
+ * Sprint 2026-08-15 — feature/fumigation-audit-log / sub-1.
+ */
+export async function getFumigationAuditTrail(
+  fumigationId: number
+): Promise<import("@/lib/types").FumigationAuditEvent[]> {
+  if (!Number.isInteger(fumigationId) || fumigationId <= 0) {
+    throw new Error(
+      "getFumigationAuditTrail: fumigationId requerido (entero positivo)"
+    );
+  }
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      const result = await db.query<import("@/lib/types").FumigationAuditEvent>(
+        `SELECT id, fumigation_id, action, actor_email, changes, created_at
+           FROM fumigation_audit_log
+          WHERE fumigation_id = $1
+          ORDER BY created_at DESC, id DESC`,
+        [fumigationId]
+      );
+      return result.rows;
+    },
+    async () => []
   );
 }
 
