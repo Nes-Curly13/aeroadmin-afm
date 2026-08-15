@@ -7,6 +7,7 @@ import {
   Download,
   FileText,
   Droplets,
+  History,
   MapPin,
   Pencil,
   Plane,
@@ -18,8 +19,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { DeleteFumigationButton } from "@/components/fumigations/delete-fumigation-button";
+import { FumigationAuditTrail } from "@/components/fumigations/fumigation-audit-trail";
 import { FumigationMap } from "@/components/parcels/fumigation-map";
 import {
+  getFumigationAuditTrail,
   getFumigationById,
   getFumigationFlights,
   getParcelById
@@ -102,6 +105,12 @@ export default async function FumigacionPage({ params }: PageProps) {
 
   // Cargar los vuelos asociados a la fumigación.
   const flights = await getFumigationFlights(fumigation.flight_ids);
+
+  // Cargar el historial de cambios (audit log). Sprint 2026-08-15 —
+  // feature/fumigation-audit-log / sub-3. Devuelve [] si la fumigación
+  // no tiene eventos (caso típico: fumigaciones creadas antes de este
+  // sprint, el audit log se populó desde esta fecha en adelante).
+  const auditTrail = await getFumigationAuditTrail(fumigationId);
 
   // Dron info (puede ser null si drone_code_used=0 = "Sin asignar")
   // Cast a DroneModelId (0|72|201|210) — el type del evento es number
@@ -565,6 +574,30 @@ export default async function FumigacionPage({ params }: PageProps) {
           </CardContent>
         </Card>
       </div>
+
+      {/* Historial de cambios (audit log) — sprint 2026-08-15.
+          Solo visible si hay eventos (fumigaciones modernas) o si
+          quiere ver el mensaje "sin historial" para las antiguas. */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <History className="size-4 text-primary" aria-hidden />
+            Historial
+            {auditTrail.length > 0 ? (
+              <Badge variant="outline" className="ml-1 text-[10px] font-normal">
+                {`${auditTrail.length} evento${auditTrail.length === 1 ? "" : "s"}`}
+              </Badge>
+            ) : null}
+          </CardTitle>
+          <CardDescription>
+            Cambios registrados sobre esta fumigación: quién la creó, qué se
+            editó, cuándo se eliminó/restauró. Append-only — no se borra.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <FumigationAuditTrail events={auditTrail} />
+        </CardContent>
+      </Card>
     </div>
   );
 }
