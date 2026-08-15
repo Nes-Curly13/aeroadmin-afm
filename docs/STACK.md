@@ -161,7 +161,7 @@ DroneFlightAFM/
 │   ├── flight-plan.ts            # waypointsToFlightPlan (MultiPoint → LineString)
 │   ├── flight-plan-styles.ts     # Polyline pathOptions dashed cyan (M3-M5)
 │   └── map-parcel-content.ts     # hover/popup/a11y helpers + bindParcelLayerInteractions
-│   ├── dji-flights-aggregate.ts  # Rollup dji_flights → dji_daily_summaries shape
+│   ├── dji-flights-aggregate.ts  # Rollup dji_flights → summary shape (legacy era tabla física)
 │   ├── djiag-from-make/          # field-management.ts, task-history.ts,
 │   │                             # index.ts (capa de normalización)
 │   ├── djiag-spatial-aggregator.ts # Polígonos fumigados en rango
@@ -300,11 +300,14 @@ DroneFlightAFM/
 
 ### 4.4 Tablas removidas (legacy, ya droppeadas)
 
-- `dji_field_catalog` (catálogo duplicado) — drop en `20260628100001`
-- `dji_land_assets` y `dji_daily_summaries` — snapshot a `dji_legacy_snapshot`
-  y drop en `20260628120000`. `dji_daily_summaries` quedó **reemplazada**
-  por rollup on-the-fly desde `dji_flights` vía `lib/dji-flights-aggregate.ts`
-  con TZ `America/Bogota`.
+> Referencia histórica de las 3 tablas del S2. NO existen en la BD actual.
+> La queries equivalentes se hacen hoy vía rollup on-the-fly desde
+> `dji_flights` con `lib/dji-flights-aggregate.ts` (TZ `America/Bogota`).
+
+- Catálogo de campos duplicado → drop en `20260628100001`
+- Tabla de fields y rollup diario legacy → snapshot a `dji_legacy_snapshot`
+  y drop en `20260628120000`. El rollup diario **quedó reemplazado** por
+  el módulo `lib/dji-flights-aggregate.ts` (mismo shape, computado en vivo).
 
 ### 4.5 Constraints clave
 
@@ -424,8 +427,8 @@ orquesta data y delega UI a `TaskHistoryClient.tsx`.
 
 **Estrategia de datos** (en `app/api/task-history/route.ts` y `app/task-history/page.tsx`):
 1. Si hay filtros de vuelo → agrega desde `dji_flights` directo.
-2. Si no → lee `dji_daily_summaries` (tabla materializada).
-3. Si la tabla no existe (CI fresco) → fallback a `dji_flights`.
+2. Si no → rollup on-the-fly desde `dji_flights` (vía `lib/dji-flights-aggregate.ts`).
+3. Si falla el rollup (e.g. CI sin BD) → fallback a `dji_flights` crudo.
 4. Polígonos fumigados en rango: `lib/djiag-spatial-aggregator.getPolygonsInRange`.
 
 **Componentes**:
@@ -660,8 +663,9 @@ npm run seed:cadences               # cadencias desde config/*.json
 > Snapshot operativo. El detalle histórico está en `docs/audit/BITACORA.md`.
 
 - **Cerrado (Sprint 3, 2026-06-28)**: auth (NextAuth v5 + middleware Edge),
-  drop legacy tables (`dji_field_catalog`, `dji_land_assets`, `dji_daily_summaries`),
-  scraper defects §2.2/§2.3/§2.5, storage state 7 días, scroll helper.
+  drop de las 3 tablas del legacy S2 (catálogo duplicado + tabla de fields +
+  rollup diario, ahora virtual), scraper defects §2.2/§2.3/§2.5, storage
+  state 7 días, scroll helper.
 - **Post-sprint cleanup (master `7696ba4`)**: AppShell sidebar link,
   audit doc, verifier-contract tests, gitignore.
 - **S4 cerrado (2026-07-28)**: Quality Gauntlet setup — AGENTS.md canónico,

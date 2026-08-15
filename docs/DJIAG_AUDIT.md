@@ -202,7 +202,7 @@ Issues históricos (§2.1-§2.5) — la mayoría resueltos según el README y la
 | §2.1 land_file_urls.json vacío | ✅ Resuelto | `land_files/` ahora se llena (test del 6/10 exitoso) |
 | §2.2 Solo 16% parcelas | ✅ Resuelto | Scroll virtualizado implementado en `ensureOnFieldManagement()` |
 | §2.3 Solo 30 días history | 🟡 Parcial | Scroll implementado pero histórico de 23 años requiere muchos fetches |
-| §2.4 parseHistoryRecord frágil | ✅ Resuelto | Regex en importer rescata data del raw |
+| §2.4 Parser de history frágil | ✅ Resuelto | Regex en importer rescata data del raw (función eliminada en S2 junto con la tabla legacy) |
 | §2.5 Auth frágil | ✅ Resuelto | Storage state + _waitForAuthenticatedGraphql() |
 | §3.1 land_files 8 días desactualizado | 🟡 Idem §2.1 | Depende de fix §2.1 |
 | §3.2 Formato tiempo inconsistente | 🟡 Parcial | `work_time_text` se guarda literal, no normalizado |

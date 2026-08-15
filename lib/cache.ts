@@ -307,8 +307,8 @@ export const fetchDashboardMetricsCached = unstable_cache(
 /**
  * v1.6 (auditoria #2 doble modelo fumigaciones):
  *   ANTES: las alertas se derivaban de dji_flights agregado por DIA total.
- *   El `parcel_id` resultante era el id sintetico del row de dji_daily_summaries
- *   (1, 2, 3...) y `parcel_name` era la fecha. La UI mostraba "alertas" que
+ *   El `parcel_id` resultante era el id sintetico del row de rollup diario
+ *   legacy (1, 2, 3...) y `parcel_name` era la fecha. La UI mostraba "alertas" que
  *   no correspondian a ninguna parcela real — eran buckets por dia.
  *
  *   AHORA: las alertas se derivan de dji_fumigations (la verdad per-parcela),
