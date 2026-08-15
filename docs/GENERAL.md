@@ -18,6 +18,7 @@ Valle del Cauca, Colombia. **Un solo cliente**, **~1.213 parcelas**,
 - Alertas de cadencia (vencidas, por vencer, al día)
 - Reportes PDF + CSV por parcela individual o agregados por hacienda
 - Importación GIS de fincas (SHP / KML / KMZ)
+- **Audit log de fumigaciones** — quién creó/editó/eliminó/restauró qué cuándo (sprint `feature/fumigation-audit-log`, 2026-08-15)
 
 **Stack**: Next.js 16 + React 19 + TypeScript 5 + PostGIS + NextAuth v5 + Playwright.
 
@@ -141,6 +142,20 @@ Una fila por parcela con # fumigaciones, área total, litros,
 Detalle del feature completo (incluye decisiones de producto y
 deuda técnica) en `docs/features/reports/README.md`.
 
+### Audit log de fumigaciones (`/fumigacion/[id]` → sección "Historial")
+
+Cada fumigación muestra una línea de tiempo con quién la creó,
+qué se editó (diff campo por campo), cuándo se eliminó, y cuándo
+se restauró. Append-only: la tabla `fumigation_audit_log` no se
+modifica ni se borra en operación normal.
+
+**Por qué existe**: el operador fumigador y el contador ICA
+necesitan trazabilidad para auditorías. Antes de este sprint, un
+edit borraba la historia — no se sabía quién había cambiado qué.
+
+Decisiones, shape de los datos, queries útiles y rollback en
+[`docs/audit/AUDIT_LOG.md`](audit/AUDIT_LOG.md).
+
 ---
 
 ## Stack técnico
@@ -233,6 +248,16 @@ detalles técnicos completos.
 - ✅ `nativeButton={false}` en 14 Buttons con `render={<a/>}` (accessibility)
 - ✅ 21 archivos `tmp-*.js/log/err` movidos a `tmp-trash/`
 - ✅ `.gitignore` actualizado con 4 patrones nuevos
+
+**Sprint 2026-08-15 (feature/fumigation-audit-log)** cerrado:
+
+- ✅ Tabla `fumigation_audit_log` (append-only, FK CASCADE a `dji_fumigations`)
+- ✅ 4 actions: `created | edited | deleted | restored` (CHECK en BD + código)
+- ✅ Hook audit en POST/PATCH/DELETE/restore (fire-and-forget, no rompe response)
+- ✅ Helper `lib/fumigation-audit.ts` con snapshot/diff + `safeAuditInsert`
+- ✅ UI: panel "Historial" en `/fumigacion/[id]` con timeline + diff expandible
+- ✅ 41 tests nuevos (11 repo + 16 API + 14 componente), 1504/1504 verde
+- ✅ `docs/audit/AUDIT_LOG.md` con shape de `changes`, queries útiles, rollback
 
 ---
 
