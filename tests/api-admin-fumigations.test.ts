@@ -26,6 +26,11 @@ vi.mock("@/api/repositories", () => ({
   createFumigationEvent: (...args: unknown[]) => mockCreateFumigation(...args)
 }));
 
+const mockRecordCreate = vi.fn();
+vi.mock("@/lib/fumigation-audit", () => ({
+  recordFumigationCreate: (...args: unknown[]) => mockRecordCreate(...args)
+}));
+
 const mockRequireRole = vi.fn();
 vi.mock("@/lib/auth/role", () => ({
   requireRole: (...args: unknown[]) => mockRequireRole(...args)
@@ -80,6 +85,8 @@ beforeEach(() => {
     recorded_by: "supervisor@afm.local",
     source: "manual"
   });
+  // Audit log mock: por default resuelve sin error (fire-and-forget).
+  mockRecordCreate.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -344,5 +351,56 @@ describe("POST /api/admin/fumigations — errores de BD", () => {
     );
     const res = await route.POST(makeReq(VALID_BODY));
     expect(res.status).toBe(500);
+  });
+});
+
+// ============================================================
+// Audit log (sprint feature/fumigation-audit-log 2026-08-15)
+// ============================================================
+
+describe("POST /api/admin/fumigaciones � audit log", () => {
+  beforeEach(() => {
+    // mockResolvedValue (no Once) — setea el default behavior del mock.
+    // Tests individuales pueden sobreescribir con mockRejectedValueOnce
+    // (que tiene prioridad FIFO sobre el default). Si usáramos
+    // mockResolvedValueOnce acá, la queue se llenaría y consumiría
+    // el slot ANTES del mockRejectedValueOnce del test de 401, dejando
+    // el rejected en la queue para el test siguiente.
+    mockRequireRole.mockResolvedValue(undefined);
+  });
+
+  it("registra audit 'created' con snapshot + email del session user tras 201", async () => {
+    const res = await route.POST(makeReq(VALID_BODY));
+    expect(res.status).toBe(201);
+    expect(mockRecordCreate).toHaveBeenCalledTimes(1);
+    const [fumigation, actorEmail] = mockRecordCreate.mock.calls[0];
+    expect(actorEmail).toBe("supervisor@afm.local");
+    expect(fumigation.id).toBe(42);
+  });
+
+  it("NO registra audit si la fumigaci�n NO se cre� (error de BD)", async () => {
+    mockCreateFumigation.mockRejectedValueOnce(
+      Object.assign(new Error("FK violation"), { code: "23503" })
+    );
+    const res = await route.POST(makeReq(VALID_BODY));
+    expect(res.status).toBe(400);
+    expect(mockRecordCreate).not.toHaveBeenCalled();
+  });
+
+  it("NO registra audit si la auth falla (401)", async () => {
+    mockRequireRole.mockRejectedValueOnce(
+      Object.assign(new Error("UNAUTHENTICATED"), { code: "UNAUTHENTICATED" })
+    );
+    const res = await route.POST(makeReq(VALID_BODY));
+    expect(res.status).toBe(401);
+    expect(mockRecordCreate).not.toHaveBeenCalled();
+  });
+
+  it("NO registra audit si el body es inv�lido (400)", async () => {
+    const res = await route.POST(
+      makeReq({ parcel_id: "not-a-number", fumigation_date: "2026-08-02" })
+    );
+    expect(res.status).toBe(400);
+    expect(mockRecordCreate).not.toHaveBeenCalled();
   });
 });

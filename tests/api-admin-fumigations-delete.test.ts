@@ -17,8 +17,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockSoftDelete = vi.fn();
+const mockGetRawById = vi.fn();
 vi.mock("@/api/repositories", () => ({
-  softDeleteFumigationEvent: (...args: unknown[]) => mockSoftDelete(...args)
+  softDeleteFumigationEvent: (...args: unknown[]) => mockSoftDelete(...args),
+  getFumigationRawById: (...args: unknown[]) => mockGetRawById(...args)
+}));
+
+const mockRecordDelete = vi.fn();
+vi.mock("@/lib/fumigation-audit", () => ({
+  recordFumigationDelete: (...args: unknown[]) => mockRecordDelete(...args)
 }));
 
 const mockRequireRole = vi.fn();
@@ -49,6 +56,27 @@ function makeReq(): Request {
 
 const SESSION_USER = { user: { email: "supervisor@afm.local" } };
 
+const FUMIGATION_BEFORE = {
+  id: 1,
+  parcel_id: 42,
+  fumigation_date: "2026-08-13",
+  product_used: "Glifosato 48%",
+  dose_l_per_ha: 2.5,
+  area_fumigated_m2: 12_345,
+  drone_code_used: 201,
+  duration_minutes: 45,
+  notes: null,
+  human_notes: null,
+  recorded_by: "supervisor@afm.local",
+  product_registered_ica: null,
+  pilot_license: null,
+  recorded_at: "2026-08-13T15:00:00.000Z",
+  source: "manual" as const,
+  category_id: 1,
+  deleted_at: null,
+  deleted_by: null
+};
+
 const FUMIGATION_DELETED = {
   id: 1,
   parcel_id: 42,
@@ -72,11 +100,38 @@ const FUMIGATION_DELETED = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // mockReset() limpia el implementation queue (mockResolvedValueOnce).
+  // Sin esto, tests con early return (auth fail, 400, etc) acumulan
+  // entradas en la queue y el test siguiente las consume antes que
+  // las que setea su propio beforeEach.
+  mockGetRawById.mockReset();
+  mockRecordDelete.mockReset();
+  mockSoftDelete.mockReset();
+  mockRequireRole.mockReset();
+  mockAuth.mockReset();
+
   mockAuth.mockResolvedValue(SESSION_USER);
   // Default: requireRole pasa (admin/supervisor OK).
   mockRequireRole.mockResolvedValue(undefined);
   // Default: soft-delete exitoso.
   mockSoftDelete.mockResolvedValue(FUMIGATION_DELETED);
+  // Default: getFumigationRawById alterna BEFORE (active) y DELETED
+  // (soft-deleted) por call. El handler hace 2 calls por DELETE:
+  //   1ra: before (devuelve FUMIGATION_BEFORE, active)
+  //   2da: after (devuelve FUMIGATION_DELETED, soft-deleted)
+  // Tests que llaman al endpoint más veces (ej. idempotencia que
+  // hace 2 DELETEs = 4 calls) reusan el patrón: impares=BEFORE,
+  // pares=DELETED. Tests que quieren otra cosa sobreescriben con
+  // mockResolvedValueOnce (prioridad FIFO sobre la impl).
+  let callCount = 0;
+  mockGetRawById.mockImplementation(() => {
+    callCount++;
+    return Promise.resolve(
+      callCount % 2 === 1 ? FUMIGATION_BEFORE : FUMIGATION_DELETED
+    );
+  });
+  // Audit log mock: por default resuelve con true (insertó audit).
+  mockRecordDelete.mockResolvedValue(true);
 });
 
 afterEach(() => {
@@ -271,5 +326,45 @@ describe("DELETE .../fumigations/[id] — errores de repo", () => {
     expect(res.status).toBe(500);
     const body = await res.json();
     expect(body.error).toBe("error interno");
+  });
+});
+
+// ============================================================
+// Audit log (sprint feature/fumigation-audit-log 2026-08-15)
+// ============================================================
+
+describe("DELETE .../fumigations/[id] � audit log", () => {
+  beforeEach(() => {
+    mockRequireRole.mockResolvedValue(undefined);
+  });
+
+  it("registra audit 'deleted' con before + after + email del session user tras 200", async () => {
+    const res = await route.DELETE(makeReq(), makeCtx("1"));
+    expect(res.status).toBe(200);
+    expect(mockRecordDelete).toHaveBeenCalledTimes(1);
+    const [before, after, actorEmail] = mockRecordDelete.mock.calls[0];
+    // before: fumigaci�n activa (deleted_at null)
+    expect(before.deleted_at).toBeNull();
+    // after: fumigaci�n soft-deleted (deleted_at set)
+    expect(after.deleted_at).toBe("2026-08-14T10:00:00.000Z");
+    expect(after.deleted_by).toBe("supervisor@afm.local");
+    expect(actorEmail).toBe("supervisor@afm.local");
+  });
+
+  it("NO registra audit si la fumigaci�n no existe (404 � getFumigationRawById null)", async () => {
+    mockGetRawById.mockReset();
+    mockGetRawById.mockResolvedValueOnce(null);
+    const res = await route.DELETE(makeReq(), makeCtx("9999"));
+    expect(res.status).toBe(404);
+    expect(mockRecordDelete).not.toHaveBeenCalled();
+  });
+
+  it("NO registra audit si la auth falla (401)", async () => {
+    mockRequireRole.mockRejectedValueOnce(
+      Object.assign(new Error("no session"), { code: "UNAUTHENTICATED" })
+    );
+    const res = await route.DELETE(makeReq(), makeCtx("1"));
+    expect(res.status).toBe(401);
+    expect(mockRecordDelete).not.toHaveBeenCalled();
   });
 });

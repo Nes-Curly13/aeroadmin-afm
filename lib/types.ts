@@ -229,6 +229,20 @@ export interface DjiFumigationEvent {
    */
   category_id?: number | null;
   /**
+   * Soft-delete (sprint 2026-08-13 — feature/fumigacion-detail-v2 /
+   * sub-4). NULL = fumigación activa. NO NULL = soft-deleted. Solo
+   * lo hidrata `getFumigationRawById()` (usado por audit log y por
+   * el endpoint restore). `getFumigationById` filtra estos rows
+   * fuera, así que para fumigaciones activas en lectura normal
+   * estos campos son undefined.
+   *
+   * Sprint 2026-08-15 — feature/fumigation-audit-log. Agregado al
+   * type para que el audit log pueda diferenciar "create" vs "no-op
+   * create" sin un query extra.
+   */
+  deleted_at?: string | null;
+  deleted_by?: string | null;
+  /**
    * Catálogo de la categoría, hidratado vía LEFT JOIN con
    * `fumigation_categories` en los queries de lectura. Undefined si
    * la fumigación no tiene categoría (category_id IS NULL).
@@ -280,6 +294,50 @@ export interface FumigationCategory {
   color: string;
   sort_order: number;
   is_active: boolean;
+}
+
+/**
+ * Sprint feature/fumigation-audit-log (2026-08-15) — acciones posibles
+ * en la tabla `fumigation_audit_log`. Mantenemos como `type` string
+ * union para que el caller tenga type-safety en código (en BD es TEXT
+ * con CHECK constraint que valida los mismos 4 valores).
+ *
+ * Decisión de no usar ENUM de Postgres: si en el futuro se agrega un
+ * action nuevo (e.g. 'exported' para registrar un download de PDF),
+ * NO requiere una migration destructiva (ALTER TYPE ADD VALUE es
+ * pesado en tablas grandes). Validamos en código y en el CHECK.
+ */
+export type FumigationAuditAction =
+  | "created"
+  | "edited"
+  | "deleted"
+  | "restored";
+
+/**
+ * Un evento de auditoría de fumigación. Append-only: solo INSERT,
+ * nunca UPDATE ni DELETE en operación normal. La tabla es
+ * `fumigation_audit_log` (migration 20260815000000).
+ *
+ * El `changes` es JSONB cuyo shape depende del `action`:
+ *   - 'created'  : { fields: { fumigation_date, product_used, ... } }
+ *                  — snapshot del evento creado.
+ *   - 'edited'   : { diff: { product_used: { from, to }, ... } }
+ *                  — solo los campos que efectivamente cambiaron.
+ *   - 'deleted'  : { snapshot: { product_used, dose_l_per_ha, ... } }
+ *                  — qué se borró (contexto para entender el delete).
+ *   - 'restored' : { restored_from: { deleted_at, deleted_by } }
+ *                  — metadata del estado soft-deleted del que salió.
+ *
+ * Los `from`/`to` en `edited` son los valores normalizados (mismo
+ * shape que el row de `dji_fumigations`), no el raw input del PATCH.
+ */
+export interface FumigationAuditEvent {
+  id: number;
+  fumigation_id: number;
+  action: FumigationAuditAction;
+  actor_email: string;
+  changes: Record<string, unknown>;
+  created_at: string;
 }
 
 /**
