@@ -216,9 +216,17 @@ otro warning sería ruido.
   DJI expone
 - `lib/djiag-fumigations-fetcher.js:185` — el `product_used` y
   `drone_code_used` quedan NULL en este fetcher
-- `scripts/backfill-fumigations-from-flights.js` — step 6 del pipeline
+- ~~`scripts/backfill-fumigations-from-flights.js` — step 6 del pipeline~~
+  → Reemplazado en 2026-08-15 por
+  `scripts/backfill-fumigations-from-flights.js` (NUEVO) que asigna
+  `parcel_id` (no `product_used`/`dose_l_per_ha`). Ver
+  `docs/audit/FUMIGATION_PARCEL_BACKFILL.md`. El nombre del archivo
+  se mantuvo por consistencia con la referencia en este doc.
 - `lib/data.ts:331` — V0 adapter hardcodea `dose_l_ha: 2.0` (default
   falso, ver issue de arriba)
 - `docs/DJIAG_AUDIT.md` — auditoría original del pipeline
 - `docs/FUMIGATION_CADENCE.md` — cadencia de fumigación por tipo de
   cultivo
+- `docs/audit/FUMIGATION_PARCEL_BACKFILL.md` — la OTRA mitad de la
+  deuda (asignar `parcel_id` a fumigaciones aggregate). Sprint
+  2026-08-15, feature/backfill-fumigation-parcel.
