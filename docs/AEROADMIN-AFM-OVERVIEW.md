@@ -166,9 +166,7 @@ Cada página es un **Server Component** (salvo `/login` y los clientes interacti
 - **Tipo**: Server Component → `TaskHistoryClient` (cliente).
 - **Queries**:
   1. `resolveEnrichedDays({ from, to, parcelId?, droneSerial?, pilot? })` → día-cards con sub-lista de vuelos.
-     - Path 1: si hay filtros por vuelo → agrega directo desde `dji_flights`.
-     - Path 2: si no hay filtros → usa `dji_daily_summaries` (rollup) + query separada a `dji_flights` para la sub-lista.
-     - Path 3: fallback a path 1 si la tabla de summaries no existe (CI).
+     - Agrega directo desde `dji_flights` (con rollup por día via `lib/dji-flights-aggregate.ts`).
   2. `getPolygonsInRange({ from, to, onlyFumigated: true, parcelId?, droneSerial?, pilot? })` → polígonos fumigados en el rango.
   3. `fetchDroneSuggestions(30)` → seriales distintos para el datalist del filtro.
 - **Filtros URL**: `?from=YYYY-MM-DD&to=YYYY-MM-DD&parcelId=N&droneSerial=HK-...&pilot=...`. Default: últimos 6 meses.

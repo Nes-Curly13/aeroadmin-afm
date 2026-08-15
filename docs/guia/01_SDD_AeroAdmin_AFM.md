@@ -127,8 +127,10 @@ Cualquier cambio a esta tolerancia debe justificarse y documentarse — afecta l
 integridad de todo el historial.
 
 ### 4.3 Tablas legacy removidas
-`dji_field_catalog`, `dji_land_assets`, `dji_daily_summaries` fueron droppeadas
-(snapshot en `dji_legacy_snapshot`). `dji_daily_summaries` fue reemplazada por rollup
+Las 3 tablas del legacy S2 (catálogo de campos, tabla de fields, rollup
+diario) fueron droppeadas (snapshot en `dji_legacy_snapshot`). El rollup
+diario **fue reemplazado** por rollup virtual on-the-fly desde `dji_flights`
+vía `lib/dji-flights-aggregate.ts`.
 on-the-fly desde `dji_flights` (`lib/dji-flights-aggregate.ts`). **No reintroducir
 estas tablas** sin revisar por qué se eliminaron (`docs/audit/BITACORA.md`).
 

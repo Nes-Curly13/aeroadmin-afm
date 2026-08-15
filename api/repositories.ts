@@ -123,11 +123,12 @@ async function withLocalFallback<T>(queryFn: () => Promise<T>, fallbackFn: () =>
   }
 }
 
-// (S2 / 2026-07-01) `loadLocalAssetRecords()` y `getParcels()` legacy eliminados.
-// (S3 / 2026-07-01) `loadLocalFieldCount()` (código muerto) eliminado.
-// Las tablas dji_land_assets y dji_daily_summaries se dropearon en la migración
-// 20260628120000, y S1.7 ya migró el último caller (app/page.tsx) a
-// getParcelsNormalized(). El dashboard ahora solo lee de dji_parcels y dji_flights.
+// S2 (2026-07-01): `loadLocalAssetRecords()` y `getParcels()` legacy eliminados.
+// S3 (2026-07-01): `loadLocalFieldCount()` (código muerto) eliminado.
+// S1.7 ya migró el último caller (app/page.tsx) a getParcelsNormalized().
+// Las tablas legacy de catálogo, denormalización y rollup diario se
+// dropearon en la migration 20260628120000 (snapshot en dji_legacy_snapshot).
+// El dashboard ahora solo lee de dji_parcels y dji_flights.
 
 export interface PaginatedResult<T> {
   data: T[];

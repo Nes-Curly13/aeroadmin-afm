@@ -82,7 +82,7 @@ no solo una nota:
   (`geometry(MultiPolygon, 4326)`, etc.) y su índice GIST en la misma migración que
   la crea — no como paso separado "para después".
 - Antes de dropear una tabla, snapshot a `_legacy_snapshot` primero (patrón usado
-  con `dji_land_assets`/`dji_daily_summaries`) — permite rollback sin restaurar
+  con las 3 tablas del legacy S2) — permite rollback sin restaurar
   backup completo.
 - Correr `scripts/smoke-test-db.js` después de aplicar una migración nueva.
 

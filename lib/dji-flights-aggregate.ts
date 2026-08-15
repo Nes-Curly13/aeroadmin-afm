@@ -2,13 +2,14 @@
 //
 // Contexto (Sprint 2 del roadmap de auditoría 2026-06-28):
 //   - dji_flights tiene 1 fila por sortie individual del drone (7050 filas
-//     para 30 días de data). Mucho más granular que dji_daily_summaries.
+//     para 30 días de data). Mucho más granular que el rollup diario
+//     legacy (droppeado en S2).
 //   - Las pages del dashboard (/, /history, /map) consumen el shape
 //     DjiDailySummaryRecord (rollup por día, area_mu en MU, etc.) que
-//     venía de dji_daily_summaries.
+//     antes venía de la tabla legacy dropeada.
 //   - Este módulo agrega dji_flights en JS para preservar el shape sin
-//     cambiar la UI. Cuando se dropee dji_daily_summaries, esta capa
-//     será la única fuente de "resumen por día" para el dashboard.
+//     cambiar la UI. Es la única fuente de "resumen por día" para el
+//     dashboard desde S2.
 //
 // Decisiones:
 //   - TZ America/Bogota (Colombia, donde opera el cliente). El cliente
@@ -145,14 +146,15 @@ export interface DailySummaryLike {
 /**
  * Agrupa una lista de vuelos por día local y devuelve un array de
  * DjiDailySummaryRecord-compatible. Ordenado por fecha DESC (más reciente
- * primero, igual que el query legacy de dji_daily_summaries).
+ * primero, igual que el query legacy del rollup diario antes de S2).
  *
  * category se hardcodea a "Agriculture" — DJI AG solo hace fumigación
  * agrícola, no hay otra categoría. Si en el futuro se agrega otra, leer
  * de dji_flights.mode_name.
  *
  * `id` se regenera por día (1, 2, 3...) — antes era el id de la fila
- * de dji_daily_summaries. La UI no usa el id para nada crítico.
+ * del rollup diario legacy (droppeado en S2). La UI no usa el id
+ * para nada crítico.
  */
 export function aggregateFlightsByDay(
   rows: FlightRow[],

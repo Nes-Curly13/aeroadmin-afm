@@ -138,14 +138,43 @@ jobs:
       - uses: actions/checkout@v4
       - name: Check no stale refs in docs
         run: |
-          # Falla si algún .md referencia tablas que ya no existen (dji_daily_summaries,
-          # dji_land_assets, dji_field_catalog) o funciones eliminadas.
+          # Falla si algún .md / .ts / .tsx referencia tablas que ya no existen
+          # (dji_daily_summaries, dji_land_assets, dji_field_catalog) o funciones
+          # eliminadas (parseHistoryRecord, parseFieldCard).
+          #
+          # Excluidos (por design — son históricos, NO son código actual):
+          #   - SCRAPER_DEFECTS.md        → registro histórico de bugs
+          #   - ARCHITECTURE.md           → decisiones de diseño históricas
+          #   - README.md                 → readme del repo
+          #   - BITACORA.md               → bitácora de sprints cerrados
+          #   - figma-vs-bd.md            → audit histórico (Figma vs BD)
+          #   - DJIAG_AUDIT.md            → audit histórico del scraper DJI
+          #   - SYNTHESIS.md              → review histórica de propuestas
+          #   - BUSINESS.md               → review histórica de negocio
+          #   - 01_SDD_AeroAdmin_AFM.md   → SDD legacy (reemplazado por docs/SDD.md)
+          #   - 03_MEJORES_PRACTICAS_AGENTES.md → prácticas legacy
+          #   - STACK.md                  → doc canónico de referencia; tiene una
+          #                                  sección "Tablas removidas" que enumera
+          #                                  las legacy dropeadas. No es un claim
+          #                                  sobre comportamiento actual.
+          #
+          # IMPORTANTE: `--exclude` matchea contra el basename del archivo
+          # (no contra el path completo), por eso usamos solo el nombre.
           set -e
           STALE=$(grep -rEn 'dji_daily_summaries|dji_land_assets|dji_field_catalog|parseHistoryRecord|parseFieldCard' \
             --include='*.md' --include='*.ts' --include='*.tsx' \
             --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git \
-            --exclude='SCRAPER_DEFECTS.md' --exclude='docs/audit/BITACORA.md' \
-            --exclude='ARCHITECTURE.md' --exclude='README.md' \
+            --exclude='SCRAPER_DEFECTS.md' \
+            --exclude='ARCHITECTURE.md' \
+            --exclude='README.md' \
+            --exclude='BITACORA.md' \
+            --exclude='figma-vs-bd.md' \
+            --exclude='DJIAG_AUDIT.md' \
+            --exclude='SYNTHESIS.md' \
+            --exclude='BUSINESS.md' \
+            --exclude='01_SDD_AeroAdmin_AFM.md' \
+            --exclude='03_MEJORES_PRACTICAS_AGENTES.md' \
+            --exclude='STACK.md' \
             . || true)
           if [ -n "$STALE" ]; then
             echo "::error::Stale refs found (excluyendo docs históricos):"

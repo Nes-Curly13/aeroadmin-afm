@@ -296,10 +296,10 @@ de **Task History**, este es el listado crudo.
 ### 6.4 Task History (`/task-history`) — feature estrella del sprint previo
 Vista según Figma frame B. Server component orquesta data; client
 component interactivo. Filtros por rango de fechas, parcela, dron,
-piloto. Output: `totals` + `days[]` + `polygons[]`. Estrategia: si
-hay filtros de vuelo → desde `dji_flights`; si no → desde
-`dji_daily_summaries`; si no existe → fallback a `dji_flights`.
-Polígonos fumigados en rango via `lib/djiag-spatial-aggregator`.
+piloto. Output: `totals` + `days[]` + `polygons[]`. Estrategia: el
+rollup diario se computa on-the-fly desde `dji_flights` via
+`lib/dji-flights-aggregate.ts` (reemplaza la tabla legacy dropeada
+en S2). Polígonos fumigados en rango via `lib/djiag-spatial-aggregator`.
 
 ### 6.5 Detalle de parcela (`/parcelas/[id]`)
 Server component (`app/parcelas/[id]/page.tsx`) que importa de

@@ -173,9 +173,10 @@ export function getFumigationStatus(
 
 ## Lo que NO sabemos (gaps)
 
-1. **Cultivos específicos del cliente** — los `dji_field_catalog` solo
-   dicen "Farmland" / "Orchards". No sabemos si todas las farmlands
-   son caña o hay otro cultivo. Necesitamos input del cliente:
+1. **Cultivos específicos del cliente** — la BD solo tiene el campo
+   `field_type` (enum: "Farmland" / "Orchards" / etc.). No sabemos
+   si todas las farmlands son caña o hay otro cultivo. Necesitamos
+   input del cliente:
    - ¿Todas las Farmland son caña de azúcar?
    - ¿Las Orchards son citrícos, mango, aguacate?
 
