@@ -5,6 +5,7 @@ import { loginAction, type LoginResult } from "./actions";
 import { Plane } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { AuraBackground } from "@/components/aura-background";
 
 /**
  * Login page (Client Component).
@@ -15,6 +16,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
  *
  * v2.3 (S8 — V0 rebuild): visuales portados a los primitives V0
  * (Card / Button / iconografía lucide).
+ *
+ * v2.4 (Sprint 2026-08-15): fondo con `AuraBackground` (Sunrise Drift
+ * sobre la paleta AFM — verde/teal/lime/azul). Ver `app/globals.css`
+ * para la arquitectura de las capas. La base sigue siendo el
+ * `bg-background` del body, removido el `bg-background` del <main>
+ * para que las capas en multiply compongan contra el body.
  */
 
 export default function LoginPage() {
@@ -24,8 +31,9 @@ export default function LoginPage() {
   );
 
   return (
-    <main className="flex min-h-svh items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-sm gap-0 py-6">
+    <AuraBackground>
+      <main className="flex min-h-svh items-center justify-center p-4">
+        <Card className="w-full max-w-sm gap-0 py-6">
         <CardHeader className="items-center gap-3 px-6 pb-4">
           <div className="grid size-12 place-items-center rounded-lg bg-primary/10 text-primary">
             <Plane className="size-6" aria-hidden />
@@ -81,5 +89,6 @@ export default function LoginPage() {
         </CardContent>
       </Card>
     </main>
+    </AuraBackground>
   );
 }

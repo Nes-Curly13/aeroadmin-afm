@@ -117,6 +117,80 @@
   }
 }
 
+/* Aura background "Sunrise Drift" (Sprint 2026-08-15)
+ *
+ * Gradiente atmosférico con 2 capas en blend mode `multiply` sobre el
+ * body background (`bg-background` = `oklch(0.982 0.003 150)`, crema muy
+ * claro). Las capas se componen contra ESE fondo, no contra el container
+ * — por eso el container NO lleva `background-color` propio.
+ *
+ * Colores: chart-1 (verde brand, primary) + teal + chart-4 (lime) + chart-3
+ * (azul cielo) para evocar la vista del drone sobre los campos cañeros
+ * del Valle del Cauca.
+ *
+ - Login page (app/login/page.tsx) usa este background.
+ - Si querés usarlo en otra página, importá <AuraBackground> y wrappeá
+   el contenido. La primera vez que lo apliqués a una página que NO tiene
+   el body claro, seteá explícitamente el `background-color` del body o
+   del wrapper a un crema/light para que el multiply tenga con qué componer.
+ */
+@layer components {
+  .aura-bg {
+    position: relative;
+    overflow: hidden;
+    min-height: 100vh;
+    /* NO background-color — las capas se componen contra el body */
+  }
+
+  .aura-layer {
+    position: absolute;
+    inset: 0;
+    mix-blend-mode: multiply;
+    transform: translateZ(0);
+    will-change: transform;
+    pointer-events: none;
+  }
+
+  .aura-layer-1 {
+    background: linear-gradient(
+      135deg,
+      oklch(0.42 0.09 150 / 0.20) 0%,
+      /* brand (verde primary) */
+      oklch(0.53 0.076 190 / 0.24) 35%,
+      /* teal */
+      oklch(0.86 0.16 104 / 0.18) 70%,
+      /* chart-4 (lime) */
+      oklch(0.55 0.12 250 / 0.10) 100%
+      /* chart-3 (azul cielo) */
+    );
+    filter: blur(75px);
+  }
+
+  .aura-layer-2 {
+    background: linear-gradient(
+      45deg,
+      oklch(0.53 0.076 190 / 0.28) 0%,
+      /* teal más fuerte */
+      oklch(0.42 0.09 150 / 0.16) 45%,
+      /* brand sutil */
+      oklch(0.92 0.185 104 / 0.22) 80%,
+      /* lime vibrante */
+      oklch(0.62 0.11 145 / 0.10) 100%
+      /* chart-5 (green) */
+    );
+    filter: blur(125px);
+  }
+
+  @media (min-width: 768px) {
+    .aura-layer-1 {
+      filter: blur(108px);
+    }
+    .aura-layer-2 {
+      filter: blur(180px);
+    }
+  }
+}
+
 /* Ajustes de MapLibre para integrarse con el tema */
 .maplibregl-ctrl-group {
   border-radius: var(--radius) !important;

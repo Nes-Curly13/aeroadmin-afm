@@ -259,6 +259,17 @@ detalles técnicos completos.
 - ✅ 41 tests nuevos (11 repo + 16 API + 14 componente), 1504/1504 verde
 - ✅ `docs/audit/AUDIT_LOG.md` con shape de `changes`, queries útiles, rollback
 
+**Sprint 2026-08-18 (feature/backfill-audit-log)** cerrado:
+
+- ✅ `scripts/backfill-audit-log.js` — popula `fumigation_audit_log` con eventos `created` + `deleted` históricos
+- ✅ Idempotente (chequea existencia antes de cada insert, re-ejecutable)
+- ✅ --dry-run para preview, --limit=N para smoke test
+- ✅ Snapshot del estado actual de la fumigación (no del estado al momento del evento)
+- ✅ Tag `_backfill: true` en `changes` para que la UI pueda diferenciar de eventos reales
+- ✅ 17 tests nuevos (8 parseArgs + 3 backfillSnapshot + 6 backfillAuditLog), 1521/1521 verde
+- ✅ `docs/audit/AUDIT_LOG.md` actualizado con sección "Backfill inicial"
+- ✅ Operator runbook: `node scripts/backfill-audit-log.js --dry-run` primero, luego sin flag
+
 ---
 
 ## Cómo correrlo en dev
