@@ -218,6 +218,72 @@ No es urgente para el v1.)
 Pre-sprint: 1463 tests. Post-sprint: 1504. **+41 nuevos**, 0
 regresiones. `arch:check` 0 violations, `npm run build` verde.
 
+## Backfill inicial (Sprint 2026-08-18)
+
+El audit log solo registra eventos desde que se deployó (2026-08-15).
+Las ~17k fumigaciones históricas no tenían eventos registrados, así
+que el panel "Historial" de cada fumigación aparecía vacío.
+
+**Solución**: `scripts/backfill-audit-log.js` popula la tabla con
+eventos `created` y `deleted` reconstruidos desde los datos
+históricos de `dji_fumigations`:
+
+| Action | Fuente histórica | Limitación |
+|---|---|---|
+| `created` | `dji_fumigations.recorded_at` (timestamp) + `recorded_by` (actor) | `recorded_by` NULL → se marca como `system@dji-import` |
+| `deleted` | `dji_fumigations.deleted_at` + `deleted_by` | `deleted_by` NULL → se marca como `unknown@aeroadmin.local` |
+| `edited` | ❌ No backfillable | Antes del sprint, las ediciones eran SQL UPDATE directo, no hay historial |
+| `restored` | ❌ No backfillable | El endpoint `/restore` es nuevo, no hay restores anteriores |
+
+### Snapshot de los eventos backfilled
+
+A diferencia de los eventos reales (donde el snapshot refleja el estado
+al momento del evento), los backfilled usan el **estado actual** de la
+fumigación como snapshot. Esto es honesto y útil — el operador ve qué
+campos tiene hoy ese registro, aún si la fumigación fue editada
+después del deploy.
+
+Para que la UI pueda diferenciar eventos backfilled de eventos reales
+en el futuro, el payload `changes` incluye un tag:
+
+```json
+{
+  "_backfill": true,
+  "_note": "Reconstruido del estado actual de la BD…",
+  "fields": { ... }  // o "snapshot": { ... }
+}
+```
+
+### Uso
+
+```bash
+# Previsualizar sin tocar la BD
+node scripts/backfill-audit-log.js --dry-run
+
+# Ejecutar de verdad (idempotente — re-ejecutable)
+node scripts/backfill-audit-log.js
+
+# Smoke test con 100 fumigaciones
+node scripts/backfill-audit-log.js --limit=100
+```
+
+### Output esperado
+
+```
+[backfill-audit-log] Stats:
+  total fumigations processed: 17000
+  created:  17000 inserted, 0 already existed
+  deleted:  847 inserted, 0 already existed, 16153 not soft-deleted
+  elapsed:  2.34s
+```
+
+### Tests (17 nuevos, todos verde)
+
+`tests/scripts-backfill-audit-log.test.ts` cubre:
+- `parseArgs` (8 casos): default, --dry-run, --limit válido/inválido, --help, flag desconocido, posicional
+- `backfillSnapshot` (3 casos): shape de fields vs snapshot, normalización undefined→null
+- `backfillAuditLog` (6 casos): happy path con 3 fumigaciones, idempotencia (2 corridas), --dry-run no inserta, --limit N solo procesa N, fallback de actor cuando NULL
+
 ## Limitaciones conocidas (v1)
 
 1. **No hay query "todos los eventos de un usuario" con índice**.
