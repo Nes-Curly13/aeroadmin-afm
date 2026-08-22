@@ -21,7 +21,11 @@ export const metadata: Metadata = {
     "Geovisor de operaciones de fumigación aérea de caña de azúcar: parcelas, vuelos, cadencia y hoja de vida de cada suerte.",
   generator: "v0.app",
   icons: {
-    icon: [{ url: "/afm-logo.svg", type: "image/svg+xml" }],
+    // v2.7.2 (2026-08-22 — QA): cambiamos el favicon de /afm-logo.svg
+    // (57KB, vertical 485x695 con paths SVG complejos) a /afm-logo-mark.svg
+    // (1.3KB, horizontal 120x40). El mark usa currentColor así que hereda
+    // el color del browser tab. Mucho más rápido de cargar.
+    icon: [{ url: "/afm-logo-mark.svg", type: "image/svg+xml" }],
   },
 }
 

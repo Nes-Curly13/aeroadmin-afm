@@ -81,17 +81,21 @@ export async function AppShell({
             aria-label="Ir al panel principal"
             className="flex items-center gap-3"
           >
-            {/* S8.8 (v2.7.1): el SVG es vertical (485x695). Para que se vea
-                completo en el sidebar horizontal, usamos object-contain
-                con un contenedor mas alto que ancho (h-12 w-auto, ratio 0.7).
-                La palabra "AFM Geovisor" + subtitulo van a la derecha. */}
-            <div className="flex h-12 w-[34px] items-center justify-center overflow-hidden rounded-md bg-white">
+            {/* v2.7.2 (2026-08-22 — QA): reemplazamos el logo vertical
+                485x695 (que se cortaba en el contenedor 48x34) por el
+                mark horizontal `afm-logo-mark.svg` 120x40. El mark usa
+                `currentColor` para los letters principales (hereda el
+                color de texto del sidebar, así se ve bien en dark y
+                light) y un acento lime (#84cc16) en la F. Sin fondo
+                blanco: el contenedor hereda el bg del sidebar.
+                La palabra "AFM Geovisor" + subtitulo siguen a la derecha. */}
+            <div className="flex h-10 w-[120px] shrink-0 items-center justify-center text-sidebar-foreground">
               <Image
-                src="/afm-logo.svg"
+                src="/afm-logo-mark.svg"
                 alt="Logo AFM"
-                width={485}
-                height={695}
-                className="h-full w-full object-contain"
+                width={120}
+                height={40}
+                className="h-full w-full"
                 priority
               />
             </div>

@@ -25,8 +25,9 @@ test("geovisor UI v8.8: logo en sidebar izquierdo + sin ventana temporal + simbo
   await page.waitForTimeout(5000)
 
   // 1. Logo AFM en sidebar IZQUIERDO (app shell). Buscamos el <img> con
-  //    src que apunte a /afm-logo.svg. El link al dashboard lo envuelve.
-  const logo = page.locator('img[src="/afm-logo.svg"]')
+  //    src que apunte a /afm-logo-mark.svg (v2.7.2). El link al dashboard
+  //    lo envuelve.
+  const logo = page.locator('img[src="/afm-logo-mark.svg"]')
   await expect(logo).toBeVisible()
   await expect(logo).toHaveAttribute("alt", /Logo AFM/i)
 

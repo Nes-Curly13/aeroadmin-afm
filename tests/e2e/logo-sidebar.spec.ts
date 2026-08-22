@@ -3,6 +3,10 @@ import { test, expect, type Page } from "@playwright/test"
 /**
  * S8.8 v2.7.1 — Verifica SOLO que el logo AFM se ve en el sidebar izquierdo
  * (no en el Filtros panel). Login + screenshot.
+ *
+ * v2.7.2 (2026-08-22): actualizado para apuntar al nuevo mark horizontal
+ * `/afm-logo-mark.svg` (1.3KB) en vez del logo vertical viejo `/afm-logo.svg`
+ * (57KB). El mark usa `currentColor` y se ve bien en el sidebar dark.
  */
 const E2E_EMAIL = process.env.E2E_USER_EMAIL ?? "e2e@aeroadmin.local"
 const E2E_PASSWORD = process.env.E2E_USER_PASSWORD ?? "E2ETest12345!"
@@ -22,15 +26,15 @@ test("logo AFM visible en sidebar izquierdo del app shell", async ({ page }) => 
   await page.waitForTimeout(3000)
 
   // El logo AFM debe estar visible (es el unico en la pagina)
-  const logo = page.locator('img[src="/afm-logo.svg"]')
+  const logo = page.locator('img[src="/afm-logo-mark.svg"]')
   await expect(logo).toBeVisible()
   await expect(logo).toHaveAttribute("alt", /Logo AFM/i)
 
   // El logo debe estar en el sidebar IZQUIERDO (etiqueta "Navegación principal"
   // cerca). Confirmamos que el sidebar contiene tanto el logo como la nav.
   const sidebar = page.locator("aside").first()
-  await expect(sidebar.locator('img[src="/afm-logo.svg"]')).toBeVisible()
+  await expect(sidebar.locator('img[src="/afm-logo-mark.svg"]')).toBeVisible()
   await expect(sidebar.getByRole("navigation")).toBeVisible()
 
-  await page.screenshot({ path: "test-results/logo-sidebar-v2.7.1.png", fullPage: false })
+  await page.screenshot({ path: "test-results/logo-sidebar-v2.7.2.png", fullPage: false })
 })
