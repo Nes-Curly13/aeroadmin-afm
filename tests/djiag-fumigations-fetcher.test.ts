@@ -235,6 +235,15 @@ describe("djiag-fumigations-fetcher — UPSERT_SQL", () => {
     expect(UPSERT_SQL).toMatch(/dose_l_per_ha\s*=\s*EXCLUDED\.dose_l_per_ha/);
     expect(UPSERT_SQL).toMatch(/notes\s*=\s*EXCLUDED\.notes/);
   });
+
+  it("incluye RETURNING con todas las columnas + truco (xmax = 0) AS inserted (sprint audit integration)", () => {
+    // Sprint feat/pipeline-audit-integration (2026-08-22). El `inserted`
+    // es lo que el caller usa para detectar INSERT vs UPDATE y registrar
+    // audit log solo cuando la fila es nueva.
+    expect(UPSERT_SQL).toMatch(/RETURNING\s+id/);
+    expect(UPSERT_SQL).toMatch(/recorded_by/);
+    expect(UPSERT_SQL).toMatch(/\(xmax\s*=\s*0\)\s+AS\s+inserted/);
+  });
 });
 
 describe("djiag-fumigations-fetcher — paramsToPgArray", () => {
