@@ -29,8 +29,33 @@
  *   - Validación laxa: cualquier polígono de 3+ vértices se acepta. La
  *     validación `ST_IsValid` no la hacemos server-side (decisión QA).
  *
- * Testing: este componente es client-side puro, no se testea con vitest
- * unitario (necesita MapLibre + DOM real). Se cubre con e2e (Playwright).
+ * Bug fix 2026-08-22 (fix/parcel-drawer-click-bug):
+ *   Los clicks en el mapa no se traducían a vértices del polígono.
+ *   Root cause: el `setMode("polygon")` se ejecutaba inmediatamente
+ *   después de `draw.start()`, pero la inicialización del adapter de
+ *   terra-draw no es completamente síncrona desde el punto de vista del
+ *   modo: `adapter.register()` agrega las capas de GeoJSON con
+ *   `requestAnimationFrame` para el primer render, y aunque los DOM
+ *   listeners del canvas se adjuntan en forma síncrona, el `onReady`
+ *   callback es el contrato documentado por terra-draw para señalar
+ *   que el adapter está listo para empezar a dibujar. Si el modo se
+ *   setea antes de ese ready, el primer click puede caer en una
+ *   ventana donde la geometría provisional aún no se proyecta al
+ *   canvas y el operador ve "no pasa nada" — y el doble-click para
+ *   cerrar se pierde porque `map.doubleClickZoom` aún no fue
+ *   deshabilitado. Movimos `setMode` + `addFeatures` dentro del
+ *   `ready` callback, y deshabilitamos `doubleClickZoom` de forma
+ *   explícita (en el `setStarted` del modo también se hace, pero
+ *   hacerlo acá es defensivo y deja claro el contrato).
+ *
+ * Testing:
+ *   - Unit (vitest + jsdom): se mockean `maplibre-gl` y `terra-draw`
+ *     para verificar el contrato (setMode se llama DENTRO del callback
+ *     `ready`, doubleClickZoom se deshabilita, etc.) — ver
+ *     `tests/components/admin/parcels/parcel-drawer.test.tsx`.
+ *   - E2E (Playwright): se ejercita el flow real (click en canvas +
+ *     doble-click para cerrar) — ver
+ *     `tests/e2e/parcel-drawer-click.spec.ts`.
  */
 
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -169,40 +194,70 @@ export function ParcelDrawer({
         ]
       });
       drawRef.current = draw;
-      draw.start();
-      draw.setMode("polygon");
 
-      // Sprint 2026-08-04 (sub-sprint 2): si recibimos initialPolygon,
-      // lo pre-cargamos como feature del modo "polygon" para que el
-      // operador lo vea y lo pueda re-dibujar encima. El addFeatures
-      // requiere `properties.mode` para que terra-draw sepa qué modo
-      // valida la geometría.
-      if (initialPolygon) {
-        const feature: GeoJSONStoreFeatures = {
-          type: "Feature",
-          geometry: initialPolygon,
-          properties: { mode: "polygon" }
-        };
-        draw.addFeatures([feature]);
-        onChangeRef.current(initialPolygon);
-      }
+      // FIX 2026-08-22: setMode + addFeatures + handler de "finish"
+      // viven dentro del `ready` callback. `ready` se dispara desde
+      // `adapter.register()` después de que las capas GeoJSON del
+      // adapter estén montadas y el primer render haya sido
+      // programado. Esto garantiza que cuando el operador haga el
+      // primer click, los listeners de pointerup/pointerdown del
+      // adapter y las capas del mapa están listas para recibir
+      // vértices.
+      //
+      // Además, deshabilitamos `doubleClickZoom` EXPLÍCITAMENTE acá
+      // (no esperamos a que `mode.start()` lo haga). El modo polygon
+      // cierra el polígono con doble-click; si MapLibre gana la
+      // carrera del dblclick, hace zoom en vez de cerrar.
+      draw.on("ready", () => {
+        // Defensivo: `map.doubleClickZoom.disable()` es idempotente y
+        // barato. Lo dejamos acá para que el contrato sea explícito y
+        // no quede oculto en el setStarted() interno del mode.
+        map.doubleClickZoom.disable();
 
-      // Cuando el operador termina de dibujar, mandamos el polígono.
-      draw.on("finish", () => {
-        const snapshot = draw.getSnapshot();
-        const polygons = snapshot.filter(
-          (f) => f.geometry.type === "Polygon"
-        );
-        if (polygons.length === 0) return;
-        // Tomamos el último polígono dibujado.
-        const last = polygons[polygons.length - 1];
-        const geom = last.geometry as {
-          type: "Polygon";
-          coordinates: number[][][];
-        };
-        onChangeRef.current(geom);
-        setHasPolygon(true);
+        draw.setMode("polygon");
+
+        // Sprint 2026-08-04 (sub-sprint 2): si recibimos
+        // initialPolygon, lo pre-cargamos como feature del modo
+        // "polygon" para que el operador lo vea y lo pueda
+        // re-dibujar encima. El addFeatures requiere
+        // `properties.mode` para que terra-draw sepa qué modo
+        // valida la geometría.
+        if (initialPolygon) {
+          const feature: GeoJSONStoreFeatures = {
+            type: "Feature",
+            geometry: initialPolygon,
+            properties: { mode: "polygon" }
+          };
+          draw.addFeatures([feature]);
+          onChangeRef.current(initialPolygon);
+        }
+
+        // Cuando el operador termina de dibujar, mandamos el polígono.
+        draw.on("finish", () => {
+          const snapshot = draw.getSnapshot();
+          const polygons = snapshot.filter(
+            (f) => f.geometry.type === "Polygon"
+          );
+          if (polygons.length === 0) return;
+          // Tomamos el último polígono dibujado.
+          const last = polygons[polygons.length - 1];
+          const geom = last.geometry as {
+            type: "Polygon";
+            coordinates: number[][][];
+          };
+          onChangeRef.current(geom);
+          setHasPolygon(true);
+        });
       });
+
+      // `draw.start()` dispara `adapter.register()`, que en orden:
+      //   1. agrega los DOM listeners al canvas (pointerdown/up/move),
+      //   2. agrega las sources/layers GeoJSON del adapter,
+      //   3. llama al `ready` callback que configuramos arriba.
+      // Por eso `start()` va DESPUÉS de `draw.on("ready", ...): si lo
+      // invertíamos, el callback se disparaba antes de estar
+      // registrado.
+      draw.start();
     });
 
     return () => {
