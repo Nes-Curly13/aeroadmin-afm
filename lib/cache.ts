@@ -33,6 +33,7 @@ import { revalidateTag, unstable_cache } from "next/cache";
 import { getDb } from "@/lib/db";
 import {
   buildAlertsFromFumigations,
+  MU_PER_HA_M2,
   type FumigationRow
 } from "@/lib/dji-fumigations-aggregate";
 import { toDateString } from "@/lib/format";
@@ -385,44 +386,60 @@ export const fetchDashboardMetricsCached = unstable_cache(
  */
 async function fetchAlertsFromFumigationsRaw(): Promise<DjiAlertRecord[]> {
   const db = getDb();
-  // Traemos TODAS las fumigaciones per-parcela (no agregamos en SQL
-  // porque queremos reutilizar el aggregator puro `buildAlertsFromFumigations`,
-  // testeable sin BD). Dataset actual: ~400 rows, chiquito.
-  // Si crece a >50k, mover el GROUP BY a SQL (la función pura sigue
-  // siendo util para tests).
+  // Sprint Fase 2 / M1 (2026-08-23): el GROUP BY pasó a SQL.
+  // Antes traíamos TODAS las fumigaciones (~17k rows) y agregábamos
+  // en JS con `buildAlertsFromFumigations`. Ahora la query hace el
+  // GROUP BY en el server-side, devolviendo 1 fila por
+  // (parcel_id, fumigation_date) con los totales ya computados.
+  // Dataset: ~17k fumigaciones → ~5k buckets (típicamente mucho menor).
+  // Misma semántica que `aggregateFumigationByParcelAndDay`, solo
+  // que el trabajo pesado se hace en Postgres (CPU + memory efficient).
+  //
+  // Por qué no usamos `buildAlertsFromFumigations` con las rows crudas:
+  //   - El agregador JS sigue siendo útil para tests unitarios.
+  //   - En producción, con 17k rows, pagamos 17k Promise + Map + sort
+  //     overhead que no necesitamos si SQL puede hacerlo.
+  //
+  // Coalesce a 0 las sums porque SUM() sobre todo NULLs devuelve NULL,
+  // y el bucket "0 area fumigated" sigue siendo válido (es un evento
+  // sin area reportada, pero con duration_minutes y times_count).
   const result = await db.query<{
-    id: number;
     parcel_id: number;
-    // node-postgres devuelve columnas DATE como string (YYYY-MM-DD).
-    // Mantenemos string en el boundary.
+    parcel_name: string | null;
     fumigation_date: string;
-    area_fumigated_m2: string | number | null;
-    duration_minutes: number | null;
-    dose_l_per_ha: string | number | null;
-    land_name: string | null;
+    area_m2: string;
+    duration_minutes: string;
+    times_count: string;
   }>(
-    `SELECT f.id, f.parcel_id, f.fumigation_date,
-            f.area_fumigated_m2, f.duration_minutes, f.dose_l_per_ha,
-            p.land_name
+    `SELECT
+        f.parcel_id,
+        p.land_name AS parcel_name,
+        f.fumigation_date,
+        COALESCE(SUM(f.area_fumigated_m2), 0)::text AS area_m2,
+        COALESCE(SUM(f.duration_minutes), 0)::text AS duration_minutes,
+        COUNT(*)::text AS times_count
        FROM dji_fumigations f
        JOIN dji_parcels p ON p.id = f.parcel_id
       WHERE f.parcel_id IS NOT NULL
         AND f.deleted_at IS NULL
         AND p.deleted_at IS NULL
-      ORDER BY f.fumigation_date DESC, f.parcel_id ASC`
+      GROUP BY f.parcel_id, p.land_name, f.fumigation_date
+      ORDER BY (COALESCE(SUM(f.area_fumigated_m2), 0)) DESC, f.parcel_id ASC`
   );
-  const rows: FumigationRow[] = result.rows.map((r) => ({
-    id: r.id,
+
+  // Import lazy para evitar circular dependency (cache.ts → aggregate → types → cache)
+  const { buildAlertFromFumigation } = await import("@/lib/dji-fumigations-aggregate");
+
+  const summaries = result.rows.map((r) => ({
     parcel_id: r.parcel_id,
+    parcel_name: r.parcel_name?.trim() || `Parcela #${r.parcel_id}`,
     fumigation_date: r.fumigation_date,
-    area_fumigated_m2:
-      r.area_fumigated_m2 === null ? null : Number(r.area_fumigated_m2),
-    duration_minutes: r.duration_minutes,
-    dose_l_per_ha:
-      r.dose_l_per_ha === null ? null : Number(r.dose_l_per_ha),
-    parcel_name: r.land_name
+    area_mu:
+      Math.round((Number(r.area_m2) / MU_PER_HA_M2) * 100) / 100,
+    duration_minutes: Number(r.duration_minutes),
+    times_count: Number(r.times_count)
   }));
-  return buildAlertsFromFumigations(rows);
+  return summaries.map(buildAlertFromFumigation);
 }
 
 /**
