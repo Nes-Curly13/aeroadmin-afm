@@ -32,6 +32,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { RegisterFumigationForm } from "@/components/parcels/register-fumigation-form";
+import type { DjiFumigationEvent } from "@/lib/types";
 
 // ============================================================
 // Mocks
