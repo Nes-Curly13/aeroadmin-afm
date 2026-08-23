@@ -11,6 +11,7 @@ import {
   MapPin,
   Pencil,
   Plane,
+  Receipt,
   Sprout,
   Timer,
   User
@@ -20,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { DeleteFumigationButton } from "@/components/fumigations/delete-fumigation-button";
 import { FumigationAuditTrail } from "@/components/fumigations/fumigation-audit-trail";
+import { InvoicesCard } from "@/components/fumigations/invoices-card";
 import { FumigationMap } from "@/components/parcels/fumigation-map";
 import {
   getFumigationAuditTrail,
@@ -448,6 +450,33 @@ export default async function FumigacionPage({ params }: PageProps) {
                   </p>
                 ) : null}
               </dl>
+            </CardContent>
+          </Card>
+
+          {/**
+           * Sprint S7 — feature/s7-schema-extension / Fase 1 / PR-C.
+           * Card "Facturación": lista de facturas de la fumigación
+           * (1:N con `dji_fumigations`). El `invoices` aggregate lo
+           * hidrata `getFumigationById` con un subquery `jsonb_agg`
+           * (no requiere round-trip extra).
+           */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Receipt className="size-4 text-chart-5" aria-hidden />
+                Facturación
+              </CardTitle>
+              <CardDescription>
+                Facturas asociadas a esta fumigación. Una fumigación puede tener
+                N facturas (cuotas, pagos parciales).
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <InvoicesCard
+                fumigationId={fumigation.id}
+                invoices={fumigation.invoices ?? []}
+                canEdit={canEdit}
+              />
             </CardContent>
           </Card>
         </div>
