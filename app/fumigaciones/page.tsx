@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton, SkeletonTable } from "@/components/ui/loading"
-import { getRecentFumigations } from "@/api/repositories"
+import { FumigacionesDataLoader } from "@/app/fumigaciones/data-loader"
 import { DRONE_MODELS, FUMIGATION_CATEGORIES } from "@/lib/data-constants"
 import { fmtDate, fmtDateTime, fmtDec, fmtInt } from "@/lib/format"
 import type { DjiFumigationEvent } from "@/lib/types"
@@ -259,7 +259,9 @@ export default async function FumigacionesPage({ searchParams }: PageProps) {
         </div>
         <div className="flex items-center justify-between gap-3">
           <Suspense fallback={<Skeleton className="h-3 w-48" />}>
-            <FumigacionesCounts sourceFilter={sourceFilter} />
+            <FumigacionesDataLoader sourceFilter={sourceFilter}>
+              {(events) => <FumigacionesCounts events={events} sourceFilter={sourceFilter} />}
+            </FumigacionesDataLoader>
           </Suspense>
           <Button
             size="sm"
@@ -290,7 +292,7 @@ export default async function FumigacionesPage({ searchParams }: PageProps) {
         </CardHeader>
         <CardContent className="px-0 pb-0">
           <Suspense fallback={<SkeletonTable rows={10} cols={7} />}>
-            <FumigacionesTable
+            <FumigacionesDataLoader
               query={query}
               sourceFilter={sourceFilter}
               categoryFilter={categoryFilter}
@@ -300,7 +302,22 @@ export default async function FumigacionesPage({ searchParams }: PageProps) {
               droneFilter={droneFilter}
               page={page}
               rawSearchParams={sp}
-            />
+            >
+              {(events) => (
+                <FumigacionesTable
+                  events={events}
+                  query={query}
+                  sourceFilter={sourceFilter}
+                  categoryFilter={categoryFilter}
+                  fromDate={fromDate}
+                  toDate={toDate}
+                  parcelFilter={parcelFilter}
+                  droneFilter={droneFilter}
+                  page={page}
+                  rawSearchParams={sp}
+                />
+              )}
+            </FumigacionesDataLoader>
           </Suspense>
         </CardContent>
       </Card>
@@ -309,32 +326,38 @@ export default async function FumigacionesPage({ searchParams }: PageProps) {
 }
 
 // ============================================================
-// Sub-componentes async (dentro de <Suspense>)
+// Sub-componentes (dentro de <Suspense>)
 // ============================================================
+// `FumigacionesDataLoader` vive en `./data-loader` (import arriba)
+// para poder testearlo. Antes estaba inline en este archivo
+// (Sprint Fase 2 / Q1, 2026-08-23).
 
-async function FumigacionesCounts({
+function FumigacionesCounts({
+  events,
   sourceFilter
 }: {
-  sourceFilter: "djiscraper" | "import" | "manual" | null
+  events: DjiFumigationEvent[];
+  sourceFilter: "djiscraper" | "import" | "manual" | null;
 }) {
-  // Reutilizamos la misma query (cada una va al cache `afm:recent-fumigations`).
-  const all = await getRecentFumigations(2000)
-  const djiCount = all.filter(
+  // El array `events` viene del `FumigacionesDataLoader` (compartido
+  // con Table). NO hacemos fetch acá — Q1 fix.
+  const djiCount = events.filter(
     (f) => f.source === "djiscraper" || f.source === "import"
-  ).length
-  const manualCount = all.filter((f) => f.source === "manual").length
+  ).length;
+  const manualCount = events.filter((f) => f.source === "manual").length;
   return (
     <p className="font-mono text-[11px] text-muted-foreground">
       {sourceFilter === "manual"
         ? `${manualCount} manuales`
         : sourceFilter === "djiscraper"
           ? `${djiCount} DJI`
-          : `${fmtInt(all.length)} fumigaciones`}
+          : `${fmtInt(events.length)} fumigaciones`}
     </p>
-  )
+  );
 }
 
-async function FumigacionesTable({
+function FumigacionesTable({
+  events,
   query,
   sourceFilter,
   categoryFilter,
@@ -345,26 +368,33 @@ async function FumigacionesTable({
   page,
   rawSearchParams
 }: {
-  query: string
-  sourceFilter: "djiscraper" | "import" | "manual" | null
+  /**
+   * Array compartido de fumigaciones. Viene del
+   * `FumigacionesDataLoader` (Sprint Fase 2 / Q1, 2026-08-23).
+   * Antes: `await getRecentFumigations(2000)` acá adentro.
+   * Ahora: el Loader lo trae una vez y lo pasa.
+   */
+  events: DjiFumigationEvent[];
+  query: string;
+  sourceFilter: "djiscraper" | "import" | "manual" | null;
   /** Sprint 2026-08-13 — sub-2. id de FUMIGATION_CATEGORIES o null. */
-  categoryFilter: number | null
+  categoryFilter: number | null;
   /** Sprint 2026-08-13 — polish v1. Filtros temporales (YYYY-MM-DD). */
-  fromDate: string | null
-  toDate: string | null
-  parcelFilter: number | null
-  droneFilter: number | null
-  page: number
+  fromDate: string | null;
+  toDate: string | null;
+  parcelFilter: number | null;
+  droneFilter: number | null;
+  page: number;
   /**
    * SearchParams crudos del padre. Necesarios para que Pagination
    * preserve los filtros activos al cambiar de página (fix bug
    * pre-existente + polish v1).
    */
-  rawSearchParams: FumigacionesSearchParams
+  rawSearchParams: FumigacionesSearchParams;
 }) {
-  const all = await getRecentFumigations(2000)
-
   // Filtros aplicados en server (mismo patron que /admin/parcels).
+  // El array ya viene cargado del Loader compartido.
+  const all = events;
   const filtered = all.filter((f) => {
     if (sourceFilter && f.source !== sourceFilter) return false
     if (categoryFilter != null && f.category_id !== categoryFilter) return false
