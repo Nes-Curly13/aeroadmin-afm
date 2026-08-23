@@ -65,6 +65,12 @@ interface PatchFumigationBody {
    * si no existe o está inactiva).
    */
   application_type_id?: unknown;
+  /**
+   * Sprint S7 / Fase 1 (PR-B) — placa del vehículo usado. Opcional.
+   * null = clear; string = set. Validamos formato en el server
+   * (CHECK regex en la BD también).
+   */
+  vehicle_plate?: unknown;
 }
 
 /** Type del patch normalizado (después de parseAndValidate). */
@@ -80,6 +86,7 @@ interface PatchFumigationData {
   pilot_license?: string | null;
   category_id?: number | null;
   application_type_id?: number | null;
+  vehicle_plate?: string | null;
 }
 
 /** Campos que NO se pueden editar vía PATCH. Lista negra explícita. */
@@ -247,6 +254,29 @@ function parseAndValidate(
       };
     } else {
       data.application_type_id = input.application_type_id;
+    }
+  }
+
+  // Sprint S7 / Fase 1 (PR-B) — vehicle_plate: opcional. Si viene,
+  // string (formato CHECK) o null (clear). Server normaliza a UPPER.
+  if (input.vehicle_plate !== undefined) {
+    if (input.vehicle_plate === null) {
+      data.vehicle_plate = null;
+    } else if (typeof input.vehicle_plate !== "string") {
+      return { ok: false, error: "vehicle_plate debe ser string o null" };
+    } else {
+      const t = input.vehicle_plate.trim().toUpperCase();
+      if (t.length === 0) {
+        data.vehicle_plate = null;
+      } else if (!/^[A-Z0-9-]{3,12}$/.test(t)) {
+        return {
+          ok: false,
+          error:
+            "vehicle_plate inválido. Formato: letras mayúsculas, números y guiones, 3-12 caracteres."
+        };
+      } else {
+        data.vehicle_plate = t;
+      }
     }
   }
 

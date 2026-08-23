@@ -1090,6 +1090,9 @@ export async function getFumigationById(id: number): Promise<DjiFumigationEvent 
           f.flight_ids,
           -- Sprint S7 — feature/s7-schema-extension.
           f.application_type_id,
+          -- Sprint S7 / Fase 1 (PR-B): placa del vehículo usado
+          -- (columna propia, ver migration 20260824000001).
+          f.vehicle_plate,
           count(fl.id)::int AS n_matched_flights,
           CASE
             WHEN count(fl.id) = 0 THEN NULL
@@ -1183,6 +1186,9 @@ export async function getFumigationRawById(
           f.deleted_by,
           -- Sprint S7 — application_type_id + catálogo hidratado.
           f.application_type_id,
+          -- Sprint S7 / Fase 1 (PR-B): placa del vehículo usado
+          -- (columna propia, ver migration 20260824000001).
+          f.vehicle_plate,
           CASE WHEN f.category_id IS NULL THEN NULL
             ELSE row_to_json(cat) END AS category,
           CASE WHEN f.application_type_id IS NULL THEN NULL
@@ -1296,6 +1302,12 @@ export async function updateFumigationEvent(
      * re-clasificar la fase sin cambiar el producto.
      */
     application_type_id?: number | null;
+    /**
+     * Sprint S7 / Fase 1 (PR-B) — placa del vehículo usado.
+     * Editable (sparse PATCH). null = clear; string = set.
+     * El server normaliza a UPPER antes de UPDATE.
+     */
+    vehicle_plate?: string | null;
   }
 ): Promise<DjiFumigationEvent | null> {
   const db = getDb();
@@ -1352,6 +1364,16 @@ export async function updateFumigationEvent(
         setClauses.push(`application_type_id = $${i++}`);
         values.push(patch.application_type_id);
       }
+      // Sprint S7 / Fase 1 (PR-B) — vehicle_plate editable.
+      if (patch.vehicle_plate !== undefined) {
+        setClauses.push(`vehicle_plate = $${i++}`);
+        // Misma normalización que create: trim + upper, "" → null.
+        values.push(
+          patch.vehicle_plate && patch.vehicle_plate.trim().length > 0
+            ? patch.vehicle_plate.trim().toUpperCase()
+            : null
+        );
+      }
 
       // Si no se mandó ningún campo editable, no-op (devuelve el row actual).
       if (setClauses.length === 0) {
@@ -1366,7 +1388,7 @@ export async function updateFumigationEvent(
         RETURNING id, parcel_id, fumigation_date, product_used, dose_l_per_ha,
                   area_fumigated_m2, drone_code_used, duration_minutes, notes,
                   human_notes, recorded_by, product_registered_ica, pilot_license,
-                  category_id, application_type_id, recorded_at, source
+                  category_id, application_type_id, vehicle_plate, recorded_at, source
       `;
       values.push(id);
       const result = await db.query<DjiFumigationEvent>(sql, values);
@@ -2139,6 +2161,17 @@ export async function createFumigationEvent(event: {
    * que borrar un tipo no rompe fumigaciones. Opcional.
    */
   application_type_id?: number | null;
+  /**
+   * Sprint S7 / Fase 1 (PR-B) — placa del vehículo usado. No es FK
+   * a `dji_vehicles` (la placa es referencial, no relacional — una
+   * fumigación puede tener una placa que ya no está en el catálogo).
+   * El `VehiclePicker` se encarga de sugerir/crear en `dji_vehicles`
+   * desde el form. La fumigación solo guarda el string. Columna
+   * `vehicle_plate VARCHAR(12) NULL` (migration 20260824000001).
+   * El server normaliza a UPPER antes de guardar. CHECK regex
+   * `^[A-Z0-9-]{3,12}$` en la BD.
+   */
+  vehicle_plate?: string | null;
 }): Promise<DjiFumigationEvent> {
   const db = getDb();
   return withLocalFallback(
@@ -2152,13 +2185,13 @@ export async function createFumigationEvent(event: {
               (parcel_id, fumigation_date, product_used, dose_l_per_ha,
                area_fumigated_m2, drone_code_used, duration_minutes, notes,
                human_notes, recorded_by, product_registered_ica, pilot_license,
-               category_id, application_type_id, source)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'manual')
+               category_id, application_type_id, vehicle_plate, source)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 'manual')
             RETURNING
               id, parcel_id, fumigation_date, product_used, dose_l_per_ha,
               area_fumigated_m2, drone_code_used, duration_minutes, notes,
               human_notes, recorded_by, product_registered_ica, pilot_license,
-              category_id, application_type_id, recorded_at, source
+              category_id, application_type_id, vehicle_plate, recorded_at, source
           `,
           [
             event.parcel_id,
@@ -2174,7 +2207,13 @@ export async function createFumigationEvent(event: {
             event.product_registered_ica ?? null,
             event.pilot_license ?? null,
             event.category_id ?? null,
-            event.application_type_id ?? null
+            event.application_type_id ?? null,
+            // vehicle_plate: trim + upper para coincidir con el CHECK
+            // regex y con el formato canonical de dji_vehicles.plate.
+            // Si el caller pasa "" o null, guardamos null (clear).
+            event.vehicle_plate && event.vehicle_plate.trim().length > 0
+              ? event.vehicle_plate.trim().toUpperCase()
+              : null
           ]
         );
         const created = ins.rows[0];
@@ -3357,6 +3396,63 @@ export async function findDjiVehicleByPlate(
       return result.rows[0] ?? null;
     },
     async () => null
+  );
+}
+
+/**
+ * Lista vehículos activos para alimentar el autocomplete del
+ * `VehiclePicker` (Sprint S7 / Fase 1 / PR-B).
+ *
+ * - Si `search` está vacío (o tiene < 1 char útil), devuelve los
+ *   N más recientes (`ORDER BY created_at DESC`). El picker
+ *   muestra "los últimos 10" cuando el usuario aún no escribió.
+ * - Si hay query, filtra con `plate ILIKE %search%` y ordena:
+ *     1. starts-with primero (`plate ILIKE search%`)
+ *     2. contains después
+ *     3. descripción como tie-breaker
+ *
+ * Limita el resultado a `limit` (default 10, cap 50).
+ *
+ * Sprint S7 — feature/s7-schema-extension / Fase 1 (PR-B).
+ */
+export async function searchDjiVehicles(
+  search: string,
+  limit: number = 10
+): Promise<DjiVehicle[]> {
+  const cappedLimit = Math.min(50, Math.max(1, Math.floor(limit)));
+  const q = (search ?? "").trim();
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      if (q.length < 1) {
+        // Lista default: los N más recientes
+        const result = await db.query<DjiVehicle>(
+          `SELECT id, plate, description, is_active, created_at
+             FROM dji_vehicles
+            WHERE is_active = TRUE
+            ORDER BY created_at DESC, plate ASC
+            LIMIT $1`,
+          [cappedLimit]
+        );
+        return result.rows;
+      }
+      // Búsqueda con ranking starts-with vs contains
+      const like = `%${q}%`;
+      const prefix = `${q}%`;
+      const result = await db.query<DjiVehicle>(
+        `SELECT id, plate, description, is_active, created_at
+           FROM dji_vehicles
+          WHERE is_active = TRUE
+            AND plate ILIKE $1
+          ORDER BY
+            CASE WHEN plate ILIKE $2 THEN 0 ELSE 1 END,
+            plate ASC
+          LIMIT $3`,
+        [like, prefix, cappedLimit]
+      );
+      return result.rows;
+    },
+    async () => []
   );
 }
 

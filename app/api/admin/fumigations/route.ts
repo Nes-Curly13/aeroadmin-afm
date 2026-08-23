@@ -78,6 +78,12 @@ interface CreateFumigationBody {
    * (23503 si no existe o está inactiva).
    */
   application_type_id?: unknown;
+  /**
+   * Sprint S7 / Fase 1 (PR-B) — placa del vehículo usado. Opcional.
+   * Validamos formato (^[A-Z0-9-]{3,12}$) en el server. La BD también
+   * tiene CHECK. El server normaliza a UPPER. "" o null = clear.
+   */
+  vehicle_plate?: unknown;
 }
 
 /**
@@ -113,6 +119,11 @@ function parseAndValidate(
          * AMBOS: el producto (category) y la fase/uso (application).
          */
         application_type_id: number | null;
+        /**
+         * Sprint S7 / Fase 1 (PR-B) — placa del vehículo. Validada
+         * con regex (mismo que dji_vehicles). Normalizada a UPPER.
+         */
+        vehicle_plate: string | null;
         recorded_by: string;
       };
     }
@@ -218,6 +229,28 @@ function parseAndValidate(
     }
     applicationType = input.application_type_id;
   }
+  // Sprint S7 / Fase 1 (PR-B) — vehicle_plate: opcional. Validar
+  // formato (^[A-Z0-9-]{3,12}$) en el server para devolver 400 con
+  // mensaje claro si el operador tipea basura. La BD tiene el mismo
+  // CHECK (migration 20260824000001).
+  let vehiclePlate: string | null = null;
+  if (input.vehicle_plate !== null && input.vehicle_plate !== undefined) {
+    if (typeof input.vehicle_plate !== "string") {
+      return { ok: false, error: "vehicle_plate debe ser string o null" };
+    }
+    const t = input.vehicle_plate.trim().toUpperCase();
+    if (t.length === 0) {
+      vehiclePlate = null; // '' → null
+    } else if (!/^[A-Z0-9-]{3,12}$/.test(t)) {
+      return {
+        ok: false,
+        error:
+          "vehicle_plate inválido. Formato: letras mayúsculas, números y guiones, 3-12 caracteres."
+      };
+    } else {
+      vehiclePlate = t;
+    }
+  }
   // Strings opcionales: trim, max length (defensa contra inputs gigantes
   // antes de llegar a la BD)
   const trim = (v: unknown, max: number, field: string): string | null | { err: string } => {
@@ -256,6 +289,7 @@ function parseAndValidate(
       pilot_license: licenseRes as string | null,
       category_id: category,
       application_type_id: applicationType,
+      vehicle_plate: vehiclePlate,
       recorded_by: "" // se setea después con la sesión
     }
   };
