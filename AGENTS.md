@@ -155,7 +155,7 @@ Verificado por: `dependency-cruiser` (fitness function de arquitectura). Comando
 - **Framework**: Next.js 16.2.4 + React 19.2.5
 - **DB**: Postgres 16 + PostGIS 3.4 (local: docker; prod: Supabase pooled URL puerto 6543)
 - **Auth**: NextAuth v5 (beta.31)
-- **Maps**: **MapLibre GL JS 6.0** (Leaflet + react-leaflet eliminados en S5)
+- **Maps**: **MapLibre GL JS 4.7.1** (Leaflet + react-leaflet eliminados en S5; la nota sobre "6.0" del sprint de migración es obsoleta — el adapter terra-draw@1.32.x tiene peer dep `maplibre-gl: ">=4"` así que 4.7.1 es la versión real y estable. NO bumpear a 6.x sin antes validar compat del adapter)
 - **Primitives UI**: propios en `components/ui/`, patrón shadcn-style con `cn()` (clsx + tailwind-merge). Adoptan `@base-ui/react 1.6` como base para 10 primitives (badge, button, input, progress, select, separator, slider, tabs, tooltip + helpers `merge-props`/`use-render`); se reemplazó shadcn CLI por primitives propios sobre `@base-ui/react`.
 - **Tests**: Vitest 3.2.4 + @vitest/coverage-v8 + Playwright 1.61.1
 - **TypeScript**: 5.9.3, `strict: true`, sin `any` explícito
