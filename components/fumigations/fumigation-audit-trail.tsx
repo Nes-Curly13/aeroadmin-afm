@@ -42,11 +42,29 @@ import {
   Trash2
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { isBackfillEvent } from "@/lib/fumigation-audit";
 import type { FumigationAuditAction, FumigationAuditEvent } from "@/lib/types";
 
 interface FumigationAuditTrailProps {
   events: FumigationAuditEvent[];
+}
+
+/**
+ * Detecta si un evento de audit fue generado por el script de backfill
+ * historico (`scripts/backfill-audit-log.js`). El script marca todos
+ * sus inserts con `changes._backfill = true`.
+ *
+ * Sprint 2026-08-22: 642 fumigaciones historicas fueron backfilleadas
+ * con este flag para que la UI pueda mostrar un badge "Reconstruido".
+ *
+ * NOTA: este helper se define localmente en el componente (no se importa
+ * de `@/lib/fumigation-audit`) porque ese modulo importa transitivamente
+ * `api/repositories` → `pg`, lo cual rompe el bundle del cliente
+ * (Turbopack detecta el uso de `revalidateTag` desde un client component
+ * y aborta el build). El helper sigue existiendo en `lib/fumigation-audit.ts`
+ * para uso server-side y desde scripts; aca lo duplicamos trivialmente.
+ */
+function isBackfillEvent(event: FumigationAuditEvent): boolean {
+  return event.changes != null && event.changes._backfill === true;
 }
 
 interface ActionMeta {
