@@ -41,10 +41,30 @@ import {
   RotateCcw,
   Trash2
 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import type { FumigationAuditAction, FumigationAuditEvent } from "@/lib/types";
 
 interface FumigationAuditTrailProps {
   events: FumigationAuditEvent[];
+}
+
+/**
+ * Detecta si un evento de audit fue generado por el script de backfill
+ * historico (`scripts/backfill-audit-log.js`). El script marca todos
+ * sus inserts con `changes._backfill = true`.
+ *
+ * Sprint 2026-08-22: 642 fumigaciones historicas fueron backfilleadas
+ * con este flag para que la UI pueda mostrar un badge "Reconstruido".
+ *
+ * NOTA: este helper se define localmente en el componente (no se importa
+ * de `@/lib/fumigation-audit`) porque ese modulo importa transitivamente
+ * `api/repositories` → `pg`, lo cual rompe el bundle del cliente
+ * (Turbopack detecta el uso de `revalidateTag` desde un client component
+ * y aborta el build). El helper sigue existiendo en `lib/fumigation-audit.ts`
+ * para uso server-side y desde scripts; aca lo duplicamos trivialmente.
+ */
+function isBackfillEvent(event: FumigationAuditEvent): boolean {
+  return event.changes != null && event.changes._backfill === true;
 }
 
 interface ActionMeta {
@@ -221,7 +241,12 @@ function AuditEventRow({ event }: AuditEventRowProps) {
     changes.snapshot != null;
   const hasRestoredFrom = event.action === "restored" && changes.restored_from != null;
   const hasDetails = hasDiff || hasSnapshot || hasRestoredFrom;
-  const ariaLabel = `${meta.label} por ${event.actor_email}, ${formatRelative(event.created_at)}`;
+  // Sprint 2026-08-22: detectar eventos del backfill historico para
+  // mostrar un badge "Reconstruido" al lado del label. Asi el operador
+  // puede distinguir eventos reales (cuando el operador hizo click en
+  // Guardar) de eventos reconstruidos (cuando corrimos el backfill).
+  const isBackfill = isBackfillEvent(event);
+  const ariaLabel = `${meta.label}${isBackfill ? " (reconstruido)" : ""} por ${event.actor_email}, ${formatRelative(event.created_at)}`;
 
   return (
     <li
@@ -236,9 +261,20 @@ function AuditEventRow({ event }: AuditEventRowProps) {
       </div>
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <p className={`text-sm font-semibold ${meta.colorClass}`}>
-            {meta.label}
-          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className={`text-sm font-semibold ${meta.colorClass}`}>
+              {meta.label}
+            </p>
+            {isBackfill ? (
+              <Badge
+                variant="outline"
+                className="border-amber-500/60 bg-amber-50 text-[10px] font-semibold uppercase tracking-wide text-amber-700"
+                title="Reconstruido a partir del estado actual de la BD por el script de backfill. No es un evento registrado cuando el operador hizo click en Guardar."
+              >
+                Reconstruido
+              </Badge>
+            ) : null}
+          </div>
           <p className="text-[11px] text-muted-foreground" title={event.created_at}>
             {formatRelative(event.created_at)}
           </p>
