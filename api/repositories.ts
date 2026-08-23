@@ -1766,12 +1766,62 @@ export interface ParcelPickerRow {
   municipality: string | null;
 }
 
+/**
+ * Sprint Fase 2 / Q4 (2026-08-23): agrega `search` opcional para
+ * filtrar server-side con `ILIKE`. Antes el picker traía 500 parcelas
+ * (los más recientes por id) y filtraba en cliente — si el operador
+ * buscaba por nombre que no estaba en los 500, no encontraba.
+ *
+ * Con `search`: la SQL hace `ILIKE %search%` sobre los campos
+ * principales (land_name, external_id, client_name, farm_name,
+ * municipality) y `LIMIT` el resultado. Devuelve los matches más
+ * relevantes (orden por id DESC = más recientes primero entre los
+ * matches).
+ *
+ * Sin `search`: comportamiento original (los N más recientes).
+ *
+ * El caller típico (page.tsx de /fumigaciones/nueva) puede pasar
+ * `searchParams.q` como `search` para pre-filtrar en el server
+ * (SSR-friendly, útil para deep-links).
+ */
 export async function getRecentParcelsForPicker(
-  limit: number = 500
+  limit: number = 500,
+  search: string = ""
 ): Promise<ParcelPickerRow[]> {
+  const cappedLimit = Math.min(2000, Math.max(1, Math.floor(limit)));
+  const q = (search ?? "").trim();
   const db = getDb();
   return withLocalFallback(
     async () => {
+      // Si hay query, filtramos con ILIKE en 5 campos + orden por id DESC
+      // (matches más recientes primero). Sin query, los N más recientes.
+      if (q.length > 0) {
+        const like = `%${q}%`;
+        const result = await db.query<ParcelPickerRow>(
+          `SELECT
+              id,
+              land_name,
+              external_id,
+              source,
+              client_name,
+              farm_name,
+              municipality
+             FROM dji_parcels
+            WHERE deleted_at IS NULL
+              AND (
+                land_name ILIKE $1
+                OR external_id ILIKE $1
+                OR COALESCE(client_name, '') ILIKE $1
+                OR COALESCE(farm_name, '') ILIKE $1
+                OR COALESCE(municipality, '') ILIKE $1
+                OR CAST(id AS text) = $2
+              )
+            ORDER BY id DESC
+            LIMIT $3`,
+          [like, q, cappedLimit]
+        );
+        return result.rows;
+      }
       const result = await db.query<ParcelPickerRow>(
         `SELECT
             id,
@@ -1785,7 +1835,7 @@ export async function getRecentParcelsForPicker(
           WHERE deleted_at IS NULL
           ORDER BY id DESC
           LIMIT $1`,
-        [limit]
+        [cappedLimit]
       );
       return result.rows;
     },
