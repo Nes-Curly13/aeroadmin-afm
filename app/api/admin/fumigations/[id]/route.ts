@@ -59,6 +59,12 @@ interface PatchFumigationBody {
   product_registered_ica?: unknown;
   pilot_license?: unknown;
   category_id?: unknown;
+  /**
+   * Sprint S7 — application_type_id (FK a application_types). Ortogonal
+   * a category_id. Opcional, integer positivo. La BD valida FK (23503
+   * si no existe o está inactiva).
+   */
+  application_type_id?: unknown;
 }
 
 /** Type del patch normalizado (después de parseAndValidate). */
@@ -73,6 +79,7 @@ interface PatchFumigationData {
   product_registered_ica?: string | null;
   pilot_license?: string | null;
   category_id?: number | null;
+  application_type_id?: number | null;
 }
 
 /** Campos que NO se pueden editar vía PATCH. Lista negra explícita. */
@@ -224,6 +231,25 @@ function parseAndValidate(
     }
   }
 
+  // Sprint S7 — application_type_id: opcional. Si viene, integer
+  // positivo (la BD valida FK). Ortogonal a category_id.
+  if (input.application_type_id !== undefined) {
+    if (input.application_type_id === null) {
+      data.application_type_id = null;
+    } else if (
+      typeof input.application_type_id !== "number" ||
+      !Number.isInteger(input.application_type_id) ||
+      input.application_type_id <= 0
+    ) {
+      return {
+        ok: false,
+        error: "application_type_id debe ser entero positivo o null"
+      };
+    } else {
+      data.application_type_id = input.application_type_id;
+    }
+  }
+
   return { ok: true, data };
 }
 
@@ -317,7 +343,11 @@ export async function PATCH(
     }
     if (pgErr.code === "23503") {
       return NextResponse.json(
-        { error: `FK violation: ${pgErr.message ?? "category_id no existe"}` },
+        {
+          error: `FK violation: ${
+            pgErr.message ?? "category_id o application_type_id no existe"
+          }`
+        },
         { status: 400 }
       );
     }

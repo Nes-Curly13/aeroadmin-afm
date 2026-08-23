@@ -72,6 +72,12 @@ interface CreateFumigationBody {
    * Sprint 2026-08-13 — feature/fumigacion-detail-v2 / sub-2.
    */
   category_id?: unknown;
+  /**
+   * Sprint S7 — application_type_id (FK a application_types).
+   * Ortogonal a category_id. Opcional. La BD valida FK al insertar
+   * (23503 si no existe o está inactiva).
+   */
+  application_type_id?: unknown;
 }
 
 /**
@@ -101,6 +107,12 @@ function parseAndValidate(
         product_registered_ica: string | null;
         pilot_license: string | null;
         category_id: number | null;
+        /**
+         * Sprint S7 — application_type_id (FK a application_types).
+         * Ortogonal a category_id. La fumigación puede tener
+         * AMBOS: el producto (category) y la fase/uso (application).
+         */
+        application_type_id: number | null;
         recorded_by: string;
       };
     }
@@ -190,6 +202,22 @@ function parseAndValidate(
     }
     category = input.category_id;
   }
+  // Sprint S7 — application_type_id: opcional, integer positivo.
+  // Ortogonal a category_id.
+  let applicationType: number | null = null;
+  if (input.application_type_id !== null && input.application_type_id !== undefined) {
+    if (
+      typeof input.application_type_id !== "number" ||
+      !Number.isInteger(input.application_type_id) ||
+      input.application_type_id <= 0
+    ) {
+      return {
+        ok: false,
+        error: "application_type_id debe ser entero positivo o null"
+      };
+    }
+    applicationType = input.application_type_id;
+  }
   // Strings opcionales: trim, max length (defensa contra inputs gigantes
   // antes de llegar a la BD)
   const trim = (v: unknown, max: number, field: string): string | null | { err: string } => {
@@ -227,6 +255,7 @@ function parseAndValidate(
       product_registered_ica: icaRes as string | null,
       pilot_license: licenseRes as string | null,
       category_id: category,
+      application_type_id: applicationType,
       recorded_by: "" // se setea después con la sesión
     }
   };

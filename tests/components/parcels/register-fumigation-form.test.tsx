@@ -32,6 +32,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { RegisterFumigationForm } from "@/components/parcels/register-fumigation-form";
+import type { DjiFumigationEvent } from "@/lib/types";
 
 // ============================================================
 // Mocks
@@ -391,5 +392,147 @@ describe("RegisterFumigationForm — reset", () => {
     expect(getInput(/Producto comercial/).value).toBe("");
     expect(getInput(/Dosis/).value).toBe("");
     expect(getInput(/Fecha/).value).toBe(todayISO());
+  });
+});
+
+// ============================================================
+// Sprint S7 — application_type_id (Fase 1 PR-A)
+// ============================================================
+
+describe("RegisterFumigationForm — application_type (S7 PR-A)", () => {
+  it("POST incluye application_type_id cuando se selecciona en create", async () => {
+    const user = userEvent.setup();
+    let resolveFetch: (r: Response) => void = () => {};
+    mockFetch.mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveFetch = resolve;
+        })
+    );
+    render(<RegisterFumigationForm parcelId={1} />);
+    await fillRequiredFields(user);
+    // Seleccionar "Pre emergente" (id 1).
+    const phaseSelect = screen.getByLabelText(/Fase de uso/) as HTMLSelectElement;
+    await user.selectOptions(phaseSelect, "1");
+
+    fireEvent.submit(screen.getByRole("button", { name: /Registrar fumigación/ }).closest("form")!);
+
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
+    const body = JSON.parse((mockFetch.mock.calls[0][1] as RequestInit).body as string);
+    expect(body.application_type_id).toBe(1);
+    // El dropdown de tipo de fumigación (categoría) sigue siendo opcional.
+    // Si no se selecciona, NO se envía category_id.
+    expect(body.category_id).toBeUndefined();
+
+    resolveFetch({
+      ok: true,
+      status: 201,
+      json: async () => ({ fumigation: { id: 1 } })
+    } as Response);
+  });
+
+  it("POST NO incluye application_type_id si queda en 'Sin clasificar'", async () => {
+    const user = userEvent.setup();
+    let resolveFetch: (r: Response) => void = () => {};
+    mockFetch.mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveFetch = resolve;
+        })
+    );
+    render(<RegisterFumigationForm parcelId={1} />);
+    await fillRequiredFields(user);
+
+    fireEvent.submit(screen.getByRole("button", { name: /Registrar fumigación/ }).closest("form")!);
+
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
+    const body = JSON.parse((mockFetch.mock.calls[0][1] as RequestInit).body as string);
+    expect(body.application_type_id).toBeUndefined();
+
+    resolveFetch({
+      ok: true,
+      status: 201,
+      json: async () => ({ fumigation: { id: 1 } })
+    } as Response);
+  });
+
+  it("PATCH incluye application_type_id solo si cambió desde el initial", async () => {
+    const user = userEvent.setup();
+    let resolveFetch: (r: Response) => void = () => {};
+    mockFetch.mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveFetch = resolve;
+        })
+    );
+    const initial = {
+      id: 42,
+      parcel_id: 1,
+      fumigation_date: "2026-07-15",
+      product_used: "Glifosato",
+      dose_l_per_ha: 2.5,
+      area_fumigated_m2: null,
+      duration_minutes: null,
+      drone_code_used: 0,
+      notes: null,
+      application_type_id: null,
+      category_id: null
+    };
+    render(<RegisterFumigationForm parcelId={1} mode="edit" initialFumigation={initial as unknown as DjiFumigationEvent} />);
+    // Cambiar de null a "Post emergente" (id 2).
+    const phaseSelect = screen.getByLabelText(/Fase de uso/) as HTMLSelectElement;
+    await user.selectOptions(phaseSelect, "2");
+
+    fireEvent.submit(screen.getByRole("button", { name: /Guardar cambios/ }).closest("form")!);
+
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
+    const body = JSON.parse((mockFetch.mock.calls[0][1] as RequestInit).body as string);
+    expect(body.application_type_id).toBe(2);
+    // No mandamos parcel_id ni otros campos inmutables.
+    expect(body.parcel_id).toBeUndefined();
+
+    resolveFetch({
+      ok: true,
+      status: 200,
+      json: async () => ({ fumigation: { id: 42 } })
+    } as Response);
+  });
+
+  it("PATCH NO incluye application_type_id si no cambió", async () => {
+    const user = userEvent.setup();
+    let resolveFetch: (r: Response) => void = () => {};
+    mockFetch.mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveFetch = resolve;
+        })
+    );
+    const initial = {
+      id: 42,
+      parcel_id: 1,
+      fumigation_date: "2026-07-15",
+      product_used: "Glifosato",
+      dose_l_per_ha: 2.5,
+      area_fumigated_m2: null,
+      duration_minutes: null,
+      drone_code_used: 0,
+      notes: null,
+      application_type_id: 1, // pre_emergente
+      category_id: null
+    };
+    render(<RegisterFumigationForm parcelId={1} mode="edit" initialFumigation={initial as unknown as DjiFumigationEvent} />);
+    // No tocar nada.
+
+    fireEvent.submit(screen.getByRole("button", { name: /Guardar cambios/ }).closest("form")!);
+
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
+    const body = JSON.parse((mockFetch.mock.calls[0][1] as RequestInit).body as string);
+    expect(body.application_type_id).toBeUndefined();
+
+    resolveFetch({
+      ok: true,
+      status: 200,
+      json: async () => ({ fumigation: { id: 42 } })
+    } as Response);
   });
 });
