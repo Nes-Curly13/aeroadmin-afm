@@ -60,6 +60,7 @@ import { Input } from "@/components/ui/input";
 import { FieldSelect } from "@/components/ui/field-select";
 import { SpinnerInline } from "@/components/ui/loading";
 import { DRONE_MODELS, FUMIGATION_CATEGORIES, APPLICATION_TYPES } from "@/lib/data-constants";
+import { VehiclePicker } from "@/components/fumigations/vehicle-picker";
 import { Plus, Save, X } from "lucide-react";
 import type { DjiFumigationEvent } from "@/lib/types";
 
@@ -89,6 +90,14 @@ interface FormState {
    * "" = sin clasificar, "1".."4" = id de APPLICATION_TYPES.
    */
   application_type_id: string;
+  /**
+   * Sprint S7 / Fase 1 (PR-B) — placa del vehículo de transporte.
+   * "" = sin asignar, "ABC-1234" = placa. La BD la guarda en
+   * `dji_fumigations.vehicle_plate` (columna propia). El picker
+   * (`VehiclePicker`) sugiere desde `dji_vehicles` y crea on-the-fly
+   * si la placa no existe. El server normaliza a UPPER.
+   */
+  vehicle_plate: string;
   product_used: string;
   dose_l_per_ha: string;
   area_fumigated_m2: string;
@@ -113,6 +122,7 @@ function emptyForm(): FormState {
     fumigation_date: todayISO(),
     category_id: "",
     application_type_id: "",
+    vehicle_plate: "",
     product_used: "",
     dose_l_per_ha: "",
     area_fumigated_m2: "",
@@ -136,6 +146,7 @@ function fromFumigation(f: DjiFumigationEvent): FormState {
     fumigation_date: f.fumigation_date || todayISO(),
     category_id: f.category_id != null ? String(f.category_id) : "",
     application_type_id: f.application_type_id != null ? String(f.application_type_id) : "",
+    vehicle_plate: f.vehicle_plate ?? "",
     product_used: f.product_used ?? "",
     dose_l_per_ha: f.dose_l_per_ha != null ? String(f.dose_l_per_ha) : "",
     area_fumigated_m2: f.area_fumigated_m2 != null ? String(f.area_fumigated_m2) : "",
@@ -293,6 +304,30 @@ export function RegisterFumigationForm({
       body.application_type_id = appTypeNum;
     }
 
+    // Sprint S7 / Fase 1 (PR-B) — vehicle_plate: opcional. El form
+    // expone "" (sin asignar) o un plate string. En create, mandamos
+    // el string tal cual (server normaliza a UPPER). En edit, sparse
+    // PATCH: solo si difiere del initialFumigation.vehicle_plate
+    // (que puede ser null o string).
+    const plateTrimmed = form.vehicle_plate.trim();
+    const plateOriginal = initialFumigation?.vehicle_plate ?? "";
+    if (mode === "create") {
+      // En create, mandamos solo si no es vacío (no enviamos el campo
+      // cuando el operador no llenó el picker; el server no lo inserta
+      // y queda null en BD).
+      if (plateTrimmed.length > 0) {
+        body.vehicle_plate = plateTrimmed;
+      }
+    } else {
+      // mode === "edit" — sparse PATCH
+      if (plateTrimmed !== plateOriginal) {
+        // Si está vacío en el form pero el original tenía placa,
+        // mandamos null explícito para clear. Si está vacío y el
+        // original también, no mandamos nada (no-op).
+        body.vehicle_plate = plateTrimmed.length > 0 ? plateTrimmed : null;
+      }
+    }
+
     try {
       const url =
         mode === "edit" && initialFumigation
@@ -399,6 +434,18 @@ export function RegisterFumigationForm({
           </FieldSelect>
         </label>
       </div>
+
+      {/**
+       * Sprint S7 / Fase 1 (PR-B) — picker de vehículo de transporte.
+       * Ocupa la fila completa debajo de Fecha + Dron (contexto
+       * operativo de la aplicación). Es controlado: el form mantiene
+       * `form.vehicle_plate` y el picker emite onChange.
+       */}
+      <VehiclePicker
+        value={form.vehicle_plate || null}
+        onChange={(plate) => update("vehicle_plate", plate ?? "")}
+        disabled={isPending}
+      />
 
       <label className="flex flex-col gap-1">
         <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
