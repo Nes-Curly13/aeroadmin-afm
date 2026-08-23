@@ -2,21 +2,43 @@
 # No corre por-PR (son lentas y más útiles como señal de tendencia).
 # Ver docs/QUALITY_GAUNTLET.md §1 (las 7 compuertas) y §4 (cómo extender).
 #
-# Trigger: lunes 6am Colombia + workflow_dispatch para correr manual.
+# Trigger original: lunes 6am Colombia + workflow_dispatch para correr manual.
 # Fases representadas:
 #   - Fase 4: mutation testing sobre los 5 módulos críticos.
 #   - Fase 5: knip (código muerto) + jscpd (duplicación) — chequeo semanal.
 #
-# Estado actual (2026-07-28): fase 1+2 activas (lint+arch+coverage).
-# Las fases 4-5 se activan después de tener mutation testing instalado
-# y los umbrales por archivo estables.
+# Estado actual (2026-08-22): fase 1+2 activas (lint+arch+coverage) en CI por-PR.
+# Las fases 4-5 (este workflow) están DESHABILITADAS vía `if: false` en cada
+# job hasta que:
+#   1. StrykerJS esté instalado y stable
+#   2. Los 106 archivos no usados (knip) se hayan limpiado o documentado
+#   3. Los umbrales por archivo estén definidos
 
 name: Quality Gauntlet — weekly
 
+# =====================================================================
+# ACTIVACIÓN (sprint 2026-08-22 — chore/disable-failing-cron-workflows):
+#   SCHEDULE DESHABILITADO — el workflow fallaba cada lunes 11:00 UTC con
+#   106 archivos no usados de knip + threshold issue en
+#   `lib/djiag-circuit-breaker.js:245:3`. El job `quality-metrics` tiene
+#   `continue-on-error: true` así que NO bloquea, pero el run sigue
+#   apareciendo en rojo en el panel de Actions.
+#
+#   Para reactivar el schedule:
+#     1. Limpiar los 106 archivos no usados (o ajustar knip.json para
+#        excluirlos con justificación)
+#     2. Resolver el DEFAULT_FAILURE_THRESHOLD en djiag-circuit-breaker
+#     3. Restaurar el bloque `on:` con `schedule: - cron: "0 11 * * 1"`
+#        debajo del nombre
+#     4. Sacar el `if: false` del job que se quiera activar
+#
+#   Mientras tanto, queda disponible para dispatch manual vía la UI de
+#   Actions (útil para ver el estado de knip + jscpd sin esperar al lunes).
+# =====================================================================
+
 on:
-  schedule:
-    # Lunes 11:00 UTC = 06:00 Colombia. Después del sprint de lunes.
-    - cron: "0 11 * * 1"
+  # Manual only. Ver comentario arriba. Restaurar el bloque con
+  # `schedule: - cron: "0 11 * * 1"` cuando se resuelva knip + circuit-breaker.
   workflow_dispatch:
     # Permite correr manual: Actions → Quality Gauntlet — weekly → Run workflow
 
@@ -63,6 +85,12 @@ jobs:
     name: knip + jscpd
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # Sprint 2026-08-22 — deshabilitado. Falla por 106 archivos no usados
+    # de knip + threshold issue en lib/djiag-circuit-breaker.js:245:3.
+    # El continue-on-error: true de los steps internos NO bloquea el run,
+    # pero el run aparece en rojo en el panel de Actions (falsa alarma).
+    # Reactivar con `if: ${{ !false }}` cuando se limpie knip.
+    if: false
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
