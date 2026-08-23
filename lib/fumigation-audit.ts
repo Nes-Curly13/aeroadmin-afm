@@ -47,7 +47,15 @@ export const FUMIGATION_SNAPSHOT_FIELDS = [
   "notes",
   "product_registered_ica",
   "pilot_license",
-  "category_id"
+  "category_id",
+  /**
+   * Sprint S7 — feature/s7-schema-extension. application_type_id
+   * es editable (el operador puede re-clasificar la fase de uso
+   * sin cambiar el producto). Se incluye en snapshot para que
+   * el audit log de delete muestre qué fase tenía la fumigación
+   * al momento de borrarla.
+   */
+  "application_type_id"
 ] as const;
 
 /**
@@ -65,7 +73,12 @@ export const FUMIGATION_EDITABLE_FIELDS = [
   "notes",
   "product_registered_ica",
   "pilot_license",
-  "category_id"
+  "category_id",
+  /**
+   * Sprint S7 — application_type_id es editable (ortogonal a
+   * category_id). Si solo cambia este campo, la diff lo captura.
+   */
+  "application_type_id"
 ] as const;
 
 /**
