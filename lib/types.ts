@@ -249,6 +249,30 @@ export interface DjiFumigationEvent {
    */
   category?: FumigationCategory | null;
   /**
+   * Sprint S7 — feature/s7-schema-extension / Fase 0.
+   * Tipo de aplicación (FK a `application_types`). Ortogonal a
+   * `category_id` (producto vs fase/uso). NULL si la fumigación no
+   * fue clasificada operacionalmente. La UI lo renderiza como
+   * badge en la card.
+   *
+   * Lo hidrata `getFumigationById` y `getFumigationEventsByParcel`
+   * con LEFT JOIN a `application_types`.
+   */
+  application_type_id?: number | null;
+  /**
+   * Catálogo de application_type, hidratado vía LEFT JOIN. Mismo
+   * patrón que `category` arriba. Undefined si la fumigación no
+   * tiene application_type_id o si la categoría está inactiva.
+   */
+  application_type?: ApplicationType | null;
+  /**
+   * Sprint S7 — array de facturas asociadas a esta fumigación.
+   * Lo hidrata `getFumigationById` con un subquery que agrega los
+   * `fumigation_invoices` (ordenados por `invoiced_at DESC`).
+   * Undefined o [] para fumigaciones sin facturas.
+   */
+  invoices?: FumigationInvoice[] | null;
+  /**
    * Sprint G2 — array de dji_flights.id que originaron esta fumigación
    * del import. NULL o undefined para fumigaciones manuales o
    * pre-Sprint-G2. Lo popula `scripts/backfill-fumigations-from-
@@ -294,6 +318,73 @@ export interface FumigationCategory {
   color: string;
   sort_order: number;
   is_active: boolean;
+}
+
+/**
+ * Tipo de aplicación (fase/uso). Vive en la tabla `application_types`
+ * (migration 20260824000000). Ortogonal a `fumigation_categories`:
+ * - `category` describe el TIPO de producto (herbicida, insecticida, ...)
+ * - `application_type` describe la FASE / USO (pre-emergente, post-emergente,
+ *   bioestimulante, otro)
+ *
+ * Una fumigación puede tener AMBOS. Por ejemplo: "Glifosato 48% (herbicida)
+ * en pre-emergente". El operador llena ambos campos en el form.
+ *
+ * `color` es semántica (amber/orange/green/slate) que la UI mapea a
+ * tokens de Tailwind para el badge.
+ */
+export interface ApplicationType {
+  id: number;
+  slug: string;
+  label: string;
+  color: string;
+  sort_order: number;
+  is_active: boolean;
+}
+
+/**
+ * Vehículo de transporte entre fincas. Vive en la tabla `dji_vehicles`
+ * (migration 20260824000000). El operador fumigador carga la placa del
+ * vehículo que usó para llegar a cada vuelo. Catálogo curado (no
+ * cualquiera puede agregar — se mantiene consistencia de `plate` con
+ * CHECK constraint regex en la BD).
+ *
+ * - `is_active = FALSE` = soft-archived (no se ofrece en dropdowns,
+ *   pero fumigaciones históricas siguen referenciando el row).
+ * - `description` es texto libre opcional (ej "Toyota Hilux 2020 blanca").
+ */
+export interface DjiVehicle {
+  id: number;
+  plate: string;
+  description: string | null;
+  is_active: boolean;
+  created_at: string;
+}
+
+/**
+ * Factura de una fumigación. Una fumigación puede tener N facturas
+ * (cuotas, pagos parciales, anulaciones con re-factura). Vive en
+ * la tabla `fumigation_invoices` (migration 20260824000000).
+ *
+ * - `cancelled = TRUE` = factura anulada (NO cobrada). NO confundir
+ *   con `dji_fumigations.deleted_at` (que es soft-delete de la
+ *   fumigación completa, no de la factura).
+ * - `amount_cop` está en pesos colombianos (el cliente factura en
+ *   pesos, no en USD).
+ * - `invoiced_at` es DATE (no timestamptz) porque la fecha de
+ *   factura es siempre día-completo, no hora.
+ */
+export interface FumigationInvoice {
+  id: number;
+  fumigation_id: number;
+  invoice_number: string;
+  invoiced_at: string;     // YYYY-MM-DD
+  amount_cop: number;      // COP, no centavos
+  cancelled: boolean;
+  cancelled_at: string | null;
+  cancelled_by: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 /**

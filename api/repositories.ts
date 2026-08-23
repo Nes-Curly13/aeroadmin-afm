@@ -35,6 +35,9 @@ import type {
   DjiFumigationEvent,
   DjiFumigationSchedule,
   DjiParcelRecord,
+  DjiVehicle,
+  FumigationInvoice,
+  ApplicationType,
   FumigationTimelineInput,
   OverdueParcel,
   UpcomingFumigation,
@@ -938,30 +941,37 @@ const fumigationScheduleByParcelQuery = `
 
 const fumigationEventsByParcelQuery = `
   SELECT
-    id,
-    parcel_id,
-    fumigation_date,
-    product_used,
-    dose_l_per_ha,
-    area_fumigated_m2,
-    drone_code_used,
-    duration_minutes,
-    notes,
-    human_notes,
-    recorded_by,
-    product_registered_ica,
-    pilot_license,
-    recorded_at,
-    source,
+    f.id,
+    f.parcel_id,
+    f.fumigation_date,
+    f.product_used,
+    f.dose_l_per_ha,
+    f.area_fumigated_m2,
+    f.drone_code_used,
+    f.duration_minutes,
+    f.notes,
+    f.human_notes,
+    f.recorded_by,
+    f.product_registered_ica,
+    f.pilot_license,
+    f.recorded_at,
+    f.source,
     -- Sprint G2: array de flight IDs (solo para fumigaciones del import).
     -- NULL para fumigaciones manuales o pre-G2. Lo necesita el UI de
     -- trazabilidad (al click en la fumigación, ver qué flights la
     -- originaron).
-    flight_ids
-  FROM dji_fumigations
-  WHERE parcel_id = $1
-    AND deleted_at IS NULL
-  ORDER BY fumigation_date DESC, recorded_at DESC
+    f.flight_ids,
+    -- Sprint S7 — feature/s7-schema-extension / Fase 0.
+    -- application_type_id + catálogo hidratado (LEFT JOIN).
+    f.application_type_id,
+    CASE WHEN f.application_type_id IS NULL THEN NULL
+      ELSE row_to_json(at) END AS application_type
+  FROM dji_fumigations f
+  LEFT JOIN application_types at
+    ON at.id = f.application_type_id AND at.is_active = TRUE
+  WHERE f.parcel_id = $1
+    AND f.deleted_at IS NULL
+  ORDER BY f.fumigation_date DESC, f.recorded_at DESC
 `;
 
 /**
@@ -1078,6 +1088,8 @@ export async function getFumigationById(id: number): Promise<DjiFumigationEvent 
           f.source,
           f.category_id,
           f.flight_ids,
+          -- Sprint S7 — feature/s7-schema-extension.
+          f.application_type_id,
           count(fl.id)::int AS n_matched_flights,
           CASE
             WHEN count(fl.id) = 0 THEN NULL
@@ -1091,14 +1103,29 @@ export async function getFumigationById(id: number): Promise<DjiFumigationEvent 
           -- histórica no clasificada). row_to_json para que el caller
           -- reciba un objeto anidado, no columnas planas.
           CASE WHEN f.category_id IS NULL THEN NULL
-            ELSE row_to_json(cat) END AS category
+            ELSE row_to_json(cat) END AS category,
+          -- Catálogo de application_type hidratado (Sprint S7).
+          CASE WHEN f.application_type_id IS NULL THEN NULL
+            ELSE row_to_json(at) END AS application_type,
+          -- Facturas de la fumigación (Sprint S7 — fumigation_invoices).
+          -- Aggregate para devolver un array de jsonb en una sola query.
+          -- Cancelled se incluye en el row para que el UI pueda filtrar
+          -- sin re-procesar.
+          COALESCE(
+            (SELECT jsonb_agg(row_to_json(inv) ORDER BY inv.invoiced_at DESC)
+               FROM fumigation_invoices inv
+              WHERE inv.fumigation_id = f.id),
+            '[]'::jsonb
+          ) AS invoices
          FROM dji_fumigations f
          LEFT JOIN dji_flights fl ON fl.flight_id = ANY(f.flight_ids)
          LEFT JOIN fumigation_categories cat
            ON cat.id = f.category_id AND cat.is_active = TRUE
+         LEFT JOIN application_types at
+           ON at.id = f.application_type_id AND at.is_active = TRUE
         WHERE f.id = $1
           AND f.deleted_at IS NULL
-        GROUP BY f.id, cat.id`,
+        GROUP BY f.id, cat.id, at.id`,
       [id]
     );
     const row = result.rows[0];
@@ -1154,13 +1181,19 @@ export async function getFumigationRawById(
           f.flight_ids,
           f.deleted_at,
           f.deleted_by,
+          -- Sprint S7 — application_type_id + catálogo hidratado.
+          f.application_type_id,
           CASE WHEN f.category_id IS NULL THEN NULL
-            ELSE row_to_json(cat) END AS category
+            ELSE row_to_json(cat) END AS category,
+          CASE WHEN f.application_type_id IS NULL THEN NULL
+            ELSE row_to_json(at) END AS application_type
          FROM dji_fumigations f
          LEFT JOIN fumigation_categories cat
            ON cat.id = f.category_id AND cat.is_active = TRUE
+         LEFT JOIN application_types at
+           ON at.id = f.application_type_id AND at.is_active = TRUE
         WHERE f.id = $1
-        GROUP BY f.id, cat.id`,
+        GROUP BY f.id, cat.id, at.id`,
       [id]
     );
     const row = result.rows[0];
@@ -1257,6 +1290,12 @@ export async function updateFumigationEvent(
     product_registered_ica?: string | null;
     pilot_license?: string | null;
     category_id?: number | null;
+    /**
+     * Sprint S7 — application_type_id editable. Ortogonal a
+     * category_id (producto vs fase/uso). El operador puede
+     * re-clasificar la fase sin cambiar el producto.
+     */
+    application_type_id?: number | null;
   }
 ): Promise<DjiFumigationEvent | null> {
   const db = getDb();
@@ -1308,6 +1347,11 @@ export async function updateFumigationEvent(
         setClauses.push(`category_id = $${i++}`);
         values.push(patch.category_id);
       }
+      // Sprint S7 — application_type_id editable.
+      if (patch.application_type_id !== undefined) {
+        setClauses.push(`application_type_id = $${i++}`);
+        values.push(patch.application_type_id);
+      }
 
       // Si no se mandó ningún campo editable, no-op (devuelve el row actual).
       if (setClauses.length === 0) {
@@ -1322,7 +1366,7 @@ export async function updateFumigationEvent(
         RETURNING id, parcel_id, fumigation_date, product_used, dose_l_per_ha,
                   area_fumigated_m2, drone_code_used, duration_minutes, notes,
                   human_notes, recorded_by, product_registered_ica, pilot_license,
-                  category_id, recorded_at, source
+                  category_id, application_type_id, recorded_at, source
       `;
       values.push(id);
       const result = await db.query<DjiFumigationEvent>(sql, values);
@@ -2089,6 +2133,12 @@ export async function createFumigationEvent(event: {
    * Sprint 2026-08-13 — feature/fumigacion-detail-v2 / sub-2.
    */
   category_id?: number | null;
+  /**
+   * Sprint S7 — application_type_id (FK a application_types).
+   * Ortogonal a category_id. La BD tiene ON DELETE SET NULL así
+   * que borrar un tipo no rompe fumigaciones. Opcional.
+   */
+  application_type_id?: number | null;
 }): Promise<DjiFumigationEvent> {
   const db = getDb();
   return withLocalFallback(
@@ -2102,13 +2152,13 @@ export async function createFumigationEvent(event: {
               (parcel_id, fumigation_date, product_used, dose_l_per_ha,
                area_fumigated_m2, drone_code_used, duration_minutes, notes,
                human_notes, recorded_by, product_registered_ica, pilot_license,
-               category_id, source)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'manual')
+               category_id, application_type_id, source)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'manual')
             RETURNING
               id, parcel_id, fumigation_date, product_used, dose_l_per_ha,
               area_fumigated_m2, drone_code_used, duration_minutes, notes,
               human_notes, recorded_by, product_registered_ica, pilot_license,
-              category_id, recorded_at, source
+              category_id, application_type_id, recorded_at, source
           `,
           [
             event.parcel_id,
@@ -2123,7 +2173,8 @@ export async function createFumigationEvent(event: {
             event.recorded_by ?? null,
             event.product_registered_ica ?? null,
             event.pilot_license ?? null,
-            event.category_id ?? null
+            event.category_id ?? null,
+            event.application_type_id ?? null
           ]
         );
         const created = ins.rows[0];
@@ -2999,6 +3050,8 @@ export async function getRecentFumigations(
             f.source,
             f.category_id,
             f.flight_ids,
+            -- Sprint S7 — application_type_id + catálogo hidratado.
+            f.application_type_id,
             count(fl.id)::int AS n_matched_flights,
             CASE
               WHEN count(fl.id) = 0 THEN NULL
@@ -3011,14 +3064,19 @@ export async function getRecentFumigations(
             -- Catálogo de categoría hidratado (LEFT JOIN; null si fumigación
             -- histórica no clasificada). row_to_json para anidar.
             CASE WHEN f.category_id IS NULL THEN NULL
-              ELSE row_to_json(cat) END AS category
+              ELSE row_to_json(cat) END AS category,
+            -- Catálogo de application_type (Sprint S7).
+            CASE WHEN f.application_type_id IS NULL THEN NULL
+              ELSE row_to_json(at) END AS application_type
            FROM dji_fumigations f
            LEFT JOIN dji_flights fl ON fl.flight_id = ANY(f.flight_ids)
            LEFT JOIN fumigation_categories cat
              ON cat.id = f.category_id AND cat.is_active = TRUE
+           LEFT JOIN application_types at
+             ON at.id = f.application_type_id AND at.is_active = TRUE
           WHERE f.deleted_at IS NULL
             AND f.parcel_id IS NOT NULL
-          GROUP BY f.id, cat.id
+          GROUP BY f.id, cat.id, at.id
           ORDER BY f.fumigation_date DESC, f.recorded_at DESC
           LIMIT $1`,
         [limit]
@@ -3245,4 +3303,256 @@ export async function getFarmsReportFumigations(
   );
 
   return result.rows;
+}
+
+// ============================================================
+// Sprint S7 — feature/s7-schema-extension / Fase 0
+// CRUD para los 2 catalogos nuevos (application_types, dji_vehicles)
+// y la tabla nueva (fumigation_invoices).
+// ============================================================
+
+/**
+ * Devuelve el catálogo curado de tipos de aplicación (fase/uso).
+ * Ortogonal a `getFumigationCategories` (que devuelve TIPO de producto).
+ *
+ * Sprint S7 — feature/s7-schema-extension / Fase 0.
+ */
+export async function getApplicationTypes(): Promise<ApplicationType[]> {
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      const result = await db.query<ApplicationType>(
+        `SELECT id, slug, label, color, sort_order, is_active
+           FROM application_types
+          WHERE is_active = TRUE
+          ORDER BY sort_order ASC, label ASC`
+      );
+      return result.rows;
+    },
+    async () => []
+  );
+}
+
+/**
+ * Busca un vehículo por su placa exacta (case-insensitive). Usado por
+ * el form de fumigaciones para autocomplete: si la placa existe, se
+ * reusa; si no, se crea.
+ *
+ * Devuelve `null` si no hay match.
+ *
+ * Sprint S7 — feature/s7-schema-extension / Fase 0.
+ */
+export async function findDjiVehicleByPlate(
+  plate: string
+): Promise<DjiVehicle | null> {
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      const result = await db.query<DjiVehicle>(
+        `SELECT id, plate, description, is_active, created_at
+           FROM dji_vehicles
+          WHERE UPPER(plate) = UPPER($1)`,
+        [plate.trim()]
+      );
+      return result.rows[0] ?? null;
+    },
+    async () => null
+  );
+}
+
+/**
+ * Inserta un vehículo nuevo. Si ya existe (UNIQUE constraint en `plate`),
+ * tira 23505 — el caller lo mapea a un 409 con un mensaje claro.
+ *
+ * La BD valida el formato de `plate` con CHECK regex
+ * `^[A-Z0-9-]{3,12}$`. El server normaliza a UPPER antes de INSERT.
+ *
+ * Sprint S7 — feature/s7-schema-extension / Fase 0.
+ */
+export async function createDjiVehicle(input: {
+  plate: string;
+  description?: string | null;
+}): Promise<DjiVehicle> {
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      const result = await db.query<DjiVehicle>(
+        `INSERT INTO dji_vehicles (plate, description)
+         VALUES (UPPER($1), $2)
+         RETURNING id, plate, description, is_active, created_at`,
+        [input.plate.trim(), input.description?.trim() ?? null]
+      );
+      const row = result.rows[0];
+      if (!row) throw new Error("createDjiVehicle: INSERT sin row");
+      return row;
+    },
+    async () => {
+      throw new Error("DB no disponible");
+    }
+  );
+}
+
+/**
+ * Lista facturas de una fumigación, ordenadas por fecha DESC.
+ * Usado por la sección "Facturación" del detail page de fumigación.
+ * (También se cargan en bloque con `getFumigationById`; este helper
+ * es para refresh después de un POST/PATCH.)
+ *
+ * Sprint S7 — feature/s7-schema-extension / Fase 0.
+ */
+export async function listFumigationInvoices(
+  fumigationId: number
+): Promise<FumigationInvoice[]> {
+  if (!Number.isInteger(fumigationId) || fumigationId <= 0) {
+    throw new Error(
+      "listFumigationInvoices: fumigationId requerido (entero positivo)"
+    );
+  }
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      const result = await db.query<FumigationInvoice>(
+        `SELECT id, fumigation_id, invoice_number, invoiced_at, amount_cop,
+                cancelled, cancelled_at, cancelled_by, created_at, updated_at
+           FROM fumigation_invoices
+          WHERE fumigation_id = $1
+          ORDER BY invoiced_at DESC, id DESC`,
+        [fumigationId]
+      );
+      // pg devuelve DATE como Date — normalizar a YYYY-MM-DD en el boundary.
+      return result.rows.map((row) => ({
+        ...row,
+        invoiced_at: toDateString(row.invoiced_at) ?? ""
+      }));
+    },
+    async () => []
+  );
+}
+
+/**
+ * Crea una factura para una fumigación. El UNIQUE constraint
+ * (fumigation_id, invoice_number) previene duplicados.
+ *
+ * Validación de inputs en BD:
+ *   - invoice_number: length 1-50 (CHECK)
+ *   - amount_cop: >= 0 (CHECK)
+ *   - invoiced_at: NOT NULL
+ *   - fumigation_id: FK a dji_fumigations (CASCADE delete)
+ *
+ * Sprint S7 — feature/s7-schema-extension / Fase 0.
+ */
+export async function createFumigationInvoice(input: {
+  fumigation_id: number;
+  invoice_number: string;
+  invoiced_at: string;     // YYYY-MM-DD
+  amount_cop: number;
+}): Promise<FumigationInvoice> {
+  if (!Number.isInteger(input.fumigation_id) || input.fumigation_id <= 0) {
+    throw new Error("createFumigationInvoice: fumigation_id inválido");
+  }
+  if (!input.invoice_number || input.invoice_number.trim().length === 0) {
+    throw new Error("createFumigationInvoice: invoice_number requerido");
+  }
+  if (input.invoice_number.trim().length > 50) {
+    throw new Error("createFumigationInvoice: invoice_number max 50 chars");
+  }
+  if (!Number.isFinite(input.amount_cop) || input.amount_cop < 0) {
+    throw new Error("createFumigationInvoice: amount_cop debe ser >= 0");
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.invoiced_at)) {
+    throw new Error(
+      "createFumigationInvoice: invoiced_at debe ser YYYY-MM-DD"
+    );
+  }
+
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      const result = await db.query<FumigationInvoice>(
+        `INSERT INTO fumigation_invoices
+            (fumigation_id, invoice_number, invoiced_at, amount_cop)
+         VALUES ($1, $2, $3::date, $4)
+         RETURNING id, fumigation_id, invoice_number, invoiced_at, amount_cop,
+                   cancelled, cancelled_at, cancelled_by, created_at, updated_at`,
+        [
+          input.fumigation_id,
+          input.invoice_number.trim(),
+          input.invoiced_at,
+          input.amount_cop
+        ]
+      );
+      const row = result.rows[0];
+      if (!row) throw new Error("createFumigationInvoice: INSERT sin row");
+      return {
+        ...row,
+        invoiced_at: toDateString(row.invoiced_at) ?? ""
+      };
+    },
+    async () => {
+      throw new Error("DB no disponible");
+    }
+  );
+}
+
+/**
+ * Marca una factura como cancelada (anulada). NO borra el row — la
+ * factura queda en la BD con `cancelled = TRUE` para auditoría.
+ *
+ * Idempotente: si la factura YA está cancelada, no hace UPDATE
+ * (no-op). El `cancelled_at` y `cancelled_by` quedan con el valor
+ * del primer cancel.
+ *
+ * Sprint S7 — feature/s7-schema-extension / Fase 0.
+ */
+export async function cancelFumigationInvoice(
+  id: number,
+  cancelledBy: string
+): Promise<FumigationInvoice | null> {
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new Error("cancelFumigationInvoice: id inválido");
+  }
+  if (!cancelledBy || cancelledBy.trim().length === 0) {
+    throw new Error("cancelFumigationInvoice: cancelledBy requerido");
+  }
+
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      // Solo cancela si no estaba cancelada (idempotente).
+      const result = await db.query<FumigationInvoice>(
+        `UPDATE fumigation_invoices
+            SET cancelled = TRUE,
+                cancelled_at = NOW(),
+                cancelled_by = $2,
+                updated_at = NOW()
+          WHERE id = $1
+            AND cancelled = FALSE
+        RETURNING id, fumigation_id, invoice_number, invoiced_at, amount_cop,
+                  cancelled, cancelled_at, cancelled_by, created_at, updated_at`,
+        [id, cancelledBy.trim()]
+      );
+      if (result.rows.length === 0) {
+        // Ya cancelada o no existe. Devolvemos el row actual (puede ser
+        // null si no existe).
+        const existing = await db.query<FumigationInvoice>(
+          `SELECT id, fumigation_id, invoice_number, invoiced_at, amount_cop,
+                  cancelled, cancelled_at, cancelled_by, created_at, updated_at
+             FROM fumigation_invoices WHERE id = $1`,
+          [id]
+        );
+        const row = existing.rows[0];
+        if (!row) return null;
+        return {
+          ...row,
+          invoiced_at: toDateString(row.invoiced_at) ?? ""
+        };
+      }
+      const row = result.rows[0];
+      return {
+        ...row,
+        invoiced_at: toDateString(row.invoiced_at) ?? ""
+      };
+    },
+    async () => null
+  );
 }

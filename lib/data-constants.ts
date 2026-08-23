@@ -86,4 +86,38 @@ export const fumigationCategory = (id: number | null | undefined) =>
     ? null
     : FUMIGATION_CATEGORIES.find((c) => c.id === id) ?? null;
 
+/**
+ * Catálogo curado de tipos de aplicación (fase/uso). Espejo client-side
+ * de la tabla `application_types` (migration 20260824000000). Ortogonal
+ * a `FUMIGATION_CATEGORIES` (que describe TIPO de producto, no fase).
+ *
+ * El form `RegisterFumigationForm` consume este array para popular
+ * el dropdown de "application type". Si en el futuro los tipos son
+ * 100% dinámicos (CRUD admin), se reemplaza este hardcode por fetch
+ * a `/api/admin/application-types`. Por ahora lo mantenemos sincronizado
+ * a mano con la migration.
+ *
+ * Sprint S7 — feature/s7-schema-extension / Fase 0.
+ */
+export interface ApplicationTypeOption {
+  id: number;
+  slug: string;
+  label: string;
+  /** Token semántico (amber/orange/green/slate) usado para el badge. */
+  color: string;
+}
+
+export const APPLICATION_TYPES: ApplicationTypeOption[] = [
+  { id: 1, slug: "pre_emergente",  label: "Pre emergente",  color: "amber" },
+  { id: 2, slug: "post_emergente", label: "Post emergente", color: "orange" },
+  { id: 3, slug: "bioestimulante", label: "Bioestimulante",  color: "green" },
+  { id: 4, slug: "otro",           label: "Otro",            color: "slate" }
+];
+
+/** Helper de lookup por id (compat con `fumigationCategory`). */
+export const applicationType = (id: number | null | undefined) =>
+  id == null
+    ? null
+    : APPLICATION_TYPES.find((t) => t.id === id) ?? null;
+
 export type { ComplianceStatus, DroneModelId };
