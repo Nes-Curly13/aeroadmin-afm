@@ -13,6 +13,26 @@ const _esDec = new Intl.NumberFormat("es-CO", {
 export const fmtInt = (n: number) => _esInt.format(n);
 export const fmtDec = (n: number) => _esDec.format(n);
 
+/**
+ * Formatea un monto en pesos colombianos (COP). Usa el locale
+ * es-CO con estilo currency. El monto se redondea a entero (los
+ * centavos no se manejan en este sistema — el cliente factura en
+ * pesos redondos, no en centavos).
+ *
+ * Sprint S7 — feature/s7-schema-extension / Fase 1 / PR-C.
+ * Usado por `components/fumigations/invoices-card.tsx` para
+ * formatear `amount_cop` de las facturas.
+ *
+ * @example fmtCop(1500000) → "$ 1.500.000"
+ */
+export function fmtCop(n: number): string {
+  return new Intl.NumberFormat("es-CO", {
+    style: "currency",
+    currency: "COP",
+    maximumFractionDigits: 0
+  }).format(n);
+}
+
 export function fmtHa(n: number) {
   return `${n >= 1000 ? _esInt.format(Math.round(n)) : _esDec.format(n)} ha`;
 }
