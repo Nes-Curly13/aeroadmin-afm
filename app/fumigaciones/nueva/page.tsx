@@ -38,17 +38,24 @@ export const metadata = {
 export const dynamic = "force-dynamic";
 
 interface PageProps {
-  searchParams: Promise<{ parcel?: string }>;
+  searchParams: Promise<{ parcel?: string; q?: string }>;
 }
 
 export default async function NuevaFumigacionPage({ searchParams }: PageProps) {
   const sp = await searchParams;
   const initialParcelId = sp.parcel ? Number(sp.parcel) : null;
+  const initialQuery = (sp.q ?? "").trim();
 
-  // Cargamos las últimas N parcelas para el autocomplete del picker.
-  // Limit 500 es suficiente para que el operador encuentre cualquier
-  // parcela reciente (Valle del Cauca tiene ~1200 parcelas en total).
-  const recentParcels = await getRecentParcelsForPicker(500);
+  // Sprint Fase 2 / Q4 (2026-08-23): si la URL trae `?q=...`,
+  // pre-filtramos server-side con ILIKE. Si no, los 500 más recientes.
+  // El Picker local filtra además sobre el resultado, así que el
+  // operador puede refinar la búsqueda (server fetch inicial +
+  // client filter incremental).
+  //
+  // Limit 500 sigue siendo suficiente para el Valle del Cauca
+  // (~1200 parcelas). Con search, el cap sube implícito a 2000
+  // (vía `getRecentParcelsForPicker`).
+  const recentParcels = await getRecentParcelsForPicker(500, initialQuery);
 
   return (
     <div className="flex flex-col gap-4 p-4 md:p-6">
