@@ -41,6 +41,8 @@ import {
   RotateCcw,
   Trash2
 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { isBackfillEvent } from "@/lib/fumigation-audit";
 import type { FumigationAuditAction, FumigationAuditEvent } from "@/lib/types";
 
 interface FumigationAuditTrailProps {
@@ -221,7 +223,12 @@ function AuditEventRow({ event }: AuditEventRowProps) {
     changes.snapshot != null;
   const hasRestoredFrom = event.action === "restored" && changes.restored_from != null;
   const hasDetails = hasDiff || hasSnapshot || hasRestoredFrom;
-  const ariaLabel = `${meta.label} por ${event.actor_email}, ${formatRelative(event.created_at)}`;
+  // Sprint 2026-08-22: detectar eventos del backfill historico para
+  // mostrar un badge "Reconstruido" al lado del label. Asi el operador
+  // puede distinguir eventos reales (cuando el operador hizo click en
+  // Guardar) de eventos reconstruidos (cuando corrimos el backfill).
+  const isBackfill = isBackfillEvent(event);
+  const ariaLabel = `${meta.label}${isBackfill ? " (reconstruido)" : ""} por ${event.actor_email}, ${formatRelative(event.created_at)}`;
 
   return (
     <li
@@ -236,9 +243,20 @@ function AuditEventRow({ event }: AuditEventRowProps) {
       </div>
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <p className={`text-sm font-semibold ${meta.colorClass}`}>
-            {meta.label}
-          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className={`text-sm font-semibold ${meta.colorClass}`}>
+              {meta.label}
+            </p>
+            {isBackfill ? (
+              <Badge
+                variant="outline"
+                className="border-amber-500/60 bg-amber-50 text-[10px] font-semibold uppercase tracking-wide text-amber-700"
+                title="Reconstruido a partir del estado actual de la BD por el script de backfill. No es un evento registrado cuando el operador hizo click en Guardar."
+              >
+                Reconstruido
+              </Badge>
+            ) : null}
+          </div>
           <p className="text-[11px] text-muted-foreground" title={event.created_at}>
             {formatRelative(event.created_at)}
           </p>

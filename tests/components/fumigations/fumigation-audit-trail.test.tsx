@@ -295,3 +295,64 @@ describe("FumigationAuditTrail — formato de valores del diff", () => {
     expect(within(region).getByText("2.50")).toBeDefined();
   });
 });
+
+/**
+ * Sprint 2026-08-22 (feat/audit-backfill-badge): cobertura del badge
+ * "Reconstruido" que diferencia los 642 eventos del backfill historico
+ * de los eventos reales futuros. El helper `isBackfillEvent` vive en
+ * `lib/fumigation-audit.ts`.
+ */
+describe("FumigationAuditTrail — badge 'Reconstruido' (backfill)", () => {
+  it("muestra el badge cuando el evento tiene changes._backfill=true", () => {
+    render(
+      <FumigationAuditTrail
+        events={[
+          makeEvent({
+            id: 100,
+            action: "created",
+            actor_email: "system@dji-import",
+            changes: {
+              _backfill: true,
+              _note: "Reconstruido a partir del estado actual",
+              fields: { parcel_id: 42, product_used: "Glifosato 48%" }
+            }
+          })
+        ]}
+      />
+    );
+    expect(screen.getByText("Reconstruido")).toBeDefined();
+    // El aria-label del <li> incluye "(reconstruido)" para screen readers
+    const item = screen.getByRole("listitem");
+    expect(item.getAttribute("aria-label")).toMatch(/\(reconstruido\)/);
+  });
+
+  it("NO muestra el badge cuando el evento no tiene _backfill=true", () => {
+    render(
+      <FumigationAuditTrail
+        events={[
+          makeEvent({
+            id: 101,
+            action: "created",
+            changes: { fields: { parcel_id: 42 } } // created real, sin _backfill
+          })
+        ]}
+      />
+    );
+    expect(screen.queryByText("Reconstruido")).toBeNull();
+  });
+
+  it("NO muestra el badge cuando _backfill=false (solo cuenta como true)", () => {
+    render(
+      <FumigationAuditTrail
+        events={[
+          makeEvent({
+            id: 102,
+            action: "created",
+            changes: { _backfill: false, fields: { parcel_id: 42 } }
+          })
+        ]}
+      />
+    );
+    expect(screen.queryByText("Reconstruido")).toBeNull();
+  });
+});

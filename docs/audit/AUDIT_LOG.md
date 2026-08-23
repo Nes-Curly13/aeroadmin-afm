@@ -254,6 +254,21 @@ en el futuro, el payload `changes` incluye un tag:
 }
 ```
 
+### Identificación en la UI (sprint 2026-08-22)
+
+El componente `FumigationAuditTrail` (`components/fumigations/fumigation-audit-trail.tsx`)
+usa el helper `isBackfillEvent()` de `lib/fumigation-audit.ts` para detectar
+el tag y mostrar un badge "Reconstruido" al lado del label del evento:
+
+- **Color**: outline amber (`#d97706` border, fondo amber-50)
+- **Posición**: al lado del label del action (`Fumigación creada`, `Fumigación editada`, etc.)
+- **a11y**: el `aria-label` del `<li>` incluye "(reconstruido)" para screen readers
+- **Tooltip**: `title="Reconstruido a partir del estado actual de la BD por el script de backfill. No es un evento registrado cuando el operador hizo click en Guardar."`
+
+Cuando lleguen eventos reales futuros, NO tendrán el tag `_backfill` y se
+mostrarán sin badge. El operador puede así distinguir "esto pasó cuando
+hice click en Guardar" de "esto fue reconstruido por el backfill inicial".
+
 ### Uso
 
 ```bash
