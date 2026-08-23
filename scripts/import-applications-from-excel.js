@@ -58,7 +58,14 @@ function loadLocalEnv() {
 }
 
 function parseArgs(argv) {
-  const opts = { dryRun: false, areaUnit: null, minScore: 0.5, actorEmail: 'excel-import@afm.local', limit: null };
+  const opts = {
+    xlsxPath: '',
+    dryRun: false,
+    areaUnit: null,
+    minScore: 0.5,
+    actorEmail: 'excel-import@afm.local',
+    limit: null
+  };
   const positional = [];
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
