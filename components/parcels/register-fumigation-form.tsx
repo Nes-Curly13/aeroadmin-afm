@@ -28,6 +28,7 @@
  *   - product_registered_ica
  *   - pilot_license
  *   - category_id
+ *   - application_type_id (Sprint S7)
  *
  * Campos INMUTABLES (rechazados por el PATCH handler):
  *   - parcel_id, source, recorded_by, flight_ids, recorded_at
@@ -58,7 +59,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FieldSelect } from "@/components/ui/field-select";
 import { SpinnerInline } from "@/components/ui/loading";
-import { DRONE_MODELS, FUMIGATION_CATEGORIES } from "@/lib/data-constants";
+import { DRONE_MODELS, FUMIGATION_CATEGORIES, APPLICATION_TYPES } from "@/lib/data-constants";
 import { Plus, Save, X } from "lucide-react";
 import type { DjiFumigationEvent } from "@/lib/types";
 
@@ -82,6 +83,12 @@ interface FormState {
   fumigation_date: string;
   /** Sprint 2026-08-13 — sub-2. "" = sin clasificar, "1".."7" = id de FUMIGATION_CATEGORIES. */
   category_id: string;
+  /**
+   * Sprint S7 — feature/s7-schema-extension / Fase 1 (PR-A).
+   * Ortogonal a category_id (producto vs fase/uso).
+   * "" = sin clasificar, "1".."4" = id de APPLICATION_TYPES.
+   */
+  application_type_id: string;
   product_used: string;
   dose_l_per_ha: string;
   area_fumigated_m2: string;
@@ -105,6 +112,7 @@ function emptyForm(): FormState {
   return {
     fumigation_date: todayISO(),
     category_id: "",
+    application_type_id: "",
     product_used: "",
     dose_l_per_ha: "",
     area_fumigated_m2: "",
@@ -127,6 +135,7 @@ function fromFumigation(f: DjiFumigationEvent): FormState {
   return {
     fumigation_date: f.fumigation_date || todayISO(),
     category_id: f.category_id != null ? String(f.category_id) : "",
+    application_type_id: f.application_type_id != null ? String(f.application_type_id) : "",
     product_used: f.product_used ?? "",
     dose_l_per_ha: f.dose_l_per_ha != null ? String(f.dose_l_per_ha) : "",
     area_fumigated_m2: f.area_fumigated_m2 != null ? String(f.area_fumigated_m2) : "",
@@ -276,6 +285,14 @@ export function RegisterFumigationForm({
       body.category_id = catNum;
     }
 
+    // Sprint S7 — application_type_id: opcional. Si difiere del
+    // original, mandamos. Mismo patrón que category_id (ortogonal).
+    const appTypeNum =
+      form.application_type_id.trim() === "" ? null : Number(form.application_type_id);
+    if (appTypeNum !== (initialFumigation?.application_type_id ?? null)) {
+      body.application_type_id = appTypeNum;
+    }
+
     try {
       const url =
         mode === "edit" && initialFumigation
@@ -419,6 +436,36 @@ export function RegisterFumigationForm({
         </FieldSelect>
         <span className="text-[10px] text-muted-foreground">
           Herbicida, insecticida, fertilizante, etc. Útil para reportes por tipo y auditoría ICA.
+        </span>
+      </label>
+
+      {/**
+       * Sprint S7 — feature/s7-schema-extension / Fase 1 (PR-A).
+       * Ortogonal a "Tipo de fumigación" (categoría de producto).
+       * `application_type` describe la FASE / USO de la fumigación
+       * (pre-emergente, post-emergente, bioestimulante, otro).
+       * Una fumigación puede tener AMBOS: ej "Glifosato 48% (herbicida)
+       * aplicado en pre-emergente".
+       */}
+      <label className="flex flex-col gap-1">
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Fase de uso
+        </span>
+        <FieldSelect
+          label="Fase de uso"
+          value={form.application_type_id}
+          onChange={(e) => update("application_type_id", e.target.value)}
+          disabled={isPending}
+        >
+          <option value="">Sin clasificar</option>
+          {APPLICATION_TYPES.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.label}
+            </option>
+          ))}
+        </FieldSelect>
+        <span className="text-[10px] text-muted-foreground">
+          Cuándo se aplica: pre-emergente, post-emergente, bioestimulante, otro. Ortogonal al tipo de producto.
         </span>
       </label>
 
