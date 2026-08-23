@@ -1148,15 +1148,19 @@ export async function getFumigationById(id: number): Promise<DjiFumigationEvent 
           -- Sprint S7 / Fase 1 (PR-B): placa del vehículo usado
           -- (columna propia, ver migration 20260824000001).
           f.vehicle_plate,
-          count(fl.id)::int AS n_matched_flights,
-          CASE
-            WHEN count(fl.id) = 0 THEN NULL
-            ELSE ST_Y(ST_Centroid(ST_Collect(fl.point)))::numeric
-          END AS lat,
-          CASE
-            WHEN count(fl.id) = 0 THEN NULL
-            ELSE ST_X(ST_Centroid(ST_Collect(fl.point)))::numeric
-          END AS lng,
+          -- Sprint Fase 2 / Q3 (2026-08-23): centroide pre-calculado en
+          -- la MV mv_fumigation_flight_centroids (migration 20260824000002).
+          -- El LEFT JOIN contra la MV es O(1) lookup por fumigation_id
+          -- con UNIQUE INDEX, vs el ST_Centroid on-the-fly que recalculaba
+          -- en cada request.
+          -- Para fumigaciones manuales (sin flight_ids) o soft-deleted
+          -- flights, la MV no tiene la fila y el LEFT JOIN trae NULL
+          -- en lat/lng y 0 en n_matched_flights — la UI muestra
+          -- "Sin mapa" para fumigaciones manuales, mismo comportamiento
+          -- que antes del cambio.
+          mv.n_matched_flights,
+          mv.lat,
+          mv.lng,
           -- Catálogo de categoría hidratado (LEFT JOIN; null si fumigación
           -- histórica no clasificada). row_to_json para que el caller
           -- reciba un objeto anidado, no columnas planas.
@@ -1176,14 +1180,14 @@ export async function getFumigationById(id: number): Promise<DjiFumigationEvent 
             '[]'::jsonb
           ) AS invoices
          FROM dji_fumigations f
-         LEFT JOIN dji_flights fl ON fl.flight_id = ANY(f.flight_ids)
+         LEFT JOIN mv_fumigation_flight_centroids mv
+           ON mv.fumigation_id = f.id
          LEFT JOIN fumigation_categories cat
            ON cat.id = f.category_id AND cat.is_active = TRUE
          LEFT JOIN application_types at
            ON at.id = f.application_type_id AND at.is_active = TRUE
         WHERE f.id = $1
-          AND f.deleted_at IS NULL
-        GROUP BY f.id, cat.id, at.id`,
+          AND f.deleted_at IS NULL`,
       [id]
     );
     const row = result.rows[0];

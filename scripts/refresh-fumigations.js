@@ -56,25 +56,33 @@ async function refreshMaterializedViews(client) {
   // la MV no existe (migration 20260801000000 no aplicada), la query
   // falla con "relation does not exist" — loggeamos warning y seguimos.
   // El workflow no debe fallar solo porque una MV no está creada.
-  try {
-    log("info", "REFRESH MATERIALIZED VIEW mv_fumigations_monthly");
-    await client.query(
-      "REFRESH MATERIALIZED VIEW CONCURRENTLY mv_fumigations_monthly"
-    );
-    log("info", "MV refrescada OK");
-    return true;
-  } catch (err) {
-    const msg = err && err.message ? err.message : String(err);
-    if (msg.includes("does not exist")) {
-      log(
-        "warn",
-        "mv_fumigations_monthly no existe (migration 20260801000000 sin aplicar). Saltando."
-      );
-    } else {
-      log("warn", `MV refresh falló: ${msg}. Continuando con cadencia.`);
+  //
+  // Sprint Fase 2 / Q3 (2026-08-23): agregamos
+  // `mv_fumigation_flight_centroids` (migration 20260824000002).
+  // Mantiene frescos los centroides pre-calculados que `getFumigationById`
+  // usa via LEFT JOIN (en vez de ST_Centroid on-the-fly).
+  const mvsToRefresh = [
+    { name: "mv_fumigations_monthly", migration: "20260801000000" },
+    { name: "mv_fumigation_flight_centroids", migration: "20260824000002" }
+  ];
+  for (const { name, migration } of mvsToRefresh) {
+    try {
+      log("info", `REFRESH MATERIALIZED VIEW ${name}`);
+      await client.query(`REFRESH MATERIALIZED VIEW CONCURRENTLY ${name}`);
+      log("info", `MV ${name} refrescada OK`);
+    } catch (err) {
+      const msg = err && err.message ? err.message : String(err);
+      if (msg.includes("does not exist")) {
+        log(
+          "warn",
+          `${name} no existe (migration ${migration} sin aplicar). Saltando.`
+        );
+      } else {
+        log("warn", `MV ${name} refresh falló: ${msg}. Continuando.`);
+      }
     }
-    return false;
   }
+  return true;
 }
 
 async function refreshScheduleCadence(client) {
