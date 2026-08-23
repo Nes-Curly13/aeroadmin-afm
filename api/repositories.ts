@@ -23,6 +23,7 @@ import {
   fetchUpcomingFumigationsCached,
   fetchActivityComparisonCached,
   fetchFlightHullsByParcelCached,
+  fetchParcelsCycleDataCached,
   invalidateAfterFumigationMutation,
   invalidateAfterParcelMutation
 } from "@/lib/cache";
@@ -972,6 +973,7 @@ const fumigationEventsByParcelQuery = `
   WHERE f.parcel_id = $1
     AND f.deleted_at IS NULL
   ORDER BY f.fumigation_date DESC, f.recorded_at DESC
+  LIMIT $2
 `;
 
 /**
@@ -1016,6 +1018,40 @@ export async function getFumigationSchedule(parcelId: number): Promise<DjiFumiga
  * en el caller. La parcela no presente en el map = no tiene schedule
  * (cadencia por defecto según field_type).
  */
+/**
+ * Cadencia por defecto cuando la parcela NO tiene `dji_fumigation_schedule`
+ * (caso histórico: parcela recién creada, o `setFumigationCadence` nunca
+ * se corrió para ella). 14 días = cadencia operativa estándar para
+ * arroz en Valle del Cauca (ver `docs/FUMIGATION_CADENCE.md`).
+ *
+ * Sprint Fase 2 / S2 (2026-08-23): centralizado en este constante
+ * para que `effectiveCadence()` y los call-sites no repitan el
+ * literal `14` (antes había 2 copias en `createFumigationEvent` y
+ * `linkFumigationToParcel`).
+ */
+export const DEFAULT_CADENCE_DAYS = 14;
+
+/**
+ * Devuelve la cadencia efectiva de una parcela. Si la parcela tiene
+ * un schedule con `recommended_cadence_days` setado (>0), lo usa. Si
+ * no, devuelve `DEFAULT_CADENCE_DAYS` (14).
+ *
+ * Pure function — sin side effects, sin I/O. Trivial pero está
+ * duplicado en 2 call-sites, así que se extrajo para tener un solo
+ * punto de cambio si la regla de default evoluciona (ej: si
+ * diferenciamos cadencia por `field_type`).
+ *
+ * Sprint Fase 2 / S2 (2026-08-23).
+ */
+export function effectiveCadence(
+  sched: DjiFumigationSchedule | null | undefined
+): number {
+  if (sched && typeof sched.recommended_cadence_days === "number" && sched.recommended_cadence_days > 0) {
+    return sched.recommended_cadence_days;
+  }
+  return DEFAULT_CADENCE_DAYS;
+}
+
 export async function getAllFumigationSchedules(): Promise<Map<number, DjiFumigationSchedule>> {
   const db = getDb();
   return withLocalFallback(
@@ -1039,12 +1075,31 @@ export async function getAllFumigationSchedules(): Promise<Map<number, DjiFumiga
  * Lista de eventos de fumigación de una parcela, ordenados por fecha desc.
  *
  * Normaliza `fumigation_date` de `Date` (devuelto por `pg`) a `YYYY-MM-DD`.
+ *
+ * Fase 2 / Q2 (2026-08-23): agrega `limit` opcional (default 50, cap 500).
+ * El caller típico (timeline del detail page) solo muestra los últimos
+ * N; un LIMIT defensivo evita traer el historial completo de una
+ * parcela con muchos eventos (>200 es razonable en Valle del Cauca
+ * después de varios años de operación).
+ *
+ * Si el caller NECESITA el historial completo (reportes, exports),
+ * debe pasar un `limit` explícito mayor a 500 o usar
+ * `getRecentFumigations` con `parcelIds` + filtros de fecha.
  */
-export async function getFumigationEventsByParcel(parcelId: number): Promise<DjiFumigationEvent[]> {
+export async function getFumigationEventsByParcel(
+  parcelId: number,
+  limit: number = 50
+): Promise<DjiFumigationEvent[]> {
+  // Clamp defensivo. Mínimo 1, máximo 500. Si el caller quiere más,
+  // que use otra función explícita.
+  const safeLimit = Math.min(500, Math.max(1, Math.floor(limit)));
   const db = getDb();
   return withLocalFallback(
     async () => {
-      const result = await db.query<DjiFumigationEvent>(fumigationEventsByParcelQuery, [parcelId]);
+      const result = await db.query<DjiFumigationEvent>(
+        fumigationEventsByParcelQuery,
+        [parcelId, safeLimit]
+      );
       return result.rows.map((row) => ({
         ...row,
         fumigation_date: toDateString(row.fumigation_date) ?? ""
@@ -2219,8 +2274,11 @@ export async function createFumigationEvent(event: {
         const created = ins.rows[0];
 
         // Recalcular last_fumigation_date y next_due_date en el schedule
+        // Sprint Fase 2 / S2 (2026-08-23): usamos `effectiveCadence(sched)`
+        // en vez de `sched?.recommended_cadence_days ?? 14` (regla
+        // centralizada — un solo lugar para evolucionar el default).
         const sched = await getFumigationSchedule(event.parcel_id);
-        const cadence = sched?.recommended_cadence_days ?? 14;
+        const cadence = effectiveCadence(sched);
         const next = computeNextDueDate(event.fumigation_date, cadence);
         await client.query(
           `
@@ -2702,8 +2760,10 @@ export async function linkFumigationToParcel(
       const linked = updated.rows[0];
 
       // 4) Recalcular schedule de la parcela destino
+      // Sprint Fase 2 / S2 (2026-08-23): misma centralización que en
+      // `createFumigationEvent` (ver comentario en el helper `effectiveCadence`).
       const sched = await getFumigationSchedule(parcelId);
-      const cadence = sched?.recommended_cadence_days ?? 14;
+      const cadence = effectiveCadence(sched);
       const next = computeNextDueDate(linked.fumigation_date, cadence);
       await db.query(
         `
@@ -3173,33 +3233,27 @@ function normalizePhase(value: unknown): CyclePhase | null {
 }
 
 export async function getParcelsCycleData(): Promise<Map<number, ParcelCycleRow>> {
-  const db = getDb();
-  const result = await db.query<{
-    id: number;
-    planting_date: string | Date | null;
-    cycle_phase: string | null;
-  }>(
-    `SELECT id, planting_date, cycle_phase
-       FROM dji_parcels
-      WHERE deleted_at IS NULL`
-  );
-  const map = new Map<number, ParcelCycleRow>();
-  for (const row of result.rows) {
-    map.set(Number(row.id), {
-      id: Number(row.id),
-      // pg devuelve DATE como string 'YYYY-MM-DD' o Date según el driver.
-      // Normalizamos a string si es Date. Si la columna no existe, el
-      // query entero falla (capturado en el caller).
-      planting_date:
-        row.planting_date == null
-          ? null
-          : row.planting_date instanceof Date
-            ? row.planting_date.toISOString().slice(0, 10)
-            : String(row.planting_date),
-      cycle_phase: normalizePhase(row.cycle_phase)
-    });
+  // Sprint Fase 2 / Q5 (2026-08-23): el wrapper `fetchParcelsCycleDataCached`
+  // cachea el array de tuplas con TTL 60s + tag `afm:parcels-cycles`.
+  // Acá reconstruimos el Map (Map no es JSON-serializable, por eso el
+  // cache devuelve tuplas). El cache se invalida en
+  // `invalidateAfterParcelMutation()` (cambios de metadata de parcela).
+  //
+  // Si la BD está caída, `fetchParcelsCycleDataCached` tira y
+  // devolvemos un Map vacío (backwards compatible con el caller).
+  try {
+    const tuples = await fetchParcelsCycleDataCached();
+    const map = new Map<number, ParcelCycleRow>();
+    for (const [id, row] of tuples) {
+      map.set(id, { ...row, cycle_phase: normalizePhase(row.cycle_phase) });
+    }
+    return map;
+  } catch (err) {
+    if (process.env.NODE_ENV !== "production") {
+      return new Map<number, ParcelCycleRow>();
+    }
+    throw err;
   }
-  return map;
 }
 
 // ---------------------------------------------------------------------------

@@ -87,7 +87,13 @@ export const CACHE_TAGS = {
   // re-importan fumigaciones y al final del pipeline (step 11 refresca
   // la MV — la cache de 5min es defensiva, no se invalida por tag en el
   // step porque el refresco del MV no toca el cache del query).
-  fumigationsMonthly: "afm:fumigations-monthly"
+  fumigationsMonthly: "afm:fumigations-monthly",
+  // Sprint Fase 2 / Q5 (2026-08-23) — `getParcelsCycleData` (Map<parcelId,
+  // { planting_date, cycle_phase }>) cacheado. Datos derivan de
+  // `dji_parcels.planting_date` + `cycle_phase` que solo cambian en
+  // altas de parcela o edits del supervisor (raro). Se invalida junto
+  // con `parcels` cuando hay mutaciones de parcela.
+  parcelsCycles: "afm:parcels-cycles"
 } as const;
 
 export const CACHE_TAGS_ALL = Object.values(CACHE_TAGS);
@@ -121,7 +127,11 @@ export const CACHE_TTL = {
   // `metrics` y `alerts` — si el operador ve el dashboard justo
   // después de un re-scrape, la cache puede mostrar 5min de stale en
   // el peor caso, aceptable.
-  fumigationsMonthly: 300
+  fumigationsMonthly: 300,
+  // Sprint Fase 2 / Q5 (2026-08-23) — `getParcelsCycleData`. Igual TTL
+  // que `parcels` (60s) — los datos cambian junto con metadata de
+  // parcela, y se invalida por tag en `invalidateAfterParcelMutation`.
+  parcelsCycles: 60
 } as const;
 
 // ============================================================
@@ -270,6 +280,51 @@ export const fetchParcelsSummaryCached = unstable_cache(
   async () => fetchParcelsSummaryRaw(),
   ["parcels-summary"],
   { revalidate: CACHE_TTL.parcelsSummary, tags: [CACHE_TAGS.parcelsSummary, CACHE_TAGS.parcels] }
+);
+
+// ============================================================
+// Parcels cycle data — Fase 2 / Q5 (2026-08-23)
+// ============================================================
+// Wrapper cacheado de `getParcelsCycleData` (api/repositories.ts).
+// Devuelve un array de tuplas (no Map, porque `unstable_cache` serializa
+// a JSON y `Map` no es nativo JSON). El caller (`getParcelsCycleData`)
+// reconstruye el Map en el boundary.
+//
+// Datos: planting_date + cycle_phase de las ~1200 parcelas activas.
+// Cambian solo en alta de parcela o edit del supervisor (raro). TTL 60s
+// + invalidación en `invalidateAfterParcelMutation`.
+type ParcelsCycleTuple = [number, { id: number; planting_date: string | null; cycle_phase: string | null }];
+
+async function fetchParcelsCycleDataRaw(): Promise<ParcelsCycleTuple[]> {
+  const db = getDb();
+  const result = await db.query<{
+    id: number;
+    planting_date: string | Date | null;
+    cycle_phase: string | null;
+  }>(
+    `SELECT id, planting_date, cycle_phase
+       FROM dji_parcels
+      WHERE deleted_at IS NULL`
+  );
+  return result.rows.map((row) => [
+    Number(row.id),
+    {
+      id: Number(row.id),
+      planting_date:
+        row.planting_date == null
+          ? null
+          : row.planting_date instanceof Date
+            ? row.planting_date.toISOString().slice(0, 10)
+            : String(row.planting_date),
+      cycle_phase: row.cycle_phase ?? null
+    }
+  ]);
+}
+
+export const fetchParcelsCycleDataCached = unstable_cache(
+  async () => fetchParcelsCycleDataRaw(),
+  ["parcels-cycles"],
+  { revalidate: CACHE_TTL.parcelsCycles, tags: [CACHE_TAGS.parcelsCycles, CACHE_TAGS.parcels] }
 );
 
 async function fetchDashboardMetricsRaw(): Promise<DashboardMetrics> {
@@ -882,6 +937,10 @@ export function invalidateAfterParcelMutation(): void {
   // Sprint B — F1.11: cambios de metadata (land_name, crop_type, etc.)
   // afectan el header del PDF. Invalidar el cache del reporte también.
   invalidateTagImmediate(CACHE_TAGS.parcelReport);
+  // Sprint Fase 2 / Q5 (2026-08-23) — `planting_date` y `cycle_phase`
+  // cambian junto con la metadata de la parcela. Invalidar el cache
+  // de `getParcelsCycleData` para que el próximo render vea data fresca.
+  invalidateTagImmediate(CACHE_TAGS.parcelsCycles);
 }
 
 /**

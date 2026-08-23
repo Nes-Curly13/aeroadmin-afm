@@ -222,16 +222,20 @@ describe("invalidate* — disparan revalidateTag con profile { expire: 0 }", () 
     }
   });
 
-  it("invalidateAfterParcelMutation afecta parcels + parcels-summary + upcoming + parcelReport", () => {
+  it("invalidateAfterParcelMutation afecta parcels + parcels-summary + upcoming + parcelReport + parcels-cycles", () => {
     invalidateAfterParcelMutation();
     // Sprint B — F1.11: cambios de metadata (land_name, crop_type, etc.)
     // afectan el header del PDF. Invalidar el cache del reporte también.
-    expect(revalidateTagMock).toHaveBeenCalledTimes(4);
+    // Sprint Fase 2 / Q5 (2026-08-23): también `parcelsCycles` porque
+    // `planting_date` y `cycle_phase` cambian junto con la metadata de la
+    // parcela. Antes eran 4; ahora son 5.
+    expect(revalidateTagMock).toHaveBeenCalledTimes(5);
     const tags = revalidateTagMock.mock.calls.map((c) => c[0]);
     expect(tags).toContain(CACHE_TAGS.parcels);
     expect(tags).toContain(CACHE_TAGS.parcelsSummary);
     expect(tags).toContain(CACHE_TAGS.upcoming);
     expect(tags).toContain(CACHE_TAGS.parcelReport);
+    expect(tags).toContain(CACHE_TAGS.parcelsCycles);
   });
 
   it("invalidateAfterFlightMutation afecta flights + metrics + alerts + activity-comparison", () => {
