@@ -45,7 +45,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
-  // @ts-expect-error - reset fetch
+  // reset fetch (seteamos a mockFetch en beforeEach)
   delete (globalThis as Record<string, unknown>).fetch;
 });
 
