@@ -23,7 +23,7 @@ import {
   getParcelsWithCycle,
   NOW,
 } from "@/lib/data"
-import { fmtDec, fmtInt, fmtLiters } from "@/lib/format"
+import { fmtDec, fmtInt } from "@/lib/format"
 
 // `app/page.tsx` consulta la BD (Supabase) en cada request vía los repos
 // del proyecto. Sin `force-dynamic`, Next.js intenta resolver las queries
@@ -167,7 +167,7 @@ async function DashboardContent() {
         <KpiCard
           icon={MapIcon}
           label="Hectáreas fumigadas (30d)"
-          value={fmtLiters(ha30)}
+          value={`${fmtDec(ha30)} ha`}
           hint={
             delta(ha30, haPrev) !== null
               ? `${delta(ha30, haPrev)! >= 0 ? "+" : ""}${delta(ha30, haPrev)?.toFixed(1)}% vs 30d previos`
