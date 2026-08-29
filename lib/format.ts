@@ -44,22 +44,32 @@ export function fmtLiters(n: number) {
 
 export function fmtDate(iso: string | null, opts?: Intl.DateTimeFormatOptions) {
   if (!iso) return "—";
+  // IMPORTANTE: pasamos `timeZone: "America/Bogota"` para evitar
+  // hydration mismatches (Sprint S8 / Bloque D — React #418). El
+  // server corre en UTC; el cliente (operador) corre en America/Bogota
+  // (UTC-5). Sin timeZone explicito, `toLocaleDateString` usa la TZ
+  // del sistema — server vs client divergen cerca de medianoche UTC
+  // y React aborta la hydration del <td> que contiene la fecha.
+  // Ver https://react.dev/errors/418 para el detalle.
   return new Date(iso).toLocaleDateString("es-CO", {
     day: "2-digit",
     month: "short",
     year: "numeric",
+    timeZone: "America/Bogota",
     ...opts
   });
 }
 
 export function fmtDateTime(iso: string | null) {
   if (!iso) return "—";
+  // Misma TZ que fmtDate — Sprint S8 / Bloque D fix hydration #418.
   return new Date(iso).toLocaleString("es-CO", {
     day: "2-digit",
     month: "short",
     year: "numeric",
     hour: "2-digit",
-    minute: "2-digit"
+    minute: "2-digit",
+    timeZone: "America/Bogota"
   });
 }
 

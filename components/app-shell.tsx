@@ -77,7 +77,7 @@ export async function AppShell({
       <aside className="flex shrink-0 flex-col gap-6 border-b border-sidebar-border bg-sidebar px-4 py-4 text-sidebar-foreground lg:sticky lg:top-0 lg:h-svh lg:w-64 lg:border-b-0 lg:border-r lg:py-6">
         <div className="flex items-center justify-between gap-3">
           <Link
-            href="/dashboard"
+            href="/"
             aria-label="Ir al panel principal"
             className="flex items-center gap-3"
           >
