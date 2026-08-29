@@ -37,6 +37,7 @@ import type {
   DjiFumigationSchedule,
   DjiParcelRecord,
   DjiVehicle,
+  DjiProduct,
   FumigationInvoice,
   ApplicationType,
   FumigationTimelineInput,
@@ -3571,6 +3572,31 @@ export async function findDjiVehicleByPlate(
 }
 
 /**
+ * Sprint S8 (Bloque E): busca producto por nombre (case-insensitive,
+ * trim-aware). Usado por el POST del endpoint admin/products para
+ * idempotencia. Devuelve `null` si no hay match.
+ */
+export async function findDjiProductByName(
+  name: string
+): Promise<DjiProduct | null> {
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      const result = await db.query<DjiProduct>(
+        `SELECT id, name, category, active_ingredient, ica_registration,
+                display_color, notes, is_active, created_by, created_at, updated_at
+           FROM products
+          WHERE LOWER(TRIM(name)) = LOWER(TRIM($1))
+            AND is_active = TRUE`,
+        [name]
+      );
+      return result.rows[0] ?? null;
+    },
+    async () => null
+  );
+}
+
+/**
  * Lista vehículos activos para alimentar el autocomplete del
  * `VehiclePicker` (Sprint S7 / Fase 1 / PR-B).
  *
@@ -3651,6 +3677,102 @@ export async function createDjiVehicle(input: {
       );
       const row = result.rows[0];
       if (!row) throw new Error("createDjiVehicle: INSERT sin row");
+      return row;
+    },
+    async () => {
+      throw new Error("DB no disponible");
+    }
+  );
+}
+
+/**
+ * Sprint S8 (Bloque E — 2026-08-29): catálogo de productos.
+ *
+ * Búsqueda LIKE con ranking starts-with > contains. Para volúmenes
+ * grandes (>10k productos) el caller puede cambiar a trigram. Cap
+ * de 50 para que el dropdown no se vuelva infinito.
+ */
+export async function searchDjiProducts(
+  search: string,
+  limit: number = 10
+): Promise<DjiProduct[]> {
+  const cappedLimit = Math.min(50, Math.max(1, Math.floor(limit)));
+  const q = (search ?? "").trim();
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      if (q.length < 1) {
+        // Lista default: productos más usados recientemente (proxy: created_at DESC)
+        const result = await db.query<DjiProduct>(
+          `SELECT id, name, category, active_ingredient, ica_registration,
+                  display_color, notes, is_active, created_by, created_at, updated_at
+             FROM products
+            WHERE is_active = TRUE
+            ORDER BY created_at DESC, name ASC
+            LIMIT $1`,
+          [cappedLimit]
+        );
+        return result.rows;
+      }
+      const like = `%${q}%`;
+      const prefix = `${q}%`;
+      const result = await db.query<DjiProduct>(
+        `SELECT id, name, category, active_ingredient, ica_registration,
+                display_color, notes, is_active, created_by, created_at, updated_at
+           FROM products
+          WHERE is_active = TRUE
+            AND name ILIKE $1
+          ORDER BY
+            CASE WHEN name ILIKE $2 THEN 0 ELSE 1 END,
+            name ASC
+          LIMIT $3`,
+        [like, prefix, cappedLimit]
+      );
+      return result.rows;
+    },
+    async () => []
+  );
+}
+
+/**
+ * Crea un producto nuevo. El UNIQUE INDEX `idx_products_name_unique`
+ * previene duplicados por nombre (case-insensitive). Si ya existe,
+ * tira 23505 — el caller lo traduce a un 409 con un mensaje claro.
+ *
+ * Sprint S8 (Bloque E — 2026-08-29).
+ */
+export async function createDjiProduct(input: {
+  name: string;
+  category?: DjiProduct["category"];
+  active_ingredient?: string | null;
+  ica_registration?: string | null;
+  display_color?: string | null;
+  notes?: string | null;
+  created_by?: string;
+}): Promise<DjiProduct> {
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      const result = await db.query<DjiProduct>(
+        `INSERT INTO products (
+           name, category, active_ingredient, ica_registration,
+           display_color, notes, created_by
+         )
+         VALUES (TRIM($1), COALESCE($2, 'otro'), $3, $4, $5, $6, COALESCE($7, 'manual@afm.local'))
+         RETURNING id, name, category, active_ingredient, ica_registration,
+                   display_color, notes, is_active, created_by, created_at, updated_at`,
+        [
+          input.name,
+          input.category ?? null,
+          input.active_ingredient ?? null,
+          input.ica_registration ?? null,
+          input.display_color ?? null,
+          input.notes ?? null,
+          input.created_by ?? null
+        ]
+      );
+      const row = result.rows[0];
+      if (!row) throw new Error("createDjiProduct: INSERT sin row");
       return row;
     },
     async () => {

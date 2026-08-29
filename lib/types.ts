@@ -376,6 +376,45 @@ export interface DjiVehicle {
 }
 
 /**
+ * Producto comercial fumigado. Vive en la tabla `products` (migration
+ * 20260829000000). El operador selecciona del catalogo curado o crea
+ * uno nuevo desde la UI (autocomplete con opcion "+ Crear '<texto>'").
+ *
+ * - `name` UNIQUE por LOWER(TRIM(name)) — previene duplicados por typo
+ * - `category` es el tipo de producto (herbicida, insecticida, etc.)
+ * - `active_ingredient` es el ingrediente activo (e.g. "Glifosato").
+ *   Varios productos pueden compartir el mismo IA (Glifosato 48% LCE
+ *   y Roundup 36% SL son ambos Glifosato).
+ * - `ica_registration` es el numero de registro ICA (regulatorio)
+ * - `display_color` es hex opcional para el chip en la UI
+ *
+ * Las fumigaciones existentes con `dji_fumigations.product_used` text
+ * siguen funcionando. La nueva columna `product_id` (FK opcional) se
+ * popula cuando el operator usa el selector del catalogo.
+ */
+export type ProductCategory =
+  | "herbicida"
+  | "insecticida"
+  | "fertilizante"
+  | "fungicida"
+  | "bioestimulante"
+  | "otro";
+
+export interface DjiProduct {
+  id: number;
+  name: string;
+  category: ProductCategory;
+  active_ingredient: string | null;
+  ica_registration: string | null;
+  display_color: string | null;
+  notes: string | null;
+  is_active: boolean;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
  * Factura de una fumigación. Una fumigación puede tener N facturas
  * (cuotas, pagos parciales, anulaciones con re-factura). Vive en
  * la tabla `fumigation_invoices` (migration 20260824000000).
