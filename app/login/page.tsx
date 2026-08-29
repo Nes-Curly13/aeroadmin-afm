@@ -105,12 +105,15 @@ export default function LoginPage() {
           return;
         }
 
-        // 5) Éxito: navegar al panel. `router.push` + `router.refresh`
-        //    garantiza que el server component del dashboard vea la
-        //    sesion nueva (sin esto puede quedar con la sesion cacheada
-        //    del redirect 307 del middleware).
-        router.push("/");
-        router.refresh();
+        // 5) Éxito: navegar al panel. Usamos `window.location.href` en
+        //    vez de `router.push` + `router.refresh` por una sutileza:
+        //    cuando el form está en `/login` (que es un path PUBLIC para
+        //    el middleware), `router.push("/")` no navega porque Next.js
+        //    no detecta cambio de URL. Con `window.location.href` se
+        //    fuerza un hard navigation que el middleware sí procesa con
+        //    la cookie de sesion nueva, y el server component del
+        //    dashboard ve la sesion real (no cacheada).
+        window.location.href = "/";
       } catch (err) {
         setError("Error de conexión. Intentá de nuevo.");
       }

@@ -31,17 +31,33 @@ vi.mock("next/navigation", () => ({
   })),
 }));
 
+// Mock window.location
+const mockLocationAssign = vi.fn();
+const originalFetch = global.fetch;
+const originalLocation = window.location;
+
 // Mock fetch
 const mockFetch = vi.fn();
-const originalFetch = global.fetch;
 beforeEach(() => {
   global.fetch = mockFetch as unknown as typeof fetch;
   mockFetch.mockReset();
   mockPush.mockReset();
   mockRefresh.mockReset();
+  mockLocationAssign.mockReset();
+  // Mock window.location.href setter
+  Object.defineProperty(window, "location", {
+    value: { href: "", assign: mockLocationAssign },
+    writable: true,
+    configurable: true,
+  });
 });
 afterEach(() => {
   global.fetch = originalFetch;
+  Object.defineProperty(window, "location", {
+    value: originalLocation,
+    writable: true,
+    configurable: true,
+  });
   cleanup();
 });
 
@@ -93,7 +109,7 @@ describe("LoginPage (S8 v2.7.5 — client-side fetch flow)", () => {
     expect(mockPush).not.toHaveBeenCalled();
   });
 
-  it("4. submit con credenciales validas → CSRF + callback + session + router.push", async () => {
+  it("4. submit con credenciales validas → CSRF + callback + session + window.location.href = /", async () => {
     // Mock CSRF
     mockFetch.mockResolvedValueOnce({
       ok: true,
@@ -118,8 +134,7 @@ describe("LoginPage (S8 v2.7.5 — client-side fetch flow)", () => {
     fireEvent.click(screen.getByRole("button", { name: /ingresar/i }));
 
     await waitFor(() => {
-      expect(mockPush).toHaveBeenCalledWith("/");
-      expect(mockRefresh).toHaveBeenCalled();
+      expect(window.location.href).toBe("/");
     });
     expect(mockFetch).toHaveBeenCalledTimes(3); // csrf + callback + session
   });
