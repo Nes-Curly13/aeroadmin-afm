@@ -35,13 +35,14 @@ describe("getFlightAggregatesByDateRange (S8 Bloque B)", () => {
       total_volume_l: 12.5,
       total_area_ha: 5.3
     });
-    // Verificar que el query filtra por rango y deleted_at
+    // Verificar que el query filtra por rango (sin deleted_at — dji_flights
+    // no tiene esa columna, solo dji_fumigations y dji_parcels)
     expect(mockQuery).toHaveBeenCalledTimes(1);
     const [sql, params] = mockQuery.mock.calls[0];
     expect(sql).toContain("FROM dji_flights");
     expect(sql).toContain("start_at >= $1::timestamptz");
     expect(sql).toContain("start_at <  $2::timestamptz");
-    expect(sql).toContain("deleted_at IS NULL");
+    expect(sql).not.toContain("deleted_at");
     expect(params[0]).toBe("2026-08-01T00:00:00.000Z");
     expect(params[1]).toBe("2026-08-31T23:59:59.999Z");
   });

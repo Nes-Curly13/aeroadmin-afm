@@ -2563,10 +2563,13 @@ export async function getFlightPointsForMap(): Promise<FlightPointRecord[]> {
  *   1. Esa cache trae hasta 2000 flights — no todos los del rango.
  *   2. El caller necesita los agregados (COUNT, SUM), no las rows.
  *
- * Query SQL: filtra por `start_at::date` en el rango y agrega
+ * Query SQL: filtra por `start_at` en el rango y agrega
  * `count(*)`, `sum(spray_usage_ml / 1000)` (volumen en L),
- * `sum(area_m2 / 10000)` (área en ha). `start_at::date` porque
- * `dji_flights.start_at` es TIMESTAMPTZ y queremos comparar con DATE.
+ * `sum(area_m2 / 10000)` (área en ha). `start_at` es TIMESTAMPTZ —
+ * comparamos con `$1::timestamptz` para que el cast sea explicito.
+ * NOTA: `dji_flights` NO tiene `deleted_at` (es `dji_fumigations` y
+ * `dji_parcels` los que tienen soft-delete). Si se agrega en el
+ * futuro, aniadir el `AND deleted_at IS NULL` aca.
  *
  * Cobertura: el dashboard de `app/page.tsx` también muestra vuelos
  * (usando `getFlights()`); esa ruta sigue válida. Esta query es solo
@@ -2600,8 +2603,7 @@ export async function getFlightAggregatesByDateRange(
        COALESCE(SUM(area_m2) / 10000.0, 0)::float8      AS total_area_ha
      FROM dji_flights
      WHERE start_at >= $1::timestamptz
-       AND start_at <  $2::timestamptz
-       AND deleted_at IS NULL`,
+       AND start_at <  $2::timestamptz`,
     [from.toISOString(), to.toISOString()]
   );
   const row = r.rows[0];
