@@ -38,7 +38,8 @@ import {
   getAllFumigationSchedules,
   getScheduleHistory as getScheduleHistoryFromRepo,
   getFlightHullsByParcel,
-  getParcelsCycleData
+  getParcelsCycleData,
+  getFlightAggregatesByDateRange
 } from "@/api/repositories";
 import { readHealthFile, deriveResponse, type PipelineHealth } from "@/lib/djiag-health";
 import { getBogotaDateString, toDateString } from "@/lib/format";
@@ -899,6 +900,67 @@ export async function getFarms(): Promise<string[]> {
 export async function getGeovisorPayload(): Promise<GeovisorPayload> {
   const summaries = await getSummaries();
   const fumigations = await getFumigations();
+  // s8.8 (2026-07-31): filtrar eventos sin coordenadas validas
+  // (centroide de flights). El `f.lng`/`f.lat` ya viene calculado
+  // de `getRecentFumigations` (LEFT JOIN con dji_flights por
+  // flight_ids). Antes se usaba el centroide de la parcela como
+  // fallback, lo que hacia que 5 fumigaciones en la misma parcela
+  // se vieran como 5 puntos superpuestos. Ahora cada fumigacion
+  // se renderiza donde realmente voló el dron.
+  const events = fumigations
+    .filter((f): f is typeof f & { lng: number; lat: number } =>
+      typeof f.lng === "number" && typeof f.lat === "number"
+    )
+    .map((f) => ({
+      id: f.id,
+      parcel_id: f.parcel_id,
+      executed_at: f.executed_at,
+      source: f.source,
+      area_treated_ha: f.area_treated_ha,
+      volume_l: f.volume_l,
+      flights_count: f.flights_count,
+      product: f.product,
+      operator: f.operator,
+      notes: f.notes,
+      n_matched_flights: f.n_matched_flights ?? null,
+      lng: f.lng,
+      lat: f.lat,
+    }));
+
+  // Sprint S8 (Bloque B — 2026-08-29): agregados de `dji_flights` para
+  // los KPIs de VUELOS y VOLUMEN del geovisor. Antes derivaba de
+  // `events` y daba 0 para fumigaciones importadas de DJI sin
+  // `flight_ids` linkeados. Ahora la fuente de verdad es
+  // `dji_flights.start_at` + `dji_flights.spray_usage_ml` en el mismo
+  // rango de fechas que los eventos (min/max de `executed_at`).
+  // Asi los KPIs VUELOS/VOLUMEN son consistentes con APLICACIONES
+  // (que SI filtra por el TimeRange slider del client).
+  let flight_aggregates: GeovisorPayload["flight_aggregates"];
+  if (events.length > 0) {
+    const times = events.map((e) => new Date(e.executed_at).getTime());
+    const fromMs = Math.min(...times);
+    const toMs = Math.max(...times);
+    // Anadimos 1 dia al `to` para incluir vuelos del mismo dia
+    const fromIso = new Date(fromMs).toISOString();
+    const toIso = new Date(toMs + 24 * 60 * 60 * 1000).toISOString();
+    const agg = await getFlightAggregatesByDateRange(fromIso, toIso);
+    flight_aggregates = {
+      total_flights: agg.total_flights,
+      total_volume_l: agg.total_volume_l,
+      total_area_ha: agg.total_area_ha,
+      range_from: fromIso,
+      range_to: toIso,
+    };
+  } else {
+    flight_aggregates = {
+      total_flights: 0,
+      total_volume_l: 0,
+      total_area_ha: 0,
+      range_from: new Date(0).toISOString(),
+      range_to: new Date(0).toISOString(),
+    };
+  }
+
   return {
     parcels: summaries.map((s) => ({
       id: s.parcel.id,
@@ -918,32 +980,8 @@ export async function getGeovisorPayload(): Promise<GeovisorPayload> {
       cadence_days: s.schedule.cadence_days,
       fumigations_count: s.fumigations_count
     })),
-    events: fumigations
-      // s8.8 (2026-07-31): filtrar eventos sin coordenadas validas
-      // (centroide de flights). El `f.lng`/`f.lat` ya viene calculado
-      // de `getRecentFumigations` (LEFT JOIN con dji_flights por
-      // flight_ids). Antes se usaba el centroide de la parcela como
-      // fallback, lo que hacia que 5 fumigaciones en la misma parcela
-      // se vieran como 5 puntos superpuestos. Ahora cada fumigacion
-      // se renderiza donde realmente voló el dron.
-      .filter((f): f is typeof f & { lng: number; lat: number } =>
-        typeof f.lng === "number" && typeof f.lat === "number"
-      )
-      .map((f) => ({
-        id: f.id,
-        parcel_id: f.parcel_id,
-        executed_at: f.executed_at,
-        source: f.source,
-        area_treated_ha: f.area_treated_ha,
-        volume_l: f.volume_l,
-        flights_count: f.flights_count,
-        product: f.product,
-        operator: f.operator,
-        notes: f.notes,
-        n_matched_flights: f.n_matched_flights ?? null,
-        lng: f.lng,
-        lat: f.lat,
-      }))
+    events,
+    flight_aggregates,
   };
 }
 

@@ -2552,6 +2552,67 @@ export async function getFlightPointsForMap(): Promise<FlightPointRecord[]> {
 }
 
 /**
+ * Sprint S8 (Bloque B — 2026-08-29): métricas agregadas de `dji_flights`
+ * en un rango de fechas, sin filtro de parcela. Es la fuente de verdad
+ * para los KPIs de VUELOS y VOLUMEN del geovisor (antes derivaba de
+ * los eventos `dji_fumigations` y daba 0 para fumigaciones importadas
+ * de DJI sin `flight_ids` linkeados — bug que reportaba "0 VUELOS"
+ * con 610 aplicaciones en el panel).
+ *
+ * NO usa la cache de `fetchFlightPointsCached` porque:
+ *   1. Esa cache trae hasta 2000 flights — no todos los del rango.
+ *   2. El caller necesita los agregados (COUNT, SUM), no las rows.
+ *
+ * Query SQL: filtra por `start_at::date` en el rango y agrega
+ * `count(*)`, `sum(spray_usage_ml / 1000)` (volumen en L),
+ * `sum(area_m2 / 10000)` (área en ha). `start_at::date` porque
+ * `dji_flights.start_at` es TIMESTAMPTZ y queremos comparar con DATE.
+ *
+ * Cobertura: el dashboard de `app/page.tsx` también muestra vuelos
+ * (usando `getFlights()`); esa ruta sigue válida. Esta query es solo
+ * para el geovisor cuando el filtro de parcela está activo.
+ */
+export interface FlightAggregates {
+  total_flights: number;
+  total_volume_l: number;
+  total_area_ha: number;
+}
+
+export async function getFlightAggregatesByDateRange(
+  fromIso: string,
+  toIso: string
+): Promise<FlightAggregates> {
+  // Clamp defensivo (5 años max — el operador fumigando desde 1970 no es realista)
+  const from = new Date(fromIso);
+  const to = new Date(toIso);
+  if (isNaN(from.getTime()) || isNaN(to.getTime())) {
+    return { total_flights: 0, total_volume_l: 0, total_area_ha: 0 };
+  }
+  const db = getDb();
+  const r = await db.query<{
+    total_flights: string;
+    total_volume_l: string | null;
+    total_area_ha: string | null;
+  }>(
+    `SELECT
+       COUNT(*)::int                       AS total_flights,
+       COALESCE(SUM(spray_usage_ml) / 1000.0, 0)::float8 AS total_volume_l,
+       COALESCE(SUM(area_m2) / 10000.0, 0)::float8      AS total_area_ha
+     FROM dji_flights
+     WHERE start_at >= $1::timestamptz
+       AND start_at <  $2::timestamptz
+       AND deleted_at IS NULL`,
+    [from.toISOString(), to.toISOString()]
+  );
+  const row = r.rows[0];
+  return {
+    total_flights: Number(row?.total_flights ?? 0),
+    total_volume_l: Number(row?.total_volume_l ?? 0),
+    total_area_ha: Number(row?.total_area_ha ?? 0),
+  };
+}
+
+/**
  * v2.5.5 (sprint S8.7+): polígonos derivados de flights fumigados
  * reales. Computa el `ST_ConvexHull` de los flight points por parcel.
  *

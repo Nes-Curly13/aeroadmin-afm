@@ -815,4 +815,21 @@ export interface GeovisorPayload {
       | "n_matched_flights"
     >
   >;
+  /**
+   * Sprint S8 (2026-08-29) — métricas agregadas de `dji_flights` en el
+   * rango visible (sin filtro de parcela). El geovisor usa esto para
+   * los KPIs de VUELOS y VOLUMEN, que antes derivaba de `events` y
+   * daba 0 para fumigaciones importadas de DJI sin `flight_ids`
+   * linkeados. Ahora la fuente de verdad es `dji_flights.start_at` +
+   * `dji_flights.spray_usage_ml`, independiente de las fumigaciones.
+   * Los KPIs de APLICACIONES y HECTÁREAS TRATADAS siguen derivando
+   * de `events` (correcto — son métricas de aplicación, no de vuelo).
+   */
+  flight_aggregates: {
+    total_flights: number;
+    total_volume_l: number;
+    total_area_ha: number;
+    range_from: string; // ISO date — cache key del payload
+    range_to: string; // ISO date
+  };
 }

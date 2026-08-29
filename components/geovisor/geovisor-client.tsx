@@ -123,10 +123,21 @@ export function GeovisorClient({ payload }: { payload: GeovisorPayload }) {
 
   const kpis = useMemo(() => {
     const ha = filteredEvents.reduce((s, e) => s + e.area_treated_ha, 0)
-    const volume = filteredEvents.reduce((s, e) => s + e.volume_l, 0)
-    const flights = filteredEvents.reduce((s, e) => s + e.flights_count, 0)
+    // s8.8 (2026-07-31) + S8 Bloque B (2026-08-29): VUELOS y VOLUMEN
+    // vienen de `payload.flight_aggregates` (agregados de `dji_flights`
+    // en el rango de fechas de los eventos), NO de los eventos. Razon:
+    // los eventos importados de DJI tienen `flights_count=0` y
+    // `volume_l=0` porque las fumigaciones scrapeadas no tienen
+    // `flight_ids` linkeados y `dose_l_per_ha` no se persiste. Antes
+    // los KPIs VUELOS/VOLUMEN mostraban 0 con 610 aplicaciones. Ahora
+    // el geovisor muestra los valores REALES de la BD.
+    //
+    // APLICACIONES y HECTÁREAS TRATADAS siguen viniendo de los eventos
+    // (correcto — son métricas de aplicación, no de vuelo).
+    const volume = payload.flight_aggregates.total_volume_l
+    const flights = payload.flight_aggregates.total_flights
     return { events: filteredEvents.length, ha, volume, flights, parcels: eventsByParcel.size }
-  }, [filteredEvents, eventsByParcel])
+  }, [filteredEvents, eventsByParcel, payload.flight_aggregates])
 
   const selected = filteredParcels.find((p) => p.id === selectedId) ?? null
   const selectedAgg = selectedId ? eventsByParcel.get(selectedId) : undefined
