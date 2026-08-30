@@ -491,22 +491,6 @@ export function VehiclePicker({
         value={value ?? ""}
       />
 
-      {/* Submit helper: el form (no este componente) maneja el submit.
-          Acá solo confirmamos la selección vía onChange. */}
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        className="hidden"
-        aria-hidden
-        tabIndex={-1}
-        onClick={() => {
-          // noop — solo existe para que la story de tests pueda
-          // simular un submit programático si lo necesita.
-        }}
-      >
-        submit
-      </Button>
     </div>
   );
 }
