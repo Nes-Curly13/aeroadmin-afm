@@ -34,12 +34,8 @@ import { readFile } from "node:fs/promises";
 // Re-exports para mantener compatibilidad con imports existentes.
 export {
   deriveResponse,
-  STALE_THRESHOLD_HOURS,
-  type CircuitBreakerSnapshot,
   type HealthResponse,
-  type HealthStatus,
-  type PipelineHealth,
-  type StepHealth
+  type PipelineHealth
 } from "@/lib/djiag-health-types";
 
 /**

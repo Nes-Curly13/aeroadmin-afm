@@ -21,9 +21,6 @@
 import type { ImportFeature, ParseResult } from "./types";
 import { extractFeatureName, normalizeGeometry } from "./normalize";
 
-/** Tamaño máximo aceptado para un .gpkg. 100 MB. */
-export const GPKG_MAX_BYTES = 100 * 1024 * 1024;
-
 interface GpkgModule {
   GeoPackageAPI: {
     open: (bytes: Uint8Array) => Promise<GpkgInstance>;

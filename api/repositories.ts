@@ -48,16 +48,6 @@ import type {
 } from "@/lib/types";
 import type { OverdueParcelsArgs } from "@/lib/cache";
 
-// Re-exports para callers que precisen invalidar la cache desde otro lugar
-// (scripts CLI, jobs, etc.).
-export {
-  CACHE_TAGS,
-  invalidateAfterFlightMutation,
-  invalidateAfterFumigationMutation,
-  invalidateAfterParcelMutation,
-  invalidateAll
-} from "@/lib/cache";
-
 interface MetricsRow {
   total_flights: string;
   total_area_covered_m2: string | null;
@@ -134,14 +124,6 @@ async function withLocalFallback<T>(queryFn: () => Promise<T>, fallbackFn: () =>
 // Las tablas legacy de catálogo, denormalización y rollup diario se
 // dropearon en la migration 20260628120000 (snapshot en dji_legacy_snapshot).
 // El dashboard ahora solo lee de dji_parcels y dji_flights.
-
-export interface PaginatedResult<T> {
-  data: T[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-}
 
 export interface DjiParcelsFilter {
   isOrchard?: boolean;
@@ -314,16 +296,6 @@ async function getParcelsNormalizedUncached(page: number, limit: number, filter:
       totalPages: 0
     })
   );
-}
-
-/**
- * Resumen agregado por tipo de dron y tipo de campo.
- * Útil para el dashboard ejecutivo.
- *
- * Sprint 7: cacheado (TTL 60s, tag `afm:parcels-summary` + `afm:parcels`).
- */
-export async function getParcelsSummary() {
-  return fetchParcelsSummaryCached();
 }
 
 /**
@@ -1917,51 +1889,6 @@ export async function getFumigationAuditTrail(
 }
 
 /**
- * Devuelve el catálogo curado de categorías de fumigación.
- * Sprint 2026-08-13 — feature/fumigacion-detail-v2 / sub-2.
- *
- * Solo trae las categorías activas (`is_active = TRUE`), ordenadas por
- * `sort_order` (herbicida, insecticida, fungicida, fertilizante, etc.)
- * para que el dropdown del form las presente en el orden que el
- * operador fumigador espera.
- *
- * Se cachea 60s con tag `afm:fumigation-categories` (el catálogo casi
- * no cambia — solo cuando se agrega una nueva categoría vía migration).
- * Si el dropdown necesita invalidación inmediata, exponer
- * `revalidateTag('afm:fumigation-categories')` desde un endpoint admin
- * (no implementado todavía — fuera de scope de este sub-sprint).
- */
-export async function getFumigationCategories(): Promise<
-  Array<{
-    id: number;
-    slug: string;
-    label: string;
-    color: string;
-    sort_order: number;
-  }>
-> {
-  const db = getDb();
-  return withLocalFallback(
-    async () => {
-      const result = await db.query<{
-        id: number;
-        slug: string;
-        label: string;
-        color: string;
-        sort_order: number;
-      }>(
-        `SELECT id, slug, label, color, sort_order
-           FROM fumigation_categories
-          WHERE is_active = TRUE
-          ORDER BY sort_order ASC, label ASC`
-      );
-      return result.rows;
-    },
-    async () => []
-  );
-}
-
-/**
  * Shape reducido de una parcela para usar en pickers/autocomplete
  * (sprint 2026-08-05, /fumigaciones/nueva). Solo trae los campos
  * que el operador necesita para identificar visualmente la parcela.
@@ -2076,274 +2003,9 @@ export async function getRecentParcelsForPicker(
  *     fumigado/no-fumigado (todas se ven como fumigadas = backwards
  *     compatible).
  */
-export async function getFumigatedParcelIdsSince(since: string): Promise<Set<number>> {
-  const db = getDb();
-  return withLocalFallback(
-    async () => {
-      const result = await db.query<{ parcel_id: number }>(
-        `SELECT DISTINCT parcel_id
-           FROM dji_fumigations
-          WHERE parcel_id IS NOT NULL
-            AND deleted_at IS NULL
-            AND fumigation_date >= $1::date`,
-        [since]
-      );
-      const out = new Set<number>();
-      for (const row of result.rows) out.add(row.parcel_id);
-      return out;
-    },
-    async () => new Set<number>()
-  );
-}
-
-/**
- * v2.0 (sprint S5) — agregados de fumigaciones para overlay KPI del mapa.
- *
- * Devuelve el total de aplicaciones, hectareas tratadas, volumen (L) y
- * vuelos para un set de parcelas (o todas si no se pasa) y un rango de
- * fechas opcional. Se usa en el `KpiPill` overlay del `MapPageClient`.
- *
- * Filtros:
- *   - `parcelIds`: array opcional de parcel_id. Si undefined, agrega sobre
- *     TODAS las fumigaciones (modo "vista global del dataset").
- *   - `from` / `to`: YYYY-MM-DD. Si undefined, sin limite inferior/superior.
- *
- * Performance: una sola query con SUM/COUNT. Indexado por parcel_id
- * (existe desde M3) y por fumigation_date (existe desde S2). El set de
- * 1200 parcelas + 18 meses de fumigaciones cabe en < 50ms.
- *
- * NOTA sobre `flights`: `dji_fumigations` no tiene un FK directo a
- * `dji_flights` (la tabla `flights` referencia `parcels` legacy, no
- * `dji_parcels`). Por ahora devolvemos `flights: 0` y planeamos join
- * via `dji_flight_fumigation_link` o equivalente en un sprint futuro.
- * El cliente usa el KPI `count` como proxy hasta entonces.
- */
-export interface FumigationsSummary {
-  count: number;
-  areaHa: number;
-  volumeL: number;
-  flights: number;
-}
-
-export async function getFumigationsSummary(args: {
-  parcelIds?: number[];
-  from?: string;
-  to?: string;
-} = {}): Promise<FumigationsSummary> {
-  const db = getDb();
-  return withLocalFallback(
-    async () => {
-      const params: unknown[] = [];
-      const where: string[] = ["deleted_at IS NULL"];
-      if (args.parcelIds !== undefined && args.parcelIds.length > 0) {
-        params.push(args.parcelIds);
-        where.push(`parcel_id = ANY($${params.length}::int[])`);
-      }
-      if (args.from) {
-        params.push(args.from);
-        where.push(`fumigation_date >= $${params.length}::date`);
-      }
-      if (args.to) {
-        params.push(args.to);
-        where.push(`fumigation_date <= $${params.length}::date`);
-      }
-      const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
-      // Volumen = SUM(dose * area / 10000) por fila (L/ha * m² → L).
-      // area_fumigated_m2 puede ser NULL si el operador no lo llenó; usamos
-      // COALESCE(0) y GREATEST(0,...) para no arrastrar negativos.
-      const result = await db.query<{
-        count: string;
-        area_ha: string | null;
-        volume_l: string | null;
-      }>(
-        `SELECT
-            COUNT(*)::text AS count,
-            COALESCE(SUM(GREATEST(area_fumigated_m2, 0)), 0)::float8 / 10000.0 AS area_ha,
-            COALESCE(SUM(GREATEST(COALESCE(dose_l_per_ha, 0) * COALESCE(area_fumigated_m2, 0) / 10000.0, 0)), 0)::float8 AS volume_l
-           FROM dji_fumigations
-           ${whereSql}`,
-        params
-      );
-      const row = result.rows[0];
-      return {
-        count: Number(row?.count ?? 0),
-        areaHa: Math.round(Number(row?.area_ha ?? 0) * 10) / 10,
-        volumeL: Math.round(Number(row?.volume_l ?? 0) * 10) / 10,
-        flights: 0 // TODO sprint S6: join con dji_flights via fumigation_date
-      };
-    },
-    async () => ({ count: 0, areaHa: 0, volumeL: 0, flights: 0 })
-  );
-}
-
-/**
- * v2.0 (sprint S5) — histograma de fumigaciones por mes para el
- * `TimeRange` slider del `/map`.
- *
- * Devuelve un array de buckets mensuales, cada uno con:
- *   - `key`: string tipo "2026-01"
- *   - `label`: string formateado en es-CO ("ene 26")
- *   - `start` / `end`: ms epoch (UTC) del primer/último ms del mes
- *   - `count`: número de fumigaciones en ese mes
- *
- * Filtros:
- *   - `parcelIds`: subset de parcelas (opcional). Si undefined, todo el dataset.
- *   - `from` / `to`: limita el rango cubierto. Si se omite, se computa
- *     desde la fumigación más antigua hasta la más reciente.
- *
- * Performance: 1 query con date_trunc + group by. Sobre el set actual
- * (1200 parcelas, 18 meses) corre en < 80ms.
- */
-export interface MonthBucket {
-  key: string;
-  label: string;
-  start: number;
-  end: number;
-  count: number;
-}
-
-export async function getFumigationsByMonth(args: {
-  parcelIds?: number[];
-  from?: string;
-  to?: string;
-} = {}): Promise<MonthBucket[]> {
-  const db = getDb();
-  return withLocalFallback(
-    async () => {
-      const params: unknown[] = [];
-      const where: string[] = ["deleted_at IS NULL"];
-      if (args.parcelIds !== undefined && args.parcelIds.length > 0) {
-        params.push(args.parcelIds);
-        where.push(`parcel_id = ANY($${params.length}::int[])`);
-      }
-      if (args.from) {
-        params.push(args.from);
-        where.push(`fumigation_date >= $${params.length}::date`);
-      }
-      if (args.to) {
-        params.push(args.to);
-        where.push(`fumigation_date <= $${params.length}::date`);
-      }
-      const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
-      const result = await db.query<{ month: string; count: string }>(
-        `SELECT
-            to_char(date_trunc('month', fumigation_date), 'YYYY-MM') AS month,
-            COUNT(*)::text AS count
-           FROM dji_fumigations
-           ${whereSql}
-          GROUP BY 1
-          ORDER BY 1`,
-        params
-      );
-      return result.rows.map((row) => {
-        const [yStr, mStr] = row.month.split("-");
-        const y = Number(yStr);
-        const m = Number(mStr);
-        const start = Date.UTC(y, m - 1, 1);
-        const end = Date.UTC(y, m, 1) - 1;
-        // Etiqueta corta es-CO: "ene 26"
-        const label = new Intl.DateTimeFormat("es-CO", {
-          month: "short",
-          year: "2-digit",
-          timeZone: "UTC"
-        }).format(new Date(start));
-        return {
-          key: row.month,
-          label,
-          start,
-          end,
-          count: Number(row.count)
-        };
-      });
-    },
-    async () => []
-  );
-}
 
 /**
  * v2.1 (sprint S6) — eventos de fumigación aplanados para el mapa.
- *
- * Devuelve TODAS las fumigaciones de un set de parcelas (con rango
- * opcional) en un shape listo para pasarse al cliente y alimentar el
- * filtrado client-side (`lib/map-filter-logic.ts`). Es el equivalente
- * bulk de `getFumigationEventsByParcel` (que solo trae 1 parcela).
- *
- * Shape devuelto: `DjiFumigationEvent` (mismo que `getFumigationEventsByParcel`),
- * normalizando `fumigation_date` (DATE → YYYY-MM-DD) en el boundary.
- *
- * Filtros:
- *   - `parcelIds`: subset de parcelas. Si undefined, todo el dataset.
- *   - `from` / `to`: YYYY-MM-DD. Si undefined, sin límite.
- *
- * Performance: query con `parcel_id = ANY(int[])` + `ORDER BY
- * fumigation_date DESC`. Sobre el set actual (1200 parcelas, ~17k
- * fumigaciones) corre en < 120ms. **No cachea** — son datos
- * operativos frescos, igual que `getFumigationEventsByParcel`.
- *
- * Por qué existe: en el sprint S5, los KPIs del mapa se calculaban
- * server-side con `getFumigationsSummary`. En el sprint S6 (V0 port)
- * queremos KPIs client-side (filtrado por source, status, time range
- * interactivo) → necesitamos los eventos RAW en el cliente. Esta
- * función los entrega.
- *
- * TODO futuro: si el dataset crece a >100k fumigaciones, exponer un
- * endpoint paginado o filtrado server-side por source/status y caer
- * a un fallback en el cliente (hoy va todo).
- */
-export async function getFumigationsForMap(args: {
-  parcelIds?: number[];
-  from?: string;
-  to?: string;
-} = {}): Promise<DjiFumigationEvent[]> {
-  const db = getDb();
-  return withLocalFallback(
-    async () => {
-      const params: unknown[] = [];
-      const where: string[] = ["deleted_at IS NULL"];
-      if (args.parcelIds !== undefined && args.parcelIds.length > 0) {
-        params.push(args.parcelIds);
-        where.push(`parcel_id = ANY($${params.length}::int[])`);
-      }
-      if (args.from) {
-        params.push(args.from);
-        where.push(`fumigation_date >= $${params.length}::date`);
-      }
-      if (args.to) {
-        params.push(args.to);
-        where.push(`fumigation_date <= $${params.length}::date`);
-      }
-      const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
-      const result = await db.query<DjiFumigationEvent>(
-        `SELECT
-            id,
-            parcel_id,
-            fumigation_date,
-            product_used,
-            dose_l_per_ha,
-            area_fumigated_m2,
-            drone_code_used,
-            duration_minutes,
-            notes,
-            human_notes,
-            recorded_by,
-            product_registered_ica,
-            pilot_license,
-            recorded_at,
-            source,
-            flight_ids
-           FROM dji_fumigations
-           ${whereSql}
-          ORDER BY fumigation_date DESC, recorded_at DESC`,
-        params
-      );
-      return result.rows.map((row) => ({
-        ...row,
-        fumigation_date: toDateString(row.fumigation_date) ?? ""
-      }));
-    },
-    async () => []
-  );
-}
 
 /**
  * M7 — Inputs del timeline de fumigaciones de una parcela, listos para
@@ -2593,83 +2255,6 @@ export async function createFumigationEvent(event: {
 }
 
 /**
- * Actualiza la cadencia esperada de una parcela. Si la parcela no tiene
- * schedule, lo crea con los defaults.
- */
-export async function setFumigationCadence(parcelId: number, cadenceDays: number): Promise<void> {
-  if (!Number.isFinite(cadenceDays) || cadenceDays < 1 || cadenceDays > 365) {
-    throw new Error("cadence_days debe estar entre 1 y 365");
-  }
-  const db = getDb();
-  await withLocalFallback(
-    async () => {
-      const parcel = await getParcelById(parcelId);
-      if (!parcel) throw new Error("Parcela no encontrada");
-      const def = parcel.is_orchard
-        ? CADENCE_DEFAULTS.Orchards
-        : CADENCE_DEFAULTS.Farmland;
-      const current = await getFumigationSchedule(parcelId);
-      const cropType = current?.crop_type ?? def.crop_type;
-      const lastDate = current?.last_fumigation_date ?? null;
-      const next = computeNextDueDate(lastDate, cadenceDays);
-      await db.query(
-        `
-          INSERT INTO dji_fumigation_schedule
-            (parcel_id, crop_type, recommended_cadence_days, last_fumigation_date, next_due_date, is_active)
-          VALUES ($1, $2, $3, $4, $5, true)
-          ON CONFLICT (parcel_id) DO UPDATE
-          SET recommended_cadence_days = EXCLUDED.recommended_cadence_days,
-              crop_type = EXCLUDED.crop_type,
-              next_due_date = EXCLUDED.next_due_date,
-              updated_at = NOW()
-        `,
-        [parcelId, cropType, cadenceDays, lastDate, next]
-      );
-      // Invalidar upcoming — el `next_due_date` cambió y `recommended_cadence_days`
-      // también afecta el cálculo de "overdue/due_soon".
-      invalidateAfterFumigationMutation();
-    },
-    async () => {
-      throw new Error("DB no disponible");
-    }
-  );
-}
-
-/**
- * Devuelve las próximas fumigaciones (overdue + due_soon) ordenadas por
- * urgencia. Calcula el estado en aplicación, no en la BD, para que siempre
- * esté fresco al consultar.
- *
- * Sprint 7: cacheado (TTL 1min, tag `afm:upcoming`).
- * El cálculo de `now` está dentro de la función cacheada, así que el "overdue"
- * depende del momento en que se cacheó. Por eso el TTL es agresivo (60s).
- */
-export async function getUpcomingFumigations(limit = 10): Promise<UpcomingFumigation[]> {
-  return fetchUpcomingFumigationsCached(limit);
-}
-
-/**
- * M3-M5 Q2 — Lista de parcelas "Faltan por fumigar", ordenadas por
- * prioridad (overdue > due_soon > ok > no_history; dentro de cada
- * severity, días más negativos primero).
- *
- * Args:
- *   - `maxDaysAhead` (default 14): incluye parcelas cuya cadencia
- *     vence en los próximos N días. 0 = solo las ya vencidas.
- *   - `limit` (default 200): cap defensivo.
- *   - `cropType`: filtra por tipo de cultivo.
- *   - `isOrchard`: filtra por tipo de parcela.
- *
- * Sprint Q2: cacheado (TTL 1min, tags `afm:overdue` + `afm:parcels`).
- * Se invalida en `invalidateAfterFumigationMutation()` porque al
- * registrar una fumigación, la cadencia de la parcela afectada se
- * recalcula.
- */
-export async function getOverdueParcels(args: OverdueParcelsArgs = {}): Promise<OverdueParcel[]> {
-  return fetchOverdueParcelsCached(args);
-}
-
-/**
  * Query a dji_flights sin agregación. Traemos todas las columnas que
  * necesita `aggregateFlightsByDay` + algunas extra (drone_nickname, parcel_id)
  * para futuras extensiones del dashboard.
@@ -2694,58 +2279,9 @@ const flightsRawQuery = `
   ORDER BY start_at DESC
 `;
 
-export async function getFlights(page = 1, limit = 20) {
-  const db = getDb();
-  const offset = (page - 1) * limit;
-  return withLocalFallback(
-    async () => {
-      const result = await db.query<DjiFlightDbRow>(flightsRawQuery);
-      const aggregated = aggregateFlightsByDay(
-        result.rows.map((r): FlightRow => ({
-          id: r.id,
-          flight_id: r.flight_id,
-          start_at: r.start_at,
-          duration_seconds: r.duration_seconds,
-          area_m2: r.area_m2,
-          spray_usage_ml: r.spray_usage_ml
-        }))
-      );
-      const total = aggregated.length;
-      return {
-        data: aggregated.slice(offset, offset + limit) as DjiDailySummaryRecord[],
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit)
-      };
-    },
-    async () => {
-      const data = loadLocalSummaryRecords();
-      const total = data.length;
-      return {
-        data: data.slice(offset, offset + limit),
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit)
-      };
-    }
-  );
-}
-
-/**
- * Sprint 7: ahora cacheado (TTL 5min, tag `afm:alerts`).
- */
-export async function getAlerts(): Promise<DjiAlertRecord[]> {
-  return fetchAlertsCached();
-}
-
 /**
  * Sprint 7: ahora cacheado (TTL 5min, tag `afm:metrics`).
  */
-export async function getDashboardMetrics(): Promise<DashboardMetrics> {
-  return fetchDashboardMetricsCached();
-}
 
 /**
  * Devuelve los N vuelos mas recientes con su centroide (lng, lat) para
@@ -2775,10 +2311,6 @@ export async function getFlightPoints(limit = 300): Promise<FlightPointRecord[]>
  * Cacheada con TTL 60s y tag `afm:flights-all`. Se invalida con
  * `invalidateAfterFumigationMutation()`.
  */
-export async function getFlightPointsForMap(): Promise<FlightPointRecord[]> {
-  const safeLimit = 2000;
-  return fetchFlightPointsCached(safeLimit);
-}
 
 /**
  * Sprint S8 (Bloque B — 2026-08-29): métricas agregadas de `dji_flights`
@@ -2890,18 +2422,6 @@ export async function getFlightHullsByParcel(): Promise<
  * card renderiza empty state ("Sin actividad ayer / hoy") que es el
  * comportamiento esperado en una BD vacía recién sembrada.
  */
-export async function getActivityComparison(): Promise<ActivityComparison> {
-  const today = getBogotaDateString(0);
-  const yesterday = getBogotaDateString(-1);
-  return withLocalFallback(
-    async () => fetchActivityComparisonCached(today, yesterday),
-    async () => ({
-      today: { flights_count: 0, area_fumigated_m2: 0, parcels_touched: 0, duration_minutes: 0 },
-      yesterday: { flights_count: 0, area_fumigated_m2: 0, parcels_touched: 0, duration_minutes: 0 },
-      dates: { today, yesterday }
-    })
-  );
-}
 
 // ============================================================
 // Sprint G1 — Hoja de vida: huérfanas, link manual, stats globales
@@ -2921,155 +2441,11 @@ export async function getActivityComparison(): Promise<ActivityComparison> {
  * caída — devuelve ceros (el empty state sigue funcionando).
  *
  * Cobertura: porcentaje redondeado a 1 decimal. No se calcula 0% si
- * no hay parcelas — en ese caso la cobertura es 0 (no NaN).
+ * no hay parcelas — en ese caso la cobertura es 0 (no NaN.
  */
-export interface FumigationDbStats {
-  total: number;
-  orphan: number;
-  manual: number;
-  import: number;
-  djiscraper: number;
-  parcelasConFumigacion: number;
-  totalParcelas: number;
-  coberturaPct: number;
-}
-
-export async function getFumigationDbStats(): Promise<FumigationDbStats> {
-  const db = getDb();
-  return withLocalFallback(
-    async () => {
-      const r = await db.query<{
-        total: string;
-        orphan: string;
-        manual: string;
-        import_n: string;
-        djiscraper: string;
-        parcelas_con_fum: string;
-        total_parcelas: string;
-      }>(`
-        SELECT
-          (SELECT COUNT(*) FROM dji_fumigations WHERE deleted_at IS NULL) AS total,
-          (SELECT COUNT(*) FROM dji_fumigations WHERE parcel_id IS NULL AND deleted_at IS NULL) AS orphan,
-          (SELECT COUNT(*) FROM dji_fumigations WHERE source = 'manual' AND deleted_at IS NULL) AS manual,
-          (SELECT COUNT(*) FROM dji_fumigations WHERE source = 'import' AND deleted_at IS NULL) AS import_n,
-          (SELECT COUNT(*) FROM dji_fumigations WHERE source = 'djiscraper' AND deleted_at IS NULL) AS djiscraper,
-          (SELECT COUNT(DISTINCT parcel_id) FROM dji_fumigations WHERE parcel_id IS NOT NULL AND deleted_at IS NULL) AS parcelas_con_fum,
-          (SELECT COUNT(*) FROM dji_parcels) AS total_parcelas
-      `);
-      const row = r.rows[0];
-      const total = Number(row.total);
-      const orphan = Number(row.orphan);
-      const parcelasConFumigacion = Number(row.parcelas_con_fum);
-      const totalParcelas = Number(row.total_parcelas);
-      return {
-        total,
-        orphan,
-        manual: Number(row.manual),
-        import: Number(row.import_n),
-        djiscraper: Number(row.djiscraper),
-        parcelasConFumigacion,
-        totalParcelas,
-        coberturaPct:
-          totalParcelas > 0
-            ? Math.round((parcelasConFumigacion / totalParcelas) * 1000) / 10
-            : 0
-      };
-    },
-    async () => ({
-      total: 0,
-      orphan: 0,
-      manual: 0,
-      import: 0,
-      djiscraper: 0,
-      parcelasConFumigacion: 0,
-      totalParcelas: 0,
-      coberturaPct: 0
-    })
-  );
-}
-
-/**
- * Lista paginada de fumigaciones huérfanas (parcel_id IS NULL).
- *
- * Las huérfanas vienen del backfill de flights (source='import') cuando
- * el spatial join no encontró una parcela para el flight. NO tienen
- * geometría (no hay flight_id persistido en dji_fumigations), así que
- * no podemos matchearlas automáticamente — el admin las revisa y las
- * vincula manualmente via `linkFumigationToParcel`.
- *
- * Sprint G1: usadas por `/admin/orphan-fumigations`.
- */
-export async function getOrphanFumigations(
-  limit: number,
-  offset: number
-): Promise<{ rows: DjiFumigationEvent[]; total: number }> {
-  const db = getDb();
-  return withLocalFallback(
-    async () => {
-      const totalResult = await db.query<{ n: string }>(
-        `SELECT COUNT(*) AS n FROM dji_fumigations WHERE parcel_id IS NULL AND deleted_at IS NULL`
-      );
-      const total = Number(totalResult.rows[0].n);
-      const result = await db.query<DjiFumigationEvent>(
-        `
-          SELECT
-            id, parcel_id, fumigation_date, product_used, product_id, dose_l_per_ha,
-            area_fumigated_m2, drone_code_used, duration_minutes,
-            notes, human_notes, recorded_by,
-            product_registered_ica, pilot_license,
-            recorded_at, source
-          FROM dji_fumigations
-          WHERE parcel_id IS NULL AND deleted_at IS NULL
-          ORDER BY fumigation_date DESC, recorded_at DESC
-          LIMIT $1 OFFSET $2
-        `,
-        [limit, offset]
-      );
-      return {
-        total,
-        rows: result.rows.map((row) => ({
-          ...row,
-          fumigation_date: toDateString(row.fumigation_date) ?? ""
-        }))
-      };
-    },
-    async () => ({ total: 0, rows: [] })
-  );
-}
 
 /**
  * Vincula una fumigación huérfana a una parcela. El admin decide
- * manualmente a qué parcela va (no hay spatial join posible — las
- * huérfanas no tienen geometría).
- *
- * Devuelve `null` si:
- *   - La fumigación no existe o está soft-deleted
- *   - La fumigación ya estaba asignada a otra parcela (idempotente: no
- *     hace nada, no tira error; el caller puede mostrar "ya estaba
- *     asignada")
- *   - La parcela destino no existe
- *
- * Si la vinculación es exitosa, también recalcula `last_fumigation_date`
- * y `next_due_date` del schedule de la parcela destino (mismo patrón
- * que `createFumigationEvent`). Invalida el cache via
- * `invalidateAfterFumigationMutation` (la fumigación ya entra en el
- * cálculo de cadencia, last_*, etc. del dashboard).
- */
-export async function linkFumigationToParcel(
-  fumigationId: number,
-  parcelId: number
-): Promise<{ status: "linked" | "already_assigned" | "not_found"; event?: DjiFumigationEvent }> {
-  const db = getDb();
-  return withLocalFallback(
-    async () => {
-      // 1) Fumigación existe y está huérfana
-      const before = await db.query<{ parcel_id: number | null; fumigation_date: Date }>(
-        `SELECT parcel_id, fumigation_date FROM dji_fumigations WHERE id = $1 AND deleted_at IS NULL`,
-        [fumigationId]
-      );
-      if (before.rows.length === 0) {
-        return { status: "not_found" };
-      }
       if (before.rows[0].parcel_id !== null) {
         return { status: "already_assigned" };
       }
@@ -3155,78 +2531,6 @@ export async function linkFumigationToParcel(
  * `generate_series` para garantizar 12 rows aunque un mes no tenga
  * fumigaciones. El UI ya espera 12 cards.
  */
-export interface MonthlyFumigationSummary {
-  month: number; // 1-12
-  count: number;
-  area_total_m2: number;
-  litros_total: number;
-}
-
-export async function getFumigationYearlySummary(
-  parcelId: number,
-  year: number
-): Promise<MonthlyFumigationSummary[]> {
-  const db = getDb();
-  return withLocalFallback(
-    async () => {
-      const result = await db.query<{
-        month: number;
-        count: string;
-        area_total_m2: string;
-        litros_total: string;
-      }>(
-        `
-          WITH months AS (
-            SELECT generate_series(1, 12) AS month
-          ),
-          agg AS (
-            SELECT
-              EXTRACT(MONTH FROM f.fumigation_date)::int AS month,
-              COUNT(*)::int AS count,
-              COALESCE(SUM(f.area_fumigated_m2), 0)::numeric AS area_total_m2,
-              COALESCE(
-                SUM(
-                  CASE
-                    WHEN f.dose_l_per_ha IS NOT NULL AND f.area_fumigated_m2 IS NOT NULL
-                    THEN f.dose_l_per_ha * f.area_fumigated_m2 / 10000.0
-                    ELSE 0
-                  END
-                ),
-                0
-              )::numeric AS litros_total
-            FROM dji_fumigations f
-            WHERE f.parcel_id = $1
-              AND EXTRACT(YEAR FROM f.fumigation_date) = $2
-              AND f.deleted_at IS NULL
-            GROUP BY EXTRACT(MONTH FROM f.fumigation_date)
-          )
-          SELECT
-            m.month,
-            COALESCE(a.count, 0) AS count,
-            COALESCE(a.area_total_m2, 0) AS area_total_m2,
-            COALESCE(a.litros_total, 0) AS litros_total
-          FROM months m
-          LEFT JOIN agg a ON a.month = m.month
-          ORDER BY m.month
-        `,
-        [parcelId, year]
-      );
-      return result.rows.map((row) => ({
-        month: Number(row.month),
-        count: Number(row.count),
-        area_total_m2: Number(row.area_total_m2),
-        litros_total: Number(row.litros_total)
-      }));
-    },
-    async () =>
-      Array.from({ length: 12 }, (_, i) => ({
-        month: i + 1,
-        count: 0,
-        area_total_m2: 0,
-        litros_total: 0
-      }))
-  );
-}
 
 /**
  * Trazabilidad flight → fumigación: devuelve los dji_flights que
@@ -3240,57 +2544,6 @@ export async function getFumigationYearlySummary(
  *
  * Orden: por start_at asc (los flights del día en orden temporal).
  */
-export interface FlightTraceRow {
-  id: number;
-  start_at: string | null;
-  end_at: string | null;
-  drone_nickname: string | null;
-  pilot_name: string | null;
-  area_m2: number | null;
-  duration_seconds: number | null;
-}
-
-export async function getFumigationFlightTrace(
-  fumigationId: number
-): Promise<FlightTraceRow[]> {
-  const db = getDb();
-  return withLocalFallback(
-    async () => {
-      const result = await db.query<{
-        id: number;
-        start_at: Date | null;
-        end_at: Date | null;
-        drone_nickname: string | null;
-        pilot_name: string | null;
-        area_m2: string | number | null;
-        duration_seconds: number | null;
-      }>(
-        `
-          SELECT
-            f.id, f.start_at, f.end_at,
-            f.drone_nickname, f.pilot_name,
-            f.area_m2, f.duration_seconds
-          FROM dji_fumigations fum
-          JOIN dji_flights f ON f.id = ANY(fum.flight_ids)
-          WHERE fum.id = $1
-            AND fum.deleted_at IS NULL
-          ORDER BY f.start_at ASC NULLS LAST
-        `,
-        [fumigationId]
-      );
-      return result.rows.map((row) => ({
-        id: Number(row.id),
-        start_at: row.start_at ? row.start_at.toISOString() : null,
-        end_at: row.end_at ? row.end_at.toISOString() : null,
-        drone_nickname: row.drone_nickname,
-        pilot_name: row.pilot_name,
-        area_m2: row.area_m2 !== null ? Number(row.area_m2) : null,
-        duration_seconds: row.duration_seconds !== null ? Number(row.duration_seconds) : null
-      }));
-    },
-    async () => []
-  );
-}
 
 /**
  * Historial de cambios de cadencia/cultivo de una parcela. Ordenado
@@ -3372,61 +2625,6 @@ export async function getScheduleHistory(
  * del UI ("este año: 14 fumigaciones, 87.500 m², 145 L, 4 productos
  * distintos").
  */
-export interface YearTotals {
-  year: number;
-  count: number;
-  area_total_m2: number;
-  litros_total: number;
-  productos_unicos: number;
-}
-
-export async function getFumigationYearTotals(
-  parcelId: number,
-  year: number
-): Promise<YearTotals> {
-  const db = getDb();
-  return withLocalFallback(
-    async () => {
-      const r = await db.query<{
-        count: string;
-        area_total_m2: string;
-        litros_total: string;
-        productos_unicos: string;
-      }>(
-        `
-          SELECT
-            COUNT(*)::int AS count,
-            COALESCE(SUM(area_fumigated_m2), 0)::numeric AS area_total_m2,
-            COALESCE(
-              SUM(
-                CASE
-                  WHEN dose_l_per_ha IS NOT NULL AND area_fumigated_m2 IS NOT NULL
-                  THEN dose_l_per_ha * area_fumigated_m2 / 10000.0
-                  ELSE 0
-                END
-              ),
-              0
-            )::numeric AS litros_total,
-            COUNT(DISTINCT NULLIF(product_used, ''))::int AS productos_unicos
-          FROM dji_fumigations
-          WHERE parcel_id = $1
-            AND EXTRACT(YEAR FROM fumigation_date) = $2
-            AND deleted_at IS NULL
-        `,
-        [parcelId, year]
-      );
-      const row = r.rows[0];
-      return {
-        year,
-        count: Number(row.count),
-        area_total_m2: Number(row.area_total_m2),
-        litros_total: Number(row.litros_total),
-        productos_unicos: Number(row.productos_unicos)
-      };
-    },
-    async () => ({ year, count: 0, area_total_m2: 0, litros_total: 0, productos_unicos: 0 })
-  );
-}
 
 /**
  * v2.1 (sprint S7) — fumigaciones más recientes para alimentar el

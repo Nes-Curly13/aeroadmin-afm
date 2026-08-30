@@ -301,9 +301,6 @@ export async function fetchParcelReportData(
   };
 }
 
-// Re-export para el test smoke y otros callers.
-export { toDateString };
-
 /**
  * Wrapper cacheado de `fetchParcelReportData`. La cache es por `parcelId`
  * (cache key incluye el id), así que dos requests a parcelas distintas
@@ -334,12 +331,4 @@ export function getParcelReportData(parcelId: number): Promise<ParcelReportData 
       tags: [CACHE_TAGS.parcelReport, CACHE_TAGS.parcels, CACHE_TAGS.upcoming]
     }
   )();
-}
-
-/** Helper para invalidar el cache del reporte de una parcela específica.
- *  Usado por tests y por jobs (futuro: revalidación post-mutación
- *  ya está en `invalidateAfterFumigationMutation` /
- *  `invalidateAfterParcelMutation`, este helper es explícito). */
-export function invalidateParcelReportCache(): void {
-  revalidateTag(CACHE_TAGS.parcelReport, { expire: 0 });
 }

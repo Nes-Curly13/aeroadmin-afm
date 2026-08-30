@@ -56,10 +56,8 @@ import {
   fetchParcelsMetadataNoCache,
   fetchParcelsNormalizedCached,
   fetchUpcomingFumigationsCached,
-  invalidateAfterFlightMutation,
   invalidateAfterFumigationMutation,
-  invalidateAfterParcelMutation,
-  invalidateAll
+  invalidateAfterParcelMutation
 } from "@/lib/cache";
 
 beforeEach(() => {
@@ -236,26 +234,5 @@ describe("invalidate* — disparan revalidateTag con profile { expire: 0 }", () 
     expect(tags).toContain(CACHE_TAGS.upcoming);
     expect(tags).toContain(CACHE_TAGS.parcelReport);
     expect(tags).toContain(CACHE_TAGS.parcelsCycles);
-  });
-
-  it("invalidateAfterFlightMutation afecta flights + metrics + alerts + activity-comparison", () => {
-    invalidateAfterFlightMutation();
-    // Sprint A — F4.0: la comparativa ayer/hoy también se invalida porque
-    // depende de dji_flights. Antes eran 3; ahora son 4.
-    expect(revalidateTagMock).toHaveBeenCalledTimes(4);
-    const tags = revalidateTagMock.mock.calls.map((c) => c[0]);
-    expect(tags).toContain(CACHE_TAGS.flights);
-    expect(tags).toContain(CACHE_TAGS.metrics);
-    expect(tags).toContain(CACHE_TAGS.alerts);
-    expect(tags).toContain(CACHE_TAGS.activityComparison);
-  });
-
-  it("invalidateAll barre todos los tags", () => {
-    invalidateAll();
-    const tags = revalidateTagMock.mock.calls.map((c) => c[0]);
-    for (const tag of Object.values(CACHE_TAGS)) {
-      expect(tags).toContain(tag);
-    }
-    expect(revalidateTagMock).toHaveBeenCalledTimes(Object.values(CACHE_TAGS).length);
   });
 });

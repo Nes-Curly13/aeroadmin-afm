@@ -80,12 +80,6 @@ export const FUMIGATION_CATEGORIES: FumigationCategoryOption[] = [
   { id: 7, slug: "otro", label: "Otro", color: "slate" }
 ];
 
-/** Helper de lookup por id (compat con `droneModel`). */
-export const fumigationCategory = (id: number | null | undefined) =>
-  id == null
-    ? null
-    : FUMIGATION_CATEGORIES.find((c) => c.id === id) ?? null;
-
 /**
  * Catálogo curado de tipos de aplicación (fase/uso). Espejo client-side
  * de la tabla `application_types` (migration 20260824000000). Ortogonal

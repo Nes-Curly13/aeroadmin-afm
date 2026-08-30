@@ -84,22 +84,3 @@ export async function refreshFumigations(
  * el script CLI (que llama al endpoint HTTP en vez de tocar la BD
  * directo).
  */
-export async function refreshFumigationsInTransaction(): Promise<RefreshStats> {
-  const pool = getDb();
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    const stats = await refreshFumigations(client as unknown as QueryRunner);
-    await client.query("COMMIT");
-    return stats;
-  } catch (err) {
-    await client.query("ROLLBACK").catch(() => {
-      // Si el ROLLBACK también falla (conexión muerta), no
-      // ocultamos el error original — la query que lo causó es
-      // más informativa para el caller.
-    });
-    throw err;
-  } finally {
-    client.release();
-  }
-}

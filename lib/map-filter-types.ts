@@ -54,7 +54,6 @@ export const CADENCE_STATUS_META: Record<
  * usa "satellite" | "streets" (inglés). Exponemos el contrato del V0 y
  * mapeamos al pasar al MapLibreView.
  */
-export type BaseMap = "satelite" | "calles";
 
 /**
  * Source/origen de un registro de fumigación. Espejo del campo
@@ -80,18 +79,7 @@ export interface MapFilterState {
 }
 
 /** Estado del rango temporal (en meses, no en fechas). */
-export interface TimeRangeState {
-  /** [minIdx, maxIdx] sobre el array de meses disponibles. */
-  range: [number, number];
-  playing: boolean;
-}
-
 /** Estado de visibilidad de capas. */
-export interface LayerVisibilityState {
-  showParcels: boolean;
-  showEvents: boolean;
-  showLabels: boolean;
-}
 
 /**
  * Parcela enriquecida con los datos que el V0 expone al `<MapParcel>`.
@@ -164,12 +152,4 @@ export interface MapKpis {
 }
 
 /** Estado completo del componente. Útil para tests y serialización. */
-export interface MapPageUiState {
-  filters: MapFilterState;
-  timeRange: TimeRangeState;
-  layers: LayerVisibilityState;
-  baseMap: BaseMap;
-  selectedParcelId: number | null;
-  showFilters: boolean;
-}
 

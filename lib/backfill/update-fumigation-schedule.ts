@@ -17,13 +17,6 @@ import type { QueryRunner } from "./fumigations-from-flights";
 // (todos los módulos de `lib/backfill/` exponen el mismo tipo).
 export type { QueryRunner };
 
-export interface ScheduleUpdateRow {
-  id: number;
-  parcel_id: number;
-  last_fumigation_date: Date | null;
-  next_due_date: Date | null;
-}
-
 export interface ScheduleUpdateStats {
   updated: number;
 }

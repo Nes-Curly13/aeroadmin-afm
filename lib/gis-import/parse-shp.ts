@@ -16,9 +16,6 @@
 import type { ImportFeature, ParseResult } from "./types";
 import { extractFeatureName, normalizeGeometry } from "./normalize";
 
-/** Tamaño máximo aceptado para un .zip con shapefiles. 50 MB. */
-export const SHP_MAX_BYTES = 50 * 1024 * 1024;
-
 /**
  * Wrapper sobre shpjs.parseZip. Usamos dynamic import para que la carga
  * lazy del módulo ESM no rompa el startup del server (algunos bundlers
