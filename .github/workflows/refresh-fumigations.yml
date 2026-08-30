@@ -10,28 +10,23 @@ name: refresh-fumigations
 # Ver scripts/refresh-fumigations.js para el detalle del script.
 
 # =====================================================================
-# ACTIVACIÓN (sprint 2026-08-22 — chore/disable-failing-cron-workflows):
-#   SCHEDULE DESHABILITADO — el workflow fallaba cada lunes 06:00 UTC
-#   porque ni DATABASE_URL ni DATABASE_URL_DIRECT están configurados
-#   como secrets del repo. Sin esos, el script aborta con "DATABASE_URL
-#   is not configured" y el run queda en estado failure recurrente en
-#   el panel de Actions del repo (ruido + falsa alarma).
-#
-#   Para reactivar el schedule:
-#     1. Settings → Secrets and variables → Actions → New repository secret
-#     2. DATABASE_URL: connection string de Supabase (puerto 6543 pooled)
-#     3. Opcional: DATABASE_URL_DIRECT (puerto 5432 direct) como fallback
-#     4. Restaurar el bloque `on:` con el schedule original (reemplaza
-#        el `on:` actual que solo tiene workflow_dispatch)
-#
-#   Mientras tanto, el workflow sigue disponible para dispatch manual
-#   (útil después de un backfill grande o un fix de datos).
+# ACTIVADO 2026-08-29 (sprint reactivacion-cron-pipeline, ver
+# docs/runbooks/reactivar-cron-pipeline.md).
+#   Secret requerido (GitHub Actions):
+#     - DATABASE_URL: connection string de Supabase (puerto 6543 pooled)
+#   Secret opcional (fallback, puerto 5432 direct):
+#     - DATABASE_URL_DIRECT
+#   Variable opcional (default 'true'):
+#     - DATABASE_SSL: 'true' | 'false'
+#   Schedule: cada lunes 06:00 UTC (cron: "0 6 * * 1").
+#   Para volver a deshabilitar, comentar el bloque `schedule:` y dejar
+#   solo `workflow_dispatch:`. Ver §8 del runbook.
 # =====================================================================
 
 on:
-  # Manual only. Ver comentario arriba. Restaurar el bloque con
-  # `schedule: - cron: "0 6 * * 1"` cuando se configuren los secrets.
-  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1"  # cada lunes 06:00 UTC
+  workflow_dispatch:  # trigger manual post-backfill / fix de datos
 
 # Sin permisos especiales — solo lee el repo y corre un script.
 permissions:

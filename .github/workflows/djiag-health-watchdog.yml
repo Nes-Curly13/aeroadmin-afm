@@ -9,30 +9,22 @@ name: djiag-health-watchdog
 # Ver docs/HEALTH-WATCHDOG.md para setup completo + troubleshooting.
 #
 # =====================================================================
-# ACTIVACIÓN (sprint 2026-08-13 — fix/ci-and-cleanup):
-#   WORKFLOW DESHABILITADO TEMPORALMENTE — falta configurar HEALTH_TOKEN
-#   y HEALTH_URL como secrets en GitHub Actions. Sin esos, el cron
-#   fallaba cada 6h con 401 (unauthorized) o "secret not configured",
-#   contaminando el panel de Actions del repo.
-#
-#   Para reactivar:
-#     1. Settings → Secrets and variables → Actions → New repository secret
-#     2. HEALTH_URL:  https://<tu-dominio-vercel>.vercel.app
-#     3. HEALTH_TOKEN: el mismo valor que está en el deploy de Vercel
-#                      (env var HEALTH_TOKEN del proyecto de Vercel).
-#     4. Opcional: HEALTH_STALE_HOURS como variable (default 24).
-#     5. Restaurar el bloque `on:` con `schedule: - cron: "0 */6 * * *"`
-#        debajo (reemplaza el `on:` actual que solo tiene workflow_dispatch).
-#
-#   Mientras tanto, el workflow sigue disponible para dispatch manual
-#   (útil para diagnóstico). El operador fumigador puede activarlo
-#   cuando tenga el watchdog server-side deployado.
+# ACTIVADO 2026-08-29 (sprint reactivacion-cron-pipeline, ver
+# docs/runbooks/reactivar-cron-pipeline.md).
+#   Secrets requeridos (GitHub Actions):
+#     - HEALTH_URL:    https://aeroadmin-afm.vercel.app (sin trailing slash)
+#     - HEALTH_TOKEN:  mismo valor que el HEALTH_TOKEN en Vercel env vars
+#   Variable opcional (default 24):
+#     - HEALTH_STALE_HOURS: umbral en horas para marcar como stale
+#   Schedule: cada 6 horas (cron: "0 */6 * * *").
+#   Para volver a deshabilitar, comentar el bloque `schedule:` y dejar
+#   solo `workflow_dispatch:`. Ver §8 del runbook.
 # =====================================================================
 
 on:
-  # Manual only. Ver comentario arriba. Restaurar `schedule:` cuando
-  # se configuren los secrets.
-  workflow_dispatch:
+  schedule:
+    - cron: "0 */6 * * *"  # cada 6 horas
+  workflow_dispatch:  # trigger manual / diagnóstico
 
 permissions:
   contents: read
