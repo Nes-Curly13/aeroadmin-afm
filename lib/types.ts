@@ -321,6 +321,28 @@ export interface DjiFumigationEvent {
    * asociados" o "sin match — la fumigacion no tiene flights en BD").
    */
   n_matched_flights?: number | null;
+  /**
+   * Sprint S9 (2026-08-30) — feature/multi-parcela-fumigation.
+   * Array de `external_id` de las suertes SECUNDARIAS cubiertas por esta
+   * fumigación (excluye la primaria que vive en `parcel_id`).
+   *
+   * Se popula vía `scripts/backfill-fumigation-parcels.js` desde los
+   * `flight_ids[]` cruzando con `dji_flights.parcel_id` (que requiere
+   * haber corrido `spatial-join-flights-parcels.js` previamente).
+   *
+   * Default `[]` para fumigaciones single-parcela. Lo hidrata
+   * `getFumigationById` y `getFumigationRawById`. La UI lo muestra
+   * en `/fumigacion/[id]` como "Otras suertes cubiertas" y en
+   * `/parcelas/[id]` como badge "También cubrió N suertes" en el
+   * timeline.
+   *
+   * Decisión: usar `text[]` (external_id) en vez de `bigint[]` (PK)
+   * porque (a) las URLs y CSV reports ya usan external_id como
+   * identificador público, y (b) evita JOIN obligatorio al mostrar
+   * la lista de suertes (más rápido en queries que solo necesitan
+   * nombres y links).
+   */
+  parcels?: string[] | null;
 }
 
 /**
@@ -729,6 +751,28 @@ export interface DjiFumigationV0 {
    * match. Util para el popup ("5 de 7 flights asociados").
    */
   n_matched_flights?: number | null;
+  /**
+   * Sprint S9 (2026-08-30) — feature/multi-parcela-fumigation.
+   * Lista de external_id de las suertes SECUNDARIAS cubiertas por
+   * esta fumigación (excluye la primaria = parcel_id).
+   *
+   * Lo popula el V0 adapter (`getRecentFumigations` / `getFumigationTimelineForParcel`)
+   * desde `dji_fumigations.parcels[]` con LEFT JOIN.
+   *
+   * Si está vacío (default `[]`), la fumigación cubrió solo 1 suerte.
+   * Si hay N elementos, cubrió N+1 suertes en total.
+   *
+   * La UI del V0 (`/parcelas/[id]`) muestra un badge "+N suertes"
+   * en el timeline cuando N > 0, con link a la ficha de la fumigación
+   * donde se ve el detalle completo.
+   */
+  parcels?: string[] | null;
+  /**
+   * Sprint S9 — número de suertes secundarias (cached para evitar
+   * recalcular `parcels.length` en cada render del timeline). El V0
+   * adapter lo hidrata junto con `parcels`.
+   */
+  n_secondary_parcels?: number | null;
 }
 
 /** Alias del V0 (los components V0 importan `DjiFumigation`). */

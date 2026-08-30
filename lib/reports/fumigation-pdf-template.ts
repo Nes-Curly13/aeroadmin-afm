@@ -16,12 +16,14 @@
 
 import type { FumigationReportData } from "./fumigation-csv";
 
-function fmtNum(value: number | null, decimals: number): string {
+function fmtNum(value: number | string | null, decimals: number): string {
   if (value === null) return "—";
+  const n = typeof value === "string" ? Number(value) : value;
+  if (!Number.isFinite(n)) return "—";
   return new Intl.NumberFormat("de-DE", {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals
-  }).format(value);
+  }).format(n);
 }
 
 function escapeHtml(value: string | null | undefined): string {
@@ -159,7 +161,7 @@ export function buildFumigationPdfHtml(data: FumigationReportData): string {
                 <td>${escapeHtml(fl.start_at)}</td>
                 <td>${escapeHtml(fl.pilot_name) || "—"}</td>
                 <td>${escapeHtml(fl.drone_nickname) || "—"}</td>
-                <td class="num">${fl.area_m2 !== null ? fmtNum(fl.area_m2 / 10000, 2) : "—"}</td>
+                <td class="num">${fl.area_m2 !== null ? fmtNum(Number(fl.area_m2) / 10000, 2) : "—"}</td>
                 <td class="num">${fl.duration_min !== null ? fmtNum(fl.duration_min, 1) : "—"}</td>
                 <td class="num">${fl.spray_usage_ml !== null ? fmtNum(fl.spray_usage_ml / 1000, 2) : "—"}</td>
               </tr>`

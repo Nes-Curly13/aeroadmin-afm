@@ -42,6 +42,32 @@ export function fmtLiters(n: number) {
   return `${_esInt.format(Math.round(n))} L`;
 }
 
+/**
+ * Helper: rebuildea un string de fecha/hora desde las `parts` de
+ * `formatToParts`, evitando los caracteres invisibles (U+202F, U+00A0)
+ * que `Intl.DateTimeFormat` mete entre la hora y el sufijo AM/PM, o
+ * entre la fecha y la hora, en ICU 73+. Esos caracteres difieren
+ * entre Node (server) y el ICU del SO del cliente, causando React
+ * hydration mismatch #418.
+ *
+ * `get(type)` extrae el value de una part por tipo (year, month,
+ * day, hour, minute). Devuelve "" si no existe (caso defensivo).
+ *
+ * Si necesitas dayPeriod ("p. m." / "a. m.") en la salida, agregalo
+ * aca en vez de delegar a toLocaleString.
+ */
+function buildIntlString(
+  date: Date,
+  fmt: Intl.DateTimeFormatOptions,
+  build: (get: (type: Intl.DateTimeFormatPartTypes) => string) => string
+): string {
+  const dtf = new Intl.DateTimeFormat("es-CO", fmt);
+  const parts = dtf.formatToParts(date);
+  const get = (type: Intl.DateTimeFormatPartTypes): string =>
+    parts.find((p) => p.type === type)?.value ?? "";
+  return build(get);
+}
+
 export function fmtDate(iso: string | null, opts?: Intl.DateTimeFormatOptions) {
   if (!iso) return "—";
   // IMPORTANTE: pasamos `timeZone: "America/Bogota"` para evitar
@@ -51,34 +77,54 @@ export function fmtDate(iso: string | null, opts?: Intl.DateTimeFormatOptions) {
   // del sistema — server vs client divergen cerca de medianoche UTC
   // y React aborta la hydration del <td> que contiene la fecha.
   // Ver https://react.dev/errors/418 para el detalle.
-  return new Date(iso).toLocaleDateString("es-CO", {
+  //
+  // Sprint S9 (2026-08-30) — rebuildeamos desde formatToParts para
+  // evitar el U+202F que Intl mete entre componentes en ICU 73+.
+  // Output: "15 mar 2026" (separador " " regular, no narrow no-break).
+  const baseOpts: Intl.DateTimeFormatOptions = {
     day: "2-digit",
     month: "short",
     year: "numeric",
-    timeZone: "America/Bogota",
-    ...opts
+    timeZone: "America/Bogota"
+  };
+  return buildIntlString(new Date(iso), { ...baseOpts, ...opts }, (get) => {
+    // `month: "short"` produce "mar", "ene" — concatenamos con " ".
+    // NO usamos "literal" de formatToParts (que seria " de " o "/")
+    // para mantener compat con el formato previo ("15 mar 2026").
+    return `${get("day")} ${get("month")} ${get("year")}`;
   });
 }
 
 export function fmtDateTime(iso: string | null) {
   if (!iso) return "—";
   // Misma TZ que fmtDate — Sprint S8 / Bloque D fix hydration #418.
-  return new Date(iso).toLocaleString("es-CO", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "America/Bogota"
-  });
+  // Sprint S9 (2026-08-30) — formatToParts para evitar U+202F.
+  // Output: "15 mar 2026, 14:30" (separadores ASCII explicitos).
+  return buildIntlString(
+    new Date(iso),
+    {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: "America/Bogota"
+    },
+    (get) => `${get("day")} ${get("month")} ${get("year")}, ${get("hour")}:${get("minute")}`
+  );
 }
 
 export function fmtTime(iso: string) {
-  return new Date(iso).toLocaleTimeString("es-CO", {
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "America/Bogota"
-  });
+  // Misma TZ + formatToParts (Sprint S9 2026-08-30).
+  return buildIntlString(
+    new Date(iso),
+    {
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: "America/Bogota"
+    },
+    (get) => `${get("hour")}:${get("minute")}`
+  );
 }
 
 export function fmtRelative(iso: string | null, refDate?: Date) {
