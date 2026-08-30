@@ -29,9 +29,30 @@ export interface ReportsFormProps {
   pdfHref: string;
   /** URL para el botón CSV. */
   csvHref: string;
+  /**
+   * Sprint S9.2 (2026-08-29) — feature/s9-2-reports-date-range.
+   * URLs precomputadas por la página para cada preset de rango
+   * rápido. Cada URL preserva el filtro `farm` si está activo y
+   * cambia solo `from`/`to`. El botón "Por defecto" resetea a
+   * los últimos 30 días (mismo que el default del form).
+   */
+  presets: {
+    "7d": string;
+    "30d": string;
+    "90d": string;
+    month: string;
+    year: string;
+    defaultWindow: string;
+  };
 }
 
-export function ReportsForm({ defaults, farmOptions, pdfHref, csvHref }: ReportsFormProps) {
+export function ReportsForm({
+  defaults,
+  farmOptions,
+  pdfHref,
+  csvHref,
+  presets
+}: ReportsFormProps) {
   return (
     <div className="flex flex-col gap-3">
       <form
@@ -94,6 +115,60 @@ export function ReportsForm({ defaults, farmOptions, pdfHref, csvHref }: Reports
           />
         </div>
       </form>
+
+      {/**
+       * Sprint S9.2 — quick-range buttons. Cada botón es un `<a>`
+       * precomputado por la página (URL ya incluye from/to/farm).
+       * El navegador navega a la URL → re-fetch server-side con
+       * los nuevos query params. Sin JS state, sin cliente-side
+       * router. Cero hydration. 1 click = 1 round-trip server.
+       */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Período:
+        </span>
+        <Button
+          size="sm"
+          variant="outline"
+          nativeButton={false}
+          render={<a href={presets["7d"]} aria-label="Últimos 7 días">7d</a>}
+        />
+        <Button
+          size="sm"
+          variant="outline"
+          nativeButton={false}
+          render={<a href={presets["30d"]} aria-label="Últimos 30 días">30d</a>}
+        />
+        <Button
+          size="sm"
+          variant="outline"
+          nativeButton={false}
+          render={<a href={presets["90d"]} aria-label="Últimos 90 días">90d</a>}
+        />
+        <Button
+          size="sm"
+          variant="outline"
+          nativeButton={false}
+          render={<a href={presets.month} aria-label="Mes actual">Mes</a>}
+        />
+        <Button
+          size="sm"
+          variant="outline"
+          nativeButton={false}
+          render={<a href={presets.year} aria-label="Año actual">Año</a>}
+        />
+        <Button
+          size="sm"
+          variant="ghost"
+          nativeButton={false}
+          render={
+            <a href={presets.defaultWindow} aria-label="Volver al rango por defecto (últimos 30 días)">
+              Por defecto
+            </a>
+          }
+        />
+      </div>
+
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-xs text-muted-foreground">Descargar:</span>
         <Button

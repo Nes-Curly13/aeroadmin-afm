@@ -11,6 +11,7 @@
 import { redirect } from "next/navigation";
 import { getDistinctFarmsWithCounts } from "@/api/repositories";
 import { fetchFarmsReportData } from "@/lib/reports/fetch-farms-report-data";
+import { defaultWindow, quickRange } from "@/lib/reports/date-range";
 import { ReportsForm } from "@/components/reports/reports-form";
 import { LastFumigationCard } from "@/components/reports/last-fumigation-card";
 import { FarmsTable } from "@/components/reports/farms-table";
@@ -31,32 +32,35 @@ function fmtDec2(value: number | null | undefined): string {
 
 export const dynamic = "force-dynamic";
 
-/** Devuelve el default del rango: últimos 30 días hasta hoy (Bogota). */
-function defaultWindow(): { from: string; to: string } {
-  const fmt = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/Bogota",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit"
-  });
-  const today = fmt.format(new Date());
-  const todayParts = today.split("-").map(Number);
-  const dt = new Date(Date.UTC(todayParts[0]!, todayParts[1]! - 1, todayParts[2]!));
-  dt.setUTCDate(dt.getUTCDate() - 30);
-  const from = dt.toISOString().slice(0, 10);
-  return { from, to: today };
-}
-
 interface ReportsPageProps {
   searchParams: Promise<{ from?: string; to?: string; farm?: string }>;
 }
 
 export default async function ReportesPage({ searchParams }: ReportsPageProps) {
   const sp = await searchParams;
-  const defaults = defaultWindow();
+  // "Hoy" en Bogota — fuente de verdad para los presets.
+  const todayStr = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Bogota",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(new Date());
+  const todayParts = todayStr.split("-").map(Number);
+  const defaults = defaultWindow(todayParts);
   const from = sp.from && /^\d{4}-\d{2}-\d{2}$/.test(sp.from) ? sp.from : defaults.from;
   const to = sp.to && /^\d{4}-\d{2}-\d{2}$/.test(sp.to) ? sp.to : defaults.to;
   const farm = sp.farm && sp.farm.trim() !== "" ? sp.farm.trim() : "";
+
+  // Sprint S9.2 — rangos rápidos precomputados. Cada uno genera
+  // una URL que el form pasa al botón "Período". Mismos todayParts
+  // que defaultWindow para que los presets sean consistentes.
+  const presets = {
+    "7d": quickRange(todayParts, "7d"),
+    "30d": quickRange(todayParts, "30d"),
+    "90d": quickRange(todayParts, "90d"),
+    month: quickRange(todayParts, "month"),
+    year: quickRange(todayParts, "year")
+  };
 
   // Cargamos la data y la lista de haciendas en paralelo.
   const [data, farmOptions] = await Promise.all([
@@ -69,6 +73,14 @@ export default async function ReportesPage({ searchParams }: ReportsPageProps) {
   if (farm) queryString.set("farm", farm);
   const pdfHref = `/api/admin/reports/farms/report.pdf?${queryString.toString()}`;
   const csvHref = `/api/admin/reports/farms/report.csv?${queryString.toString()}`;
+
+  // URLs para los presets de rango rápido. Preservan el filtro
+  // `farm` si está activo (ej. "últimos 7d en El Limar").
+  const presetUrl = (preset: { from: string; to: string }): string => {
+    const params = new URLSearchParams({ from: preset.from, to: preset.to });
+    if (farm) params.set("farm", farm);
+    return `/reportes?${params.toString()}`;
+  };
 
   const isFiltered = Boolean(farm);
 
@@ -109,6 +121,14 @@ export default async function ReportesPage({ searchParams }: ReportsPageProps) {
               farmOptions={farmOptions}
               pdfHref={pdfHref}
               csvHref={csvHref}
+              presets={{
+                "7d": presetUrl(presets["7d"]),
+                "30d": presetUrl(presets["30d"]),
+                "90d": presetUrl(presets["90d"]),
+                month: presetUrl(presets.month),
+                year: presetUrl(presets.year),
+                defaultWindow: presetUrl(defaults)
+              }}
             />
           </CardContent>
         </Card>
