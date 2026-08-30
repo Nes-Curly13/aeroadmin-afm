@@ -70,7 +70,7 @@ export async function AppShell({
   const roleVariant: "default" | "secondary" | "outline" =
     role === "admin" ? "default" : role === "supervisor" ? "secondary" : "outline";
   const roleLabel =
-    role === "admin" ? "Admin" : role === "supervisor" ? "Supervisor" : role === "viewer" ? "Viewer" : "—";
+    role === "admin" ? "Admin" : role === "supervisor" ? "Supervisor" : "—";
 
   return (
     <div className="flex min-h-svh flex-col lg:flex-row">

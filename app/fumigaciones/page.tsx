@@ -36,9 +36,9 @@ import {
  *     (`/parcelas/[id]`). El operador sigue viendo la fumigacion
  *     en el timeline del detail.
  *   - Boton "+ Nueva fumigacion" arriba a la derecha lleva a
- *     /parcelas (el operador elige la parcela y ahi usa el form del
- *     detail page). No abrimos un wizard de 2 pasos aca — es mas
- *     friccion que beneficio.
+ *     /fumigaciones/nueva (wizard de 2 columnas con mapa satelital
+ *     para selección visual de la parcela). Ver
+ *     `app/fumigaciones/nueva/page.tsx`.
  *
  * S10 (2026-08-06): Suspense boundaries. El header + form se
  * renderizan instantaneamente; el <Suspense> envuelve la tabla y
