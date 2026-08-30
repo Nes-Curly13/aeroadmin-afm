@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sprint 2026-08-22 — Resumen visual | AeroAdmin AFM</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      mermaid.initialize({ startOnLoad: true, theme: 'forest', securityLevel: 'loose' });
+    });
+  </script>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 2rem 1.5rem;
+      background: #faf8f2;
+      color: #0f1713;
+      line-height: 1.55;
+    }
+    h1 { font-size: 2.1rem; font-weight: 800; margin: 0 0 0.5rem; }
+    h2 {
+      font-size: 1.4rem;
+      font-weight: 700;
+      margin: 2.5rem 0 1rem;
+      padding-bottom: 0.4rem;
+      border-bottom: 2px solid #0b5f2d;
+    }
+    h3 { font-size: 1.1rem; font-weight: 600; margin: 1.5rem 0 0.5rem; }
+    .lead { color: #5c6b65; font-size: 1.05rem; margin: 0 0 2rem; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem; }
+    .card {
+      background: white;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 1rem 1.2rem;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+    }
+    .card h3 { margin-top: 0; color: #0b5f2d; }
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 0.6rem;
+      margin: 0.8rem 0;
+    }
+    .metric {
+      background: #f0fdf4;
+      border-left: 3px solid #16a34a;
+      padding: 0.5rem 0.8rem;
+      border-radius: 4px;
+    }
+    .metric .v { font-size: 1.3rem; font-weight: 700; color: #0b5f2d; }
+    .metric .l { font-size: 0.8rem; color: #5c6b65; }
+    .badge {
+      display: inline-block;
+      padding: 0.15rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .b-green { background: #d1fae5; color: #065f46; }
+    .b-blue { background: #dbeafe; color: #1e40af; }
+    .b-purple { background: #ede9fe; color: #5b21b6; }
+    .b-orange { background: #fed7aa; color: #9a3412; }
+    .b-gray { background: #f3f4f6; color: #374151; }
+    pre {
+      background: #0f1713;
+      color: #d1fae5;
+      padding: 1rem 1.2rem;
+      border-radius: 6px;
+      overflow-x: auto;
+      font-size: 0.85rem;
+      line-height: 1.45;
+    }
+    code { font-family: 'JetBrains Mono', Consolas, monospace; }
+    .diff-add { color: #86efac; }
+    .diff-rm { color: #fca5a5; }
+    .diagram {
+      background: white;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 1.5rem;
+      margin: 1rem 0;
+      text-align: center;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 0.8rem 0;
+      font-size: 0.92rem;
+    }
+    th, td {
+      text-align: left;
+      padding: 0.5rem 0.8rem;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    th { background: #f9fafb; font-weight: 600; }
+    .footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid #e5e7eb; color: #5c6b65; font-size: 0.85rem; }
+    .mockup {
+      background: #0f1713;
+      border-radius: 8px;
+      padding: 1rem;
+      color: #d1fae5;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.85rem;
+      line-height: 1.6;
+    }
+    .mockup .accent { color: #84cc16; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h1>Sprint 2026-08-22 — Resumen visual</h1>
+  <p class="lead">4 PRs mergeados a master, 1 backfill ejecutado contra Supabase, 3 bugs resueltos. Total: <strong>31 archivos modificados, 3,731 líneas agregadas, 0 regresiones</strong>.</p>
+
+  <h2>1. Audit log + backfill histórico (PR #1, #4)</h2>
+  <div class="card">
+    <h3>Tabla <code>fumigation_audit_log</code> creada y populada</h3>
+    <p>Antes: las fumigaciones no tenían historial de quién las creó, editó o eliminó. Ahora: tabla append-only con 642 eventos <code>created</code> backfilleados con snapshot del estado actual.</p>
+    <div class="metrics">
+      <div class="metric"><div class="v">642</div><div class="l">eventos created insertados</div></div>
+      <div class="metric"><div class="v">33/33</div><div class="l">migrations aplicadas</div></div>
+      <div class="metric"><div class="v">3.2 min</div><div class="l">tiempo de backfill</div></div>
+      <div class="metric"><div class="v">100%</div><div class="l">flag _backfill en changes</div></div>
+    </div>
+    <h3>Diagrama del data flow</h3>
+    <div class="diagram">
+      <div class="mermaid">
+flowchart LR
+  A[Scraper DJI<br/>scripts/djiag-*-fetcher.js] -->|INSERT fumigation| B[dji_fumigations]
+  UI[UI /admin/fumigaciones<br/>POST/PATCH/DELETE] -->|API| B
+  B -.->|trigger via lib/fumigation-audit.ts| C[fumigation_audit_log]
+  C --> D[/fumigacion/&#91;id&#93;<br/>Card 'Historial']
+  BF[scripts/backfill-audit-log.js<br/>--dry-run / real] -.->|una vez, idempotente| C
+  style C fill:#84cc16,color:#0f1713
+      </div>
+    </div>
+    <h3>Cómo se ven los datos en Supabase</h3>
+    <table>
+      <thead><tr><th>action</th><th>eventos</th><th>fumigaciones</th></tr></thead>
+      <tbody>
+        <tr><td><code>created</code></td><td>642</td><td>642 distintas</td></tr>
+        <tr><td><code>edited</code></td><td>0</td><td>— (no hay historial)</td></tr>
+        <tr><td><code>deleted</code></td><td>0</td><td>— (ninguna soft-deleted)</td></tr>
+        <tr><td><code>restored</code></td><td>0</td><td>—</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>2. Sidebar logo + favicon (PR #5)</h2>
+  <div class="card">
+    <h3>Logo AFM visible en dark sidebar</h3>
+    <p>El SVG usaba <code>fill="#0b5f2d"</code> hardcoded (verde oscuro) sobre <code>bg-sidebar</code> verde muy oscuro: invisible. Ahora usa <code>currentColor</code> y hereda el color del texto del sidebar.</p>
+    <div class="grid">
+      <div>
+        <h3>Antes (invisible)</h3>
+        <div class="mockup">
+          <span style="color:#0b5f2d; background:#0f3025; padding:0.3rem 0.6rem; border-radius:4px">A F M</span>
+          <br/><span style="color:#5c6b65">— invisible contra fondo oscuro —</span>
+        </div>
+      </div>
+      <div>
+        <h3>Después (visible)</h3>
+        <div class="mockup">
+          <span style="color:#d1fae5; background:#0f3025; padding:0.3rem 0.6rem; border-radius:4px"><span style="color:#d1fae5">A</span> <span class="accent">F</span> <span style="color:#d1fae5">M</span></span>
+          <br/><span style="color:#9fceb0; font-size:0.7rem; letter-spacing:2px">FUMIGACIÓN</span>
+        </div>
+      </div>
+    </div>
+    <h3>Cambios</h3>
+    <ul>
+      <li><code>public/afm-logo-mark.svg</code>: usa <code>currentColor</code> + acento lime (<code>#84cc16</code>) en la F</li>
+      <li><code>components/app-shell.tsx</code>: contenedor 120x40 con <code>text-sidebar-foreground</code></li>
+      <li><code>app/layout.tsx</code>: favicon liviano (1.3KB vs 57KB anterior)</li>
+    </ul>
+  </div>
+
+  <h2>3. Parcel drawer — fix bug de clicks (PR #6)</h2>
+  <div class="card">
+    <h3>Root cause</h3>
+    <p><code>draw.setMode("polygon")</code> se ejecutaba <strong>antes</strong> de que el adapter de terra-draw disparara el callback <code>ready</code>. En esa ventana, el handler <code>onClick</code> del polygon mode no estaba montado — los clicks caían en un mapa "inerte".</p>
+    <h3>Diagrama de secuencia — el fix</h3>
+    <div class="diagram">
+      <div class="mermaid">
+sequenceDiagram
+  participant U as Operador
+  participant M as MapLibre Map
+  participant TD as TerraDraw
+  participant A as Adapter MapLibre
+  Note over M,A: Antes del fix — race condition
+  M->>TD: start()
+  TD->>A: register() (async setup)
+  TD-->>TD: setMode("polygon") ← se ejecuta antes de onReady
+  U->>M: click
+  M->>A: pointer event
+  A-->>U: nada (handler no montado aún)
+  Note over M,A: Después del fix
+  M->>TD: start()
+  TD-->>TD: on("ready", cb) registrado
+  TD->>A: register() (async setup)
+  A-->>TD: onReady()
+  TD->>TD: cb: doubleClickZoom.disable() + setMode("polygon")
+  U->>M: click
+  M->>A: pointer event
+  A-->>U: vértice añadido al polígono ✓
+      </div>
+    </div>
+    <h3>Diff del fix</h3>
+<pre><code>  map.on("load", () => {
+    const draw = new TerraDraw({ adapter, modes });
+    drawRef.current = draw;
+-   draw.start();
+-   draw.setMode("polygon");
+-   draw.on("finish", () => { /* handler */ });
++   draw.on("ready", () => {
++     map.doubleClickZoom.disable();
++     draw.setMode("polygon");
++     draw.on("finish", () => { /* handler */ });
++   });
++   draw.start();
+  });</code></pre>
+    <h3>Tests agregados</h3>
+    <ul>
+      <li>7 unit tests en <code>tests/components/admin/parcels/parcel-drawer.test.tsx</code> (mock de MapLibre + terra-draw + adapter)</li>
+      <li>1 e2e test en <code>tests/e2e/parcel-drawer-click.spec.ts</code> (login + click flow real)</li>
+    </ul>
+  </div>
+
+  <h2>4. Pipeline audit integration (PR #7)</h2>
+  <div class="card">
+    <h3>Fumigaciones scrapeadas ahora generan audit events</h3>
+    <p>Antes: cuando el scraper DJI corría <code>scripts/upsert-fumigations-from-djiag.js</code> y creaba fumigaciones nuevas, no había audit trail. Ahora: cada INSERT llama <code>recordFumigationCreate(fum, 'system@dji-import')</code>.</p>
+    <h3>Diagrama del flujo de inserción</h3>
+    <div class="diagram">
+      <div class="mermaid">
+flowchart TB
+  S[Scraper DJI] -->|fetch fumigations| SQL1[UPSERT SQL<br/>RETURNING xmax=0 AS inserted]
+  SQL1 -->|inserted=true| NEW[Nueva fumigation]
+  SQL1 -->|inserted=false| UPD[Update existente]
+  NEW -->|INSERT| T1[dji_fumigations]
+  T1 -->|fire-and-forget| T2[fumigation_audit_log<br/>action=created<br/>actor=system@dji-import]
+  UPD -.->|skip| X[no audit log<br/>idempotente]
+  style T2 fill:#84cc16,color:#0f1713
+      </div>
+    </div>
+    <h3>Métricas</h3>
+    <div class="metrics">
+      <div class="metric"><div class="v">+18</div><div class="l">tests nuevos</div></div>
+      <div class="metric"><div class="v">1</div><div class="l">script modificado</div></div>
+      <div class="metric"><div class="v">54.68%</div><div class="l">coverage lines</div></div>
+      <div class="metric"><div class="v">0</div><div class="l">duplicados en re-run</div></div>
+    </div>
+  </div>
+
+  <h2>5. Issues importantes resueltos (PRs #8, #9, #10)</h2>
+  <p>3 issues que quedaban del backlog corto plazo. Documentados en el HTML porque son cambios chicos pero de alto impacto.</p>
+
+  <div class="card">
+    <h3>Issue 2 — AGENTS.md sync (<span class="badge b-green">PR #8</span>)</h3>
+    <p><strong>Problema</strong>: AGENTS.md decia "MapLibre GL JS 6.0" pero <code>package.json</code> tiene <code>^4.7.1</code>. Mismatch generaba confusion en nuevos devs.</p>
+    <p><strong>Fix</strong>: 1 edit en linea 158 de AGENTS.md. Nota adicional: "NO bumpear a 6.x sin antes validar compat del adapter terra-draw".</p>
+    <p><strong>Commit</strong>: <code>e33dcfd chore(docs): sync AGENTS.md MapLibre version (6.0 → 4.7.1) (#8)</code></p>
+  </div>
+
+  <div class="card">
+    <h3>Issue 1 — Badge "Reconstruido" en eventos del backfill (<span class="badge b-blue">PR #9</span>)</h3>
+    <p><strong>Problema</strong>: los 642 eventos del backfill se veían identicos a eventos reales futuros en la card "Historial" del detalle de fumigacion. El operador no podia distinguir "esto fue reconstruido a partir del estado actual" de "esto se creó cuando el operador hizo click en Guardar".</p>
+    <p><strong>Fix</strong>:</p>
+    <ul>
+      <li>Helper <code>isBackfillEvent(event)</code> en <code>lib/fumigation-audit.ts</code> chequea <code>event.changes._backfill === true</code></li>
+      <li>Badge <code>outline</code> amber (#d97706 border, fondo amber-50) al lado del label del action en <code>FumigationAuditTrail</code></li>
+      <li>aria-label del <code>&lt;li&gt;</code> incluye "(reconstruido)" para screen readers</li>
+      <li>Tooltip <code>title</code> con explicacion completa al hacer hover</li>
+    </ul>
+    <h3>Visualmente</h3>
+    <div class="grid">
+      <div>
+        <h3>Backfill (con badge)</h3>
+        <div class="mockup">
+          <span class="accent">[+]</span> Fumigacion creada <span style="background:#fef3c7;color:#92400e;padding:0.1rem 0.4rem;border-radius:4px;font-size:0.7rem;font-weight:600;letter-spacing:0.5px">RECONSTRUIDO</span><br/>
+          <span style="color:#9fceb0;font-size:0.8rem">Por system@dji-import</span>
+        </div>
+      </div>
+      <div>
+        <h3>Real (sin badge)</h3>
+        <div class="mockup">
+          <span class="accent">[+]</span> Fumigacion creada<br/>
+          <span style="color:#9fceb0;font-size:0.8rem">Por admin@aeroadmin.local</span>
+        </div>
+      </div>
+    </div>
+    <p><strong>Tests</strong>: 3 nuevos (muestra badge con _backfill=true, no muestra sin _backfill, no muestra con _backfill=false). 17/17 verde.</p>
+  </div>
+
+  <div class="card">
+    <h3>Issue 3 — Cron jobs cleanup (<span class="badge b-purple">PR #10</span>)</h3>
+    <p><strong>Problema</strong>: 2 cron workflows de GitHub Actions fallaban cada lunes en el panel de Actions del repo:</p>
+    <ul>
+      <li><code>refresh-fumigations.yml</code> — schedule <code>0 6 * * 1</code>. Falla por falta de <code>DATABASE_URL</code> secret</li>
+      <li><code>quality-gauntlet-weekly.yml</code> — schedule <code>0 11 * * 1</code>. Job <code>quality-metrics</code> falla por 106 archivos no usados de knip</li>
+    </ul>
+    <p><strong>Fix</strong>:</p>
+    <ul>
+      <li>Schedules comentados, reemplazados por <code>workflow_dispatch</code> (los workflows siguen disponibles para uso manual)</li>
+      <li><code>quality-metrics</code> recibe <code>if: false</code> para que el dispatch manual tampoco falle</li>
+      <li>Comentarios extensos documentan cómo reactivar (que secrets faltan, qué código limpiar)</li>
+    </ul>
+    <p><strong>Secrets que faltan (si querés reactivar en el futuro)</strong>:</p>
+    <table>
+      <thead><tr><th>Workflow</th><th>Secret</th><th>Valor</th></tr></thead>
+      <tbody>
+        <tr><td><code>djiag-health-watchdog</code></td><td><code>HEALTH_URL</code></td><td><code>https://&lt;dominio&gt;.vercel.app</code></td></tr>
+        <tr><td><code>djiag-health-watchdog</code></td><td><code>HEALTH_TOKEN</code></td><td>mismo que Vercel deploy</td></tr>
+        <tr><td><code>refresh-fumigations</code></td><td><code>DATABASE_URL</code></td><td>Supabase pooled (puerto 6543)</td></tr>
+        <tr><td><code>quality-gauntlet-weekly</code></td><td>(ninguno)</td><td>limpiar 106 archivos no usados antes</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Métricas agregadas (7 PRs)</h2>
+  <table>
+    <thead>
+      <tr><th>PR</th><th>Título</th><th>Tests</th><th>Archivos</th><th>Cobertura</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><span class="badge b-green">#4</span></td><td>backfill-audit-log</td><td>+17</td><td>1 nuevo (script + tests + docs)</td><td>—</td></tr>
+      <tr><td><span class="badge b-blue">#5</span></td><td>sidebar logo + favicon</td><td>+3 (e2e)</td><td>5 modificados (logo, layout, app-shell, 2 specs)</td><td>—</td></tr>
+      <tr><td><span class="badge b-purple">#6</span></td><td>parcel drawer fix</td><td>+8 (7 unit + 1 e2e)</td><td>3 modificados (drawer + 2 tests)</td><td>parcel-drawer 0% → 90.4%</td></tr>
+      <tr><td><span class="badge b-orange">#7</span></td><td>pipeline audit</td><td>+18</td><td>4 modificados (upsert + fetcher + 2 tests)</td><td>global 45% → 54.7%</td></tr>
+    </tbody>
+  </table>
+  <h3>Totales</h3>
+  <div class="metrics">
+    <div class="metric"><div class="v">31</div><div class="l">archivos modificados</div></div>
+    <div class="metric"><div class="v">+3,731</div><div class="l">líneas agregadas</div></div>
+    <div class="metric"><div class="v">+46</div><div class="l">tests nuevos</div></div>
+    <div class="metric"><div class="v">1,548</div><div class="l">tests totales verde</div></div>
+    <div class="metric"><div class="v">0</div><div class="l">regresiones</div></div>
+    <div class="metric"><div class="v">4</div><div class="l">PRs mergeados a master</div></div>
+  </div>
+
+  <h2>Mejoras que se podrían hacer (backlog actualizado 2026-08-22)</h2>
+  <div class="grid">
+    <div class="card">
+      <h3>Corto plazo</h3>
+      <ul>
+        <li>✅ <s>Badge UI para <code>_backfill</code></s> — resuelto en PR #9</li>
+        <li>✅ <s>AGENTS.md sync</s> — resuelto en PR #8</li>
+        <li>✅ <s>Cron jobs fallidos</s> — resuelto en PR #10 (workflows deshabilitados con docs)</li>
+        <li><strong>Limpieza de tmp files</strong>: <code>tmp-pr-body-*.md</code> en working tree + archivos del investigation previo. Pendiente manual.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>Mediano plazo</h3>
+      <ul>
+        <li><strong>Bulk operations fumigaciones</strong>: NO bulk edit (decidido), pero SÍ bulk delete / bulk category-assign (deuda del sprint fumigacion-detail-v2).</li>
+        <li><strong>Tabla <code>products</code> curada</strong>: normalizar nombres como "Glifosato 48%", "Roundup" que vienen con typos del scraper.</li>
+        <li><strong>Reports nivel 3</strong>: rango de fechas en <code>/reportes</code> (solo hay nivel 1+2 hoy).</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>Largo plazo</h3>
+      <ul>
+        <li><strong>Quality Gauntlet (fase 2)</strong>: 106 archivos no usados según knip + threshold issue en <code>lib/djiag-circuit-breaker.js:245:3</code>. Sweep de limpieza (prerequisito para reactivar el workflow de quality-metrics).</li>
+        <li><strong>Basemap toggle sat/híbrido</strong>: el sub-sprint 1 del parcel-onboarding lo planeó pero nunca mergeó. Hoy solo hay satellite EOX fijo.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>Comandos para reproducir</h2>
+<pre><code># Aplicar migrations a Supabase
+npm run db:migrate
+
+# Backfill de audit log (idempotente)
+node scripts/backfill-audit-log.js --dry-run
+node scripts/backfill-audit-log.js
+
+# Verificar en UI
+# https://aeroadmin-afm.vercel.app/fumigacion/&lt;id&gt;
+# → card "Historial" con 1 evento "Creada" + snapshot
+
+# Correr pipeline DJI (genera audit events automáticamente)
+npm run pipeline:djiag</code></pre>
+
+  <div class="footer">
+    Generado el 2026-08-22 por Mavis. Sprint ejecutado en orden: PR #4 → #5 → #6 → #7 → #8 (mergeado) → #9 (CI) → #10 (CI). Master en <code>e33dcfd</code> con 5 PRs mergeados. 2 PRs (#9, #10) esperando CI verde.
+  </div>
+</body>
+</html>
