@@ -53,6 +53,28 @@ const originalFetch = global.fetch;
 beforeEach(() => {
   global.fetch = mockFetch as unknown as typeof fetch;
   vi.clearAllMocks();
+  // Sprint S9 (2026-08-29) — feature/s9-product-picker-wireup.
+  // El ProductPicker ahora dispara fetchs de autocomplete al escribir.
+  // Por defecto, mockFetch devuelve una respuesta vacía válida (200 +
+  // JSON vacío) para esos calls. Los tests individuales usan
+  // `mockResolvedValueOnce` para el POST del form, que se consume
+  // en orden. Si el picker consume el mock primero, los tests
+  // fallarían con "Cannot read properties of undefined (reading 'ok')".
+  // El default de abajo evita ese problema.
+  mockFetch.mockImplementation(async (input) => {
+    const url = typeof input === "string" ? input : (input as Request).url;
+    if (url.includes("/api/admin/products")) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ products: [] })
+      } as Response;
+    }
+    // Default fallback: para cualquier otro endpoint (ej. POST del form),
+    // devolvemos undefined → el código de test que llamó
+    // `mockResolvedValueOnce` provee la respuesta real.
+    return undefined as unknown as Response;
+  });
 });
 afterEach(() => {
   global.fetch = originalFetch;
@@ -151,9 +173,21 @@ describe("RegisterFumigationForm — submit OK", () => {
     fireEvent.submit(getForm());
 
     await waitFor(() => {
-      expect(mockFetch).toHaveBeenCalledTimes(1);
+      // Sprint S9 — el ProductPicker puede disparar GETs de autocomplete
+      // (que retornan con el mock por default). Filtramos por URL para
+      // contar solo el POST del form.
+      const formCalls = mockFetch.mock.calls.filter((c) => {
+        const url = typeof c[0] === "string" ? c[0] : (c[0] as Request).url;
+        return url === "/api/admin/fumigations";
+      });
+      expect(formCalls).toHaveLength(1);
     });
-    const [url, init] = mockFetch.mock.calls[0];
+    const formCall = mockFetch.mock.calls.find((c) => {
+      const url = typeof c[0] === "string" ? c[0] : (c[0] as Request).url;
+      return url === "/api/admin/fumigations";
+    });
+    if (!formCall) throw new Error("form fetch not called");
+    const [url, init] = formCall;
     expect(url).toBe("/api/admin/fumigations");
     const body = JSON.parse(init.body as string);
     expect(body).toEqual({
@@ -219,9 +253,20 @@ describe("RegisterFumigationForm — submit OK", () => {
     fireEvent.submit(getForm());
 
     await waitFor(() => {
-      expect(mockFetch).toHaveBeenCalledTimes(1);
+      // Sprint S9 — filtrar solo el POST del form (excluir GETs
+      // del ProductPicker que pueden dispararse por autocomplete).
+      const formCalls = mockFetch.mock.calls.filter((c) => {
+        const url = typeof c[0] === "string" ? c[0] : (c[0] as Request).url;
+        return url === "/api/admin/fumigations";
+      });
+      expect(formCalls).toHaveLength(1);
     });
-    const body = JSON.parse(mockFetch.mock.calls[0][1].body as string);
+    const formCall = mockFetch.mock.calls.find((c) => {
+      const url = typeof c[0] === "string" ? c[0] : (c[0] as Request).url;
+      return url === "/api/admin/fumigations";
+    });
+    if (!formCall) throw new Error("form fetch not called");
+    const body = JSON.parse(formCall[1].body as string);
     expect(body).toMatchObject({
       parcel_id: 1,
       product_used: "Glifosato 48%",
@@ -250,9 +295,18 @@ describe("RegisterFumigationForm — submit OK", () => {
     fireEvent.submit(getForm());
 
     await waitFor(() => {
-      expect(mockFetch).toHaveBeenCalledTimes(1);
+      const formCalls = mockFetch.mock.calls.filter((c) => {
+        const url = typeof c[0] === "string" ? c[0] : (c[0] as Request).url;
+        return url === "/api/admin/fumigations";
+      });
+      expect(formCalls).toHaveLength(1);
     });
-    const body = JSON.parse(mockFetch.mock.calls[0][1].body as string);
+    const formCall = mockFetch.mock.calls.find((c) => {
+      const url = typeof c[0] === "string" ? c[0] : (c[0] as Request).url;
+      return url === "/api/admin/fumigations";
+    });
+    if (!formCall) throw new Error("form fetch not called");
+    const body = JSON.parse(formCall[1].body as string);
     expect(body.drone_code_used).toBeUndefined();
   });
 });
@@ -392,6 +446,75 @@ describe("RegisterFumigationForm — reset", () => {
     expect(getInput(/Producto comercial/).value).toBe("");
     expect(getInput(/Dosis/).value).toBe("");
     expect(getInput(/Fecha/).value).toBe(todayISO());
+  });
+});
+
+// ============================================================
+// Sprint S9 — feature/s9-product-picker-wireup
+// ============================================================
+
+describe("RegisterFumigationForm — product_id (S9)", () => {
+  it("sincroniza product_used con lo que el operador tipea en el picker (free-form)", async () => {
+    // El picker's onChange(null, query) se dispara en cada keystroke
+    // (no selección). El form debe reflejar ese texto en product_used.
+    const user = userEvent.setup();
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 201,
+      json: async () => ({ fumigation: { id: 42 } })
+    } as Response);
+
+    render(<RegisterFumigationForm parcelId={1} />);
+    await fillRequiredFields(user, "Roundup 36% SL", "2.0");
+    fireEvent.submit(getForm());
+
+    await waitFor(() => {
+      const formCalls = mockFetch.mock.calls.filter((c) => {
+        const url = typeof c[0] === "string" ? c[0] : (c[0] as Request).url;
+        return url === "/api/admin/fumigations";
+      });
+      expect(formCalls).toHaveLength(1);
+    });
+    const formCall = mockFetch.mock.calls.find((c) => {
+      const url = typeof c[0] === "string" ? c[0] : (c[0] as Request).url;
+      return url === "/api/admin/fumigations";
+    });
+    if (!formCall) throw new Error("form fetch not called");
+    const body = JSON.parse(formCall[1].body as string);
+    // product_used es el texto tipeado, product_id es null
+    // (free-form sin selección del catálogo).
+    expect(body.product_used).toBe("Roundup 36% SL");
+    expect(body.product_id).toBeUndefined();
+  });
+
+  it("POST NO incluye product_id si quedó null (free-form)", async () => {
+    // El form manda product_id solo si difiere de null. Si el operador
+    // tipea free-form sin seleccionar, product_id NO se envía (sparse).
+    const user = userEvent.setup();
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 201,
+      json: async () => ({ fumigation: { id: 42 } })
+    } as Response);
+
+    render(<RegisterFumigationForm parcelId={1} />);
+    await fillRequiredFields(user, "Cualquier producto", "1.5");
+    fireEvent.submit(getForm());
+
+    await waitFor(() => {
+      const formCalls = mockFetch.mock.calls.filter((c) => {
+        const url = typeof c[0] === "string" ? c[0] : (c[0] as Request).url;
+        return url === "/api/admin/fumigations";
+      });
+      expect(formCalls).toHaveLength(1);
+    });
+    const formCall = mockFetch.mock.calls.find((c) => {
+      const url = typeof c[0] === "string" ? c[0] : (c[0] as Request).url;
+      return url === "/api/admin/fumigations";
+    });
+    if (!formCall) throw new Error("form fetch not called");
+    const body = JSON.parse(formCall[1].body as string);
+    expect(body).not.toHaveProperty("product_id");
   });
 });
 

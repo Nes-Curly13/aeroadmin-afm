@@ -41,9 +41,15 @@ const CATEGORY_LABEL: Record<ProductCategory, string> = {
 };
 
 export interface ProductPickerProps {
-  /** id del producto seleccionado (o null). Componente controlado. */
+  /**
+   * id del producto seleccionado (o null). Componente controlado.
+   * Sprint S9 (2026-08-29) — feature/s9-product-picker-wireup: el form
+   * mantiene tanto el `product_id` (FK) como `product_used` (texto
+   * legacy). El segundo argumento de `onChange` trae el nombre
+   * seleccionado/creado para que el form pueda sincronizar ambos.
+   */
   value: number | string | null;
-  onChange: (productId: number | string | null) => void;
+  onChange: (productId: number | string | null, name?: string | null) => void;
   disabled?: boolean;
   placeholder?: string;
   label?: string;
@@ -187,8 +193,14 @@ export function ProductPicker({
     const t = query.trim();
     if (t.length < MIN_CREATE_CHARS) return false;
     if (!selectedName || t.toLowerCase() !== selectedName.toLowerCase()) {
-      // Hay texto nuevo que no matchea el seleccionado
-      const exists = fetchState.results.some(
+      // Hay texto nuevo que no matchea el seleccionado. Guard contra
+      // fetchState transitorio undefined (caso raro durante remount vía
+      // `key` cuando el form hace `reset()` — ver RegisterFumigationForm
+      // S9). Sin el guard, el render crashea con "Cannot read properties
+      // of undefined (reading 'some')" porque el useEffect de debounce
+      // todavía no ha repoblado el estado.
+      const results = fetchState?.results ?? [];
+      const exists = results.some(
         (p) => p.name.toLowerCase() === t.toLowerCase()
       );
       if (!exists) return true;
@@ -198,7 +210,7 @@ export function ProductPicker({
 
   function selectProduct(p: DjiProduct) {
     lastCommittedRef.current = p.id;
-    onChange(p.id);
+    onChange(p.id, p.name);
     setSelectedName(p.name);
     setQuery(p.name);
     setOpen(false);
@@ -243,7 +255,7 @@ export function ProductPicker({
 
   function clearSelection() {
     lastCommittedRef.current = null;
-    onChange(null);
+    onChange(null, null);
     setSelectedName(null);
     setQuery("");
     setCreateError(null);
@@ -290,14 +302,25 @@ export function ProductPicker({
           id={inputId}
           value={query}
           onChange={(e) => {
-            setQuery(e.target.value);
+            const newQuery = e.target.value;
+            setQuery(newQuery);
             setOpen(true);
             setActiveIndex(-1);
             setCreateError(null);
-            // Si el usuario edita, limpiar selección
-            if (selectedName && e.target.value !== selectedName) {
-              onChange(null);
+            // Sprint S9 (2026-08-29) — feature/s9-product-picker-wireup.
+            // Si el usuario edita, limpiar selección y propagar el texto
+            // tipeado al padre (que lo usa para `product_used` en el
+            // submit). Esto permite el caso "tipo texto libre sin
+            // seleccionar del catálogo" — el form queda con
+            // `product_used = "lo que tipeé"` y `product_id = null`.
+            if (selectedName && newQuery !== selectedName) {
+              onChange(null, newQuery);
               setSelectedName(null);
+            } else if (!selectedName) {
+              // El picker ya estaba en modo "tipo libre" — sincronizar
+              // el texto al padre para que `product_used` refleje
+              // lo que ve el usuario.
+              onChange(null, newQuery);
             }
           }}
           onFocus={() => setOpen(true)}

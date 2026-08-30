@@ -204,6 +204,14 @@ export interface DjiFumigationEvent {
    * Track C v1.4 — audit ui-ux-2026-07 #11.
    */
   human_notes: string | null;
+  /**
+   * Sprint S9 (2026-08-29) — feature/s9-product-picker-wireup. FK a
+   * `products.id` cuando el operador seleccionó el producto del catálogo
+   * via `ProductPicker`. NULL si la fumigación se cargó con texto libre
+   * (caso legacy o fumigaciones del backfill de S7). Convive con
+   * `product_used` (texto histórico) — el FK es la versión normalizada.
+   */
+  product_id: number | null;
   recorded_by: string | null;
   /**
    * Compliance metadata (Sprint C — H2, 2026-07-23).

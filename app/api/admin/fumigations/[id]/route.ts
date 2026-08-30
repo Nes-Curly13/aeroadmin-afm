@@ -58,6 +58,13 @@ interface PatchFumigationBody {
   notes?: unknown;
   product_registered_ica?: unknown;
   pilot_license?: unknown;
+  /**
+   * Sprint S9 (2026-08-29) — feature/s9-product-picker-wireup. FK
+   * opcional a `products.id`. Sparse PATCH: si difiere del valor
+   * actual, el repo hace el UPDATE. null = clear (vuelve a texto
+   * libre sin FK). La BD valida FK al UPDATE (23503 si id no existe).
+   */
+  product_id?: unknown;
   category_id?: unknown;
   /**
    * Sprint S7 — application_type_id (FK a application_types). Ortogonal
@@ -84,6 +91,7 @@ interface PatchFumigationData {
   notes?: string | null;
   product_registered_ica?: string | null;
   pilot_license?: string | null;
+  product_id?: number | null;
   category_id?: number | null;
   application_type_id?: number | null;
   vehicle_plate?: string | null;
@@ -139,6 +147,26 @@ function parseAndValidate(
       return { ok: false, error: "product_used debe ser string no vacío (1-200 chars) o null" };
     } else {
       data.product_used = input.product_used.trim();
+    }
+  }
+
+  // Sprint S9 (2026-08-29) — product_id: FK opcional a products.
+  // Mismo patrón que category_id. null = clear (saca la FK, queda solo
+  // product_used texto). La BD valida FK al UPDATE.
+  if (input.product_id !== undefined) {
+    if (input.product_id === null) {
+      data.product_id = null;
+    } else if (
+      typeof input.product_id !== "number" ||
+      !Number.isInteger(input.product_id) ||
+      input.product_id <= 0
+    ) {
+      return {
+        ok: false,
+        error: "product_id debe ser entero positivo o null"
+      };
+    } else {
+      data.product_id = input.product_id;
     }
   }
 

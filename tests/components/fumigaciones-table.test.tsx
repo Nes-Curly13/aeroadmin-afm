@@ -53,6 +53,9 @@ function makeEvent(overrides: Partial<DjiFumigationEvent> = {}): DjiFumigationEv
     parcel_id: 100,
     fumigation_date: "2026-08-15",
     product_used: "Glifosato 48%",
+    // Sprint S9 — feature/s9-product-picker-wireup. FK opcional
+    // al catálogo products. Default null (free-form sin seleccionar).
+    product_id: null,
     dose_l_per_ha: 2.0,
     area_fumigated_m2: 5000,
     drone_code_used: 72,

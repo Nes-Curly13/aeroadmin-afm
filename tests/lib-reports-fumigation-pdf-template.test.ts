@@ -27,6 +27,8 @@ function makeFumigation(overrides: Partial<DjiFumigationEvent> = {}): DjiFumigat
     parcel_id: 42,
     fumigation_date: "2026-08-13",
     product_used: "Glifosato 48%",
+    // Sprint S9 — FK opcional al catálogo products.
+    product_id: null,
     dose_l_per_ha: 2.5,
     area_fumigated_m2: 12_345,
     drone_code_used: 201,

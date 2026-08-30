@@ -40,6 +40,10 @@ export const FUMIGATION_SNAPSHOT_FIELDS = [
   "parcel_id",
   "fumigation_date",
   "product_used",
+  // Sprint S9 (2026-08-29) — feature/s9-product-picker-wireup.
+  // FK a products.id. Se incluye en el snapshot para que el audit log
+  // de delete muestre qué producto del catálogo estaba asociado.
+  "product_id",
   "dose_l_per_ha",
   "area_fumigated_m2",
   "drone_code_used",
@@ -66,6 +70,10 @@ export const FUMIGATION_SNAPSHOT_FIELDS = [
 export const FUMIGATION_EDITABLE_FIELDS = [
   "fumigation_date",
   "product_used",
+  // Sprint S9 (2026-08-29) — product_id editable (mismo patrón que
+  // vehicle_plate). Si el operador re-selecciona un producto distinto
+  // del catálogo, la diff lo captura.
+  "product_id",
   "dose_l_per_ha",
   "area_fumigated_m2",
   "drone_code_used",
