@@ -5,7 +5,23 @@
 
 AeroAdmin AFM es la plataforma admin para el operador de drones cañero en Valle del Cauca, Colombia. Lee datos de la nube de DJI SmartFarm, los persiste en PostGIS, y los expone vía Next.js. Cliente: 1 piloto, ~1200 parcelas, ~16k vuelos, ~17k fumigaciones. Single contributor (1 dev).
 
-**Estado actual (2026-07-28)**: sprint **S5 cerrado** (migración a MapLibre + port del mockup V0: primitives UI accesibles, KpiPill overlay, TimeRange slider, ParcelsList rail, drawer de filtros colapsable). Sprint **S6 en curso** (polish del MapPageClient + sidebar de salud del pipeline DJI). Ver `docs/V0_ADAPTATION.md` para la bitácora completa.
+**Estado actual (2026-08-29)**: sprint **S8 cerrado** (E2E prod testing + 5 bloques de fixes A-E + Bloque F bulk operations + Bloque G cleanup). Master `da26b38` (PR #22 Bloque F mergeado). PR #23 (Bloque G cleanup: 25 scripts borrados, knip.json) en review.
+
+Sprints cerrados anteriores:
+- **S5** (2026-07-28): migración a MapLibre + port del mockup V0
+- **S6** (2026-07-29): polish del MapPageClient + sidebar de salud
+- **S7 v2 + Fase 2** (2026-08-23): captura manual + perf (5 sub-PRs, master `36db3a3` → rebaseado a `da26b38`)
+
+S8 se desglosó en:
+- **Bloque A** (PR #21 + `dc14fdd`): Login fix (client-side fetch + `window.location.href`)
+- **Bloque B** (`35de783`+`87c49d1`): Geovisor KPIs VUELOS/VOLUMEN desde `dji_flights`
+- **Bloque C** (`24c4185`): Pipeline DJI reactivado (workflows + runbook, user ya configuró secrets)
+- **Bloque D** (`ccc74d5`+`ad10afe`): React #418 hydration + /dashboard 404 + HECTAREAS ha
+- **Bloque E** (`1855ebd`): Tabla products con ProductPicker (autocomplete + crear)
+- **Bloque F** (PR #22 `da26b38`): Bulk delete + bulk category-assign en /fumigaciones
+- **Bloque G** (PR #23, en review): Cleanup 25 scripts no usados + knip.json config
+
+Ver `docs/S8_E2E_TESTING.md` (pendiente) y `docs/KNIP_INVENTORY.md` para detalles.
 
 ---
 
@@ -191,5 +207,5 @@ Un PR de un agente está listo para merge cuando:
 
 ---
 
-**Última actualización:** 2026-07-29 (sprint de reconciliación de drift — V0 mockup movido a `docs/v0-2026-07-28/`, migrations consolidadas en `db/migrations/`, blueprints de Make.com archivados en `docs/make-blueprints/`, docs reconciliados con código real).
+**Última actualización:** 2026-08-29 (sprint S8 cerrado — E2E prod testing + 5 bloques de fixes + Bloque F bulk operations + Bloque G cleanup. master `da26b38`).
 **Mantenedor:** @agFab (single contributor).
