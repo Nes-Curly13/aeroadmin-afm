@@ -947,6 +947,7 @@ const fumigationEventsByParcelQuery = `
     f.parcel_id,
     f.fumigation_date,
     f.product_used,
+    f.product_id,
     f.dose_l_per_ha,
     f.area_fumigated_m2,
     f.drone_code_used,
@@ -1149,6 +1150,11 @@ export async function getFumigationById(id: number): Promise<DjiFumigationEvent 
           -- Sprint S7 / Fase 1 (PR-B): placa del vehículo usado
           -- (columna propia, ver migration 20260824000001).
           f.vehicle_plate,
+          -- Sprint S9 (2026-08-29) — feature/s9-product-picker-wireup.
+          -- FK a products.id. La UI muestra el chip de color del
+          -- producto y permite saltar del fumigación al detail del
+          -- producto en el catálogo.
+          f.product_id,
           -- Sprint Fase 2 / Q3 (2026-08-23): centroide pre-calculado en
           -- la MV mv_fumigation_flight_centroids (migration 20260824000002).
           -- El LEFT JOIN contra la MV es O(1) lookup por fumigation_id
@@ -1229,6 +1235,7 @@ export async function getFumigationRawById(
           f.parcel_id,
           f.fumigation_date,
           f.product_used,
+          f.product_id,
           f.dose_l_per_ha,
           f.area_fumigated_m2,
           f.drone_code_used,
@@ -1348,6 +1355,13 @@ export async function updateFumigationEvent(
   patch: {
     fumigation_date?: string;
     product_used?: string | null;
+    /**
+     * Sprint S9 (2026-08-29) — feature/s9-product-picker-wireup. FK
+     * a `products.id`. Editable (sparse PATCH) igual que
+     * `product_used`: si el operador cambia el producto del catálogo,
+     * se actualiza la FK (null = clear si el operador borra la selección).
+     */
+    product_id?: number | null;
     dose_l_per_ha?: number | null;
     area_fumigated_m2?: number | null;
     drone_code_used?: number | null;
@@ -1386,6 +1400,14 @@ export async function updateFumigationEvent(
       if (patch.product_used !== undefined) {
         setClauses.push(`product_used = $${i++}`);
         values.push(patch.product_used);
+      }
+      // Sprint S9 (2026-08-29) — product_id editable. El operador puede
+      // re-seleccionar el producto del catálogo (cambia la FK) o limpiarlo
+      // (null = texto libre o sin clasificar). BD valida FK (23503 si
+      // apunta a un id inexistente).
+      if (patch.product_id !== undefined) {
+        setClauses.push(`product_id = $${i++}`);
+        values.push(patch.product_id);
       }
       if (patch.dose_l_per_ha !== undefined) {
         setClauses.push(`dose_l_per_ha = $${i++}`);
@@ -1445,7 +1467,7 @@ export async function updateFumigationEvent(
            SET ${setClauses.join(", ")}
          WHERE id = $${i}
            AND deleted_at IS NULL
-        RETURNING id, parcel_id, fumigation_date, product_used, dose_l_per_ha,
+        RETURNING id, parcel_id, fumigation_date, product_used, product_id, dose_l_per_ha,
                   area_fumigated_m2, drone_code_used, duration_minutes, notes,
                   human_notes, recorded_by, product_registered_ica, pilot_license,
                   category_id, application_type_id, vehicle_plate, recorded_at, source
@@ -1608,7 +1630,7 @@ export async function bulkSoftDeleteFumigations(
       // el snapshot completo antes de aplicar el UPDATE. Esto es 1
       // round-trip en vez de N+1.
       const candidates = await db.query<DjiFumigationEvent>(
-        `SELECT id, parcel_id, fumigation_date, product_used, dose_l_per_ha,
+        `SELECT id, parcel_id, fumigation_date, product_used, product_id, dose_l_per_ha,
                 area_fumigated_m2, drone_code_used, duration_minutes, notes,
                 human_notes, recorded_by, product_registered_ica, pilot_license,
                 category_id, application_type_id, vehicle_plate, recorded_at, source,
@@ -2431,6 +2453,15 @@ export async function createFumigationEvent(event: {
   parcel_id: number;
   fumigation_date: string;
   product_used?: string | null;
+  /**
+   * Sprint S9 (2026-08-29) — feature/s9-product-picker-wireup. FK a
+   * `products.id` cuando el operador seleccionó el producto del catálogo
+   * via `ProductPicker`. NULLABLE en BD (migration 20260829000000).
+   * Convive con `product_used` (texto legacy) — el FK es la versión
+   * normalizada para joins / reportes. La BD valida FK (23503 si
+   * `product_id` apunta a un id inexistente).
+   */
+  product_id?: number | null;
   dose_l_per_ha?: number | null;
   area_fumigated_m2?: number | null;
   drone_code_used?: number | null;
@@ -2485,13 +2516,13 @@ export async function createFumigationEvent(event: {
         const ins = await client.query<DjiFumigationEvent>(
           `
             INSERT INTO dji_fumigations
-              (parcel_id, fumigation_date, product_used, dose_l_per_ha,
+              (parcel_id, fumigation_date, product_used, product_id, dose_l_per_ha,
                area_fumigated_m2, drone_code_used, duration_minutes, notes,
                human_notes, recorded_by, product_registered_ica, pilot_license,
                category_id, application_type_id, vehicle_plate, source)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 'manual')
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'manual')
             RETURNING
-              id, parcel_id, fumigation_date, product_used, dose_l_per_ha,
+              id, parcel_id, fumigation_date, product_used, product_id, dose_l_per_ha,
               area_fumigated_m2, drone_code_used, duration_minutes, notes,
               human_notes, recorded_by, product_registered_ica, pilot_license,
               category_id, application_type_id, vehicle_plate, recorded_at, source
@@ -2500,6 +2531,10 @@ export async function createFumigationEvent(event: {
             event.parcel_id,
             event.fumigation_date,
             event.product_used ?? null,
+            // Sprint S9 (2026-08-29) — feature/s9-product-picker-wireup.
+            // FK a products.id. NULL si el operador tipeó texto libre sin
+            // seleccionar del catálogo (caso legacy).
+            event.product_id ?? null,
             event.dose_l_per_ha ?? null,
             event.area_fumigated_m2 ?? null,
             event.drone_code_used ?? null,
@@ -2978,7 +3013,7 @@ export async function getOrphanFumigations(
       const result = await db.query<DjiFumigationEvent>(
         `
           SELECT
-            id, parcel_id, fumigation_date, product_used, dose_l_per_ha,
+            id, parcel_id, fumigation_date, product_used, product_id, dose_l_per_ha,
             area_fumigated_m2, drone_code_used, duration_minutes,
             notes, human_notes, recorded_by,
             product_registered_ica, pilot_license,
@@ -3057,7 +3092,7 @@ export async function linkFumigationToParcel(
           SET parcel_id = $2
           WHERE id = $1 AND parcel_id IS NULL AND deleted_at IS NULL
           RETURNING
-            id, parcel_id, fumigation_date, product_used, dose_l_per_ha,
+            id, parcel_id, fumigation_date, product_used, product_id, dose_l_per_ha,
             area_fumigated_m2, drone_code_used, duration_minutes,
             notes, human_notes, recorded_by,
             product_registered_ica, pilot_license,
@@ -3462,6 +3497,8 @@ export async function getRecentFumigations(
             f.flight_ids,
             -- Sprint S7 — application_type_id + catálogo hidratado.
             f.application_type_id,
+            -- Sprint S9 (2026-08-29) — product_id FK al catálogo products.
+            f.product_id,
             count(fl.id)::int AS n_matched_flights,
             CASE
               WHEN count(fl.id) = 0 THEN NULL
@@ -3671,6 +3708,7 @@ export async function getFarmsReportFumigations(
         f.area_fumigated_m2,
         f.dose_l_per_ha,
         f.product_used,
+        f.product_id,
         f.recorded_by,
         f.notes,
         (

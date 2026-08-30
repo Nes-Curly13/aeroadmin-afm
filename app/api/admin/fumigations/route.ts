@@ -57,6 +57,15 @@ interface CreateFumigationBody {
   parcel_id?: unknown;
   fumigation_date?: unknown;
   product_used?: unknown;
+  /**
+   * Sprint S9 (2026-08-29) — feature/s9-product-picker-wireup. FK a
+   * `products.id` cuando el operador seleccionó el producto del catálogo
+   * via `ProductPicker`. Opcional. La BD valida FK al insertar (23503
+   * si el id no existe). null = el operador tipeó texto libre sin
+   * seleccionar del catálogo (caso legacy / fumigaciones nuevas con
+   * producto no catalogado).
+   */
+  product_id?: unknown;
   dose_l_per_ha?: unknown;
   area_fumigated_m2?: unknown;
   duration_minutes?: unknown;
@@ -112,6 +121,7 @@ function parseAndValidate(
         notes: string | null;
         product_registered_ica: string | null;
         pilot_license: string | null;
+        product_id: number | null;
         category_id: number | null;
         /**
          * Sprint S7 — application_type_id (FK a application_types).
@@ -213,6 +223,19 @@ function parseAndValidate(
     }
     category = input.category_id;
   }
+  // Sprint S9 (2026-08-29) — product_id: FK opcional a products.
+  // Mismo patrón que category_id: la BD valida FK al insertar.
+  let productId: number | null = null;
+  if (input.product_id !== null && input.product_id !== undefined) {
+    if (
+      typeof input.product_id !== "number" ||
+      !Number.isInteger(input.product_id) ||
+      input.product_id <= 0
+    ) {
+      return { ok: false, error: "product_id debe ser entero positivo o null" };
+    }
+    productId = input.product_id;
+  }
   // Sprint S7 — application_type_id: opcional, integer positivo.
   // Ortogonal a category_id.
   let applicationType: number | null = null;
@@ -287,6 +310,7 @@ function parseAndValidate(
       notes: notesRes as string | null,
       product_registered_ica: icaRes as string | null,
       pilot_license: licenseRes as string | null,
+      product_id: productId,
       category_id: category,
       application_type_id: applicationType,
       vehicle_plate: vehiclePlate,

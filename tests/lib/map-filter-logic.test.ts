@@ -66,6 +66,8 @@ function makeEvent(overrides: Partial<DjiFumigationEvent> = {}): DjiFumigationEv
     parcel_id: 1,
     fumigation_date: "2026-07-15",
     product_used: "Madurante",
+    // Sprint S9 — FK opcional al catálogo products.
+    product_id: null,
     dose_l_per_ha: 2.0,
     area_fumigated_m2: 30000, // 3 ha
     drone_code_used: 201,

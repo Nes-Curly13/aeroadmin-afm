@@ -20,6 +20,7 @@
  * Campos editables (ambos modos):
  *   - fumigation_date
  *   - product_used
+ *   - product_id (Sprint S9 — feature/s9-product-picker-wireup)
  *   - dose_l_per_ha
  *   - area_fumigated_m2
  *   - duration_minutes
@@ -61,6 +62,7 @@ import { FieldSelect } from "@/components/ui/field-select";
 import { SpinnerInline } from "@/components/ui/loading";
 import { DRONE_MODELS, FUMIGATION_CATEGORIES, APPLICATION_TYPES } from "@/lib/data-constants";
 import { VehiclePicker } from "@/components/fumigations/vehicle-picker";
+import { ProductPicker } from "@/components/fumigations/product-picker";
 import { Plus, Save, X } from "lucide-react";
 import type { DjiFumigationEvent } from "@/lib/types";
 
@@ -99,6 +101,13 @@ interface FormState {
    */
   vehicle_plate: string;
   product_used: string;
+  /**
+   * Sprint S9 (2026-08-29) — feature/s9-product-picker-wireup. FK a
+   * `products.id`. null = texto libre sin catálogo (legacy), id =
+   * producto seleccionado via `ProductPicker`. Se setea desde el
+   * picker (onChange) y se incluye en el body del POST/PATCH.
+   */
+  product_id: number | null;
   dose_l_per_ha: string;
   area_fumigated_m2: string;
   duration_minutes: string;
@@ -124,6 +133,7 @@ function emptyForm(): FormState {
     application_type_id: "",
     vehicle_plate: "",
     product_used: "",
+    product_id: null,
     dose_l_per_ha: "",
     area_fumigated_m2: "",
     duration_minutes: "",
@@ -148,6 +158,10 @@ function fromFumigation(f: DjiFumigationEvent): FormState {
     application_type_id: f.application_type_id != null ? String(f.application_type_id) : "",
     vehicle_plate: f.vehicle_plate ?? "",
     product_used: f.product_used ?? "",
+    // Sprint S9 — el ProductPicker pre-carga la FK del catálogo.
+    // product_used queda como texto (puede diferir del nombre del
+    // catálogo si el operador tipeó un nombre custom).
+    product_id: f.product_id ?? null,
     dose_l_per_ha: f.dose_l_per_ha != null ? String(f.dose_l_per_ha) : "",
     area_fumigated_m2: f.area_fumigated_m2 != null ? String(f.area_fumigated_m2) : "",
     duration_minutes: f.duration_minutes != null ? String(f.duration_minutes) : "",
@@ -169,6 +183,14 @@ export function RegisterFumigationForm({
       ? fromFumigation(initialFumigation)
       : emptyForm()
   );
+  /**
+   * Sprint S9 (2026-08-29) — feature/s9-product-picker-wireup.
+   * Incrementar este contador al hacer `reset()` fuerza al
+   * `ProductPicker` a re-mountar con estado interno limpio. Sin esto,
+   * el picker mantiene su `query` interno aunque el form ya esté
+   * reseteado (el `query` no es prop controlado del form).
+   */
+  const [pickerResetKey, setPickerResetKey] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   // `isPending` lo manejamos con useState local (no con useTransition
@@ -200,6 +222,10 @@ export function RegisterFumigationForm({
     } else {
       setForm(emptyForm());
     }
+    // Sprint S9 — fuerza al ProductPicker a re-mountar con su query
+    // interno vacío. Sin esto, el input del picker mostraría el
+    // texto que el operador tipeó antes del reset.
+    setPickerResetKey((k) => k + 1);
     setError(null);
     setSuccess(null);
   }
@@ -221,6 +247,13 @@ export function RegisterFumigationForm({
       body.parcel_id = parcelId;
       body.fumigation_date = form.fumigation_date;
       body.product_used = form.product_used.trim();
+      // Sprint S9 — product_id (FK al catálogo). Se manda solo si no
+      // es null (operador seleccionó del picker o lo creó on-the-fly).
+      // Si el operador tipeó texto libre sin seleccionar, queda null
+      // y la fumigación persiste solo con product_used (legacy).
+      if (form.product_id != null) {
+        body.product_id = form.product_id;
+      }
       body.dose_l_per_ha = Number(form.dose_l_per_ha);
     } else {
       // mode === "edit"
@@ -231,6 +264,12 @@ export function RegisterFumigationForm({
       const productOriginal = initialFumigation?.product_used ?? "";
       if (productTrimmed !== productOriginal) {
         body.product_used = productTrimmed;
+      }
+      // Sprint S9 — product_id: sparse PATCH. Se manda solo si
+      // difiere del initialFumigation.product_id (incluye null →
+      // number y number → null).
+      if (form.product_id !== (initialFumigation?.product_id ?? null)) {
+        body.product_id = form.product_id;
       }
       const doseNum = Number(form.dose_l_per_ha);
       if (
@@ -447,22 +486,48 @@ export function RegisterFumigationForm({
         disabled={isPending}
       />
 
-      <label className="flex flex-col gap-1">
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Producto comercial *
-        </span>
-        <Input
-          type="text"
-          value={form.product_used}
-          onChange={(e) => update("product_used", e.target.value)}
-          placeholder="ej. Glifosato 48%, Imidacloprid 35% SC"
-          required
-          maxLength={200}
-          disabled={isPending}
-          aria-required="true"
-          aria-label="Producto comercial usado"
-        />
-      </label>
+      {/**
+       * Sprint S9 (2026-08-29) — feature/s9-product-picker-wireup.
+       * `ProductPicker` reemplaza el `<Input>` plain del sprint S7.
+       * El picker autocomplete sugiere del catálogo `products` y permite
+       * crear uno nuevo on-the-fly (la creación es idempotente). El
+       * form mantiene `product_id` (FK) y `product_used` (texto) en
+       * paralelo — cuando el usuario selecciona/crea, el segundo
+       * argumento del onChange sincroniza ambos campos.
+       *
+       * `product_used` ya NO se renderiza como input separado: el
+       * picker lo maneja internamente. Si el operador quiere texto
+       * libre sin catálogo, hace clic en la X del picker (clear) y
+       * la fumigación persiste con product_used libre y product_id
+       * null.
+       */}
+      <ProductPicker
+        // Sprint S9 — `key` se incrementa en `reset()` para forzar
+        // re-mount del picker con su query interno limpio.
+        key={`product-picker-${pickerResetKey}`}
+        value={form.product_id}
+        onChange={(id, name) => {
+          // El picker llama onChange con (id, name) en 3 casos:
+          //   1. Usuario seleccionó un producto del catálogo:
+          //      id = catalog id, name = catalog name
+          //      → setear ambos.
+          //   2. Usuario creó un producto nuevo on-the-fly:
+          //      id = new id (API devuelve), name = typed name
+          //      → setear ambos.
+          //   3. Usuario tipeó texto libre sin seleccionar:
+          //      id = null, name = typed text
+          //      → setear product_used al texto, product_id = null
+          //   4. Usuario limpió con la X:
+          //      id = null, name = null
+          //      → ambos a initial (product_id null, product_used "")
+          setForm((prev) => ({
+            ...prev,
+            product_id: (id as number | null) ?? null,
+            product_used: name != null ? name : ""
+          }));
+        }}
+        disabled={isPending}
+      />
 
       <label className="flex flex-col gap-1">
         <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
