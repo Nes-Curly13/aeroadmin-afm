@@ -105,14 +105,12 @@ describe("getFumigationFlights", () => {
   });
 
   it("convierte un error de la BD en [] cuando NO estamos en produccion (dev/test)", async () => {
-    const original = process.env.NODE_ENV;
-    process.env.NODE_ENV = "development";
-    try {
-      mockQuery.mockRejectedValue(new Error("column duration_min does not exist"));
-      const result = await getFumigationFlights([1, 2, 3]);
-      expect(result).toEqual([]);
-    } finally {
-      process.env.NODE_ENV = original;
-    }
+    // NODE_ENV es read-only en el type, pero en runtime es reasignable
+    // via `Object.defineProperty` workaround. El test corre con
+    // NODE_ENV !== "production" (vitest default), asi que el catch
+    // de getFumigationFlights ya devuelve [] sin tocar NODE_ENV.
+    mockQuery.mockRejectedValue(new Error("column duration_min does not exist"));
+    const result = await getFumigationFlights([1, 2, 3]);
+    expect(result).toEqual([]);
   });
 });
