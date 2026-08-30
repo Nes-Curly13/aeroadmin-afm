@@ -638,14 +638,6 @@ export interface OverdueParcel {
 
 export type DroneModelId = 0 | 72 | 201 | 210;
 
-export interface DjiDroneModel {
-  id: DroneModelId;
-  name: string;
-  /** litros de tanque nominal */
-  tank_l: number;
-  color: string;
-}
-
 export type FumigationSource = "manual" | "import" | "djiscraper";
 
 /** dji_parcels — 1 fila por campo, columnas planas + geometría (V0 shape). */

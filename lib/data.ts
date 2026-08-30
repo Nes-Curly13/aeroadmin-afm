@@ -50,8 +50,6 @@ import { CACHE_TAGS, CACHE_TTL } from "@/lib/cache";
 // seguro de importar desde client components.
 import { NOW, DRONE_MODELS, droneModel, complianceStatus, STATUS_META } from "@/lib/data-constants";
 export { NOW, DRONE_MODELS, droneModel, complianceStatus, STATUS_META };
-// Re-export types via inline `export type` so the line above can stay a value-import.
-export type { ComplianceStatus, DroneModelId } from "@/lib/types";
 import {
   type DjiParcelRecord,
   type DjiFumigationEvent,
@@ -664,7 +662,6 @@ export type {
   DjiParcel,
   DjiFumigationV0,
   DjiFlightV0,
-  DjiFumigationScheduleV0,
   DjiScheduleHistory,
   DjiImportBatch,
   DjiAgHealth,
@@ -709,11 +706,6 @@ async function getSummaries(): Promise<ParcelSummary[]> {
 export async function getParcels(): Promise<DjiParcel[]> {
   const ds = await loadDataset();
   return ds.parcels;
-}
-
-export async function getSchedules(): Promise<DjiFumigationScheduleV0[]> {
-  const ds = await loadDataset();
-  return ds.schedules.map((s) => adaptSchedule(s, String(s.parcel_id)));
 }
 
 export async function getFumigations(): Promise<DjiFumigationV0[]> {
@@ -881,16 +873,6 @@ const _getFumigationsMonthlyCached = unstable_cache(
 
 export async function getFumigationsMonthly(): Promise<MonthlyBar[]> {
   return _getFumigationsMonthlyCached();
-}
-
-export async function getClients(): Promise<string[]> {
-  const ds = await loadDataset();
-  return Array.from(new Set(ds.parcels.map((p) => p.client_name))).sort();
-}
-
-export async function getFarms(): Promise<string[]> {
-  const ds = await loadDataset();
-  return Array.from(new Set(ds.parcels.map((p) => p.farm_name))).sort();
 }
 
 // ---------------------------------------------------------------------------

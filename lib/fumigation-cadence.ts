@@ -71,13 +71,6 @@ export function addDays(date: Date | string | null | undefined, days: number): D
  * Backward compatibility: ambos campos son opcionales. Los callers que
  * ya existían (no pasan opts) siguen funcionando sin cambios.
  */
-export interface StatusOptions {
-  phase?: CyclePhase | null;
-  season?: Season | null;
-  /** Crop type ("Caña", "Frutales", etc.). Usado para el ajuste 0.7 de
-   *  orchards en lluvias dentro de `effectiveCadence`. */
-  cropType?: string | null;
-}
 
 /**
  * Calcula la cadencia EFECTIVA combinando base + fase + estación + crop.

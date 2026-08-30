@@ -234,28 +234,3 @@ export async function recordFumigationRestore(
   }
   return false;
 }
-
-/**
- * Detecta si un evento de audit fue generado por el script de backfill
- * historico (`scripts/backfill-audit-log.js`). El script marca todos sus
- * inserts con `changes._backfill = true` para que la UI pueda diferenciar
- * "este evento fue reconstruido a partir del estado actual de la BD"
- * de "este evento fue registrado cuando el operador hizo click en
- * Guardar".
- *
- * Sprint 2026-08-22: 642 fumigaciones historicas (610 con `recorded_by
- * NULL` + 30 con `'djiag-import'` + 2 manuales) fueron backfilleadas.
- * Sin este helper, el operador ve 642 eventos `created` indistinguibles
- * de los que vienen de la UI. Con el helper, mostramos un badge
- * "Reconstruido" en la card "Historial".
- *
- * Usado en: `components/fumigations/fumigation-audit-trail.tsx`.
- *
- * @param event - Evento de audit (de la API o de un test fixture)
- * @returns true si el evento fue generado por el backfill
- */
-export function isBackfillEvent(event: {
-  changes: Record<string, unknown> | null;
-}): boolean {
-  return event.changes != null && event.changes._backfill === true;
-}

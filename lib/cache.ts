@@ -97,8 +97,6 @@ export const CACHE_TAGS = {
   parcelsCycles: "afm:parcels-cycles"
 } as const;
 
-export const CACHE_TAGS_ALL = Object.values(CACHE_TAGS);
-
 export const CACHE_TTL = {
   metrics: 300,
   alerts: 300,
@@ -958,28 +956,6 @@ export function invalidateAfterParcelMutation(): void {
   // cambian junto con la metadata de la parcela. Invalidar el cache
   // de `getParcelsCycleData` para que el próximo render vea data fresca.
   invalidateTagImmediate(CACHE_TAGS.parcelsCycles);
-}
-
-/**
- * Llamar después de un reimport de dji_flights (backfill, per-flight scrape).
- * Resetea KPIs, alertas e upcoming (los upcoming derivan de fumigaciones,
- * pero las fumigaciones derivan de flights — los dos mundos están acoplados).
- */
-export function invalidateAfterFlightMutation(): void {
-  invalidateTagImmediate(CACHE_TAGS.flights);
-  invalidateTagImmediate(CACHE_TAGS.metrics);
-  invalidateTagImmediate(CACHE_TAGS.alerts);
-  // Sprint A — F4.0: la comparativa ayer/hoy se recalcula cuando entran
-  // nuevos vuelos. Mismo criterio que metrics (derivada de dji_flights).
-  invalidateTagImmediate(CACHE_TAGS.activityComparison);
-}
-
-/**
- * Botón de pánico: invalida todo. Reservado para casos como "se rompió la BD,
- * sembrar de nuevo".
- */
-export function invalidateAll(): void {
-  for (const tag of CACHE_TAGS_ALL) invalidateTagImmediate(tag);
 }
 
 /**

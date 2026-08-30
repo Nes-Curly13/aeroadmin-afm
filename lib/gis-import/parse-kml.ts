@@ -19,9 +19,6 @@ import { kml as kmlToGeoJSON } from "@tmcw/togeojson";
 import type { ImportFeature, ParseResult } from "./types";
 import { extractFeatureName, normalizeGeometry } from "./normalize";
 
-/** Tamaño máximo aceptado para un KML. 25 MB. */
-export const KML_MAX_BYTES = 25 * 1024 * 1024;
-
 export function parseKml(buffer: Buffer, fileName: string): ParseResult {
   // 1. Parsear XML
   let doc: Document;

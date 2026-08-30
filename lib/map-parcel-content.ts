@@ -58,12 +58,6 @@ export interface ParcelContentInput {
 /**
  * Opciones para `getParcelPopupContent`. Reservado para futuro.
  */
-export interface ParcelInteractionOptions {
-  /** Handler para `mouseover` (ej. cambiar cursor a pointer). */
-  onMouseOver?: () => void;
-  /** Handler para `mouseout` (ej. reset cursor). */
-  onMouseOut?: () => void;
-}
 
 // ============================================================
 // Helpers internos
@@ -196,31 +190,6 @@ export function getParcelA11yLabel(parcel: ParcelContentInput): string {
     ? `última fumigación ${formatDateWithWeekday(parcel.lastFumigationDate)}`
     : "sin fumigaciones registradas";
   return `${namePart}, ${areaPart}, ${datePart}`;
-}
-
-/**
- * v2.0 (sprint S5) — la función `bindParcelLayerInteractions` quedó
- * obsoleta con la migración a MapLibre. La asociación de tooltip/popup
- * ahora se hace directamente en `MapLibreView` (con MapLibre Popup
- * + un tooltip HTML sobre el source GeoJSON).
- *
- * El popup/hover HTML lo genera `renderParcelPopup()` y se pasa a
- * `maplibregl.Popup({ closeButton: true }).setLngLat(...).setHTML(...)`.
- * Para mantener el contrato de tests existente, esta función ahora
- * solo devuelve los strings sin side effects (los tests de unit se
- * ajustan para usar getParcelPopupContent / getParcelHoverContent
- * directamente).
- *
- * @deprecated usar `getParcelPopupContent` + `getParcelHoverContent` directamente.
- *             Se conserva la firma para no romper tests legacy.
- */
-export function bindParcelLayerInteractions(
-  _layer: unknown,
-  parcel: ParcelContentInput,
-  _options?: ParcelInteractionOptions
-): void {
-  // No-op. Ver JSDoc arriba.
-  void parcel;
 }
 
 // ============================================================

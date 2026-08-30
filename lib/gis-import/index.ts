@@ -8,14 +8,14 @@
  * Sprint 2026-08-04 — feature/parcel-onboarding, sub-sprint 2 (Import GIS).
  */
 
-import { parseKml, KML_MAX_BYTES } from "./parse-kml";
-import { parseShpZip, SHP_MAX_BYTES } from "./parse-shp";
-import { parseGpkg, GPKG_MAX_BYTES } from "./parse-gpkg";
+import { parseKml } from "./parse-kml";
+import { parseShpZip } from "./parse-shp";
+import { parseGpkg } from "./parse-gpkg";
 import type { ImportFormat, ParseResult } from "./types";
 import { MAX_BYTES } from "./types";
 
 export { parseKml, parseShpZip, parseGpkg };
-export type { ImportFeature, ImportFormat, ParseResult } from "./types";
+export type { ImportFormat, ParseResult } from "./types";
 
 /** Detecta el formato por nombre del archivo. */
 export function detectFormat(fileName: string): ImportFormat | null {
@@ -68,5 +68,3 @@ export async function parseGisFile(
       return await parseGpkg(buffer, fileName);
   }
 }
-
-export { KML_MAX_BYTES, SHP_MAX_BYTES, GPKG_MAX_BYTES };

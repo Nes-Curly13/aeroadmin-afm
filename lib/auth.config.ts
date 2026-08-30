@@ -36,7 +36,6 @@ export const AUTH_COOKIE_NAME = "afm.session";
  * ahora puede REGISTRAR fumigaciones, no solo mirar. Ver migration
  * 20260721000000_add_app_users_role.sql.
  */
-export type { AppRole } from "@/lib/auth/role";
 
 const authSecret = process.env.AUTH_SECRET;
 if (!authSecret && process.env.NODE_ENV === "production") {
