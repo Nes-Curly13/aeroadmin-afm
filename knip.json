@@ -1,0 +1,39 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "ignore": [
+    "**/*.d.ts",
+    "**/*.d.ts.map",
+    "**/_archive/**",
+    ".next/**",
+    "node_modules/**",
+    "scripts/_archive/**",
+    "scripts/_*.js",
+    "lib/_archive/**",
+    "lib/djiag-from-make/**",
+    "lib/djiag-from-make/*",
+    "tmp-prod-test/**",
+    "tmp-knip-report.txt",
+    "tmp-pr-body-*.md",
+    "docs/sprints/**",
+    "tests/fixtures/**",
+    "components/fumigations/product-picker.tsx",
+    "components/geovisor/time-range.tsx",
+    "components/ui/progress.tsx",
+    "components/ui/select.tsx",
+    "components/ui/separator.tsx",
+    "components/ui/slider.tsx",
+    "components/ui/tabs.tsx",
+    "components/ui/tooltip.tsx",
+    "playwright.prod.config.ts",
+    ".eslintrc.quality.cjs",
+    "scrape_djiag_perflight.js"
+  ],
+  "ignoreExportsUsedInFile": true,
+  "ignoreDependencies": [
+    "@types/bcryptjs",
+    "server-only"
+  ],
+  "vite": {
+    "config": "vitest.config.ts"
+  }
+}
