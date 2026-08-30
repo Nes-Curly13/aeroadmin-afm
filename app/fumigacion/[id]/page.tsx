@@ -145,7 +145,7 @@ export default async function FumigacionPage({ params }: PageProps) {
     return sum + (Number.isFinite(v) ? (v as number) : 0);
   }, 0);
   const isPlan = allParcels.length > 1;
-  const nSueries = allParcels.length;
+  const nSueres = allParcels.length;
 
   // Cargar el historial de cambios (audit log). Sprint 2026-08-15 —
   // feature/fumigation-audit-log / sub-3. Devuelve [] si la fumigación
@@ -385,10 +385,10 @@ export default async function FumigacionPage({ params }: PageProps) {
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base">
               <Layers className="size-4 text-primary" aria-hidden />
-              {`Plan de fumigación (${nSueries} suerte${nSueries === 1 ? "" : "s"})`}
+              {`Plan de fumigación (${nSueres} suerte${nSueres === 1 ? "" : "s"})`}
             </CardTitle>
             <CardDescription>
-              Esta fumigación cubrió {nSueries} suertes como un solo plan
+              Esta fumigación cubrió {nSueres} suertes como un solo plan
               operativo. La primaria ({parcel?.land_name ?? `parcela #${fumigation.parcel_id}`})
               aparece destacada en el mapa; las demás se listan acá con su área.
             </CardDescription>
@@ -397,8 +397,8 @@ export default async function FumigacionPage({ params }: PageProps) {
             <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
               <PlanStat
                 label="Suertes"
-                value={fmtInt(nSueries)}
-                hint={nSueries === 1 ? "1 parcela" : `1 primaria + ${nSueries - 1} secundarias`}
+                value={fmtInt(nSueres)}
+                hint={nSueres === 1 ? "1 parcela" : `1 primaria + ${nSueres - 1} secundarias`}
               />
               <PlanStat
                 label="Vuelos"
@@ -511,7 +511,7 @@ export default async function FumigacionPage({ params }: PageProps) {
             <p className="mt-2 text-[11px] text-muted-foreground">
               {`${flights.length} vuelo${flights.length === 1 ? "" : "s"} asociad${flights.length === 1 ? "o" : "os"}`}
               {isPlan
-                ? ` · ${nSueries} suerte${nSueries === 1 ? "" : "s"} (primaria destacada)`
+                ? ` · ${nSueres} suerte${nSueres === 1 ? "" : "s"} (primaria destacada)`
                 : ""}
               {fumigationPoint
                 ? ` · centroide en (${fumigationPoint.lat.toFixed(5)}, ${fumigationPoint.lng.toFixed(5)})`
