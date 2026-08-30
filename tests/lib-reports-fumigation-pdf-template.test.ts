@@ -343,7 +343,8 @@ describe("buildFumigationPdfHtml", () => {
           spray_usage_ml: 12_500,
           duration_min: 22.5,
           lng: -76.5,
-          lat: 3.4
+          lat: 3.4,
+          parcel_id: null
         }
       ];
       const html = buildFumigationPdfHtml(makeFixture({ flights }));
@@ -367,7 +368,8 @@ describe("buildFumigationPdfHtml", () => {
           spray_usage_ml: 10_000, // 10.00 L
           duration_min: 30,
           lng: null,
-          lat: null
+          lat: null,
+          parcel_id: null
         }
       ];
       const html = buildFumigationPdfHtml(makeFixture({ flights }));
@@ -409,7 +411,8 @@ describe("buildFumigationPdfHtml", () => {
           spray_usage_ml: null,
           duration_min: null,
           lng: null,
-          lat: null
+          lat: null,
+          parcel_id: null
         }
       ];
       const html = buildFumigationPdfHtml(makeFixture({ flights }));

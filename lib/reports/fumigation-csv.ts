@@ -47,6 +47,21 @@ export interface FumigationReportData {
     color: string;
   } | null;
   flights: FumigationFlightRow[];
+  /**
+   * Sprint S9 (2026-08-30) — feature/multi-parcela-fumigation.
+   * Suertes SECUNDARIAS (excluye la primaria) cubiertas por esta
+   * fumigación. Lo hidrata `app/api/admin/fumigations/[id]/report.csv/route.ts`
+   * con un JOIN por `dji_fumigation_parcels` (o un helper nuevo). Default `[]`.
+   *
+   * Cada item trae `land_name` para que el CSV sea legible sin un
+   * lookup posterior por external_id.
+   */
+  secondaryParcels?: Array<{
+    id: number;
+    external_id: string;
+    land_name: string | null;
+    field_type: string;
+  }>;
 }
 
 const QUOTE_NEEDED = /[";\n\r]/;
@@ -62,12 +77,14 @@ function row(values: ReadonlyArray<string | number | null | undefined>): string 
   return values.map(quoteValue).join(";") + "\n";
 }
 
-function fmtDec(value: number | null, decimals: number): string {
+function fmtDec(value: number | string | null, decimals: number): string {
   if (value === null) return "";
+  const n = typeof value === "string" ? Number(value) : value;
+  if (!Number.isFinite(n)) return "";
   return new Intl.NumberFormat("de-DE", {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals
-  }).format(value);
+  }).format(n);
 }
 
 /**
@@ -114,6 +131,31 @@ export function buildFumigationCsv(data: FumigationReportData): string {
   csv += row(["Licencia del piloto", f.pilot_license ?? ""]);
   csv += row([]);
 
+  // Sprint S9 — feature/multi-parcela-fumigation.
+  // Sección: Otras suertes cubiertas (si hay). Solo se renderiza si la
+  // fumigación cubrió >1 suerte. Cada item: external_id + land_name
+  // + field_type + link. El primary parcel ya está arriba en la
+  // sección "Parcela" — este listado es solo las secundarias.
+  const secondaryList = data.secondaryParcels ?? [];
+  if (secondaryList.length > 0) {
+    csv += row(["Sección", `Otras suertes cubiertas (${secondaryList.length})`]);
+    csv += row([
+      "External ID",
+      "Nombre",
+      "Tipo",
+      "Link"
+    ]);
+    for (const sp of secondaryList) {
+      csv += row([
+        sp.external_id,
+        sp.land_name ?? "",
+        sp.field_type,
+        `/parcelas/${sp.id}`
+      ]);
+    }
+    csv += row([]);
+  }
+
   // Sección: Vuelos asociados (si hay)
   if (data.flights.length > 0) {
     csv += row(["Sección", `Vuelos asociados (${data.flights.length})`]);
@@ -132,8 +174,8 @@ export function buildFumigationCsv(data: FumigationReportData): string {
         fl.start_at,
         fl.pilot_name ?? "",
         fl.drone_nickname ?? "",
-        fmtDec(fl.area_m2, 2),
-        fmtDec(fl.duration_min, 1),
+        fl.area_m2 != null ? fmtDec(fl.area_m2, 2) : "",
+        fl.duration_min != null ? fmtDec(fl.duration_min, 1) : "",
         fl.spray_usage_ml != null ? fmtDec(fl.spray_usage_ml / 1000, 2) : ""
       ]);
     }

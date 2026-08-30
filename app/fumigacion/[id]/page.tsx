@@ -8,6 +8,7 @@ import {
   FileText,
   Droplets,
   History,
+  Layers,
   MapPin,
   Pencil,
   Plane,
@@ -27,23 +28,34 @@ import {
   getFumigationAuditTrail,
   getFumigationById,
   getFumigationFlights,
-  getParcelById
+  getFumigationParcelsForMap,
+  getParcelById,
+  getParcelsByExternalIds
 } from "@/api/repositories";
 import { droneModel } from "@/lib/data";
 import { FUMIGATION_CATEGORIES, type FumigationCategoryOption } from "@/lib/data-constants";
-import { fmtDate, fmtDateTime, fmtDec, fmtHa, fmtLiters } from "@/lib/format";
+import { fmtDate, fmtDateTime, fmtDec, fmtHa, fmtInt, fmtLiters } from "@/lib/format";
 
 /**
  * /fumigacion/[id] — ficha de un evento individual de fumigación.
  *
  * Sprint 2026-08-05 — feature/nav-fumigaciones.
+ * Sprint S9 (2026-08-30) — feature/standalone-fumigation-v2: la vista
+ *   standalone ahora trata fumigaciones multi-parcela como un "plan"
+ *   con totales agregados (N suertes, M vuelos, ha totales), polígonos
+ *   de TODAS las suertes en el mapa y flight list con suerte por vuelo.
+ *   Para fumigaciones single-parcela, la vista es la misma de antes.
  *
  * Cierra el pedido del operador fumigador de poder navegar fumigaciones
  * por URL propia. Antes las fumigaciones solo existían como filas en
  * /fumigaciones y como items en el timeline del parcel detail. Ahora
  * cada fumigación tiene una ficha con:
- *   - Header: #id, fecha, badge de fuente, link al parcel
- *   - Mapa satelital con el polígono del parcel + pin de la fumigación
+ *   - Header: #id, fecha, badge de fuente, link al parcel primario,
+ *     badge multi-parcela si aplica
+ *   - "Plan" card (solo multi-parcela): N suertes, M vuelos, ha totales,
+ *     lista de suertes con su área individual
+ *   - Mapa satelital con polígonos de TODAS las suertes (primaria
+ *     destacada) + pin del centroide + puntos de cada flight
  *   - Detalles: producto, dosis, área, duración, dron
  *   - Compliance: ICA, licencia piloto
  *   - Lista de vuelos asociados (de flight_ids)
@@ -108,6 +120,33 @@ export default async function FumigacionPage({ params }: PageProps) {
   // Cargar los vuelos asociados a la fumigación.
   const flights = await getFumigationFlights(fumigation.flight_ids);
 
+  // Sprint S9 — cargar las suertes SECUNDARIAS cubiertas por esta fumigación.
+  // `parcels` (text[] de external_ids) se hidrata en getFumigationById.
+  // Si está vacío, no hay multi-parcela — esta card no se renderiza.
+  const secondaryParcels = fumigation.parcels && fumigation.parcels.length > 0
+    ? await getParcelsByExternalIds(fumigation.parcels)
+    : [];
+
+  // Sprint S9 (2026-08-30) — feature/standalone-fumigation-v2.
+  // Hidratamos TODAS las parcelas del plan (1 primaria + N secundarias)
+  // con su `spray_geometry` para renderizar el mapa multi-polígono y
+  // calcular el área total del plan. El helper usa 2 queries en paralelo
+  // y dedupa por id.
+  const allParcels = await getFumigationParcelsForMap(
+    fumigation.parcel_id,
+    fumigation.parcels
+  );
+
+  // Total de ha del plan (suma de `declared_area_ha` de las parcelas
+  // que lo tienen cargado). null-safe por si alguna parcela no
+  // scrapeo su área declarada.
+  const totalAreaHa = allParcels.reduce<number>((sum, p) => {
+    const v = p.declared_area_ha == null ? null : Number(p.declared_area_ha);
+    return sum + (Number.isFinite(v) ? (v as number) : 0);
+  }, 0);
+  const isPlan = allParcels.length > 1;
+  const nSueries = allParcels.length;
+
   // Cargar el historial de cambios (audit log). Sprint 2026-08-15 —
   // feature/fumigation-audit-log / sub-3. Devuelve [] si la fumigación
   // no tiene eventos (caso típico: fumigaciones creadas antes de este
@@ -124,10 +163,6 @@ export default async function FumigacionPage({ params }: PageProps) {
       : null;
 
   // Geometría del parcel (si está) + punto de la fumigación
-  const parcelGeom = parcel?.spray_geometry as
-    | { type: "Polygon"; coordinates: number[][][] }
-    | null
-    | undefined;
   const fumigationPoint =
     fumigation.lat != null && fumigation.lng != null
       ? { lat: Number(fumigation.lat), lng: Number(fumigation.lng) }
@@ -314,8 +349,128 @@ export default async function FumigacionPage({ params }: PageProps) {
               ) : null}
             </Link>
           ) : null}
+          {/*
+            Sprint S9 — badge "multi-parcela" en el header. Solo aparece
+            cuando la fumigación cubrió >1 suerte. El link "Ver N suertes"
+            scrollea a la card de detalle (id="fumigation-other-parcels").
+          */}
+          {secondaryParcels.length > 0 ? (
+            <Badge
+              variant="outline"
+              className="border-chart-1/40 bg-chart-1/10 text-[11px] font-semibold uppercase tracking-wider text-chart-1"
+              aria-label={`Fumigación multi-parcela: cubrió ${secondaryParcels.length} suerte${secondaryParcels.length === 1 ? "" : "s"} adicional${secondaryParcels.length === 1 ? "" : "es"}`}
+            >
+              <Layers className="mr-1 inline size-3" aria-hidden />
+              {`Multi-parcela (+${secondaryParcels.length})`}
+            </Badge>
+          ) : null}
         </div>
       </div>
+
+      {/*
+        Sprint S9 (2026-08-30) — feature/standalone-fumigation-v2.
+        "Plan" card: solo se renderiza cuando la fumigación cubrió >1
+        suerte. Muestra totales agregados (N suertes, M vuelos, ha
+        totales, duración total) + lista de suertes con su área.
+        Es la primera card visible cuando es multi-parcela para que la
+        fumigación se sienta como un PLAN, no como un sub-feature del
+        parcel primario.
+      */}
+      {isPlan ? (
+        <Card
+          id="fumigation-plan"
+          className="border-primary/30 bg-primary/5"
+          aria-label="Resumen del plan de fumigación multi-parcela"
+        >
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Layers className="size-4 text-primary" aria-hidden />
+              {`Plan de fumigación (${nSueries} suerte${nSueries === 1 ? "" : "s"})`}
+            </CardTitle>
+            <CardDescription>
+              Esta fumigación cubrió {nSueries} suertes como un solo plan
+              operativo. La primaria ({parcel?.land_name ?? `parcela #${fumigation.parcel_id}`})
+              aparece destacada en el mapa; las demás se listan acá con su área.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+              <PlanStat
+                label="Suertes"
+                value={fmtInt(nSueries)}
+                hint={nSueries === 1 ? "1 parcela" : `1 primaria + ${nSueries - 1} secundarias`}
+              />
+              <PlanStat
+                label="Vuelos"
+                value={fmtInt(flights.length)}
+                hint={flights.length === 0 ? "sin vuelos asociados" : "asociados al plan"}
+              />
+              <PlanStat
+                label="Área total"
+                value={totalAreaHa > 0 ? `${fmtDec(totalAreaHa)} ha` : "—"}
+                hint="suma de declared_area_ha"
+              />
+              <PlanStat
+                label="Duración total"
+                value={(() => {
+                  const totalSec = flights.reduce((s, f) => {
+                    const v = f.duration_min;
+                    if (v == null) return s;
+                    const n = typeof v === "string" ? parseFloat(v) : v;
+                    return Number.isFinite(n) ? s + n * 60 : s;
+                  }, 0);
+                  if (totalSec <= 0) return "—";
+                  const min = Math.round(totalSec / 60);
+                  return min >= 60
+                    ? `${Math.floor(min / 60)}h ${min % 60}m`
+                    : `${min} min`;
+                })()}
+                hint="suma de duration_seconds"
+              />
+            </dl>
+            <div>
+              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Suertes del plan
+              </p>
+              <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {allParcels.map((p) => (
+                  <li key={p.id}>
+                    <Link
+                      href={`/parcelas/${p.id}`}
+                      className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm transition hover:bg-muted ${
+                        p.is_primary
+                          ? "border-primary/40 bg-primary/10"
+                          : "border-input bg-card"
+                      }`}
+                    >
+                      <span className="flex flex-col gap-0.5">
+                        <span className="flex items-center gap-1.5 font-semibold">
+                          {p.is_primary ? (
+                            <Badge
+                              variant="outline"
+                              className="border-primary/40 bg-primary/15 px-1.5 py-0 text-[9px] font-semibold uppercase tracking-wider text-primary"
+                            >
+                              primaria
+                            </Badge>
+                          ) : null}
+                          {p.land_name ?? `Parcela #${p.id}`}
+                        </span>
+                        <span className="font-mono text-[10px] text-muted-foreground">
+                          #{p.id} · {p.field_type}
+                          {p.declared_area_ha != null
+                            ? ` · ${fmtDec(Number(p.declared_area_ha))} ha`
+                            : ""}
+                        </span>
+                      </span>
+                      <Sprout className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {/* Grid principal: mapa (izq) + detalles (der) */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
@@ -333,7 +488,14 @@ export default async function FumigacionPage({ params }: PageProps) {
           </CardHeader>
           <CardContent>
             <FumigationMap
-              parcelGeom={parcelGeom ?? null}
+              parcels={allParcels.map((p) => ({
+                id: p.id,
+                is_primary: p.is_primary,
+                land_name: p.land_name,
+                geometry: p.spray_geometry as
+                  | { type: "Polygon"; coordinates: number[][][] }
+                  | null
+              }))}
               fumigationPoint={fumigationPoint}
               flights={flights
                 .filter((f) => f.lng != null && f.lat != null)
@@ -348,6 +510,9 @@ export default async function FumigacionPage({ params }: PageProps) {
             />
             <p className="mt-2 text-[11px] text-muted-foreground">
               {`${flights.length} vuelo${flights.length === 1 ? "" : "s"} asociad${flights.length === 1 ? "o" : "os"}`}
+              {isPlan
+                ? ` · ${nSueries} suerte${nSueries === 1 ? "" : "s"} (primaria destacada)`
+                : ""}
               {fumigationPoint
                 ? ` · centroide en (${fumigationPoint.lat.toFixed(5)}, ${fumigationPoint.lng.toFixed(5)})`
                 : " · sin centroide (fumigación sin vuelos asociados)"}
@@ -482,6 +647,58 @@ export default async function FumigacionPage({ params }: PageProps) {
         </div>
       </div>
 
+      {/*
+        Sprint S9 — feature/multi-parcela-fumigation.
+        Card "Otras suertes cubiertas". Solo se renderiza si la fumigación
+        cubrió más de 1 suerte (parcels[] poblado por el backfill).
+        Muestra las N suertes secundarias con link a cada /parcelas/[id].
+        Si hay >5, muestra "Ver todas (N)" con collapse.
+      */}
+      {secondaryParcels.length > 0 ? (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Layers className="size-4 text-chart-1" aria-hidden />
+              {`Otras suertes cubiertas (${secondaryParcels.length})`}
+            </CardTitle>
+            <CardDescription>
+              {`Esta fumigación cubrió ${secondaryParcels.length} suerte${
+                secondaryParcels.length === 1 ? "" : "s"
+              } adicional${
+                secondaryParcels.length === 1 ? "" : "es"
+              } además de la parcela principal. Cada link abre la ficha de la suerte correspondiente.`}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {secondaryParcels.map((p) => (
+                <li key={p.id}>
+                  <Link
+                    className="flex items-center justify-between gap-2 rounded-lg border border-input bg-card px-3 py-2 text-sm transition hover:bg-muted"
+                    href={`/parcelas/${p.id}`}
+                  >
+                    <span className="flex flex-col gap-0.5">
+                      <span className="font-semibold">
+                        {p.land_name ?? `Parcela #${p.id}`}
+                      </span>
+                      <span className="font-mono text-[10px] text-muted-foreground">
+                        #{p.id} · {p.field_type}
+                      </span>
+                    </span>
+                    <Sprout className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-3 text-[11px] text-muted-foreground">
+              {`Detectado vía spatial-join de los ${flights.length} vuelo${
+                flights.length === 1 ? "" : "s"
+              } asociado${flights.length === 1 ? "" : "s"} (tolerancia 200m).`}
+            </p>
+          </CardContent>
+        </Card>
+      ) : null}
+
       {/* Vuelos asociados */}
       <Card>
         <CardHeader className="pb-3">
@@ -491,8 +708,10 @@ export default async function FumigacionPage({ params }: PageProps) {
           </CardTitle>
           <CardDescription>
             Vuelos de dji_flights cuyo flight_id está en el array flight_ids
-            de esta fumigación. El importador los asoció automáticamente;
-            las fumigaciones manuales no tienen asociación.
+            de esta fumigación, ordenados cronológicamente. El importador
+            los asoció automáticamente; las fumigaciones manuales no tienen
+            asociación. La columna "Suerte" muestra qué parcela cubrió cada
+            vuelo (resuelto por spatial-join v2).
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -504,11 +723,14 @@ export default async function FumigacionPage({ params }: PageProps) {
             </p>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[600px] text-sm">
+              <table className="w-full min-w-[760px] text-sm">
                 <thead className="border-b border-border bg-muted/40 text-[11px] uppercase tracking-wider text-muted-foreground">
                   <tr>
                     <th className="px-3 py-2 text-left font-semibold">Flight ID</th>
                     <th className="px-3 py-2 text-left font-semibold">Inicio</th>
+                    {isPlan ? (
+                      <th className="px-3 py-2 text-left font-semibold">Suerte</th>
+                    ) : null}
                     <th className="px-3 py-2 text-left font-semibold">Piloto</th>
                     <th className="px-3 py-2 text-left font-semibold">Dron</th>
                     <th className="px-3 py-2 text-right font-semibold">Área</th>
@@ -517,29 +739,63 @@ export default async function FumigacionPage({ params }: PageProps) {
                   </tr>
                 </thead>
                 <tbody>
-                  {flights.map((f) => (
-                    <tr key={f.flight_id} className="border-b border-border/60 last:border-0">
-                      <td className="px-3 py-2 font-mono text-xs">#{f.flight_id}</td>
-                      <td className="px-3 py-2 font-mono text-xs tabular-nums">
-                        {fmtDateTime(f.start_at)}
-                      </td>
-                      <td className="px-3 py-2 text-xs">
-                        {f.pilot_name ?? <span className="text-muted-foreground">—</span>}
-                      </td>
-                      <td className="px-3 py-2 text-xs">
-                        {f.drone_nickname ?? <span className="text-muted-foreground">—</span>}
-                      </td>
-                      <td className="px-3 py-2 text-right font-mono text-xs tabular-nums">
-                        {f.area_m2 != null ? fmtHa(f.area_m2) : "—"}
-                      </td>
-                      <td className="px-3 py-2 text-right font-mono text-xs tabular-nums">
-                        {f.duration_min != null ? `${fmtDec(f.duration_min)} min` : "—"}
-                      </td>
-                      <td className="px-3 py-2 text-right font-mono text-xs tabular-nums">
-                        {f.spray_usage_ml != null ? `${fmtLiters(f.spray_usage_ml / 1000)}` : "—"}
-                      </td>
-                    </tr>
-                  ))}
+                  {flights.map((f) => {
+                    // Suerte cubierta por este vuelo (JOIN con
+                    // `dji_flights.parcel_id` resuelto por spatial-join).
+                    const flightParcel =
+                      f.parcel_id != null
+                        ? allParcels.find((p) => p.id === f.parcel_id) ?? null
+                        : null;
+                    return (
+                      <tr key={f.flight_id} className="border-b border-border/60 last:border-0">
+                        <td className="px-3 py-2 font-mono text-xs">#{f.flight_id}</td>
+                        <td className="px-3 py-2 font-mono text-xs tabular-nums">
+                          {fmtDateTime(f.start_at)}
+                        </td>
+                        {isPlan ? (
+                          <td className="px-3 py-2 text-xs">
+                            {flightParcel ? (
+                              <Link
+                                href={`/parcelas/${flightParcel.id}`}
+                                className="inline-flex items-center gap-1 font-medium text-foreground hover:underline"
+                              >
+                                <Sprout className="size-3 text-muted-foreground" aria-hidden />
+                                <span className="truncate">
+                                  {flightParcel.land_name ?? `#${flightParcel.id}`}
+                                </span>
+                                {flightParcel.is_primary ? (
+                                  <span className="rounded-full bg-primary/15 px-1.5 py-0 text-[9px] font-semibold uppercase tracking-wider text-primary">
+                                    primaria
+                                  </span>
+                                ) : null}
+                              </Link>
+                            ) : (
+                              <span className="text-muted-foreground">
+                                sin parcela
+                              </span>
+                            )}
+                          </td>
+                        ) : null}
+                        <td className="px-3 py-2 text-xs">
+                          {f.pilot_name ?? <span className="text-muted-foreground">—</span>}
+                        </td>
+                        <td className="px-3 py-2 text-xs">
+                          {f.drone_nickname ?? <span className="text-muted-foreground">—</span>}
+                        </td>
+                        <td className="px-3 py-2 text-right font-mono text-xs tabular-nums">
+                          {f.area_m2 != null ? fmtHa(Number(f.area_m2)) : "—"}
+                        </td>
+                        <td className="px-3 py-2 text-right font-mono text-xs tabular-nums">
+                          {f.duration_min != null
+                            ? `${fmtDec(Number(f.duration_min))} min`
+                            : "—"}
+                        </td>
+                        <td className="px-3 py-2 text-right font-mono text-xs tabular-nums">
+                          {f.spray_usage_ml != null ? `${fmtLiters(f.spray_usage_ml / 1000)}` : "—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -640,6 +896,34 @@ function DetailRow({ label, value }: { label: string; value: React.ReactNode }) 
       <dd className="mt-0.5 font-mono text-sm tabular-nums text-foreground">
         {value}
       </dd>
+    </div>
+  );
+}
+
+/**
+ * Stat compacto para la "Plan card" multi-parcela. Igual pattern que
+ * DetailRow pero con un hint debajo (texto pequeño en muted).
+ */
+function PlanStat({
+  label,
+  value,
+  hint
+}: {
+  label: string;
+  value: React.ReactNode;
+  hint?: string;
+}) {
+  return (
+    <div>
+      <dt className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        {label}
+      </dt>
+      <dd className="mt-0.5 font-mono text-base font-bold tabular-nums text-foreground">
+        {value}
+      </dd>
+      {hint ? (
+        <p className="mt-0.5 text-[10px] text-muted-foreground">{hint}</p>
+      ) : null}
     </div>
   );
 }

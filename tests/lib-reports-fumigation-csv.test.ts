@@ -123,7 +123,8 @@ describe("buildFumigationCsv", () => {
         spray_usage_ml: 12_500,
         duration_min: 22.5,
         lng: -76.5,
-        lat: 3.4
+        lat: 3.4,
+        parcel_id: 3104
       },
       {
         flight_id: 101,
@@ -134,7 +135,8 @@ describe("buildFumigationCsv", () => {
         spray_usage_ml: 18_000,
         duration_min: 30.0,
         lng: -76.5,
-        lat: 3.4
+        lat: 3.4,
+        parcel_id: 3104
       }
     ];
     const csv = buildFumigationCsv(makeFixture({ flights }));
@@ -334,7 +336,8 @@ describe("buildFumigationCsv", () => {
         spray_usage_ml: 25_000, // 25 L
         duration_min: 22.5,
         lng: null,
-        lat: null
+        lat: null,
+        parcel_id: null
       }
     ];
     const csv = buildFumigationCsv(makeFixture({ flights }));
@@ -353,7 +356,8 @@ describe("buildFumigationCsv", () => {
         spray_usage_ml: null,
         duration_min: 22.5,
         lng: null,
-        lat: null
+        lat: null,
+        parcel_id: null
       }
     ];
     const csv = buildFumigationCsv(makeFixture({ flights }));

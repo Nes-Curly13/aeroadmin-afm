@@ -24,7 +24,8 @@ import { requireRole } from "@/lib/auth/role";
 import {
   getFumigationById,
   getFumigationFlights,
-  getParcelById
+  getParcelById,
+  getParcelsByExternalIds
 } from "@/api/repositories";
 import { droneModel } from "@/lib/data";
 import { buildFumigationCsv, type FumigationReportData } from "@/lib/reports/fumigation-csv";
@@ -63,15 +64,21 @@ export async function GET(
   let fumigation: Awaited<ReturnType<typeof getFumigationById>>;
   let parcelData: Awaited<ReturnType<typeof getParcelById>>;
   let flights: Awaited<ReturnType<typeof getFumigationFlights>>;
+  let secondaryParcels: Awaited<ReturnType<typeof getParcelsByExternalIds>> = [];
   try {
     fumigation = await getFumigationById(fumigationId);
     if (!fumigation) {
       return NextResponse.json({ error: "fumigación no encontrada" }, { status: 404 });
     }
-    // Parcel + flights en paralelo (ambos leen tablas distintas)
-    [parcelData, flights] = await Promise.all([
+    // Parcel + flights + suertes secundarias en paralelo.
+    // Sprint S9 — feature/multi-parcela-fumigation: hidrata secondaryParcels
+    // si la fumigación cubrió más de 1 suerte (parcels[] poblado).
+    [parcelData, flights, secondaryParcels] = await Promise.all([
       getParcelById(fumigation.parcel_id),
-      getFumigationFlights(fumigation.flight_ids)
+      getFumigationFlights(fumigation.flight_ids),
+      fumigation.parcels && fumigation.parcels.length > 0
+        ? getParcelsByExternalIds(fumigation.parcels)
+        : Promise.resolve([])
     ]);
   } catch (err) {
     const e = err as { message?: string };
@@ -109,7 +116,13 @@ export async function GET(
     category: category
       ? { id: category.id, slug: category.slug, label: category.label, color: category.color }
       : null,
-    flights
+    flights,
+    secondaryParcels: secondaryParcels.map((p) => ({
+      id: p.id,
+      external_id: p.external_id,
+      land_name: p.land_name,
+      field_type: p.field_type
+    }))
   };
 
   const csv = buildFumigationCsv(data);
