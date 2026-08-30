@@ -1,23 +1,21 @@
 import Link from "next/link"
-import { Calendar, ChevronRight, Droplets, History, Plus, Sprout } from "lucide-react"
+import { History, Plus } from "lucide-react"
 import { Suspense } from "react"
 import { PageHeader } from "@/components/page-header"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton, SkeletonTable } from "@/components/ui/loading"
 import { FumigacionesDataLoader } from "@/app/fumigaciones/data-loader"
+import { FumigacionesTableClient } from "@/app/fumigaciones/fumigaciones-table"
 import { DRONE_MODELS, FUMIGATION_CATEGORIES } from "@/lib/data-constants"
-import { fmtDate, fmtDateTime, fmtDec, fmtInt } from "@/lib/format"
+import { fmtInt } from "@/lib/format"
 import type { DjiFumigationEvent } from "@/lib/types"
 import {
-  buildPageUrl,
   parseCategorySlug,
   parseDate,
   parseDroneCode,
   parseIntId,
-  parseSource,
-  type FumigacionesSearchParams
+  parseSource
 } from "@/lib/fumigaciones-filters"
 
 /**
@@ -60,8 +58,6 @@ export const metadata = {
   description:
     "Listado unificado de fumigaciones DJI + manuales con filtros por fecha, parcela y fuente."
 }
-
-const PAGE_SIZE = 50
 
 interface PageProps {
   searchParams: Promise<{
@@ -287,7 +283,7 @@ export default async function FumigacionesPage({ searchParams }: PageProps) {
               ? "Solo fumigaciones manuales (alta del operador fumigador)."
               : sourceFilter === "djiscraper" || sourceFilter === "import"
                 ? "Solo fumigaciones del scrape de DJI."
-                : "Mezcla de fumigaciones scrapeadas de DJI + manuales."}
+                : "Mezcla de fumigaciones scrapeadas de DJI + manuales. Tildá filas para hacer bulk delete o reasignar categoría."}
           </CardDescription>
         </CardHeader>
         <CardContent className="px-0 pb-0">
@@ -304,15 +300,15 @@ export default async function FumigacionesPage({ searchParams }: PageProps) {
               rawSearchParams={sp}
             >
               {(events) => (
-                <FumigacionesTable
+                <FumigacionesTableClient
                   events={events}
-                  query={query}
                   sourceFilter={sourceFilter}
                   categoryFilter={categoryFilter}
                   fromDate={fromDate}
                   toDate={toDate}
                   parcelFilter={parcelFilter}
                   droneFilter={droneFilter}
+                  query={query}
                   page={page}
                   rawSearchParams={sp}
                 />
@@ -331,6 +327,10 @@ export default async function FumigacionesPage({ searchParams }: PageProps) {
 // `FumigacionesDataLoader` vive en `./data-loader` (import arriba)
 // para poder testearlo. Antes estaba inline en este archivo
 // (Sprint Fase 2 / Q1, 2026-08-23).
+//
+// `FumigacionesTableClient` (con checkboxes + bulk actions) vive
+// en `./fumigaciones-table` desde el Bloque F (2026-08-29) — es
+// client component, se separa del server component padre.
 
 function FumigacionesCounts({
   events,
@@ -354,300 +354,4 @@ function FumigacionesCounts({
           : `${fmtInt(events.length)} fumigaciones`}
     </p>
   );
-}
-
-function FumigacionesTable({
-  events,
-  query,
-  sourceFilter,
-  categoryFilter,
-  fromDate,
-  toDate,
-  parcelFilter,
-  droneFilter,
-  page,
-  rawSearchParams
-}: {
-  /**
-   * Array compartido de fumigaciones. Viene del
-   * `FumigacionesDataLoader` (Sprint Fase 2 / Q1, 2026-08-23).
-   * Antes: `await getRecentFumigations(2000)` acá adentro.
-   * Ahora: el Loader lo trae una vez y lo pasa.
-   */
-  events: DjiFumigationEvent[];
-  query: string;
-  sourceFilter: "djiscraper" | "import" | "manual" | null;
-  /** Sprint 2026-08-13 — sub-2. id de FUMIGATION_CATEGORIES o null. */
-  categoryFilter: number | null;
-  /** Sprint 2026-08-13 — polish v1. Filtros temporales (YYYY-MM-DD). */
-  fromDate: string | null;
-  toDate: string | null;
-  parcelFilter: number | null;
-  droneFilter: number | null;
-  page: number;
-  /**
-   * SearchParams crudos del padre. Necesarios para que Pagination
-   * preserve los filtros activos al cambiar de página (fix bug
-   * pre-existente + polish v1).
-   */
-  rawSearchParams: FumigacionesSearchParams;
-}) {
-  // Filtros aplicados en server (mismo patron que /admin/parcels).
-  // El array ya viene cargado del Loader compartido.
-  const all = events;
-  const filtered = all.filter((f) => {
-    if (sourceFilter && f.source !== sourceFilter) return false
-    if (categoryFilter != null && f.category_id !== categoryFilter) return false
-    if (parcelFilter != null && f.parcel_id !== parcelFilter) return false
-    if (droneFilter != null && f.drone_code_used !== droneFilter) return false
-    if (fromDate && f.fumigation_date < fromDate) return false
-    if (toDate && f.fumigation_date > toDate) return false
-    if (query) {
-      const q = query.toLowerCase()
-      const haystack = [
-        f.product_used ?? "",
-        f.notes ?? "",
-        f.human_notes ?? "",
-        f.product_registered_ica ?? "",
-        f.pilot_license ?? "",
-        f.recorded_by ?? "",
-        String(f.parcel_id)
-      ]
-        .join(" ")
-        .toLowerCase()
-      if (!haystack.includes(q)) return false
-    }
-    return true
-  })
-
-  // Paginación simple (slice en memoria).
-  const total = filtered.length
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
-  const safePage = Math.min(page, totalPages)
-  const start = (safePage - 1) * PAGE_SIZE
-  const rows = filtered.slice(start, start + PAGE_SIZE)
-
-  return (
-    <>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[900px] text-sm">
-          <thead className="border-y border-border bg-muted/60 text-xs uppercase tracking-wide text-muted-foreground">
-            <tr>
-              <th className="px-3 py-2.5 text-left font-semibold">Fecha</th>
-              <th className="px-3 py-2.5 text-left font-semibold">Parcela</th>
-              <th className="px-3 py-2.5 text-left font-semibold">Producto</th>
-              <th className="px-3 py-2.5 text-right font-semibold">Dosis</th>
-              <th className="px-3 py-2.5 text-right font-semibold">Área</th>
-              <th className="px-3 py-2.5 text-left font-semibold">Fuente</th>
-              <th className="px-3 py-2.5 text-left font-semibold">Registrado por</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.length === 0 ? (
-              <tr>
-                <td colSpan={7} className="px-3 py-12 text-center text-sm text-muted-foreground">
-                  Sin fumigaciones con esos filtros. Probá limpiar la búsqueda o cambiar la fuente.
-                </td>
-              </tr>
-            ) : (
-              rows.map((f) => <FumigationRow key={f.id} f={f} />)
-            )}
-          </tbody>
-        </table>
-      </div>
-      {totalPages > 1 ? (
-        <Pagination
-          searchParams={rawSearchParams}
-          page={safePage}
-          totalPages={totalPages}
-        />
-      ) : null}
-      <p className="border-t border-border px-3 py-2 text-center font-mono text-[11px] text-muted-foreground">
-        {`página ${safePage} de ${totalPages} · ${fmtInt(total)} resultados`}
-      </p>
-    </>
-  )
-}
-
-function FumigationRow({ f }: { f: DjiFumigationEvent }) {
-  // Variante del badge por fuente: DJI = secondary (gris, automático),
-  // manual = default (primary, destacado, viene del operador).
-  const sourceVariant: "default" | "secondary" =
-    f.source === "manual" ? "default" : "secondary"
-  const sourceLabel = f.source === "manual" ? "Manual" : "DJI"
-
-  // Sprint 2026-08-13 — sub-2. Badge de categoría curada. Resolvemos
-  // por el objeto hidratado (JOIN) o por el id contra el catálogo
-  // client-side (caso tests con mocks parciales).
-  const category =
-    f.category ??
-    (f.category_id != null
-      ? FUMIGATION_CATEGORIES.find((c) => c.id === f.category_id) ?? null
-      : null)
-
-  return (
-    <tr className="border-b border-border/60 transition-colors last:border-0 hover:bg-muted/40">
-      <td className="px-3 py-2.5">
-        <div className="flex items-center gap-2">
-          <Calendar className="size-3.5 text-muted-foreground" aria-hidden />
-          <div>
-            <p className="font-mono text-sm font-semibold tabular-nums">
-              {fmtDate(f.fumigation_date)}
-            </p>
-            {f.recorded_at ? (
-              <p className="font-mono text-[10px] text-muted-foreground">
-                {fmtDateTime(f.recorded_at)}
-              </p>
-            ) : null}
-          </div>
-        </div>
-      </td>
-      <td className="px-3 py-2.5">
-        <Link
-          href={`/parcelas/${f.parcel_id}`}
-          className="inline-flex items-center gap-1 text-sm font-semibold text-foreground hover:underline focus-visible:underline focus-visible:outline-none"
-        >
-          <Sprout className="size-3.5 text-muted-foreground" aria-hidden />
-          {`#${f.parcel_id}`}
-        </Link>
-      </td>
-      <td className="px-3 py-2.5">
-        {/* El producto + ID de fumigación son links a la ficha individual.
-            Esto resuelve el pedido del operador de poder navegar
-            fumigaciones por URL propia. Sprint 2026-08-05.
-            Fix visual v2 (2026-08-13): el link no se percibía como
-            clickeable (texto negro sobre negro, sin affordance). Se
-            agrega color primary, hover bg sutil, chevron al final y
-            focus ring explícito. */}
-        <Link
-          href={`/fumigacion/${f.id}`}
-          aria-label={`Ver detalle de la fumigación #${f.id} (${f.product_used ?? "sin producto"})${category ? `, tipo ${category.label}` : ", sin clasificar"}`}
-          className="group -mx-1 inline-flex max-w-full cursor-pointer flex-col gap-0.5 rounded-sm px-1 py-0.5 text-foreground transition-colors hover:bg-primary/5 focus-visible:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-        >
-          <p className="font-mono text-[10px] text-muted-foreground">
-            {`#${f.id}`}
-          </p>
-          <p className="inline-flex items-center gap-1 font-medium text-primary group-hover:underline">
-            <span className="truncate">{f.product_used ?? "—"}</span>
-            <ChevronRight
-              className="size-3 shrink-0 opacity-50 transition-opacity group-hover:opacity-100"
-              aria-hidden
-            />
-          </p>
-        </Link>
-        {category ? (
-          <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            {category.label}
-          </p>
-        ) : (
-          <p className="mt-0.5 text-[10px] italic text-muted-foreground">
-            Sin clasificar
-          </p>
-        )}
-        {f.product_registered_ica ? (
-          <p className="font-mono text-[10px] text-muted-foreground">
-            ICA {f.product_registered_ica}
-          </p>
-        ) : null}
-      </td>
-      <td className="px-3 py-2.5 text-right font-mono tabular-nums">
-        {f.dose_l_per_ha !== null ? `${fmtDec(f.dose_l_per_ha)} L/ha` : "—"}
-      </td>
-      <td className="px-3 py-2.5 text-right font-mono tabular-nums">
-        {formatArea(f.area_fumigated_m2)}
-      </td>
-      <td className="px-3 py-2.5">
-        <Badge variant={sourceVariant} className="text-[10px]">
-          {sourceLabel}
-        </Badge>
-        {f.n_matched_flights !== undefined && f.n_matched_flights !== null ? (
-          <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">
-            {f.n_matched_flights} vuelos
-          </p>
-        ) : null}
-      </td>
-      <td className="px-3 py-2.5">
-        <div className="flex items-center gap-1.5">
-          <Droplets className="size-3.5 text-muted-foreground" aria-hidden />
-          <span className="text-xs text-muted-foreground">
-            {f.recorded_by ?? "—"}
-          </span>
-        </div>
-      </td>
-    </tr>
-  )
-}
-
-/**
- * Formatea el área fumigada de m² a ha con 2 decimales. Si el valor
- * es null o no es number, devuelve "—". Helper fuera del componente
- * FumigationRow para que TS infiera el tipo de `area_fumigated_m2`
- * correctamente (number | null del query, no number | bigint | string).
- */
-function formatArea(m2: number | null | undefined): string {
-  if (m2 == null) return "—"
-  // ha con 2 decimales. fmtInt formatea a string con separador de
-  // miles, asi que NO se puede dividir despues — operamos con number.
-  const ha = m2 / 10_000
-  return `${(Math.round(ha * 100) / 100).toFixed(2)} ha`
-}
-
-function Pagination({
-  searchParams,
-  page,
-  totalPages
-}: {
-  /**
-   * Sprint 2026-08-13 — polish v1. SearchParams activos. La paginación
-   * los preserva al cambiar de página — fix de bug pre-existente
-   * (antes cambiar de página perdía los filtros `q`, `source`, etc.).
-   */
-  searchParams: FumigacionesSearchParams
-  page: number
-  totalPages: number
-}) {
-  // Paginación básica. 5 links visibles: 2 antes, actual, 2 después.
-  const start = Math.max(1, page - 2)
-  const end = Math.min(totalPages, start + 4)
-  const items: number[] = []
-  for (let i = start; i <= end; i++) items.push(i)
-  return (
-    <nav
-      className="flex items-center justify-center gap-1 border-t border-border px-3 py-3"
-      aria-label="Paginación"
-    >
-      {page > 1 ? (
-        <Link
-          href={buildPageUrl(searchParams, page - 1)}
-          className="rounded-md border border-input bg-card px-2.5 py-1 text-xs hover:bg-muted"
-          aria-label={`Página anterior (${page - 1})`}
-        >
-          ← Anterior
-        </Link>
-      ) : null}
-      {items.map((i) => (
-        <Link
-          key={i}
-          href={buildPageUrl(searchParams, i)}
-          className={`rounded-md border px-2.5 py-1 text-xs ${
-            i === page
-              ? "border-primary bg-primary text-primary-foreground"
-              : "border-input bg-card hover:bg-muted"
-          }`}
-          aria-label={i === page ? `Página actual (${i})` : `Ir a página ${i}`}
-        >
-          {i}
-        </Link>
-      ))}
-      {page < totalPages ? (
-        <Link
-          href={buildPageUrl(searchParams, page + 1)}
-          className="rounded-md border border-input bg-card px-2.5 py-1 text-xs hover:bg-muted"
-          aria-label={`Página siguiente (${page + 1})`}
-        >
-          Siguiente →
-        </Link>
-      ) : null}
-    </nav>
-  )
 }

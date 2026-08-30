@@ -1569,6 +1569,199 @@ export async function restoreFumigationEvent(
 }
 
 /**
+ * Resultado de un bulk-delete: fumigaciones que se borraron + las
+ * que se saltearon (no existían o ya estaban soft-deleted).
+ *
+ * Para evitar N+1 en el audit log, el repo devuelve el row COMPLETO
+ * pre-delete de cada fumigación afectada (`affected[]`). El endpoint
+ * usa eso para el snapshot sin un SELECT extra por fumigación.
+ */
+export interface BulkDeleteResult {
+  /** Fumigaciones borradas, con su snapshot pre-delete. */
+  affected: { id: number; before: DjiFumigationEvent }[];
+  /** Ids que se saltearon (ya soft-deleted o no existían). */
+  skippedIds: number[];
+}
+
+/**
+ * Soft-delete en bulk de N fumigaciones. Marca `deleted_at = NOW()` y
+ * `deleted_by = deletedBy` para cada id. Idempotente: fumigaciones
+ * ya soft-deleted se cuentan como `skipped` y no se modifican. Las
+ * fumigaciones inexistentes también se cuentan como `skipped`.
+ *
+ * Para evitar N+1 en el audit log, el repo devuelve el snapshot
+ * pre-delete de cada fumigación afectada (1 SELECT + 1 UPDATE).
+ *
+ * Sprint 2026-08-29 — feature/bloque-f-bulk-operations.
+ */
+export async function bulkSoftDeleteFumigations(
+  ids: number[],
+  deletedBy: string
+): Promise<BulkDeleteResult> {
+  if (ids.length === 0) {
+    return { affected: [], skippedIds: [] };
+  }
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      // 1) Traer los rows pre-delete (no soft-deleted) para tener
+      // el snapshot completo antes de aplicar el UPDATE. Esto es 1
+      // round-trip en vez de N+1.
+      const candidates = await db.query<DjiFumigationEvent>(
+        `SELECT id, parcel_id, fumigation_date, product_used, dose_l_per_ha,
+                area_fumigated_m2, drone_code_used, duration_minutes, notes,
+                human_notes, recorded_by, product_registered_ica, pilot_license,
+                category_id, application_type_id, vehicle_plate, recorded_at, source,
+                deleted_at, deleted_by
+           FROM dji_fumigations
+          WHERE id = ANY($1::bigint[])
+            AND deleted_at IS NULL`,
+        [ids]
+      );
+      if (candidates.rows.length === 0) {
+        return { affected: [], skippedIds: [...ids] };
+      }
+
+      // 2) UPDATE bulk.
+      const candidateIds = candidates.rows.map((r) => r.id);
+      const result = await db.query<{ id: number }>(
+        `UPDATE dji_fumigations
+            SET deleted_at = NOW(),
+                deleted_by = $2
+          WHERE id = ANY($1::bigint[])
+            AND deleted_at IS NULL
+        RETURNING id`,
+        [candidateIds, deletedBy]
+      );
+      if (result.rows.length === 0) {
+        return { affected: [], skippedIds: [...ids] };
+      }
+      invalidateAfterFumigationMutation();
+
+      // 3) Mapear affected: para cada id en el result del UPDATE,
+      // buscar el `before` correspondiente en candidates. Si no está
+      // (race: soft-deleted entre el SELECT y el UPDATE), lo salteo.
+      const beforeById = new Map(candidates.rows.map((r) => [r.id, r]));
+      const updatedSet = new Set(result.rows.map((r) => r.id));
+      const affected: { id: number; before: DjiFumigationEvent }[] = [];
+      for (const id of updatedSet) {
+        const before = beforeById.get(id);
+        if (before) {
+          affected.push({ id, before });
+        }
+      }
+      const affectedIdSet = new Set(affected.map((a) => a.id));
+      const skippedIds = ids.filter((id) => !affectedIdSet.has(id));
+
+      return { affected, skippedIds };
+    },
+    async () => ({ affected: [], skippedIds: [...ids] })
+  );
+}
+
+/**
+ * Resultado detallado del bulk-update de categoría: además de los
+ * ids, devuelve la categoría ANTERIOR de cada fumigación afectada
+ * para que el caller (endpoint) pueda construir el audit log sin
+ * un SELECT extra por fumigación.
+ */
+export interface BulkCategoryUpdateResult {
+  affected: { id: number; oldCategoryId: number | null }[];
+  skippedIds: number[];
+}
+
+/**
+ * Update en bulk de la categoría (`category_id`) de N fumigaciones.
+ * Acepta `null` para limpiar la categoría (sin clasificar). El id de
+ * categoría se valida por FK en la BD; si algún id no existe, esa
+ * fumigación se cuenta como `skipped` (no rompe el batch).
+ *
+ * Si una fumigación YA tiene la categoría destino, se cuenta como
+ * `skipped` (no-op, no se inserta audit para no llenar el log con
+ * "el operador no cambió nada"). Si la fumigación tiene otra
+ * categoría, se actualiza y se cuenta como `affected`.
+ *
+ * Soft-deleted fumigaciones se saltean siempre (no se editan
+ * fumigaciones borradas).
+ *
+ * **IMPORTANTE:** Este repo NO registra audit. El caller (endpoint)
+ * recibe `affected[].oldCategoryId` y registra en `fumigation_audit_log`
+ * con action `edited` y diff `{ category_id: { from, to } }`.
+ *
+ * Implementación: 2 round-trips (SELECT old + UPDATE). Podría hacerse
+ * en 1 con un CTE `WITH old AS ... UPDATE ... RETURNING`, pero
+ * mantener 2 queries es más legible y el costo es despreciable
+ * (N <= 200 por cap del endpoint).
+ *
+ * Sprint 2026-08-29 — feature/bloque-f-bulk-operations.
+ */
+export async function bulkUpdateFumigationCategory(
+  ids: number[],
+  categoryId: number | null
+): Promise<BulkCategoryUpdateResult> {
+  if (ids.length === 0) {
+    return { affected: [], skippedIds: [] };
+  }
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      // 1) Traer las fumigaciones candidatas (no soft-deleted) con
+      // su `category_id` actual. Esto nos da la lista de fumigaciones
+      // que potencialmente se actualizan, más el valor anterior para
+      // el audit log.
+      const candidates = await db.query<{ id: number; category_id: number | null }>(
+        `SELECT id, category_id
+           FROM dji_fumigations
+          WHERE id = ANY($1::bigint[])
+            AND deleted_at IS NULL`,
+        [ids]
+      );
+
+      // 2) Filtrar las que REALMENTE cambian (idempotencia en JS).
+      // null handling: `null → 5` cambia, `null → null` no,
+      // `5 → 5` no, `5 → 3` cambia.
+      const toUpdate: { id: number; oldCategoryId: number | null }[] = [];
+      for (const row of candidates.rows) {
+        const sameAsTarget =
+          row.category_id === categoryId ||
+          (row.category_id == null && categoryId == null);
+        if (!sameAsTarget) {
+          toUpdate.push({ id: row.id, oldCategoryId: row.category_id });
+        }
+      }
+
+      if (toUpdate.length === 0) {
+        // Nada para hacer — todas las fumigaciones ya estaban en la
+        // categoría destino, o no existían / estaban soft-deleted.
+        return { affected: [], skippedIds: [...ids] };
+      }
+
+      // 3) UPDATE bulk de los que sí cambian.
+      const updateIds = toUpdate.map((t) => t.id);
+      const result = await db.query<{ id: number }>(
+        `UPDATE dji_fumigations
+            SET category_id = $2
+          WHERE id = ANY($1::bigint[])
+        RETURNING id`,
+        [updateIds, categoryId]
+      );
+      invalidateAfterFumigationMutation();
+
+      // 4) affected = intersección entre toUpdate y el result del
+      // UPDATE (un soft-delete concurrente podría haber eliminado
+      // alguno entre el SELECT y el UPDATE — caso marginal).
+      const updatedSet = new Set(result.rows.map((r) => r.id));
+      const affected = toUpdate.filter((t) => updatedSet.has(t.id));
+      const affectedIdSet = new Set(affected.map((a) => a.id));
+      const skippedIds = ids.filter((id) => !affectedIdSet.has(id));
+
+      return { affected, skippedIds };
+    },
+    async () => ({ affected: [], skippedIds: [...ids] })
+  );
+}
+
+/**
  * Valida que un valor sea una `FumigationAuditAction` válida. Usado
  * por `insertFumigationAuditEvent` para defense-in-depth — el CHECK
  * de la BD también valida, pero queremos devolver errores tipados en
