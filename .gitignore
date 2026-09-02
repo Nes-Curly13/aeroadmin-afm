@@ -97,11 +97,28 @@ playwright-report/
 
 # ============================================================
 # Sprint one-off diagnostic / debug scripts (kept on disk,
-# not part of MVP â€” recreated on demand if needed)
+# not part of MVP — recreated on demand if needed)
 # ============================================================
 /scripts/diag-*.js
 /scripts/debug-*.js
-/scripts/capture-aggr-from-records.js
+# S9 (2026-08-30): scripts con prefijo underscore son de una sola vez
+# (debug, screenshot, validacion manual). Operacionales se commitean
+# (sin underscore) — ver scripts/spatial-join-v2.js, scripts/backfill-*.
+# Convencion: prefijo `_` = NO se commitea, aunque este en el repo.
+/scripts/_*.js
+/scripts/_*.cjs
+# S9 (2026-08-30): snapshots/ son dumps JSON de audit / investigacion
+# (ej. state de fumigaciones, conteos de spatial-join). Gitignored.
+/snapshots/
+# S9 (2026-08-30): screenshots de revision visual one-off. No son
+# assets de UI (los reales viven en public/ o se generan en build).
+# Si se commitea uno, es intencional (ej. PR description).
+/screenshots/fum-*.png
+/screenshots/_*.png
+# S9 (2026-08-30): tmp-pr-body-* son drafts de PR description que se
+# generan durante el review. Borrar antes de commitear.
+# /tmp-pr-body-*.md y /tmp-prod-test/ ya estaban parcialmente.
+/tmp-prod-test/
 
 # ============================================================
 # Local-only artifacts (dev server logs / pidfile / plan state)

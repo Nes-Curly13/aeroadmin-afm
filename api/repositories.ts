@@ -1060,6 +1060,152 @@ export async function getAllFumigationSchedules(): Promise<Map<number, DjiFumiga
  * debe pasar un `limit` explícito mayor a 500 o usar
  * `getRecentFumigations` con `parcelIds` + filtros de fecha.
  */
+/**
+ * Sprint S9 (2026-08-30) — feature/multi-parcela-fumigation.
+ *
+ * Helper que resuelve un array de `parcel_external_id` (que es lo que
+ * vive en `dji_fumigations.parcels[]`) a un shape mínimo para mostrar
+ * en UI: id, land_name, field_type.
+ *
+ * Usado por `/fumigacion/[id]` para listar las "Otras suertes cubiertas"
+ * con links a `/parcelas/[id]`. La fumigación guarda los `external_id`
+ * (text[]) para mantener compat con el resto de la app (CSV reports,
+ * URLs, etc.) que ya usan external_id como identificador público.
+ *
+ * Si la lista de external_ids está vacía, devuelve [] sin tocar la BD.
+ * Soft-deleted parcels (`deleted_at IS NOT NULL`) se filtran para
+ * que no aparezcan como "suerte activa" en fumigaciones históricas.
+ */
+export async function getParcelsByExternalIds(
+  externalIds: string[]
+): Promise<Array<{
+  id: number;
+  external_id: string;
+  land_name: string | null;
+  field_type: string;
+}>> {
+  if (!externalIds || externalIds.length === 0) return [];
+  const db = getDb();
+  try {
+    const result = await db.query<{
+      id: number;
+      external_id: string;
+      land_name: string | null;
+      field_type: string;
+    }>(
+      `SELECT id, external_id, land_name, field_type
+       FROM dji_parcels
+       WHERE external_id = ANY($1::text[])
+         AND deleted_at IS NULL
+       ORDER BY land_name NULLS LAST`,
+      [externalIds]
+    );
+    return result.rows;
+  } catch (err) {
+    if (process.env.NODE_ENV !== "production") return [];
+    throw err;
+  }
+}
+
+/**
+ * Sprint S9 — feature/standalone-fumigation-v2 (2026-08-30).
+ *
+ * Resuelve TODAS las suertes cubiertas por una fumigación (1 primaria +
+ * N secundarias del array `parcels[]`) con su geometría `spray_geometry`
+ * + área declarada. Usado por `/fumigacion/[id]` para renderizar el mapa
+ * multi-parcela y calcular totales del "plan".
+ *
+ * Shape de retorno (un row por parcela, marcado `is_primary`):
+ *   - id, external_id, land_name, field_type
+ *   - declared_area_ha  — area declarada por el operador (la que se factura)
+ *   - spray_geometry    — GeoJSON Polygon (puede ser null si la parcela
+ *                         no fue scrapeada con geometría)
+ *
+ * Input:
+ *   - primaryParcelId  — `dji_fumigations.parcel_id`
+ *   - secondaryExternalIds — `dji_fumigations.parcels[]` (puede ser [])
+ *
+ * Estrategia SQL: dos queries en paralelo (primary y secondaries), union
+ * en JS. Más simple que un UNION ALL con dos paths de JOIN y permite
+ * marcar `is_primary` claramente. El costo es 1 round-trip extra cuando
+ * hay secondaries; aceptable.
+ */
+export interface FumigationParcelForMap {
+  id: number;
+  external_id: string;
+  land_name: string | null;
+  field_type: string;
+  declared_area_ha: number | string | null;
+  spray_geometry: GeoJSON.Geometry | null;
+  is_primary: boolean;
+}
+
+export async function getFumigationParcelsForMap(
+  primaryParcelId: number | null,
+  secondaryExternalIds: string[] | null | undefined
+): Promise<FumigationParcelForMap[]> {
+  const db = getDb();
+  const ids: number[] = [];
+  const externals: string[] = [];
+
+  if (primaryParcelId != null) ids.push(primaryParcelId);
+  if (secondaryExternalIds && secondaryExternalIds.length > 0) {
+    externals.push(...secondaryExternalIds);
+  }
+  if (ids.length === 0 && externals.length === 0) return [];
+
+  const result: FumigationParcelForMap[] = [];
+  const errors: unknown[] = [];
+
+  // 1) Parcela primaria por id
+  if (ids.length > 0) {
+    try {
+      const r = await db.query<Omit<FumigationParcelForMap, "is_primary">>(
+        `SELECT id, external_id, land_name, field_type,
+                declared_area_ha,
+                ST_AsGeoJSON(spray_geom)::json AS spray_geometry
+           FROM dji_parcels
+          WHERE id = ANY($1::bigint[])
+            AND deleted_at IS NULL`,
+        [ids]
+      );
+      for (const row of r.rows) {
+        result.push({ ...row, is_primary: true });
+      }
+    } catch (err) {
+      errors.push(err);
+    }
+  }
+
+  // 2) Secundarias por external_id (puede traer 0 si alguna no matchea)
+  if (externals.length > 0) {
+    try {
+      const r = await db.query<Omit<FumigationParcelForMap, "is_primary">>(
+        `SELECT id, external_id, land_name, field_type,
+                declared_area_ha,
+                ST_AsGeoJSON(spray_geom)::json AS spray_geometry
+           FROM dji_parcels
+          WHERE external_id = ANY($1::text[])
+            AND deleted_at IS NULL`,
+        [externals]
+      );
+      for (const row of r.rows) {
+        // No duplicar si la primaria también está en externals
+        if (!result.some((p) => p.id === row.id)) {
+          result.push({ ...row, is_primary: false });
+        }
+      }
+    } catch (err) {
+      errors.push(err);
+    }
+  }
+
+  if (errors.length > 0 && process.env.NODE_ENV === "production") {
+    throw errors[0];
+  }
+  return result;
+}
+
 export async function getFumigationEventsByParcel(
   parcelId: number,
   limit: number = 50
@@ -1117,6 +1263,11 @@ export async function getFumigationById(id: number): Promise<DjiFumigationEvent 
           f.source,
           f.category_id,
           f.flight_ids,
+          -- Sprint S9 (2026-08-30) — feature/multi-parcela-fumigation.
+          -- Lista de suertes SECUNDARIAS (excluye parcel_id primario).
+          -- Default '{}' en fumigaciones single-parcela o sin flight_ids.
+          -- Lo popula scripts/backfill-fumigation-parcels.js.
+          COALESCE(f.parcels, '{}') AS parcels,
           -- Sprint S7 — feature/s7-schema-extension.
           f.application_type_id,
           -- Sprint S7 / Fase 1 (PR-B): placa del vehículo usado
@@ -1173,6 +1324,9 @@ export async function getFumigationById(id: number): Promise<DjiFumigationEvent 
     if (!row) return null;
     return {
       ...row,
+      // Sprint S9 — parcels[] puede venir como {} (default) o null.
+      // Normalizamos a [] para que la UI pueda hacer .length sin check.
+      parcels: row.parcels && row.parcels.length > 0 ? row.parcels : [],
       fumigation_date: toDateString(row.fumigation_date) ?? ""
     };
   } catch (err) {
@@ -1221,6 +1375,11 @@ export async function getFumigationRawById(
           f.source,
           f.category_id,
           f.flight_ids,
+          -- Sprint S9 (2026-08-30) — feature/multi-parcela-fumigation.
+          -- Lista de suertes SECUNDARIAS (excluye parcel_id primario).
+          -- Default '{}' en fumigaciones single-parcela o sin flight_ids.
+          -- Lo popula scripts/backfill-fumigation-parcels.js.
+          COALESCE(f.parcels, '{}') AS parcels,
           f.deleted_at,
           f.deleted_by,
           -- Sprint S7 — application_type_id + catálogo hidratado.
@@ -1245,6 +1404,7 @@ export async function getFumigationRawById(
     if (!row) return null;
     return {
       ...row,
+      parcels: row.parcels && row.parcels.length > 0 ? row.parcels : [],
       fumigation_date: toDateString(row.fumigation_date) ?? ""
     };
   } catch (err) {
@@ -1270,12 +1430,27 @@ export interface FumigationFlightRow {
   start_at: string;
   pilot_name: string | null;
   drone_nickname: string | null;
-  area_m2: number | null;
+  area_m2: number | string | null;
   spray_usage_ml: number | null;
-  duration_min: number | null;
+  /**
+   * Duración en minutos (deriva de `dji_flights.duration_seconds / 60`).
+   * `number | string` porque la division proyecta a `numeric` y `pg`
+   * devuelve numerics como string por default. La UI usa `Intl.NumberFormat`
+   * que acepta ambos.
+   */
+  duration_min: number | string | null;
   /** Lat/lng del flight para el mapa. */
-  lng: number | null;
-  lat: number | null;
+  lng: number | string | null;
+  lat: number | string | null;
+  /**
+   * s9.0 (2026-08-30) — `dji_flights.parcel_id` resuelto por
+   * `scripts/spatial-join-v2.js`. Null para flights que el spatial-join
+   * no pudo asociar a ninguna finca dentro de 200m (orphan).
+   *
+   * Usado por `/fumigacion/[id]` para mostrar la suerte que cubrió
+   * cada vuelo (columna "Suerte" en la tabla de vuelos asociados).
+   */
+  parcel_id: number | null;
 }
 
 export async function getFumigationFlights(
@@ -1292,11 +1467,23 @@ export async function getFumigationFlights(
           drone_nickname,
           area_m2,
           spray_usage_ml,
-          duration_min,
+          -- Sprint S9 (2026-08-30) - fix. La columna real es
+          -- duration_seconds (integer, segundos). La consulta previa
+          -- referenciaba duration_min (que no existe) y el query
+          -- fallaba; el catch en dev devolvia [] silenciosamente,
+          -- ocultando los 14 vuelos asociados en fumigaciones multi-parcela.
+          -- El PDF y CSV reports (fumigation-pdf-template.ts:163,
+          -- fumigation-csv.ts:176) consumian fl.duration_min con el
+          -- mismo bug latente. La conversion seconds->minutos la hace
+          -- la BD con division por 60.0 (numeric).
+          (duration_seconds / 60.0)::numeric AS duration_min,
           ST_X(point)::numeric AS lng,
-          ST_Y(point)::numeric AS lat
+          ST_Y(point)::numeric AS lat,
+          -- s9.0 - parcel_id del flight (resuelto por spatial-join).
+          parcel_id
          FROM dji_flights
-        WHERE flight_id = ANY($1::bigint[])`,
+        WHERE flight_id = ANY($1::bigint[])
+        ORDER BY start_at ASC NULLS LAST`,
       [flightIds]
     );
     return result.rows;

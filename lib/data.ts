@@ -365,7 +365,13 @@ function adaptFumigation(e: DjiFumigationEvent, flightsCount: number): DjiFumiga
     // real. Si es NULL, el evento NO se renderiza.
     lng: e.lng ?? null,
     lat: e.lat ?? null,
-    n_matched_flights: e.n_matched_flights ?? null
+    n_matched_flights: e.n_matched_flights ?? null,
+    // Sprint S9 (2026-08-30) — feature/multi-parcela-fumigation.
+    // El array `parcels[]` (external_ids de suertes secundarias) lo
+    // popula `scripts/backfill-fumigation-parcels.js`. Aquí solo
+    // pasamos al V0 shape junto con el conteo derivado.
+    parcels: e.parcels && e.parcels.length > 0 ? e.parcels : null,
+    n_secondary_parcels: e.parcels ? e.parcels.length : 0
   };
 }
 

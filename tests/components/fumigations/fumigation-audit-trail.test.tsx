@@ -356,3 +356,63 @@ describe("FumigationAuditTrail — badge 'Reconstruido' (backfill)", () => {
     expect(screen.queryByText("Reconstruido")).toBeNull();
   });
 });
+
+/**
+ * Sprint S9 (2026-08-30) — anti-regression para la hydration mismatch
+ * en `formatRelative` (> 30 días → fecha absoluta).
+ *
+ * La causa raíz era: `date.toLocaleString("es-CO")` sin `timeZone`
+ * + el U+202F (NARROW NO-BREAK SPACE) que Intl mete entre la hora
+ * y `p. m.` en ICU 73+. El server (Node 22) y el client (jsdom +
+ * ICU del SO) producían strings distintos, React tiraba #418.
+ *
+ * El fix: usar `formatToParts` y rebuildear con separadores ASCII
+ * explícitos (`/`, `:`, `, `) — sin dayPeriod, sin U+202F.
+ *
+ * Estos tests verifican que la salida:
+ *   1. NO contiene U+202F (la raíz del mismatch)
+ *   2. NO contiene `p. m.` / `a. m.` (lo reemplazamos por 24h)
+ *   3. Matchea el shape `dd/mm/yyyy, hh:mm` (estable entre ICU versions)
+ *   4. Es estable entre renders con el mismo input (idempotencia)
+ */
+describe("FumigationAuditTrail — formatRelative (> 30 días, anti-hydration-mismatch)", () => {
+  // Fecha 100 días atrás, mediodía Bogota del 2026-04-15.
+  // Si el server (UTC) y el client (Bogota) difieren en 5h, el
+  // string podría cambiar de día. Por eso Bogota TZ debe ser
+  // explícita en el formatter.
+  const oldEvent = makeEvent({
+    id: 200,
+    action: "edited",
+    actor_email: "admin@aeroadmin.local",
+    created_at: "2026-04-15T17:00:00.000Z" // 12:00 Bogota
+  });
+
+  it("NO contiene U+202F (NARROW NO-BREAK SPACE) en la salida", () => {
+    const { container } = render(<FumigationAuditTrail events={[oldEvent]} />);
+    // El U+202F es invisible pero podemos buscarlo en el HTML serializado.
+    const html = container.innerHTML;
+    expect(html).not.toContain("\u202F");
+  });
+
+  it("NO incluye 'p. m.' / 'a. m.' (reemplazado por 24h)", () => {
+    const { container } = render(<FumigationAuditTrail events={[oldEvent]} />);
+    const html = container.innerHTML;
+    expect(html).not.toMatch(/p\.\s*m\.|a\.\s*m\./i);
+  });
+
+  it("usa el formato dd/mm/yyyy, hh:mm para fechas absolutas", () => {
+    const { container } = render(<FumigationAuditTrail events={[oldEvent]} />);
+    // 2026-04-15 17:00 UTC = 2026-04-15 12:00 Bogota (UTC-5, sin DST)
+    expect(container.textContent).toMatch(/15\/04\/2026,\s*12:00/);
+  });
+
+  it("es determinista: la misma fecha produce siempre el mismo string", () => {
+    // Verificamos la propiedad clave para evitar hydration mismatches:
+    // 2 inputs identicos → 2 outputs identicos. No importa el "cuando",
+    // solo que sea una funcion pura.
+    const { container: c1 } = render(<FumigationAuditTrail events={[oldEvent]} />);
+    const dateText1 = c1.querySelector("p[title]")?.textContent ?? "";
+    expect(dateText1).toBe("15/04/2026, 12:00");
+    // Cleanup entre renders es responsabilidad de `afterEach(cleanup)` arriba.
+  });
+});

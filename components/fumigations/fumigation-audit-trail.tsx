@@ -144,10 +144,18 @@ function formatValue(field: string, value: unknown): string {
 }
 
 /**
- * "Hace 2 horas" / "Hace 3 días" / "2026-08-15 10:30" si es > 30 días.
- * La fecha viene del servidor en ISO (UTC). Mostramos en TZ local
- * del cliente (que en producción es Bogota, pero el dev local puede
- * ser otra — para v1 lo dejamos así, no es crítico para el audit).
+ * "Hace 2 horas" / "Hace 3 días" / "24/07/2026 03:51" si es > 30 días.
+ * La fecha viene del servidor en ISO (UTC). Mostramos siempre en
+ * America/Bogota (la TZ del operador) para consistencia con
+ * `lib/format.ts#fmtDateTime`.
+ *
+ * Implementación: usamos `formatToParts` y rebuildeamos el string con
+ * separadores ASCII explícitos (`/`, `:`, `, `) en vez de delegar a
+ * `date.toLocaleString()`. Esto evita el U+202F (NARROW NO-BREAK
+ * SPACE) que `Intl.DateTimeFormat` mete entre la hora y `p. m.` en
+ * ICU 73+ — Node y jsdom lo producen distinto, causando React
+ * hydration mismatch #418 (el "1 Issue" rojo que se ve en
+ * /fumigacion/[id]).
  */
 function formatRelative(iso: string): string {
   const date = new Date(iso);
@@ -162,14 +170,19 @@ function formatRelative(iso: string): string {
   if (diffMin < 60) return `hace ${diffMin} min`;
   if (diffHour < 24) return `hace ${diffHour} h`;
   if (diffDay < 30) return `hace ${diffDay} d`;
-  // > 30 días → fecha absoluta
-  return date.toLocaleString("es-CO", {
+  // > 30 días → fecha absoluta en America/Bogota.
+  const dtf = new Intl.DateTimeFormat("es-CO", {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
-    minute: "2-digit"
+    minute: "2-digit",
+    timeZone: "America/Bogota"
   });
+  const parts = dtf.formatToParts(date);
+  const get = (type: Intl.DateTimeFormatPartTypes): string =>
+    parts.find((p) => p.type === type)?.value ?? "";
+  return `${get("day")}/${get("month")}/${get("year")}, ${get("hour")}:${get("minute")}`;
 }
 
 function DiffSection({ diff }: { diff: Record<string, { from: unknown; to: unknown }> }) {

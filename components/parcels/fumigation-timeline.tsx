@@ -1,4 +1,4 @@
-import { Droplets, Plane, User } from "lucide-react"
+import { Droplets, Layers, Plane, User } from "lucide-react"
 import Link from "next/link"
 import { Badge } from "@/components/ui/badge"
 import { droneModel } from "@/lib/data"
@@ -85,6 +85,22 @@ export function FumigationTimeline({
                   <User className="size-3.5" aria-hidden />
                   {f.operator}
                 </span>
+                {/*
+                  Sprint S9 — badge "multi-parcela" en el timeline del V0.
+                  Solo aparece si la fumigación cubrió >1 suerte. El link
+                  apunta a la ficha de la fumigación (que ya tiene la
+                  card de "Otras suertes cubiertas" con el detalle).
+                */}
+                {f.n_secondary_parcels && f.n_secondary_parcels > 0 ? (
+                  <Link
+                    aria-label={`Multi-parcela: cubrió ${f.n_secondary_parcels} suerte${f.n_secondary_parcels === 1 ? "" : "s"} adicional${f.n_secondary_parcels === 1 ? "" : "es"}. Ver detalle.`}
+                    className="inline-flex items-center gap-1 rounded-full border border-chart-1/40 bg-chart-1/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-chart-1 hover:bg-chart-1/20"
+                    href={`/fumigacion/${f.id}`}
+                  >
+                    <Layers className="size-3" aria-hidden />
+                    {`+${f.n_secondary_parcels} suerte${f.n_secondary_parcels === 1 ? "" : "s"}`}
+                  </Link>
+                ) : null}
               </div>
 
               {sortie.length > 0 && (
