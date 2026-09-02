@@ -86,6 +86,24 @@ const nextConfig: NextConfig = {
       }
     ];
   },
+  // S10.3 (2026-08-30) — el logo AFM (`/afm-logo-mark.svg`) no se
+  // renderizaba en el sidebar (alt text "Logo AFM" + ícono de imagen
+  // rota) porque Next.js Image optimizer rechaza SVGs por default
+  // (devuelve 400 Bad Request, a menos que se habilite
+  // `dangerouslyAllowSVG`).
+  //
+  // El SVG es estático y owned by nosotros (`/public/*.svg`), no se
+  // carga de fuentes externas, así que el riesgo de SVG-based attacks
+  // es nulo. La CSP hardcodeada (`script-src 'none'; sandbox;`)
+  // mitiga los vectores de ataque restantes (scripts embebidos, iframes).
+  // `contentDispositionType: 'attachment'` fuerza descarga en lugar de
+  // render para SVGs que NO son logos (defense in depth — por si
+  // alguien sube un SVG en /public con JS embebido).
+  images: {
+    dangerouslyAllowSVG: true,
+    contentDispositionType: "attachment",
+    contentSecurityPolicy: "default-src 'self'; script-src 'none'; sandbox;"
+  },
   // Q1 (2026-07-19, audit §4.2): el sidebar item "HISTORIAL" apunta a
   // /task-history (Figma B) pero /history (legacy) seguía accesible
   // → doble entry point confuso. Redirect permanente para que cualquier
