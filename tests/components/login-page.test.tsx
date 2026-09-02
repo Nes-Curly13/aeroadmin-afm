@@ -19,7 +19,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor, fireEvent, cleanup } from "@testing-library/react";
 import { useRouter } from "next/navigation";
-import LoginPage from "@/app/login/page";
+import LoginPage from "@/app/(public)/login/page";
 
 // Mock next/navigation
 const mockPush = vi.fn();
