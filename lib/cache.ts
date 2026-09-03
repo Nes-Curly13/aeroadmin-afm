@@ -966,3 +966,89 @@ export function invalidateAfterParcelMutation(): void {
 function invalidateTagImmediate(tag: string): void {
   revalidateTag(tag, { expire: 0 });
 }
+
+// ============================================================
+// S10.5 (2026-09-02) — In-flight request coalescing (issue #35)
+// ============================================================
+//
+// Problema: cuando N requests llegan en paralelo para la misma key
+// (cache miss / cache invalidada), cada una dispara su propia query al
+// backend. Bajo carga (dashboard refresh + 5 tabs) esto sondea 5-10
+// queries redundantes al mismo endpoint.
+//
+// Solución: `Map<key, Promise<value>>` que coalesce in-flight. N callers
+// al mismo `key` disparan UNA sola ejecución del `fetcher`; los N-1
+// restantes esperan la misma Promise. El entry se elimina en `.finally()`
+// así la próxima llamada (después del settle) re-fetched fresh — sin
+// poisoned promise si la anterior falló.
+//
+// Diferencia vs `unstable_cache` (next/cache):
+//   - `unstable_cache` deduplica Y persiste entre renders (TTL + tags).
+//   - `cachedFetch` deduplica SOLO durante el in-flight. No persiste.
+//     Después del settle el entry desaparece. Para caching persistente
+//     seguir usando `unstable_cache` con `{ revalidate, tags }`.
+//   - Las dos capas son ortogonales y se pueden combinar: wrappear el
+//     `unstable_cache`-wrapped function dentro de `cachedFetch` agrega
+//     dedup in-flight explícita; wrappear `cachedFetch` dentro de
+//     `unstable_cache` agrega persistencia al patrón in-flight.
+//
+// Por qué NO usar solo `unstable_cache` para esto: `unstable_cache` tiene
+// semánticas de dedup que dependen del runtime de Next (file-system cache
+// + lock por key). En escenarios de cold-cache o invalidaciones, dos
+// requests concurrentes pueden disparar dos callbacks antes de que el
+// cache se popule. `cachedFetch` da dedup determinística y testeable.
+//
+// Performance: el `Map` solo crece durante el in-flight y se vacía en
+// `.finally()`. Memory footprint O(N) donde N = número de keys
+// actualmente en flight, no de keys totales cacheadas. Sin eviction
+// policy porque no persiste.
+//
+// Thread safety: single-threaded JS event loop. El `Map.set` antes del
+// `await` y el `.delete` en `.finally()` corren en el mismo microtask,
+// así que dos callers concurrentes ven la misma entry.
+
+const inFlight = new Map<string, Promise<unknown>>();
+
+/**
+ * Ejecuta `fetcher` deduplicando callers concurrentes para el mismo `key`.
+ *
+ * Comportamiento:
+ *   - Si ya hay una promise in-flight para `key`, devuelve esa (mismo valor
+ *     o error compartido entre todos los callers coalesced).
+ *   - Si no, ejecuta `fetcher`, guarda la promise en el map, y la elimina
+ *     en `.finally()` (settle resolve o reject).
+ *   - La siguiente llamada después del settle re-fetched (no hay cache
+ *     persistente — usar `unstable_cache` para eso).
+ *
+ * @param key Identificador lógico del recurso. Callers coalesced reciben
+ *   la misma Promise cuando usan la misma `key`.
+ * @param fetcher Función async que ejecuta el trabajo real.
+ * @returns El valor resuelto por `fetcher` (type `T`).
+ */
+export async function cachedFetch<T>(
+  key: string,
+  fetcher: () => Promise<T>
+): Promise<T> {
+  const pending = inFlight.get(key);
+  if (pending) {
+    // Cast seguro: la Promise original es de tipo T (el fetcher
+    // resolvió a T cuando se guardó). El `unknown` del Map es para
+    // que el storage sea uniforme entre keys heterogéneas.
+    return pending as Promise<T>;
+  }
+
+  const promise = fetcher().finally(() => {
+    inFlight.delete(key);
+  });
+  inFlight.set(key, promise);
+  return promise;
+}
+
+/**
+ * Test-only: limpia el `Map` de in-flight. NO debe llamarse desde código
+ * de producción — solo desde tests que necesitan aislamiento entre casos.
+ * El prefijo `_` señala "internals, no parte del API público estable".
+ */
+export function _resetInFlight(): void {
+  inFlight.clear();
+}
