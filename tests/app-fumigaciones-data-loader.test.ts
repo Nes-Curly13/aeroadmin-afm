@@ -49,7 +49,7 @@ afterEach(() => {
 describe("FumigacionesDataLoader", () => {
   it("llama getRecentFumigations(2000) UNA SOLA VEZ", async () => {
     const { FumigacionesDataLoader } = await import(
-      "@/app/fumigaciones/data-loader"
+      "@/app/(auth)/fumigaciones/data-loader"
     );
     const result = FumigacionesDataLoader({
       sourceFilter: null,
@@ -62,7 +62,7 @@ describe("FumigacionesDataLoader", () => {
 
   it("children recibe el array de getRecentFumigations", async () => {
     const { FumigacionesDataLoader } = await import(
-      "@/app/fumigaciones/data-loader"
+      "@/app/(auth)/fumigaciones/data-loader"
     );
     const childrenSpy = vi.fn().mockReturnValue(null);
     const result = FumigacionesDataLoader({
@@ -79,7 +79,7 @@ describe("FumigacionesDataLoader", () => {
 
   it("devuelve el resultado de children envuelto en un Fragment", async () => {
     const { FumigacionesDataLoader } = await import(
-      "@/app/fumigaciones/data-loader"
+      "@/app/(auth)/fumigaciones/data-loader"
     );
     const childElement = { type: "div", props: { children: "x" } };
     const result = await FumigacionesDataLoader({
@@ -96,7 +96,7 @@ describe("FumigacionesDataLoader", () => {
     // del Loader — sigue trayendo el array completo. Esto valida que
     // las props dummy no se usan para nada (solo para forzar re-mount).
     const { FumigacionesDataLoader } = await import(
-      "@/app/fumigaciones/data-loader"
+      "@/app/(auth)/fumigaciones/data-loader"
     );
     const r1 = await FumigacionesDataLoader({
       sourceFilter: "manual",
@@ -134,7 +134,7 @@ describe("FumigacionesDataLoader", () => {
   it("si getRecentFumigations rechaza, el error propaga al caller", async () => {
     mockGetRecentFumigations.mockRejectedValueOnce(new Error("BD caída"));
     const { FumigacionesDataLoader } = await import(
-      "@/app/fumigaciones/data-loader"
+      "@/app/(auth)/fumigaciones/data-loader"
     );
     const result = FumigacionesDataLoader({
       sourceFilter: null,
@@ -146,7 +146,7 @@ describe("FumigacionesDataLoader", () => {
   it("array vacío: children recibe []", async () => {
     mockGetRecentFumigations.mockResolvedValueOnce([] as DjiFumigationEvent[]);
     const { FumigacionesDataLoader } = await import(
-      "@/app/fumigaciones/data-loader"
+      "@/app/(auth)/fumigaciones/data-loader"
     );
     const childrenSpy = vi.fn().mockReturnValue(null);
     const result = FumigacionesDataLoader({

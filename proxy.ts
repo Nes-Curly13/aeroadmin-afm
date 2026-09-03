@@ -4,14 +4,15 @@
  * Protege todas las rutas excepto /login + NextAuth handler via el
  * `authorized` callback de NextAuth (en `lib/auth.config.ts`).
  *
- * Ademas (S10.4 — 2026-09-02): setea el header `x-pathname` en la
- * request para que `app/layout.tsx` pueda decidir si wrappear la
- * pagina con AppShell o no. Sin este header, el root layout envuelve
- * TODO con AppShell — incluyendo /login, donde el operador veia el
- * sidebar con "Cerrar sesion" mientras intentaba loguearse
- * (clickear "Ingresar" accidentalmente llamaba a logoutAction).
+ * S10.5 (2026-09-02): se removió la inyección del header `x-pathname`.
+ * En S10.4 ese header se usaba en `app/layout.tsx` (root) para decidir
+ * si wrappear con AppShell o no (workaround porque el root layout
+ * envolvía TODO). Con el refactor a `app/(auth)/` route group, el
+ * AppShell vive en `app/(auth)/layout.tsx` y las páginas públicas
+ * (`app/(public)/login/`) no lo heredan — el pathname ya no se
+ * necesita en el root layout.
  *
- * Por que importa de `auth.config` (no `auth`):
+ * Por qué importa de `auth.config` (no `auth`):
  *   - El proxy corre en Edge runtime. La lib `auth` usa bcryptjs
  *     (Node-only) para el Credentials provider. Si importamos `auth`
  *     aca, el bundle rompe con "edge runtime does not support crypto
@@ -21,22 +22,15 @@
  */
 
 import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
 import NextAuth from "next-auth";
 import { authConfig } from "@/lib/auth.config";
 
 const { auth } = NextAuth(authConfig);
 
-export default auth((request) => {
-  // S10.4: inyectamos el pathname en los headers del request para
-  // que el root layout lo lea via `headers().get("x-pathname")` y
-  // decida si envolver con AppShell o no. Usamos `request: { headers }`
-  // para reescribir los headers que ve el resto del request handling.
-  const requestHeaders = new Headers(request.headers);
-  requestHeaders.set("x-pathname", request.nextUrl.pathname);
-  return NextResponse.next({
-    request: { headers: requestHeaders },
-  });
+export default auth((_request) => {
+  // S10.5: ya no inyectamos headers — el AppShell vive en (auth)/layout.tsx
+  // y el root layout no necesita saber el pathname.
+  return NextResponse.next();
 });
 
 export const config = {
