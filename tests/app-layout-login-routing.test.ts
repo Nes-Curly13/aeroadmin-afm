@@ -146,11 +146,16 @@ describe("Auth pages — AppShell via (auth)/ route group (S10.5)", () => {
     // y compararlo con PUBLIC_PATHS para skipear AppShell en /login.
     // En S10.5 el root layout no necesita nada de eso — /login vive
     // en (public)/, no hereda (auth)/layout.tsx.
+    //
+    // Strip /* ... */ y // ... comments antes de buscar — los comentarios
+    // históricos sobre el workaround no cuentan como uso.
     const rootLayout = join(projectRoot, "app", "layout.tsx");
     const raw = readFileSync(rootLayout, "utf-8");
+    const noBlockComments = raw.replace(/\/\*[\s\S]*?\*\//g, "");
+    const noLineComments = noBlockComments.replace(/^\s*\/\/.*$/gm, "");
     expect(
-      raw.includes("headers()") || raw.includes("PUBLIC_PATHS") || raw.includes("x-pathname"),
-      `app/layout.tsx aún contiene código del workaround de S10.4 (headers(), PUBLIC_PATHS, x-pathname). El root layout debe ser mínimo en S10.5.`
+      noLineComments.includes("headers()") || noLineComments.includes("PUBLIC_PATHS"),
+      `app/layout.tsx aún contiene código del workaround de S10.4 (headers() o PUBLIC_PATHS). El root layout debe ser mínimo en S10.5.`
     ).toBe(false);
   });
 
@@ -160,9 +165,13 @@ describe("Auth pages — AppShell via (auth)/ route group (S10.5)", () => {
       // Si no hay proxy, skip — el test #8 cubre el caso del root layout.
       return;
     }
+    // Strip comments antes de buscar — el comentario histórico sobre
+    // el workaround removido no cuenta como uso actual.
     const raw = readFileSync(proxyPath, "utf-8");
+    const noBlockComments = raw.replace(/\/\*[\s\S]*?\*\//g, "");
+    const noLineComments = noBlockComments.replace(/^\s*\/\/.*$/gm, "");
     expect(
-      raw.includes("x-pathname"),
+      noLineComments.includes("x-pathname"),
       `proxy.ts aún inyecta el header x-pathname. Ese workaround se removió en S10.5 — el AppShell ahora vive en (auth)/layout.tsx y no se necesita el header.`
     ).toBe(false);
   });
