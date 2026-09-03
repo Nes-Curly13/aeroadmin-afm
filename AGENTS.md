@@ -5,23 +5,34 @@
 
 AeroAdmin AFM es la plataforma admin para el operador de drones cañero en Valle del Cauca, Colombia. Lee datos de la nube de DJI SmartFarm, los persiste en PostGIS, y los expone vía Next.js. Cliente: 1 piloto, ~1200 parcelas, ~16k vuelos, ~17k fumigaciones. Single contributor (1 dev).
 
-**Estado actual (2026-08-29)**: sprint **S8 cerrado** (E2E prod testing + 5 bloques de fixes A-E + Bloque F bulk operations + Bloque G cleanup). Master `da26b38` (PR #22 Bloque F mergeado). PR #23 (Bloque G cleanup: 25 scripts borrados, knip.json) en review.
+**Estado actual (2026-09-02)**: sprint **S10 cerrado** (cleanup, audit, SVG Image, fix real de AppShell en /login). Master `ef97c69` (post-merge de PR #31 + cleanup de 4 unused files).
 
 Sprints cerrados anteriores:
 - **S5** (2026-07-28): migración a MapLibre + port del mockup V0
 - **S6** (2026-07-29): polish del MapPageClient + sidebar de salud
 - **S7 v2 + Fase 2** (2026-08-23): captura manual + perf (5 sub-PRs, master `36db3a3` → rebaseado a `da26b38`)
+- **S8** (2026-08-29): E2E prod + Bloques A-G (5 fixes + bulk ops + cleanup)
+- **S9** (2026-08-30): fumigaciones multi-parcela standalone (PR #25, `ac890a5`) — autoría del agente paralelo
+- **S10** (2026-09-02): 4 sprints chicos de cleanup + fix real de AppShell en /login (PRs #27-#31)
 
-S8 se desglosó en:
-- **Bloque A** (PR #21 + `dc14fdd`): Login fix (client-side fetch + `window.location.href`)
-- **Bloque B** (`35de783`+`87c49d1`): Geovisor KPIs VUELOS/VOLUMEN desde `dji_flights`
-- **Bloque C** (`24c4185`): Pipeline DJI reactivado (workflows + runbook, user ya configuró secrets)
-- **Bloque D** (`ccc74d5`+`ad10afe`): React #418 hydration + /dashboard 404 + HECTAREAS ha
-- **Bloque E** (`1855ebd`): Tabla products con ProductPicker (autocomplete + crear)
-- **Bloque F** (PR #22 `da26b38`): Bulk delete + bulk category-assign en /fumigaciones
-- **Bloque G** (PR #23, en review): Cleanup 25 scripts no usados + knip.json config
+S10 se desglosó en:
+- **S10.1** (PR #27 `8fbd391`): bulk cleanup con knip — 46 unused exports + 14 types borrados (22 archivos, +7/-1130).
+- **S10.2** (PR #28 `6750419`): 4 UI audit fixes — `fmtTime` TZ Bogota (hydration #418), branch `role==="viewer"` borrado, docstring drift, test helper huérfano.
+- **S10.3** (PR #29 `10b1148`): `next.config.ts` habilita SVG en `next/image` con CSP `sandbox` + `dangerouslyAllowSVG: true`.
+- **S10.4** (PR #30 `70c114c` + PR #31 `daee3c8`): AppShell ya NO se muestra en `/login`. PR #30 intentó route group `(public)/` (insuficiente en Next.js 16 — los route groups son children del root, no siblings). PR #31 lo arregló con `proxy.ts` que setea `x-pathname` header + check de `PUBLIC_PATHS` en `app/layout.tsx`. TDD estructural: `tests/app-layout-login-routing.test.ts` (5 tests). Cleanup post-merge en `ef97c69`: 4 unused files (`_middleware_disabled.ts`, `scripts/debug-login.mjs`, `scripts/test-login.mjs`, `scripts/screenshot-login-clean.mjs`) → `tmp-trash/s10-4-scripts/`.
 
-Ver `docs/S8_E2E_TESTING.md` (pendiente) y `docs/KNIP_INVENTORY.md` para detalles.
+**Deuda S10 anotada (separar en PRs futuros):**
+- SVG 400 en `/_next/image?url=%2Fafm-logo-mark.svg` (cosmético, no bloquea login). El SVG tiene UTF-8 malformado + el `sandbox` CSP de `next.config.ts` hace que el Image optimizer rechace.
+- Refactor a `app/(auth)/` route group: mover todas las pages autenticadas, poner el AppShell en `app/(auth)/layout.tsx`, remover el check de pathname en `app/layout.tsx`. El workaround `proxy.ts + x-pathname` es funcional pero no idiomático (~30 min de refactor).
+- `pg` bump a `^8.20.0` en master (era `8.20.0` exacto) — el caret es para tolerar patches automáticos del lockfile.
+
+**S10.5 candidates (próximos, en orden de prioridad):**
+1. Post-merge cleanup de knip (ya hecho, ver S10.4).
+2. Index en `dji_fumigaciones.product_id` (FK sin index desde S9) — migration con `CREATE INDEX CONCURRENTLY`. 1h.
+3. Fix SVG 400 en Image optimizer. 1h.
+4. Refactor a `app/(auth)/` route group. 2-3h.
+5. Wire-up CSV/PDF exports con date range (quick-range buttons en /reportes). 2h.
+6. Quality Gauntlet compuertas 4-7 (BDD Gherkin, StrykerJS, smoke DB, métricas continuas). ~½ día cada una.
 
 ---
 
@@ -207,5 +218,5 @@ Un PR de un agente está listo para merge cuando:
 
 ---
 
-**Última actualización:** 2026-08-29 (sprint S8 cerrado — E2E prod testing + 5 bloques de fixes + Bloque F bulk operations + Bloque G cleanup. master `da26b38`).
+**Última actualización:** 2026-09-02 (sprint S10 cerrado — knip cleanup + UI audit + SVG Image + fix real de AppShell en /login. PRs #27-#31 mergeados, master `ef97c69`).
 **Mantenedor:** @agFab (single contributor).
