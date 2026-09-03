@@ -9,12 +9,14 @@
 
 | Issue | Título | Estado | PR |
 |---|---|---|---|
-| #32 | Index en `dji_fumigaciones.product_id` | ❌ Cerrado (no necesario, ya existía) | — |
+| #32 | Index en `dji_fumigaciones.product_id` | 🟡 PR alternativo abierto (rename) | [#39](https://github.com/Nes-Curly13/aeroadmin-afm/pull/39) |
 | #33 | Fix SVG 400 en Image optimizer | 🟡 PR abierto, CI corriendo | [#37](https://github.com/Nes-Curly13/aeroadmin-afm/pull/37) |
 | #34 | Refactor a `app/(auth)/` route group | ✅ MERGED | [#36](https://github.com/Nes-Curly13/aeroadmin-afm/pull/36) |
 | #35 | Circuit-breaker en `lib/cache.ts` | 🟡 PR abierto, CI corriendo | [#38](https://github.com/Nes-Curly13/aeroadmin-afm/pull/38) |
 
-**Master actual**: `0c325d6` (PR #36 mergeado).
+**Master actual**: `7d75a9c` (PR #36 mergeado + este plan doc).
+
+**Nota sobre #32**: el index agent (bg_ab8e35ff) detectó que el index ya existía, pero en vez de cerrar la issue hizo un **rename** del index existente (`idx_fumigations_product_id` → `idx_dji_fumigaciones_product_id`) para matchear la convención del proyecto (`idx_dji_fumigaciones_*`). El cambio es cosmético pero válido. Decisión del user: mergear o cerrar.
 
 ---
 
@@ -38,6 +40,14 @@
 - **Cambio**: nuevo helper `cachedFetch<T>(key, fetcher)` con `Map<key, Promise<value>>` in-flight
 - **Tests**: 4 nuevos en `tests/cache.test.ts` (10/10 pass)
 - **Para mergear**: esperar CI verde + squash + delete-branch
+
+### PR #39 — `feat(db): rename idx_fumigations_product_id` (alternativa a #32)
+
+- **URL**: https://github.com/Nes-Curly13/aeroadmin-afm/pull/39
+- **Branch**: `feat/s10-5-product-id-index`
+- **Commit**: `56ea498`
+- **Cambio**: renombra el index existente `idx_fumigations_product_id` a `idx_dji_fumigaciones_product_id` para matchear la convención del proyecto
+- **Para mergear**: decisión del user. Si el rename se considera valioso, mergear. Si no, cerrar. **No bloquea nada**.
 
 ---
 
