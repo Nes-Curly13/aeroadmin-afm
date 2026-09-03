@@ -88,7 +88,22 @@ export async function AppShell({
                 color de texto del sidebar, así se ve bien en dark y
                 light) y un acento lime (#84cc16) en la F. Sin fondo
                 blanco: el contenedor hereda el bg del sidebar.
-                La palabra "AFM Geovisor" + subtitulo siguen a la derecha. */}
+                La palabra "AFM Geovisor" + subtitulo siguen a la derecha.
+
+                v2.7.3 (S10.5 — fix #33): `unoptimized` para bypassear
+                el Image optimizer de Next.js. El SVG es vector y no
+                necesita re-encoding; el optimizer estaba rechazando
+                `?w=120&...` con 400 porque `120` no está en el
+                allow-list default de `images.imageSizes`
+                ([16, 32, 48, 64, 96, 128, 256, 384]) ni en
+                `images.deviceSizes` ([640, 750, 828, 1080, 1200, ...]).
+                Con `unoptimized`, el `<img src>` es literalmente
+                `/afm-logo-mark.svg` (lo que matchea los E2E selectors
+                en `tests/e2e/logo-sidebar.spec.ts` y
+                `geovisor-ui-changes.spec.ts`). El CSP `sandbox` del
+                `next.config.ts:images.contentSecurityPolicy` sigue
+                aplicando a futuros usos del optimizer; este caso no
+                lo necesita. */}
             <div className="flex h-10 w-[120px] shrink-0 items-center justify-center text-sidebar-foreground">
               <Image
                 src="/afm-logo-mark.svg"
@@ -97,6 +112,7 @@ export async function AppShell({
                 height={40}
                 className="h-full w-full"
                 priority
+                unoptimized
               />
             </div>
             <div className="flex flex-col leading-tight">
