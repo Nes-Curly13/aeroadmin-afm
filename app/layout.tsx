@@ -1,8 +1,5 @@
 import type { Metadata, Viewport } from "next"
-import { headers } from "next/headers"
 import { JetBrains_Mono, Manrope } from "next/font/google"
-import { AppShell } from "@/components/app-shell"
-import { getHealth } from "@/lib/data"
 import "./globals.css"
 
 // `force-dynamic` evita que Next intente resolver la query de `getHealth()`
@@ -37,61 +34,18 @@ export const viewport: Viewport = {
   initialScale: 1,
 }
 
-// S10.4 (2026-09-02) — paths que NO llevan AppShell (rutas públicas).
-// Hoy solo /login. Si en el futuro hay /signup, /forgot-password, etc,
-// agregar aca.
-const PUBLIC_PATHS = new Set(["/login"]);
-
-export default async function RootLayout({
+// S10.5 (2026-09-02) — root layout mínimo. Las páginas autenticadas
+// se wrappean con AppShell via `app/(auth)/layout.tsx`; las públicas
+// (ej: /login en `app/(public)/`) NO lo heredan. Esto reemplaza el
+// workaround de S10.4 (proxy.ts + x-pathname + PUBLIC_PATHS check).
+export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode
 }>) {
-  // S10.4: leemos el pathname de los headers (proxy.ts lo setea via
-  // `request.headers.set("x-pathname", ...)`). Si el path es publico,
-  // NO wrappeamos con AppShell — el operador no debe ver el sidebar
-  // mientras esta en /login.
-  //
-  // Esto es un workaround al bug de Next.js 16 con route groups: la
-  // (public)/layout.tsx no es suficiente porque el root layout sigue
-  // wrappeando con AppShell (los layouts en route groups son CHILDREN
-  // del root, no siblings). Para evitar mover todos los archivos
-  // autenticados a un (auth)/ group (refactor grande), usamos un
-  // check de pathname aca.
-  //
-  // Trade-off: si Next.js cambia la convencion de headers, hay que
-  // actualizar esto. Alternativa correcta a futuro: mover TODOS los
-  // pages autenticados a app/(auth)/ y poner el AppShell en
-  // app/(auth)/layout.tsx.
-  const hdrs = await headers();
-  const pathname = hdrs.get("x-pathname") ?? "";
-  const isPublic = PUBLIC_PATHS.has(pathname) || pathname.startsWith("/_next/");
-
-  if (isPublic) {
-    return (
-      <html lang="es" className="bg-background">
-        <body className="font-sans antialiased">{children}</body>
-      </html>
-    );
-  }
-
-  // Sprint S8.2 (2026-07-29): ya NO llamamos getHealth() en cada request.
-  // El layout corría en TODOS los requests (incluso /login que no necesita
-  // health) y eso causaba un leak de ~3MB/request porque el cache layer de
-  // Next.js retenía la referencia al dataset.
-  //
-  // Health ahora se obtiene via `getHealthForRender()` que solo se llama
-  // en pages que lo necesitan (futuro). Por ahora, el sidebar de AppShell
-  // muestra el status como "unknown" (no fatal — el operador igual puede
-  // navegar; la pagina /admin/djiag-health tiene el estado detallado).
-  //
-  // Si querés el badge "Pipeline DJI AG" en el sidebar, restaurá
-  // `getHealth()` acá, pero esperá el dev server a OOM-crashear.
   return (
     <html lang="es" className="bg-background">
-      <body className="font-sans antialiased">
-        <AppShell>{children}</AppShell>
-      </body>
+      <body className="font-sans antialiased">{children}</body>
     </html>
   )
 }

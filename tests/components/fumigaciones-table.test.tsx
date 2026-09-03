@@ -26,7 +26,7 @@ vi.mock("next/navigation", () => ({
   }))
 }));
 
-import { FumigacionesTableClient } from "@/app/fumigaciones/fumigaciones-table";
+import { FumigacionesTableClient } from "@/app/(auth)/fumigaciones/fumigaciones-table";
 import type { DjiFumigationEvent } from "@/lib/types";
 
 const mockFetch = vi.fn();

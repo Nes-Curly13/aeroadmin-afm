@@ -1,24 +1,31 @@
 /**
  * tests/app-layout-login-routing.test.ts
  *
- * S10.4 (2026-09-01) — fixture de regresión para el bug
- * "AppShell se muestra en /login".
+ * S10.4 (2026-09-01) + S10.5 (2026-09-02) — fixture de regresión para
+ * el bug "AppShell se muestra en /login".
  *
- * ANTES: `app/layout.tsx` envolvía TODO con `<AppShell>{children}</AppShell>`.
+ * ANTES (S10.4): `app/layout.tsx` envolvía TODO con `<AppShell>{children}</AppShell>`.
  * El login page esperaba estar limpio (sin sidebar) — la app mostraba
  * el sidebar con "AFM Geovisor", nav links, "Cerrar sesión" y el logo
  * AFM al lado del form. UX roto: el operador veía su propio panel
  * mientras intentaba loguearse.
  *
- * FIX: route groups de Next.js 16. `app/(public)/login/page.tsx` queda
+ * FIX S10.4: route groups de Next.js 16. `app/(public)/login/page.tsx` queda
  * fuera del shell — `app/(public)/layout.tsx` retorna solo `{children}`.
+ * + workaround: `proxy.ts` setea `x-pathname` + root layout chequea
+ * `PUBLIC_PATHS` para skipear AppShell en /login.
  *
- * Este test verifica que la estructura del layout de /login NO incluye
- * el AppShell. Es un test estático (lee el filesystem) porque renderizar
- * el root layout en jsdom es complejo y el contrato es estructural.
+ * FIX S10.5 (este test): patrón idiomático. El AppShell vive en
+ * `app/(auth)/layout.tsx` (sibling del (public)/ group). El root layout
+ * `app/layout.tsx` queda mínimo. `proxy.ts` no necesita inyectar nada.
  *
- * Si en el futuro alguien mueve login/ fuera de (public)/, este test
- * falla con un mensaje claro.
+ * Este test verifica que la ESTRUCTURA del layout NO incluye el AppShell
+ * en /login y SÍ lo incluye en las páginas autenticadas. Es un test
+ * estático (lee el filesystem) porque renderizar el root layout en jsdom
+ * es complejo y el contrato es estructural.
+ *
+ * Si alguien mueve login/ fuera de (public)/, o mete AppShell de vuelta
+ * en el root layout, este test falla con un mensaje claro.
  */
 
 import { describe, expect, it } from "vitest";
@@ -85,13 +92,78 @@ describe("Root layout routing — /login no debe estar dentro de AppShell", () =
   });
 });
 
-describe("AppShell — sigue intacto en páginas autenticadas", () => {
-  it("5. app/layout.tsx sigue wrappeando con AppShell (no se rompe el resto)", () => {
-    const rootLayout = join(projectRoot, "app", "layout.tsx");
-    const source = readFileSync(rootLayout, "utf-8");
+describe("Auth pages — AppShell via (auth)/ route group (S10.5)", () => {
+  it("5. app/(auth)/layout.tsx existe (route group para páginas autenticadas)", () => {
+    const authLayout = join(projectRoot, "app", "(auth)", "layout.tsx");
     expect(
-      source.includes("AppShell"),
-      "app/layout.tsx debe seguir wrappeando con AppShell para las páginas autenticadas."
+      existsSync(authLayout),
+      `Expected ${authLayout} to exist. Sin este archivo, las páginas autenticadas no se envuelven con AppShell. (Reemplaza el workaround de S10.4 con proxy.ts + x-pathname.)`
     ).toBe(true);
+  });
+
+  it("6. app/(auth)/layout.tsx IMPORTA y RENDERIZA AppShell", () => {
+    const authLayoutPath = join(
+      projectRoot,
+      "app",
+      "(auth)",
+      "layout.tsx"
+    );
+    if (!existsSync(authLayoutPath)) {
+      // El test #5 ya cubre este caso; skip silencioso.
+      return;
+    }
+    const raw = readFileSync(authLayoutPath, "utf-8");
+    // Strip /* ... */ y // ... comments antes de buscar imports/JSX.
+    const noBlockComments = raw.replace(/\/\*[\s\S]*?\*\//g, "");
+    const noLineComments = noBlockComments.replace(/^\s*\/\/.*$/gm, "");
+    const importsAppShell = /import\s+[^;]*AppShell/.test(noLineComments);
+    const rendersAppShell = /<AppShell\b/.test(noLineComments);
+    expect(
+      importsAppShell,
+      `${authLayoutPath} no importa AppShell. El route group (auth) DEBE wrappear con AppShell.`
+    ).toBe(true);
+    expect(
+      rendersAppShell,
+      `${authLayoutPath} no renderiza <AppShell>. El route group (auth) DEBE wrappear con AppShell.`
+    ).toBe(true);
+  });
+
+  it("7. app/layout.tsx (root) NO importa AppShell (S10.5 — simplificado)", () => {
+    const rootLayout = join(projectRoot, "app", "layout.tsx");
+    const raw = readFileSync(rootLayout, "utf-8");
+    const noBlockComments = raw.replace(/\/\*[\s\S]*?\*\//g, "");
+    const noLineComments = noBlockComments.replace(/^\s*\/\/.*$/gm, "");
+    const importsAppShell = /import\s+[^;]*AppShell/.test(noLineComments);
+    const rendersAppShell = /<AppShell\b/.test(noLineComments);
+    expect(
+      importsAppShell || rendersAppShell,
+      `app/layout.tsx (root) importa o renderiza AppShell. En S10.5 el AppShell vive SOLO en app/(auth)/layout.tsx — el root layout debe ser mínimo (solo <html><body>).`
+    ).toBe(false);
+  });
+
+  it("8. app/layout.tsx (root) NO usa headers() ni PUBLIC_PATHS (S10.5 — simplificado)", () => {
+    // El workaround de S10.4 necesitaba leer el pathname via headers()
+    // y compararlo con PUBLIC_PATHS para skipear AppShell en /login.
+    // En S10.5 el root layout no necesita nada de eso — /login vive
+    // en (public)/, no hereda (auth)/layout.tsx.
+    const rootLayout = join(projectRoot, "app", "layout.tsx");
+    const raw = readFileSync(rootLayout, "utf-8");
+    expect(
+      raw.includes("headers()") || raw.includes("PUBLIC_PATHS") || raw.includes("x-pathname"),
+      `app/layout.tsx aún contiene código del workaround de S10.4 (headers(), PUBLIC_PATHS, x-pathname). El root layout debe ser mínimo en S10.5.`
+    ).toBe(false);
+  });
+
+  it("9. proxy.ts NO inyecta x-pathname (S10.5 — simplificado)", () => {
+    const proxyPath = join(projectRoot, "proxy.ts");
+    if (!existsSync(proxyPath)) {
+      // Si no hay proxy, skip — el test #8 cubre el caso del root layout.
+      return;
+    }
+    const raw = readFileSync(proxyPath, "utf-8");
+    expect(
+      raw.includes("x-pathname"),
+      `proxy.ts aún inyecta el header x-pathname. Ese workaround se removió en S10.5 — el AppShell ahora vive en (auth)/layout.tsx y no se necesita el header.`
+    ).toBe(false);
   });
 });
