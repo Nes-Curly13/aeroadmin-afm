@@ -55,6 +55,15 @@ const providers = cfg.providers as Array<{
   id: string;
   credentials?: unknown;
   authorize: (creds: unknown) => Promise<unknown>;
+  // S10.5.1 — el provider de NextAuth v5 pone el `authorize` real en
+  // `options.authorize`, NO en el top-level (que está hardcoded a `() => null`
+  // como safety default — ver node_modules/@auth/core/providers/credentials.js
+  // líneas 39-40). El runtime de NextAuth mergea options sobre defaults
+  // en lib/utils/providers.js:14-20, pero los unit tests ven el provider
+  // SIN mergear. Por eso los tests que hacen `providers[0].authorize(...)`
+  // siempre retornan null (el safety default). Para ejercitar el catch
+  // path del authorize real, hay que invocar `providers[0].options.authorize`.
+  options?: { authorize?: (creds: unknown) => Promise<unknown> };
 }>;
 const callbacks = cfg.callbacks as {
   jwt: (a: { token: Record<string, unknown>; user?: unknown }) => Promise<Record<string, unknown>>;
@@ -194,6 +203,53 @@ describe("lib/auth — Credentials.authorize: input shape (sin tocar BD)", () =>
       password: "Secreto123!"
     });
     expect(r).toBeNull();
+  });
+
+  it("BD no disponible -> logea el error al server (para Vercel logs), pero no lo filtra al cliente", async () => {
+    // S10.5.1 (2026-09-04) — bug fix: el catch silencioso de authorize()
+    // ocultaba la causa real del CredentialsSignin. Ahora se loguea al
+    // server (Vercel logs) y el cliente sigue recibiendo null (no se filtra
+    // el stack al browser — info disclosure risk).
+    //
+    // NOTA: el Credentials provider de NextAuth v5 pone el `authorize` real
+    // en `options.config.authorize` (no en `providers[0].authorize`, que
+    // está hardcoded a `() => null` como safety default). En producción,
+    // NextAuth llama a `options.config.authorize` con los credentials del
+    // form. Verificamos acá el comportamiento del flow de producción.
+    // S10.5.1 — el `authorize` real está en `provider.options.authorize`,
+    // NO en `provider.authorize` (que está hardcoded a `() => null` como
+    // safety default — ver node_modules/@auth/core/providers/credentials.js
+    // líneas 39-40). En producción NextAuth llama al `options.authorize`.
+    // S10.5.1 — el `authorize` real está en `provider.options.authorize`,
+    // NO en `provider.authorize` (que está hardcoded a `() => null` como
+    // safety default — ver node_modules/@auth/core/providers/credentials.js
+    // líneas 39-40). En producción NextAuth llama al `options.authorize`
+    // después de mergear config (ver lib/utils/providers.js:14-20).
+    const realAuthorize = providers[0].options?.authorize;
+    expect(
+      realAuthorize,
+      "el provider debería exponer options.authorize (real, no el safety default)"
+    ).toBeDefined();
+
+    mocks.dbQuery.mockImplementation(() => {
+      return Promise.reject(new Error("ECONNREFUSED 10.0.0.5:5432"));
+    });
+
+    const r = await realAuthorize!({
+      email: "x@y.com",
+      password: "Secreto123!"
+    });
+
+    // 1) Cliente recibe null (no se filtra info al browser)
+    expect(r).toBeNull();
+    // 2) La mock de la BD se invocó (prueba que el catch path del
+    //    authorize() SÍ se ejecutó). El `console.error` que pusimos
+    //    en el catch emite a stderr, que Vercel captura en su dashboard
+    //    de Logs. No verificable en unit test sin levantar el runtime
+    //    de NextAuth (los unit tests existentes del archivo usan el
+    //    `providers[0].authorize` safety default que siempre retorna
+    //    null sin ejercitar el catch).
+    expect(mocks.dbQuery).toHaveBeenCalledTimes(1);
   });
 });
 
