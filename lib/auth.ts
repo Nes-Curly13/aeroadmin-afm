@@ -133,7 +133,16 @@ const fullAuthConfig: NextAuthConfig = {
             [email]
           );
           user = r.rows[0] ?? null;
-        } catch {
+        } catch (err) {
+          // S10.5.1 (2026-09-04) — bug fix: el catch silencioso de authorize()
+          // hacía que el `CredentialsSignin` error en Vercel no tuviera causa
+          // visible en los logs. El user reportó login roto en prod y no había
+          // forma de distinguir: (a) Supabase URL directa vs pooled (IPv4 vs
+          // IPv6 — AGENTS.md R6 lo advierte), (b) app_users vacía en prod
+          // (seed nunca corrió contra la DB de Vercel), (c) password hash
+          // desincronizado. Ahora el error real va al server log; el cliente
+          // sigue recibiendo `null` (no se filtra info al browser).
+          console.error("[auth] authorize() DB query failed:", err);
           return null;
         }
         if (!user || !user.is_active) return null;
