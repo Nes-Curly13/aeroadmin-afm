@@ -309,6 +309,13 @@ async function getParcelsNormalizedUncached(page: number, limit: number, filter:
  * (`client_name`, `farm_name`, `municipality`, `variety`). Estas columnas
  * se agregaron físicamente en `dji_parcels` via la migration
  * 20260728000000_add_v0_fields_to_dji_parcels.sql.
+ *
+ * Sprint S11+ / Fase 3.B (2026-09-05): agregados `client_id` y `farm_id` como
+ * FK a las nuevas tablas `clients` y `farms`. Si se setea `client_id`, el
+ * `client_name` denormalizado se actualiza automaticamente con el name del
+ * cliente (lo mismo para `farm_id` / `farm_name`). El caller puede seguir
+ * mandando `client_name` explicito para override, pero el flujo normal es
+ * dejar que el repo derive el name del FK.
  */
 export type ParcelMetadataUpdate = {
   land_name?: string | null;
@@ -328,6 +335,17 @@ export type ParcelMetadataUpdate = {
   farm_name?: string | null;
   municipality?: string | null;
   variety?: string | null;
+  // S11+ / Fase 3.B — FKs a las entidades normalizadas. Si se setean, el
+  // repo resuelve el name desde la tabla referenciada y actualiza
+  // `client_name` / `farm_name` automaticamente (a menos que el caller
+  // mande el name explicito, en cuyo caso ese gana).
+  client_id?: number | null;
+  farm_id?: number | null;
+  // S11+ / Fase 4.4 — quality metadata. El operator puede marcar la parcela
+  // como `fresh` despues de revisar la data.
+  data_validity?: "fresh" | "needs_review" | "stale" | "unknown";
+  last_validated_at?: string | null;
+  validated_by_email?: string | null;
 };
 
 /**
@@ -346,6 +364,10 @@ export async function updateParcelMetadata(
   const sets: string[] = [];
   const params: unknown[] = [];
   let idx = 1;
+  // S11+ / Fase 3.B — necesitamos `db` para resolver FKs de clients/farms
+  // (auto-derivar el name denormalizado). Lo hoistamos arriba para que
+  // este disponible antes de los lookups.
+  const db = getDb();
   if (patch.land_name !== undefined) {
     sets.push(`land_name = $${idx++}`);
     params.push(patch.land_name ?? null);
@@ -420,6 +442,82 @@ export async function updateParcelMetadata(
     sets.push(`farm_name = $${idx++}`);
     params.push(patch.farm_name ?? null);
   }
+  // S11+ / Fase 3.B — FK resolution. Si el caller setea client_id,
+  // resolvemos el name desde la tabla clients y lo guardamos como
+  // client_name denormalizado. Igual para farm_id. El caller puede
+  // override mandando client_name/farm_name explicito en el mismo patch
+  // (lo procesamos despues, asi pisa el valor derivado).
+  //
+  // Si client_id/farm_id es null, NO tocamos el name denormalizado —
+  // el operador puede querer des-asignar el FK sin perder el texto
+  // que escribio a mano antes de que existieran las tablas nuevas.
+  // (Para "clear todo", el operador manda ambos null y los dos names a null.)
+  if (patch.client_id !== undefined && patch.client_id !== null) {
+    if (patch.client_id < 1) {
+      throw new Error("client_id debe ser entero positivo");
+    }
+    if (patch.client_name === undefined) {
+      // Resolver name desde clients. Lo agregamos al patch automaticamente.
+      const lookup = await db.query<{ name: string }>(
+        `SELECT name FROM clients WHERE id = $1`,
+        [patch.client_id]
+      );
+      if (lookup.rows.length === 0) {
+        throw new Error(`client_id ${patch.client_id} no existe en clients`);
+      }
+      // Tambien seteamos el name (sobrescribe si ya estaba).
+      sets.push(`client_name = $${idx++}`);
+      params.push(lookup.rows[0].name);
+    }
+    sets.push(`client_id = $${idx++}`);
+    params.push(patch.client_id);
+  } else if (patch.client_id === null) {
+    sets.push(`client_id = $${idx++}`);
+    params.push(null);
+  }
+  if (patch.farm_id !== undefined && patch.farm_id !== null) {
+    if (patch.farm_id < 1) {
+      throw new Error("farm_id debe ser entero positivo");
+    }
+    if (patch.farm_name === undefined) {
+      const lookup = await db.query<{ name: string }>(
+        `SELECT name FROM farms WHERE id = $1`,
+        [patch.farm_id]
+      );
+      if (lookup.rows.length === 0) {
+        throw new Error(`farm_id ${patch.farm_id} no existe en farms`);
+      }
+      sets.push(`farm_name = $${idx++}`);
+      params.push(lookup.rows[0].name);
+    }
+    sets.push(`farm_id = $${idx++}`);
+    params.push(patch.farm_id);
+  } else if (patch.farm_id === null) {
+    sets.push(`farm_id = $${idx++}`);
+    params.push(null);
+  }
+  // S11+ / Fase 4.4 — quality metadata. El admin puede marcar la
+  // parcela como validada (data_validity='fresh') despues de revisar
+  // la data, junto con quien y cuando.
+  if (patch.data_validity !== undefined) {
+    const valid = ["fresh", "needs_review", "stale", "unknown"];
+    if (patch.data_validity !== null && !valid.includes(patch.data_validity)) {
+      throw new Error(`data_validity debe ser uno de: ${valid.join(", ")}`);
+    }
+    sets.push(`data_validity = $${idx++}`);
+    params.push(patch.data_validity);
+  }
+  if (patch.last_validated_at !== undefined) {
+    sets.push(`last_validated_at = $${idx++}`);
+    params.push(patch.last_validated_at ?? null);
+  }
+  if (patch.validated_by_email !== undefined) {
+    if (patch.validated_by_email !== null && patch.validated_by_email.length > 200) {
+      throw new Error("validated_by_email max 200 chars");
+    }
+    sets.push(`validated_by_email = $${idx++}`);
+    params.push(patch.validated_by_email ?? null);
+  }
   if (patch.municipality !== undefined) {
     if (patch.municipality !== null && patch.municipality.length > 100) {
       throw new Error("municipality max 100 chars");
@@ -440,7 +538,6 @@ export async function updateParcelMetadata(
     return getParcelById(id);
   }
 
-  const db = getDb();
   return withLocalFallback(
     async () => {
       // Verificar existencia primero (devolvemos null vs throw).
@@ -4015,6 +4112,27 @@ export async function bulkSetParcelClientFarm(input: {
         success: false,
         error: "DB no disponible"
       }))
+  );
+}
+
+/**
+ * S11+ / Fase 3.B — cuenta parcelas que NO tienen client_id asignado.
+ * Usado por el banner del /admin/parcels para que el operator sepa
+ * cuantas le faltan. No incluye las soft-deleted.
+ */
+export async function countUnassignedParcels(): Promise<number> {
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      const r = await db.query<{ count: string }>(
+        `SELECT count(*)::text AS count
+           FROM dji_parcels
+          WHERE deleted_at IS NULL
+            AND client_id IS NULL`
+      );
+      return Number(r.rows[0]?.count ?? 0);
+    },
+    async () => 0
   );
 }
 

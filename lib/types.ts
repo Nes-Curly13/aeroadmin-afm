@@ -88,14 +88,23 @@ export interface DjiParcelRecord {
   // client-side) se "despierta" sin cambios de UI.
   //
   // Mapeo previsto (ver `MapParcelView` para el shape público):
-  //   - client_name   →  clients.name        (no existe aún)
-  //   - farm_name     →  farms.name          (no existe aún)
+  //   - client_name   →  clients.name        (FK via client_id, S11+/Fase 3.A)
+  //   - farm_name     →  farms.name          (FK via farm_id,   S11+/Fase 3.A)
   //   - municipality  →  reverse-geocoding   (no existe aún)
   //   - variety       →  crop_type detail    (parcial: `crop_type` ya existe)
   client_name?: string | null;
   farm_name?: string | null;
   municipality?: string | null;
   variety?: string | null;
+  // S11+ / Fase 3.A — FKs a las nuevas tablas normalizadas. Nullable
+  // durante la migración. Si están null, el name denormalizado arriba
+  // sigue siendo el source-of-truth para UI legacy.
+  client_id?: number | null;
+  farm_id?: number | null;
+  // S11+ / Fase 4.4 — data quality / Capa de Gestión.
+  data_validity?: "fresh" | "needs_review" | "stale" | "unknown";
+  last_validated_at?: string | null;
+  validated_by_email?: string | null;
   // Sprint "Crop time / fase de cultivo" (2026-08-01). Nullable hasta
   // que se popule `planting_date` (1213/1213 parcelas hoy). Si la
   // migration 20260801000000_add_planting_date_and_season.sql no se

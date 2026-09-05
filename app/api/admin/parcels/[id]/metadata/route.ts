@@ -49,15 +49,25 @@ const EDITABLE_FIELDS = [
   "client_name",
   "farm_name",
   "municipality",
-  "variety"
+  "variety",
+  // S11+ / Fase 3.B — FKs a clients/farms. Si se setea, el repo
+  // auto-deriva el name denormalizado desde la tabla referenciada
+  // (a menos que el caller mande el name explicito en el mismo patch).
+  "client_id",
+  "farm_id",
+  // S11+ / Fase 4.4 — Capa de Gestión. El admin puede marcar
+  // la parcela como `fresh` despues de revisar la data.
+  "data_validity",
+  "last_validated_at",
+  "validated_by_email"
 ] as const;
 
 function pickEditable(input: Record<string, unknown>): ParcelMetadataUpdate {
   const out: ParcelMetadataUpdate = {};
   for (const k of EDITABLE_FIELDS) {
     if (k in input) {
-      // Permitir null explícito para "borrar este campo" (e.g. clear farm_name).
-      // Mantener `undefined` como "no tocar este campo".
+      // Permitir null explícito para "borrar este campo" (e.g. clear farm_name,
+      // clear client_id). Mantener `undefined` como "no tocar este campo".
       out[k] = input[k] as never;
     }
   }

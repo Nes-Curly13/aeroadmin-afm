@@ -148,6 +148,14 @@ playwright-report/
 /tmp-*.log
 /tmp-*.err
 /tmp-trash/
+# ============================================================
+# S11+ (2026-09-05): local PR/commit drafts and handoff notes
+# generated during agent work sessions. Not part of repo.
+# ============================================================
+/gh-pr-body-*.md
+/git-commit-msg-*.txt
+/docs/HANDOFF-*.md
+.gitignore.tmp-cleanup
 
 # ============================================================
 # S6 / diagrams (2026-08-12): local clone of the

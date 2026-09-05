@@ -1,31 +1,42 @@
 "use client";
 
 /**
- * AdminParcelsClient — UI de edición inline de los 4 campos V0.
+ * AdminParcelsClient — UI de edición inline de metadata V0 + Cliente/Finca FK.
  *
- * Patrón:
- *   - Para cada parcel, 4 inputs (client_name, farm_name, municipality,
- *     variety) inicializados con el valor actual de la BD.
- *   - Boton "Guardar" deshabilitado hasta que algo cambie.
- *   - Optimistic update: al click, cambiamos el UI inmediatamente
- *     y enviamos PATCH al server. Si falla, rollback + toast error.
- *   - Al success, NO recargamos la pagina completa (eso reinicia el
- *     state de TODOS los inputs en otras rows). En su lugar,
- *     `router.refresh()` re-fetcha los datos del server component y
- *     React reconcilia.
+ * Sprint S11+ / PLAN-FUMIGACIONES-V2 / Fase 3.B (2026-09-05):
+ *   - Agrega dropdowns de Cliente (FK → clients) y Finca (FK → farms) por
+ *     parcela. Cuando el operator elige un FK, el repo auto-deriva el
+ *     name denormalizado (`client_name` / `farm_name`) desde la tabla
+ *     referenciada — el text input sigue siendo la "vista" del name.
+ *   - Banner de "X parcelas sin asignar" arriba (filtro rapido para que
+ *     el operator pueda enfocar la operatoria de backfill).
+ *   - Loading state: spinner mientras cargan las listas de clients/farms.
+ *   - Cache local de las listas (no re-fetch en cada keystroke).
  *
- * El client component NO toca Supabase directo — va por el API route
+ * Patrón (heredado de S8.2):
+ *   - Por cada parcela, drafts locales; "Guardar" deshabilitado hasta
+ *     que algo cambie.
+ *   - Optimistic update: PATCH al server. Si falla, rollback + toast
+ *     error. Si OK, debounce + `router.refresh()` para que otras rows
+ *     que dependan del valor (e.g. dropdowns) se actualicen.
+ *
+ * El client NO toca Supabase directo — va por el API route
  * `/api/admin/parcels/[id]/metadata` que valida + actualiza + invalida
- * caches. Esto mantiene el principio de "api/ es la unica capa de
- * data access" del AGENTS.md.
- *
- * Por que `useTransition` en lugar de `useState` para el loading:
- *   - `useTransition` marca la actualizacion como no-urgente, asi
- *     React puede intercalar renders y la UI no se congela al click.
- *   - El input sigue respondiendo a cambios mientras el PATCH corre.
+ * caches. Mantiene el principio de "api/ es la unica capa de data access"
+ * del AGENTS.md.
  */
 
-import { Check, Loader2, Plus, RotateCcw, Save, Search, Upload } from "lucide-react";
+import {
+  Check,
+  Loader2,
+  Plus,
+  RotateCcw,
+  Save,
+  Search,
+  Upload,
+  AlertTriangle,
+  ChevronDown
+} from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
@@ -36,6 +47,17 @@ import { fmtDec } from "@/lib/format";
 import type { DjiParcelRecord } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
+interface Client {
+  id: number;
+  name: string;
+}
+
+interface Farm {
+  id: number;
+  client_id: number;
+  name: string;
+}
+
 interface AdminParcelsClientProps {
   initialData: DjiParcelRecord[];
   total: number;
@@ -43,19 +65,15 @@ interface AdminParcelsClientProps {
   totalPages: number;
   pageSize: number;
   initialQuery: string;
-  /**
-   * Estado inicial de los filtros "mostrar solo con X vacío"
-   * (QA gap cerrado 2026-08-02). El page server los parsea de
-   * searchParams y los pasa acá. El client los refleja como
-   * checkboxes que al cambiar hacen `router.push` con la nueva URL
-   * (el server re-fetcha la lista con el filtro activo).
-   */
   missingFilter: {
     client: boolean;
     farm: boolean;
     municipality: boolean;
     variety: boolean;
   };
+  // S11+ / Fase 3.B — pre-cargado del server (initial render sin spinner).
+  initialClients: Client[];
+  initialUnassignedCount: number;
 }
 
 interface Draft {
@@ -63,9 +81,47 @@ interface Draft {
   farm_name: string;
   municipality: string;
   variety: string;
+  client_id: number | null;
+  farm_id: number | null;
+  // S11+ / Fase 4.4 — data quality metadata.
+  data_validity: "fresh" | "needs_review" | "stale" | "unknown";
+  last_validated_at: string | null;
+  validated_by_email: string | null;
 }
 
 type Status = "idle" | "saving" | "saved" | "error";
+
+function emptyDraft(): Draft {
+  return {
+    client_name: "",
+    farm_name: "",
+    municipality: "",
+    variety: "",
+    client_id: null,
+    farm_id: null,
+    data_validity: "unknown",
+    last_validated_at: null,
+    validated_by_email: null
+  };
+}
+
+function buildDrafts(parcels: DjiParcelRecord[]): Record<number, Draft> {
+  const out: Record<number, Draft> = {};
+  for (const p of parcels) {
+    out[p.id] = {
+      client_name: p.client_name ?? "",
+      farm_name: p.farm_name ?? "",
+      municipality: p.municipality ?? "",
+      variety: p.variety ?? "",
+      client_id: p.client_id ?? null,
+      farm_id: p.farm_id ?? null,
+      data_validity: p.data_validity ?? "unknown",
+      last_validated_at: p.last_validated_at ?? null,
+      validated_by_email: p.validated_by_email ?? null
+    };
+  }
+  return out;
+}
 
 export function AdminParcelsClient({
   initialData,
@@ -74,13 +130,12 @@ export function AdminParcelsClient({
   totalPages,
   pageSize,
   initialQuery,
-  missingFilter
+  missingFilter,
+  initialClients,
+  initialUnassignedCount
 }: AdminParcelsClientProps) {
   const router = useRouter();
   const [query, setQuery] = useState(initialQuery);
-  // Filtros "missing_X" (QA 2026-08-02). Reflejan el state de la URL
-  // (server-authoritative). El user cambia un checkbox → onClick
-  // hace `go(1)` con la nueva URL → server re-fetcha → re-render.
   const [missing, setMissing] = useState(missingFilter);
   const [drafts, setDrafts] = useState<Record<number, Draft>>(() => buildDrafts(initialData));
   const [statuses, setStatuses] = useState<Record<number, Status>>({});
@@ -88,28 +143,58 @@ export function AdminParcelsClient({
   const [isPending, startTransition] = useTransition();
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // S11+ / Fase 3.B — listas de lookup. Las pre-cargamos del server para
+  // evitar spinner en el initial render. Se re-fetchean despues de cada
+  // save exitoso (porque el server pudo haber creado/validado un nuevo
+  // cliente).
+  const [clients, setClients] = useState<Client[]>(initialClients);
+  const [farms, setFarms] = useState<Farm[]>([]);
+  const [unassignedCount, setUnassignedCount] = useState(initialUnassignedCount);
+  const [lookupLoading, setLookupLoading] = useState(false);
+
   // Re-hidratar drafts cuando el server fetcha datos nuevos (router.refresh).
-  // Mantenemos los drafts en curso si los inputs cambiaron desde la BD.
   useEffect(() => {
     setDrafts((prev) => {
       const next = buildDrafts(initialData);
-      // Preserva edits en curso del usuario (no los pisa con datos stale).
       for (const p of initialData) {
         const d = prev[p.id];
         if (!d) continue;
-        // Solo conserva el draft si el usuario lo modifico (no es igual al valor server).
-        const server = {
-          client_name: p.client_name ?? "",
-          farm_name: p.farm_name ?? "",
-          municipality: p.municipality ?? "",
-          variety: p.variety ?? ""
-        };
-        const userChanged = Object.keys(server).some((k) => d[k as keyof Draft] !== server[k as keyof Draft]);
+        const server = next[p.id];
+        const userChanged = Object.keys(server).some(
+          (k) => d[k as keyof Draft] !== server[k as keyof Draft]
+        );
         if (userChanged) next[p.id] = d;
       }
       return next;
     });
   }, [initialData]);
+
+  // Carga inicial de farms (la lista de clients viene pre-cargada del
+  // server). Las farms necesitan clientId filter — cargamos TODAS las
+  // farms top-N y filtramos en cliente. Para >50 farms del mismo client
+  // hay que usar el search, pero el caso comun es 1-5 farms por client.
+  useEffect(() => {
+    let cancelled = false;
+    async function loadFarms() {
+      setLookupLoading(true);
+      try {
+        const res = await fetch("/api/admin/farms?limit=200", { cache: "no-store" });
+        if (!res.ok) throw new Error(`farms ${res.status}`);
+        const data = (await res.json()) as { farms: Farm[] };
+        if (!cancelled) setFarms(data.farms);
+      } catch (e) {
+        if (!cancelled) {
+          console.error("loadFarms failed", e);
+        }
+      } finally {
+        if (!cancelled) setLookupLoading(false);
+      }
+    }
+    loadFarms();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -127,16 +212,68 @@ export function AdminParcelsClient({
     });
   }, [initialData, query]);
 
-  function updateDraft(id: number, key: keyof Draft, value: string) {
+  function updateDraft(id: number, key: keyof Draft, value: string | number | null) {
     setDrafts((prev) => ({
       ...prev,
       [id]: { ...(prev[id] ?? emptyDraft()), [key]: value }
     }));
-    // Si el server respondio con "saved" y el usuario toca un campo,
-    // limpiamos el badge para que el check no quede "viejo".
     if (statuses[id] === "saved" || statuses[id] === "error") {
       setStatuses((prev) => ({ ...prev, [id]: "idle" }));
       setErrors((prev) => ({ ...prev, [id]: "" }));
+    }
+  }
+
+  /**
+   * Cuando el operator elige un Client del dropdown, auto-pobla el
+   * `client_name` denormalizado con el name del client (el server
+   * tambien lo haria via FK resolution, pero la UI lo refleja
+   * inmediatamente para mejor UX). Si el client cambia y el farm_id
+   * actual no pertenece al nuevo client, limpiamos farm_id/farm_name.
+   */
+  function setClient(parcelId: number, clientId: number | null) {
+    setDrafts((prev) => {
+      const cur = prev[parcelId] ?? emptyDraft();
+      const client = clientId !== null ? clients.find((c) => c.id === clientId) : null;
+      const next: Draft = {
+        ...cur,
+        client_id: clientId,
+        client_name: client?.name ?? (clientId === null ? "" : cur.client_name)
+      };
+      // Si el farm actual no pertenece al nuevo client, clear.
+      if (clientId !== null && cur.farm_id !== null) {
+        const farm = farms.find((f) => f.id === cur.farm_id);
+        if (!farm || farm.client_id !== clientId) {
+          next.farm_id = null;
+          next.farm_name = "";
+        }
+      } else if (clientId === null) {
+        next.farm_id = null;
+        next.farm_name = "";
+      }
+      return { ...prev, [parcelId]: next };
+    });
+    if (statuses[parcelId] === "saved" || statuses[parcelId] === "error") {
+      setStatuses((prev) => ({ ...prev, [parcelId]: "idle" }));
+      setErrors((prev) => ({ ...prev, [parcelId]: "" }));
+    }
+  }
+
+  function setFarm(parcelId: number, farmId: number | null) {
+    setDrafts((prev) => {
+      const cur = prev[parcelId] ?? emptyDraft();
+      const farm = farmId !== null ? farms.find((f) => f.id === farmId) : null;
+      return {
+        ...prev,
+        [parcelId]: {
+          ...cur,
+          farm_id: farmId,
+          farm_name: farm?.name ?? (farmId === null ? "" : cur.farm_name)
+        }
+      };
+    });
+    if (statuses[parcelId] === "saved" || statuses[parcelId] === "error") {
+      setStatuses((prev) => ({ ...prev, [parcelId]: "idle" }));
+      setErrors((prev) => ({ ...prev, [parcelId]: "" }));
     }
   }
 
@@ -145,7 +282,10 @@ export function AdminParcelsClient({
       (parcel.client_name ?? "") !== d.client_name ||
       (parcel.farm_name ?? "") !== d.farm_name ||
       (parcel.municipality ?? "") !== d.municipality ||
-      (parcel.variety ?? "") !== d.variety
+      (parcel.variety ?? "") !== d.variety ||
+      (parcel.client_id ?? null) !== d.client_id ||
+      (parcel.farm_id ?? null) !== d.farm_id ||
+      (parcel.data_validity ?? "unknown") !== d.data_validity
     );
   }
 
@@ -157,16 +297,42 @@ export function AdminParcelsClient({
     setStatuses((prev) => ({ ...prev, [parcel.id]: "saving" }));
     setErrors((prev) => ({ ...prev, [parcel.id]: "" }));
 
-    // Construimos el patch: solo los campos que difieren de la BD.
-    // Si el usuario dejo el input en "", mandamos "" (no null) para
-    // distinguir "clear" de "no tocar" (en la BD el server usa
-    // `params.push(patch.X ?? null)` asi que string "" vacio llega
-    // como "" a la columna TEXT — no se guarda como null).
-    const patch: Record<string, string> = {};
+    const patch: Record<string, unknown> = {};
     if ((parcel.client_name ?? "") !== draft.client_name) patch.client_name = draft.client_name;
     if ((parcel.farm_name ?? "") !== draft.farm_name) patch.farm_name = draft.farm_name;
     if ((parcel.municipality ?? "") !== draft.municipality) patch.municipality = draft.municipality;
     if ((parcel.variety ?? "") !== draft.variety) patch.variety = draft.variety;
+    // FKs: solo mandamos si difieren del server. Si client_id pasa de
+    // null a un valor, el server auto-deriva client_name del FK.
+    if ((parcel.client_id ?? null) !== draft.client_id) {
+      patch.client_id = draft.client_id;
+      // Si estamos seteando el client_id por primera vez y el name del
+      // draft coincide con el del client, NO mandamos client_name —
+      // dejamos que el server lo derive. Si difieren, mandamos ambos.
+      if (draft.client_id !== null) {
+        const client = clients.find((c) => c.id === draft.client_id);
+        if (client && draft.client_name !== client.name) {
+          patch.client_name = draft.client_name;
+        }
+      } else {
+        // Limpiando: si el draft tiene client_name custom, mandalo
+        if (draft.client_name) patch.client_name = draft.client_name;
+      }
+    }
+    if ((parcel.farm_id ?? null) !== draft.farm_id) {
+      patch.farm_id = draft.farm_id;
+      if (draft.farm_id !== null) {
+        const farm = farms.find((f) => f.id === draft.farm_id);
+        if (farm && draft.farm_name !== farm.name) {
+          patch.farm_name = draft.farm_name;
+        }
+      } else {
+        if (draft.farm_name) patch.farm_name = draft.farm_name;
+      }
+    }
+    if ((parcel.data_validity ?? "unknown") !== draft.data_validity) {
+      patch.data_validity = draft.data_validity;
+    }
 
     try {
       const res = await fetch(`/api/admin/parcels/${parcel.id}/metadata`, {
@@ -184,9 +350,7 @@ export function AdminParcelsClient({
         return;
       }
       setStatuses((prev) => ({ ...prev, [parcel.id]: "saved" }));
-      // Refresh silencioso para que otras rows que dependan de este
-      // valor (e.g. dropdowns de filter) se actualicen. Debounce para
-      // no martillar el server si el usuario guarda 20 rows en 5 seg.
+      // Refresh silencioso. Debounce para no martillar el server.
       if (debounceRef.current) clearTimeout(debounceRef.current);
       debounceRef.current = setTimeout(() => {
         startTransition(() => router.refresh());
@@ -201,22 +365,11 @@ export function AdminParcelsClient({
   }
 
   function revert(parcel: DjiParcelRecord) {
-    setDrafts((prev) => ({
-      ...prev,
-      [parcel.id]: {
-        client_name: parcel.client_name ?? "",
-        farm_name: parcel.farm_name ?? "",
-        municipality: parcel.municipality ?? "",
-        variety: parcel.variety ?? ""
-      }
-    }));
+    setDrafts((prev) => ({ ...prev, [parcel.id]: buildDrafts([parcel])[parcel.id] }));
     setStatuses((prev) => ({ ...prev, [parcel.id]: "idle" }));
     setErrors((prev) => ({ ...prev, [parcel.id]: "" }));
   }
 
-  // Paginacion. Incluye los filtros "missing_X" en la URL para
-  // que persistan entre páginas. El handler del page server los
-  // re-parsea (searchParams).
   function buildSearchParams(extraPage: number): URLSearchParams {
     const params = new URLSearchParams();
     params.set("page", String(extraPage));
@@ -231,14 +384,9 @@ export function AdminParcelsClient({
     if (p < 1 || p > totalPages || p === page) return;
     router.push(`/admin/parcels?${buildSearchParams(p).toString()}`);
   }
-
-  // Toggle de un filtro "missing_X". Re-fetcha a la primera página
-  // (los filtros cambian el total, hay que resetear la paginación).
   function toggleMissing(field: keyof typeof missing) {
     const next = { ...missing, [field]: !missing[field] };
     setMissing(next);
-    // Construir params con el nuevo state (no `missing` del closure,
-    // que todavía tiene el valor anterior a setMissing).
     const params = new URLSearchParams();
     params.set("page", "1");
     if (query) params.set("q", query);
@@ -248,10 +396,6 @@ export function AdminParcelsClient({
     if (next.variety) params.set("missing_variety", "1");
     router.push(`/admin/parcels?${params.toString()}`);
   }
-
-  // Limpia todos los filtros missing. (El search input tiene su
-  // propio state local — no se limpia acá porque no se borra
-  // la query escrita por el user.)
   function clearMissingFilters() {
     setMissing({ client: false, farm: false, municipality: false, variety: false });
     const params = new URLSearchParams();
@@ -260,8 +404,53 @@ export function AdminParcelsClient({
     router.push(`/admin/parcels?${params.toString()}`);
   }
 
+  // Farms filtradas por el client_id actual de la row (cascada).
+  function farmsForClient(clientId: number | null): Farm[] {
+    if (clientId === null) return [];
+    return farms.filter((f) => f.client_id === clientId);
+  }
+
   return (
     <section className="flex flex-col gap-4">
+      {/* S11+ / Fase 3.B — banner de parcelas sin asignar. Muestra
+          el total de parcelas con `client_id IS NULL` y provee un
+          link rapido a un filtro `missing_client=1`. El operator ve
+          de un vistazo cuantas le faltan. */}
+      {unassignedCount > 0 && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="flex flex-col gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-3 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <div className="flex items-center gap-2 text-amber-700 dark:text-amber-300">
+            <AlertTriangle className="size-4 shrink-0" aria-hidden />
+            <p className="text-sm">
+              <strong>{unassignedCount}</strong>{" "}
+              {unassignedCount === 1 ? "parcela sin" : "parcelas sin"} cliente asignado.
+              {" "}
+              <span className="text-muted-foreground">
+                (Fase 3.B — backfill manual-assisted)
+              </span>
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                const params = new URLSearchParams();
+                params.set("page", "1");
+                params.set("missing_client", "1");
+                router.push(`/admin/parcels?${params.toString()}`);
+              }}
+              aria-label="Filtrar parcelas sin cliente asignado"
+            >
+              Ver sin asignar
+            </Button>
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="relative flex-1">
           <Search
@@ -278,7 +467,7 @@ export function AdminParcelsClient({
         </div>
         <div className="flex items-center gap-3">
           <p className="font-mono text-[11px] text-muted-foreground">
-            {`${filtered.length} de ${total} parcelas · página ${page}/${totalPages || 1} · ${pageSize}/página`}
+            {`${filtered.length} de ${total} parcelas · página ${page}/${totalPages || 1} · ${pageSize}/página${lookupLoading ? " · cargando lookups…" : ""}`}
           </p>
           <div className="flex items-center gap-2">
             <Button
@@ -312,13 +501,6 @@ export function AdminParcelsClient({
         </div>
       </div>
 
-      {/* Filtros "mostrar solo con X vacío" (QA 2026-08-02). El
-          operador fumigador tiene 1213 parcelas y los 4 campos V0
-          arrancan vacíos — sin este filtro tendría que ir página
-          por página para encontrarlas. Cada checkbox dispara un
-          `router.push` con la nueva URL; el server re-fetcha con
-          el WHERE clause apropiado. El badge "X filtros activos"
-          aparece a la derecha cuando hay alguno. */}
       <div
         role="group"
         aria-label="Filtrar parcelas con campos vacíos"
@@ -329,11 +511,11 @@ export function AdminParcelsClient({
         </span>
         <div className="flex flex-wrap items-center gap-3">
           {([
-            { field: "client" as const, label: "Cliente", param: "missing_client" },
-            { field: "farm" as const, label: "Hacienda", param: "missing_farm" },
-            { field: "municipality" as const, label: "Municipio", param: "missing_municipality" },
-            { field: "variety" as const, label: "Variedad", param: "missing_variety" }
-          ]).map(({ field, label, param }) => (
+            { field: "client" as const, label: "Cliente" },
+            { field: "farm" as const, label: "Hacienda" },
+            { field: "municipality" as const, label: "Municipio" },
+            { field: "variety" as const, label: "Variedad" }
+          ]).map(({ field, label }) => (
             <label
               key={field}
               className="flex cursor-pointer items-center gap-1.5 text-xs"
@@ -362,23 +544,26 @@ export function AdminParcelsClient({
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Edición inline de metadata V0</CardTitle>
+          <CardTitle className="text-base">Edición inline de metadata V0 + Cliente/Finca</CardTitle>
           <CardDescription>
-            Toca un input y Guardar. El check verde confirma persistencia. La BD no
-            recibe el cambio hasta que apretas Guardar — sin auto-save. Si el campo
-            está vacío, el operador fumigador no lo llenó todavía.
+            Toca un input y Guardar. El check verde confirma persistencia. Los dropdowns de
+            Cliente/Finca se persisten como FK (clients.id / farms.id) y el repo
+            auto-deriva el name denormalizado desde la tabla referenciada.
           </CardDescription>
         </CardHeader>
         <CardContent className="px-0 pb-0">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1100px] text-sm">
+            <table className="w-full min-w-[1400px] text-sm">
               <thead className="border-y border-border bg-muted/60 text-xs uppercase tracking-wide text-muted-foreground">
                 <tr>
                   <th className="px-3 py-2.5 text-left font-semibold">Parcela</th>
-                  <th className="px-3 py-2.5 text-left font-semibold">Cliente</th>
-                  <th className="px-3 py-2.5 text-left font-semibold">Hacienda</th>
+                  <th className="px-3 py-2.5 text-left font-semibold">Cliente (FK)</th>
+                  <th className="px-3 py-2.5 text-left font-semibold">Hacienda (FK)</th>
+                  <th className="px-3 py-2.5 text-left font-semibold">Cliente (denorm)</th>
+                  <th className="px-3 py-2.5 text-left font-semibold">Hacienda (denorm)</th>
                   <th className="px-3 py-2.5 text-left font-semibold">Municipio</th>
                   <th className="px-3 py-2.5 text-left font-semibold">Variedad</th>
+                  <th className="px-3 py-2.5 text-left font-semibold">Vigencia</th>
                   <th className="px-3 py-2.5 text-right font-semibold">Acciones</th>
                 </tr>
               </thead>
@@ -388,6 +573,7 @@ export function AdminParcelsClient({
                   const status = statuses[p.id] ?? "idle";
                   const error = errors[p.id];
                   const dirty = isDirty(p, draft);
+                  const farmsForRow = farmsForClient(draft.client_id);
                   return (
                     <tr
                       key={p.id}
@@ -408,20 +594,138 @@ export function AdminParcelsClient({
                           {`#${p.id} · ${fmtDec(p.declared_area_ha ?? 0)} ha · ${p.field_type ?? "?"}`}
                         </p>
                       </td>
-                      {(["client_name", "farm_name", "municipality", "variety"] as Array<keyof Draft>).map(
-                        (k) => (
-                          <td key={k} className="px-3 py-1.5">
-                            <Input
-                              value={draft[k]}
-                              onChange={(e) => updateDraft(p.id, k, e.target.value)}
-                              placeholder="(vacío)"
-                              disabled={status === "saving"}
-                              className="h-8 max-w-[180px] text-sm"
-                              aria-label={`${p.land_name ?? "Parcela " + p.id} ${k}`}
-                            />
-                          </td>
-                        )
-                      )}
+                      {/* Cliente FK — dropdown poblado con la lista global. */}
+                      <td className="px-3 py-1.5">
+                        <div className="relative">
+                          <select
+                            value={draft.client_id ?? ""}
+                            onChange={(e) =>
+                              setClient(
+                                p.id,
+                                e.target.value ? Number(e.target.value) : null
+                              )
+                            }
+                            disabled={status === "saving"}
+                            className="h-8 w-full max-w-[200px] appearance-none rounded-md border border-input bg-background pl-2 pr-7 text-sm"
+                            aria-label={`Cliente (FK) de ${p.land_name ?? "Parcela " + p.id}`}
+                          >
+                            <option value="">(sin asignar)</option>
+                            {clients.map((c) => (
+                              <option key={c.id} value={c.id}>
+                                {c.name}
+                              </option>
+                            ))}
+                          </select>
+                          <ChevronDown className="pointer-events-none absolute right-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
+                        </div>
+                      </td>
+                      {/* Finca FK — dropdown cascada: solo farms del client_id actual. */}
+                      <td className="px-3 py-1.5">
+                        <div className="relative">
+                          <select
+                            value={draft.farm_id ?? ""}
+                            onChange={(e) =>
+                              setFarm(
+                                p.id,
+                                e.target.value ? Number(e.target.value) : null
+                              )
+                            }
+                            disabled={
+                              status === "saving" ||
+                              draft.client_id === null ||
+                              farmsForRow.length === 0
+                            }
+                            className="h-8 w-full max-w-[200px] appearance-none rounded-md border border-input bg-background pl-2 pr-7 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+                            aria-label={`Finca (FK) de ${p.land_name ?? "Parcela " + p.id}`}
+                          >
+                            <option value="">
+                              {draft.client_id === null
+                                ? "(elegí cliente primero)"
+                                : farmsForRow.length === 0
+                                ? "(este cliente no tiene fincas)"
+                                : "(sin asignar)"}
+                            </option>
+                            {farmsForRow.map((f) => (
+                              <option key={f.id} value={f.id}>
+                                {f.name}
+                              </option>
+                            ))}
+                          </select>
+                          <ChevronDown className="pointer-events-none absolute right-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
+                        </div>
+                      </td>
+                      {/* Cliente name — text input derivado. Si el FK esta
+                          seteado y el name coincide, se ve read-only-ish. */}
+                      <td className="px-3 py-1.5">
+                        <Input
+                          value={draft.client_name}
+                          onChange={(e) => updateDraft(p.id, "client_name", e.target.value)}
+                          placeholder="(auto desde FK)"
+                          disabled={status === "saving"}
+                          className="h-8 max-w-[180px] text-sm"
+                          aria-label={`Cliente (denormalizado) de ${p.land_name ?? "Parcela " + p.id}`}
+                        />
+                      </td>
+                      <td className="px-3 py-1.5">
+                        <Input
+                          value={draft.farm_name}
+                          onChange={(e) => updateDraft(p.id, "farm_name", e.target.value)}
+                          placeholder="(auto desde FK)"
+                          disabled={status === "saving"}
+                          className="h-8 max-w-[180px] text-sm"
+                          aria-label={`Finca (denormalizada) de ${p.land_name ?? "Parcela " + p.id}`}
+                        />
+                      </td>
+                      <td className="px-3 py-1.5">
+                        <Input
+                          value={draft.municipality}
+                          onChange={(e) => updateDraft(p.id, "municipality", e.target.value)}
+                          placeholder="(vacío)"
+                          disabled={status === "saving"}
+                          className="h-8 max-w-[180px] text-sm"
+                          aria-label={`Municipio de ${p.land_name ?? "Parcela " + p.id}`}
+                        />
+                      </td>
+                      <td className="px-3 py-1.5">
+                        <Input
+                          value={draft.variety}
+                          onChange={(e) => updateDraft(p.id, "variety", e.target.value)}
+                          placeholder="(vacío)"
+                          disabled={status === "saving"}
+                          className="h-8 max-w-[180px] text-sm"
+                          aria-label={`Variedad de ${p.land_name ?? "Parcela " + p.id}`}
+                        />
+                      </td>
+                      {/* Vigencia — dropdown Capa de Gestión (Fase 4.4). */}
+                      <td className="px-3 py-1.5">
+                        <div className="relative">
+                          <select
+                            value={draft.data_validity}
+                            onChange={(e) =>
+                              updateDraft(
+                                p.id,
+                                "data_validity",
+                                e.target.value as Draft["data_validity"]
+                              )
+                            }
+                            disabled={status === "saving"}
+                            className={cn(
+                              "h-8 w-full max-w-[140px] appearance-none rounded-md border pl-2 pr-7 text-sm",
+                              draft.data_validity === "fresh" && "border-emerald-500/40 bg-emerald-500/5",
+                              draft.data_validity === "needs_review" && "border-amber-500/40 bg-amber-500/5",
+                              draft.data_validity === "stale" && "border-red-500/40 bg-red-500/5",
+                              draft.data_validity === "unknown" && "border-input bg-background"
+                            )}
+                            aria-label={`Vigencia de ${p.land_name ?? "Parcela " + p.id}`}
+                          >
+                            <option value="fresh">fresh</option>
+                            <option value="needs_review">needs_review</option>
+                            <option value="stale">stale</option>
+                            <option value="unknown">unknown</option>
+                          </select>
+                          <ChevronDown className="pointer-events-none absolute right-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
+                        </div>
+                      </td>
                       <td className="px-3 py-1.5">
                         <div className="flex items-center justify-end gap-1.5">
                           {status === "saved" && (
@@ -466,61 +770,27 @@ export function AdminParcelsClient({
                     </tr>
                   );
                 })}
-                {filtered.length === 0 && (
-                  <tr>
-                    <td colSpan={6} className="px-3 py-10 text-center text-sm text-muted-foreground">
-                      {query
-                        ? `Ninguna parcela coincide con "${query}".`
-                        : "No hay parcelas en esta página."}
-                    </td>
-                  </tr>
-                )}
               </tbody>
             </table>
           </div>
         </CardContent>
       </Card>
-
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => go(page - 1)}
-            disabled={page <= 1 || isPending}
-          >
-            ← Anterior
-          </Button>
-          <p className="font-mono text-xs text-muted-foreground">
-            {`Página ${page} de ${totalPages} · ${isPending ? "cargando..." : "OK"}`}
-          </p>
-          <Button
-            variant="outline"
-            size="sm"
+      <p className="font-mono text-[10px] text-muted-foreground">
+        {`Página ${page} de ${totalPages || 1}`}
+        {totalPages > 1 ? " · " : ""}
+        {page < totalPages && (
+          <button
+            type="button"
             onClick={() => go(page + 1)}
-            disabled={page >= totalPages || isPending}
+            className="underline-offset-2 hover:underline"
           >
-            Siguiente →
-          </Button>
-        </div>
-      )}
+            siguiente →
+          </button>
+        )}
+        {isPending && <span className="ml-2 inline-flex items-center gap-1 text-muted-foreground">
+          <Loader2 className="size-3 animate-spin" aria-hidden /> refrescando
+        </span>}
+      </p>
     </section>
   );
-}
-
-function emptyDraft(): Draft {
-  return { client_name: "", farm_name: "", municipality: "", variety: "" };
-}
-
-function buildDrafts(records: DjiParcelRecord[]): Record<number, Draft> {
-  const out: Record<number, Draft> = {};
-  for (const r of records) {
-    out[r.id] = {
-      client_name: r.client_name ?? "",
-      farm_name: r.farm_name ?? "",
-      municipality: r.municipality ?? "",
-      variety: r.variety ?? ""
-    };
-  }
-  return out;
 }
