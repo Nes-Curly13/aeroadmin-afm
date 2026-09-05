@@ -163,9 +163,16 @@ async function applyMigration(client, name, sql) {
   try {
     const statements = splitSqlStatements(sql);
     for (const stmt of statements) {
-      await client.query(stmt);
+      // Use the object form with noPrepare to force the simple query
+      // protocol and bypass pg's auto-prepared-statement cache. This is
+      // important because a cached plan from one statement can shadow
+      // a fresh catalog view (DDL) created by an earlier statement in
+      // the same transaction. Bug seen in CI: "column X of relation Y
+      // does not exist" for columns that were just CREATEd in the
+      // same file.
+      await client.query({ text: stmt, noPrepare: true });
     }
-    await client.query('INSERT INTO dji_migrations (name) VALUES ($1)', [name]);
+    await client.query({ text: 'INSERT INTO dji_migrations (name) VALUES ($1)', values: [name], noPrepare: true });
     await client.query('COMMIT');
     return { ok: true };
   } catch (err) {
