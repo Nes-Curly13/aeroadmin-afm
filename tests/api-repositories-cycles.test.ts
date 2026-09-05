@@ -150,7 +150,7 @@ describe("listCyclesForParcel", () => {
       }
     ];
     const db = buildDbMock({
-      "ORDER BY start_date DESC": () => ({ rows: cycles })
+      "ORDER BY start_date DESC": () => ({ rows: asRows(cycles) })
     });
     vi.mocked(getDb).mockReturnValue(db as never);
 
@@ -190,7 +190,7 @@ describe("listEventsForCycle", () => {
       }
     ];
     const db = buildDbMock({
-      "ORDER BY event_date DESC, id DESC": () => ({ rows: events })
+      "ORDER BY event_date DESC, id DESC": () => ({ rows: asRows(events) })
     });
     vi.mocked(getDb).mockReturnValue(db as never);
 
@@ -219,7 +219,7 @@ describe("createCycle", () => {
       updated_at: "2026-03-15T00:00:00Z"
     };
     const db = buildDbMock({
-      "INSERT INTO cycles": () => ({ rows: [cycle] })
+      "INSERT INTO cycles": () => ({ rows: [asRow(cycle)] })
     });
     vi.mocked(getDb).mockReturnValue(db as never);
 
@@ -260,7 +260,7 @@ describe("createCycleEvent", () => {
       created_at: "2026-08-01T00:00:00Z"
     };
     const db = buildDbMock({
-      "INSERT INTO cycle_events": () => ({ rows: [event] })
+      "INSERT INTO cycle_events": () => ({ rows: [asRow(event)] })
     });
     vi.mocked(getDb).mockReturnValue(db as never);
 
@@ -293,7 +293,7 @@ describe("closeCycle", () => {
       updated_at: "2025-12-20T00:00:00Z"
     };
     const db = buildDbMock({
-      "UPDATE cycles": () => ({ rows: [cycle] })
+      "UPDATE cycles": () => ({ rows: [asRow(cycle)] })
     });
     vi.mocked(getDb).mockReturnValue(db as never);
 
