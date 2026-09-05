@@ -3864,3 +3864,158 @@ export async function setParcelClientFarm(input: {
   return { parcel_id: input.parcel_id, client_id: row.client_id, farm_id: row.farm_id };
 }
 
+// ============================================================
+// Fase 3.B — Backfill: listar parcelas sin asignar + asignación bulk
+// ============================================================
+
+/**
+ * Lista las parcelas que NO tienen client_id O farm_id asignado.
+ * Usado por la página /admin/parcels/assign (Fase 3.B) para
+ * mostrarle al operador las parcelas que aún necesitan asignación.
+ *
+ * Soporta paginación server-side y filtro por texto (busca en
+ * `land_name` y `external_id`).
+ */
+export interface UnassignedParcel {
+  id: number;
+  land_name: string | null;
+  external_id: string;
+  client_name: string | null;  // denormalizado (referencia)
+  farm_name: string | null;    // denormalizado (referencia)
+  municipality: string | null;
+  data_validity: "fresh" | "needs_review" | "stale" | "unknown";
+  has_client: boolean;
+  has_farm: boolean;
+}
+
+export async function listUnassignedParcels(
+  page: number = 1,
+  pageSize: number = 50,
+  search: string = ""
+): Promise<{
+  data: UnassignedParcel[];
+  total: number;
+  totalPages: number;
+}> {
+  const cappedPage = Math.max(1, Math.floor(page));
+  const cappedSize = Math.min(200, Math.max(1, Math.floor(pageSize)));
+  const offset = (cappedPage - 1) * cappedSize;
+  const q = search.trim();
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      // WHERE: client_id IS NULL OR farm_id IS NULL
+      // Filtro de búsqueda: LIKE en land_name y external_id
+      const params: unknown[] = [];
+      let where = "WHERE (client_id IS NULL OR farm_id IS NULL)";
+      if (q.length > 0) {
+        params.push(`%${q}%`);
+        where += ` AND (land_name ILIKE $${params.length} OR external_id ILIKE $${params.length})`;
+      }
+      // Total count
+      const countResult = await db.query<{ count: string }>(
+        `SELECT count(*)::text AS count FROM dji_parcels ${where}`,
+        params
+      );
+      const total = Number(countResult.rows[0]?.count ?? 0);
+      // Page
+      params.push(cappedSize);
+      params.push(offset);
+      const r = await db.query<{
+        id: number;
+        land_name: string | null;
+        external_id: string;
+        client_name: string | null;
+        farm_name: string | null;
+        municipality: string | null;
+        data_validity: "fresh" | "needs_review" | "stale" | "unknown";
+        client_id: number | null;
+        farm_id: number | null;
+      }>(
+        `SELECT id, land_name, external_id, client_name, farm_name, municipality,
+                data_validity, client_id, farm_id
+           FROM dji_parcels
+           ${where}
+          ORDER BY id ASC
+          LIMIT $${params.length - 1} OFFSET $${params.length}`,
+        params
+      );
+      const data: UnassignedParcel[] = r.rows.map((row) => ({
+        id: row.id,
+        land_name: row.land_name,
+        external_id: row.external_id,
+        client_name: row.client_name,
+        farm_name: row.farm_name,
+        municipality: row.municipality,
+        data_validity: row.data_validity,
+        has_client: row.client_id !== null,
+        has_farm: row.farm_id !== null
+      }));
+      return {
+        data,
+        total,
+        totalPages: Math.ceil(total / cappedSize)
+      };
+    },
+    async () => ({ data: [], total: 0, totalPages: 0 })
+  );
+}
+
+/**
+ * Asigna el mismo (client_id, farm_id) a N parcelas. Usado por
+ * la acción bulk de /admin/parcels/assign.
+ *
+ * Devuelve un array con el resultado por parcela (éxito/error).
+ * NO es transaccional — si una falla, las anteriores ya se
+ * commitearon. Es bulk-best-effort; el operador puede re-ejecutar
+ * la asignación para las que fallaron.
+ */
+export interface BulkAssignResult {
+  parcel_id: number;
+  success: boolean;
+  error?: string;
+}
+
+export async function bulkSetParcelClientFarm(input: {
+  parcel_ids: number[];
+  client_id: number | null;
+  farm_id: number | null;
+  data_validity?: "fresh" | "needs_review" | "stale" | "unknown";
+  validated_by_email: string;
+}): Promise<BulkAssignResult[]> {
+  if (input.parcel_ids.length === 0) return [];
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      const results: BulkAssignResult[] = [];
+      // Hacemos N updates (no un solo UPDATE WHERE id = ANY(...) para
+      // poder reportar per-row success/error). En el futuro, si el
+      // volumen crece, se puede hacer un UPDATE con RETURNING y
+      // detectar los ids que NO volvieron (los que fallaron).
+      for (const parcelId of input.parcel_ids) {
+        try {
+          await setParcelClientFarm({
+            parcel_id: parcelId,
+            client_id: input.client_id,
+            farm_id: input.farm_id,
+            data_validity: input.data_validity,
+            validated_by_email: input.validated_by_email
+          });
+          results.push({ parcel_id: parcelId, success: true });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : "error desconocido";
+          results.push({ parcel_id: parcelId, success: false, error: message });
+        }
+      }
+      return results;
+    },
+    async () =>
+      input.parcel_ids.map((id) => ({
+        parcel_id: id,
+        success: false,
+        error: "DB no disponible"
+      }))
+  );
+}
+
+
