@@ -155,6 +155,11 @@ CREATE INDEX IF NOT EXISTS idx_dji_fumigations_cycle
 -- `STABLE` permite a PG cachear el resultado dentro de una query
 -- (vital para queries que llaman current_phase por cada fila de
 -- vw_current_cycle).
+--
+-- NOTA: `CURRENT_DATE - p_start` en PG devuelve INTEGER (dias entre
+-- fechas), NO un interval. Por eso no usamos EXTRACT(...) — el
+-- cast a INT es directo. EXTRACT solo funciona sobre INTERVAL o
+-- TIMESTAMP.
 CREATE OR REPLACE FUNCTION current_phase(
   p_crop TEXT,
   p_variety TEXT,
@@ -163,7 +168,7 @@ CREATE OR REPLACE FUNCTION current_phase(
   SELECT phase_name FROM phase_rules
    WHERE crop_type = p_crop
      AND (variety = p_variety OR variety IS NULL)
-     AND EXTRACT(DAY FROM (CURRENT_DATE - p_start))::INT BETWEEN day_from AND day_to
+     AND (CURRENT_DATE - p_start)::INT BETWEEN day_from AND day_to
    ORDER BY (variety IS NULL) ASC  -- prefiere variedad específica
    LIMIT 1;
 $$ LANGUAGE SQL STABLE;
@@ -192,7 +197,9 @@ SELECT
   p.client_id,
   p.farm_id,
   p.municipality,
-  EXTRACT(DAY FROM (NOW() - c.start_date))::INT AS age_days,
+  -- `NOW() - c.start_date` devuelve integer (dias). NO usar EXTRACT
+  -- (solo funciona sobre INTERVAL o TIMESTAMP).
+  (NOW()::date - c.start_date)::INT AS age_days,
   current_phase(c.crop_type, c.variety, c.start_date) AS current_phase_name,
   CASE
     WHEN c.end_date IS NOT NULL THEN 'closed'
