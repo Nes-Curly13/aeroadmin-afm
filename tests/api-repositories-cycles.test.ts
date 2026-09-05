@@ -37,6 +37,14 @@ import {
 type MockRow = Record<string, unknown>;
 type MockResult = { rows: MockRow[]; rowCount?: number };
 
+// Cast helper: Cycle / CycleEvent son interfaces sin index signature,
+// asi que TS no las acepta como MockRow directamente. El cast
+// explicito documenta que en el test solo nos importan los campos
+// que el codigo bajo test lee de la fila.
+const asRow = <T extends object>(row: T): MockRow => row as unknown as MockRow;
+const asRows = <T extends object>(rows: T[]): MockRow[] =>
+  rows as unknown as MockRow[];
+
 function buildDbMock(handlers: Record<string, (args: unknown[]) => MockResult | Promise<MockResult>>) {
   return {
     query: vi.fn(async (sqlOrConfig: string | { text: string; values?: unknown[] }, values?: unknown[]) => {
@@ -98,7 +106,7 @@ describe("getActiveCycleForParcel", () => {
       updated_at: "2026-03-15T00:00:00Z"
     };
     const db = buildDbMock({
-      "WHERE parcela_id = $1 AND end_date IS NULL": () => ({ rows: [cycle] })
+      "WHERE parcela_id = $1 AND end_date IS NULL": () => ({ rows: [asRow(cycle)] })
     });
     vi.mocked(getDb).mockReturnValue(db as never);
 

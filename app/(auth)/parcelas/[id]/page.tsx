@@ -1,4 +1,4 @@
-import { ArrowLeft, CalendarClock, Droplets, FileSpreadsheet, FileText, History, Pencil, Plane, Plus, Sprout } from "lucide-react"
+import { AlertTriangle, ArrowLeft, CalendarClock, Droplets, FileSpreadsheet, FileText, History, Pencil, Plane, Plus, Sprout } from "lucide-react"
 import Link from "next/link"
 import { notFound } from "next/navigation"
 import { RedrawGeometryButton } from "@/components/admin/parcels/redraw-geometry-button"
@@ -20,6 +20,7 @@ import {
   getParcelSummary,
   getScheduleHistory,
 } from "@/lib/data"
+import { getActiveCycleForParcel, listEventsForCycle, listCyclesForParcel } from "@/api/repositories"
 import { phaseChipClass, phaseLabel } from "@/lib/crop-cycle"
 import { fmtDate, fmtDateTime, fmtDec, fmtHa, fmtInt, fmtLiters, fmtRelative } from "@/lib/format"
 import { cn } from "@/lib/utils"
@@ -39,12 +40,21 @@ export default async function ParcelaPage({ params }: { params: Promise<{ id: st
   if (!Number.isFinite(parcelIdNum) || parcelIdNum <= 0) notFound()
   // Sprint 2026-08-01 — fetch de cycle data en paralelo con flights/fumigations.
   // `getCycleForParcel` degrada a {null, null} si la migration no se aplicó.
-  const [fumigations, flights, history, cycle] = await Promise.all([
+  // S11+ / Fase 4.5 — tambien fetch el ciclo activo desde la nueva tabla
+  // `cycles` y su lista de eventos. Si la migration no se aplicó, los
+  // helpers devuelven null/[] vacíos y la UI muestra estado "Sin ciclo".
+  const [fumigations, flights, history, cycle, activeCycle, allCycles] = await Promise.all([
     getFumigationsByParcel(id),
     getFlightsByParcel(id),
     getScheduleHistory(id),
-    getCycleForParcel(id)
+    getCycleForParcel(id),
+    getActiveCycleForParcel(parcelIdNum).catch(() => null),
+    listCyclesForParcel(parcelIdNum).catch(() => [])
   ])
+  // Eventos del ciclo activo (si existe).
+  const cycleEvents = activeCycle
+    ? await listEventsForCycle(activeCycle.id).catch(() => [])
+    : []
   const meta = STATUS_META[summary.status]
   const model = droneModel(parcel.drone_model_id)
 
@@ -115,6 +125,48 @@ export default async function ParcelaPage({ params }: { params: Promise<{ id: st
 
   return (
     <>
+      {/* S11+ / Fase 3.C — breadcrumb Cliente → Finca → Parcela. */}
+      <nav
+        aria-label="Jerarquía de la parcela"
+        className="border-b border-border bg-muted/30 px-4 py-2 text-xs sm:px-6"
+      >
+        <ol className="flex flex-wrap items-center gap-1.5 font-medium">
+          <li>
+            <Link
+              href="/parcelas"
+              className="text-muted-foreground hover:text-primary"
+            >
+              Parcelas
+            </Link>
+          </li>
+          {parcel.client_name && (
+            <>
+              <li aria-hidden className="text-muted-foreground/50">/</li>
+              <li>
+                <span className="text-muted-foreground" title="Cliente (Fase 3.A)">
+                  {parcel.client_name}
+                </span>
+              </li>
+            </>
+          )}
+          {parcel.farm_name && (
+            <>
+              <li aria-hidden className="text-muted-foreground/50">/</li>
+              <li>
+                <span className="text-muted-foreground" title="Hacienda (Fase 3.A)">
+                  {parcel.farm_name}
+                </span>
+              </li>
+            </>
+          )}
+          <li aria-hidden className="text-muted-foreground/50">/</li>
+          <li>
+            <span className="font-semibold text-foreground" aria-current="page">
+              {parcel.name}
+            </span>
+          </li>
+        </ol>
+      </nav>
       <header className="border-b border-border bg-card px-4 py-5 sm:px-6">
         <Link
           href="/parcelas"
@@ -270,6 +322,123 @@ export default async function ParcelaPage({ params }: { params: Promise<{ id: st
                   color={meta.color}
                   flights={flights.map((f) => ({ id: f.id, lng: f.lng, lat: f.lat, pilot: f.pilot }))}
                 />
+              </CardContent>
+            </Card>
+
+            {/* S11+ / Fase 4.5 — Ciclo Productivo actual + timeline. */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Sprout className="size-4 text-primary" aria-hidden />
+                  Ciclo productivo
+                </CardTitle>
+                <CardDescription>
+                  Ciclos de siembra → cosecha. Las fumigaciones se asocian al
+                  ciclo activo.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {activeCycle ? (
+                  <div className="flex flex-col gap-3">
+                    <div className="flex flex-wrap items-center gap-2 text-sm">
+                      <Badge variant="outline" className="font-mono">
+                        Ciclo #{activeCycle.id}
+                      </Badge>
+                      <span className="font-semibold">{fmtDate(activeCycle.start_date)}</span>
+                      {activeCycle.end_date && (
+                        <>
+                          <span aria-hidden>→</span>
+                          <span className="font-semibold">{fmtDate(activeCycle.end_date)}</span>
+                          <Badge variant="secondary">cerrado</Badge>
+                        </>
+                      )}
+                      {activeCycle.crop_type && (
+                        <Badge variant="outline" className="text-[10px]">
+                          {activeCycle.crop_type}
+                          {activeCycle.variety ? ` · ${activeCycle.variety}` : ""}
+                        </Badge>
+                      )}
+                      {activeCycle.data_validity === "needs_review" && (
+                        <Badge variant="outline" className="border-amber-500/40 bg-amber-500/10 text-[10px] text-amber-700 dark:text-amber-300">
+                          <AlertTriangle className="mr-1 size-2.5" aria-hidden />
+                          needs_review
+                        </Badge>
+                      )}
+                    </div>
+                    {activeCycle.notes && (
+                      <p className="rounded-md border border-border bg-muted/40 p-2 text-xs italic text-muted-foreground">
+                        {activeCycle.notes}
+                      </p>
+                    )}
+                    {cycleEvents.length > 0 && (
+                      <div className="mt-2">
+                        <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                          Eventos del ciclo
+                        </p>
+                        <ul className="space-y-1.5 border-l-2 border-border pl-3">
+                          {cycleEvents.slice(0, 8).map((ev) => (
+                            <li key={ev.id} className="flex items-center gap-2 text-xs">
+                              <span className="font-mono tabular-nums text-muted-foreground">
+                                {fmtDate(ev.event_date)}
+                              </span>
+                              <Badge variant="secondary" className="text-[10px]">
+                                {ev.event_type}
+                              </Badge>
+                              {ev.fumigation_id && (
+                                <span className="text-[10px] text-muted-foreground">
+                                  → fumigación #{ev.fumigation_id}
+                                </span>
+                              )}
+                            </li>
+                          ))}
+                          {cycleEvents.length > 8 && (
+                            <li className="text-[10px] italic text-muted-foreground">
+                              +{cycleEvents.length - 8} eventos más
+                            </li>
+                          )}
+                        </ul>
+                      </div>
+                    )}
+                    {allCycles.length > 1 && (
+                      <p className="mt-1 border-t border-border pt-2 text-[11px] text-muted-foreground">
+                        Esta parcela tiene {allCycles.length} ciclos en total. El actual
+                        es el de más arriba. Ver histórico en /admin/parcels (próximo sprint).
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-start gap-2 py-2">
+                    <p className="text-sm text-muted-foreground">
+                      Esta parcela no tiene un ciclo activo. Las fumigaciones se
+                      asocian al ciclo via dji_fumigations.cycle_id.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {fumigations.length > 0 && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          nativeButton={false}
+                          render={
+                            <a
+                              href="/admin/parcels"
+                              aria-label="Asignar cliente y crear ciclo"
+                            >
+                              <Plus className="size-3.5" aria-hidden />
+                              Asignar cliente + crear ciclo
+                            </a>
+                          }
+                        />
+                      )}
+                    </div>
+                    {fumigations.length > 0 && (
+                      <p className="text-[11px] text-muted-foreground">
+                        Tip: correr el backfill híbrido desde la API
+                        (<code className="rounded bg-muted px-1">POST /api/admin/cycles/backfill</code>)
+                        para inferir ciclos desde el histórico de fumigaciones.
+                      </p>
+                    )}
+                  </div>
+                )}
               </CardContent>
             </Card>
 
