@@ -169,14 +169,61 @@ LEFT JOIN clients c ON c.id = p.client_id
 LEFT JOIN farms f ON f.id = p.farm_id;
 
 -- ============================================================
--- Backfill: MOVIDO a 20260905010000_backfill_clients_farms.sql
+-- Backfill best-effort (Fase 3.B complemento) — PLAIN SQL
 -- ============================================================
--- El DO $$ block del backfill tiene un edge case con multi-statement
--- batch: PL/pgSQL se compila upfront y al ejecutarse NO ve las
--- columnas creadas en el mismo `client.query(sql)` (que es como el
--- runner `scripts/apply-pending-migrations.js` ejecuta las
--- migrations). El backfill se movió a un archivo separado que se
--- ejecuta DESPUÉS del schema en otra transaction del runner.
+-- Sprint S11+ / Fase 3.B. Crea `clients` y `farms` a partir de los
+-- valores denormalizados de `dji_parcels.client_name` y
+-- `dji_parcels.farm_name`. Idempotente (NOT EXISTS guards).
+-- NO modifica `dji_parcels.client_id` / `farm_id` (eso es decisión
+-- del operador en la UI, porque los nombres son ambiguos y
+-- pueden tener variantes).
+--
+-- PLAIN SQL (no DO block) porque en pg >= 8 el DO block parsea
+-- los statements upfront y el catalog snapshot no se actualiza
+-- al ejecutar — incluso entre transactions del runner. Plain SQL
+-- cada INSERT se parsea contra el catalog actual.
+
+-- 1) Clientes unicos (lower-trim) que aparecen en al menos 1 parcela
+INSERT INTO clients (name, created_by_email, data_validity)
+SELECT DISTINCT
+  p.client_name,
+  'system@backfill',
+  'needs_review'
+FROM dji_parcels p
+WHERE p.client_name IS NOT NULL
+  AND TRIM(p.client_name) <> ''
+  AND NOT EXISTS (
+    SELECT 1 FROM clients c WHERE LOWER(TRIM(c.name)) = LOWER(TRIM(p.client_name))
+  );
+
+-- 2) Cliente "Sin asignar" para fincas sin client_name
+INSERT INTO clients (name, created_by_email, data_validity)
+VALUES ('(Sin asignar)', 'system@backfill', 'needs_review')
+ON CONFLICT (LOWER(TRIM(name))) DO NOTHING;
+
+-- 3) Farms unicas por (client_id, name) — farms sin client_name
+--    caen bajo "(Sin asignar)" para no perderlas.
+INSERT INTO farms (client_id, name, municipality, created_by_email, data_validity)
+SELECT DISTINCT
+  COALESCE(
+    (SELECT id FROM clients WHERE LOWER(TRIM(name)) = LOWER(TRIM(p.client_name))),
+    (SELECT id FROM clients WHERE name = '(Sin asignar)')
+  ),
+  p.farm_name,
+  p.municipality,
+  'system@backfill',
+  'needs_review'
+FROM dji_parcels p
+WHERE p.farm_name IS NOT NULL
+  AND TRIM(p.farm_name) <> ''
+  AND NOT EXISTS (
+    SELECT 1 FROM farms f
+    WHERE f.client_id = COALESCE(
+            (SELECT id FROM clients WHERE LOWER(TRIM(name)) = LOWER(TRIM(p.client_name))),
+            (SELECT id FROM clients WHERE name = '(Sin asignar)')
+          )
+      AND LOWER(TRIM(f.name)) = LOWER(TRIM(p.farm_name))
+  );
 
 -- ============================================================
 -- Comentarios de documentación
