@@ -169,68 +169,14 @@ LEFT JOIN clients c ON c.id = p.client_id
 LEFT JOIN farms f ON f.id = p.farm_id;
 
 -- ============================================================
--- Backfill best-effort (Fase 3.B complemento)
+-- Backfill: MOVIDO a 20260905010000_backfill_clients_farms.sql
 -- ============================================================
--- Sprint S11+ / Fase 3.B. Crea `clients` y `farms` a partir de los
--- valores denormalizados de `dji_parcels.client_name` y
--- `dji_parcels.farm_name`. Idempotente (ON CONFLICT DO NOTHING).
--- NO modifica `dji_parcels.client_id` / `farm_id` (eso es decisión
--- del operador en la UI, porque los nombres son ambiguos y
--- pueden tener variantes).
---
--- Conteo: solo crea si hay al menos 1 parcela con ese nombre.
-DO $$
-DECLARE
-  inserted_clients INT := 0;
-  inserted_farms   INT := 0;
-BEGIN
-  -- 1) Clientes únicos (lower-trim) que aparecen en al menos 1 parcela
-  INSERT INTO clients (name, created_by_email, data_validity)
-  SELECT DISTINCT
-    p.client_name,
-    'system@backfill',
-    'needs_review'  -- marcado para revisión del operador
-  FROM dji_parcels p
-  WHERE p.client_name IS NOT NULL
-    AND TRIM(p.client_name) <> ''
-    AND NOT EXISTS (
-      SELECT 1 FROM clients c WHERE LOWER(TRIM(c.name)) = LOWER(TRIM(p.client_name))
-    );
-  GET DIAGNOSTICS inserted_clients = ROW_COUNT;
-
-  -- 2) Farms únicos por (client_id, name) — pero como algunas parcelas
-  --    tienen farm_name sin client_name, las farms sin cliente se
-  --    crean bajo un cliente "Sin asignar" para no perderlas.
-  INSERT INTO clients (name, created_by_email, data_validity)
-  VALUES ('(Sin asignar)', 'system@backfill', 'needs_review')
-  ON CONFLICT (LOWER(TRIM(name))) DO NOTHING;
-
-  INSERT INTO farms (client_id, name, municipality, created_by_email, data_validity)
-  SELECT DISTINCT
-    COALESCE(
-      (SELECT id FROM clients WHERE LOWER(TRIM(name)) = LOWER(TRIM(p.client_name))),
-      (SELECT id FROM clients WHERE name = '(Sin asignar)')
-    ),
-    p.farm_name,
-    p.municipality,
-    'system@backfill',
-    'needs_review'
-  FROM dji_parcels p
-  WHERE p.farm_name IS NOT NULL
-    AND TRIM(p.farm_name) <> ''
-    AND NOT EXISTS (
-      SELECT 1 FROM farms f
-      WHERE f.client_id = COALESCE(
-              (SELECT id FROM clients WHERE LOWER(TRIM(name)) = LOWER(TRIM(p.client_name))),
-              (SELECT id FROM clients WHERE name = '(Sin asignar)')
-            )
-        AND LOWER(TRIM(f.name)) = LOWER(TRIM(p.farm_name))
-    );
-  GET DIAGNOSTICS inserted_farms = ROW_COUNT;
-
-  RAISE NOTICE 'Backfill: % clients nuevos, % farms nuevas (ambas data_validity=needs_review)',
-    inserted_clients, inserted_farms;
-END $$;
+-- El DO $$ block del backfill tiene un edge case con multi-statement
+-- batch: PL/pgSQL se compila upfront y al ejecutarse NO ve las
+-- columnas creadas en el mismo `client.query(sql)` (que es como el
+-- runner `scripts/apply-pending-migrations.js` ejecuta las
+-- migrations). El backfill se movió a un archivo separado que se
+-- ejecuta DESPUÉS del schema en otra transaction del runner.
 
 -- ============================================================
 -- Comentarios de documentación
