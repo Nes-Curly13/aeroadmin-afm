@@ -3561,3 +3561,461 @@ export async function cancelFumigationInvoice(
     async () => null
   );
 }
+
+// ============================================================
+// CLIENTS + FARMS — S11+ / PLAN-FUMIGACIONES-V2 / Fase 3.A
+// ============================================================
+//
+// Re-scope: la jerarquía Cliente → Finca → Parcela es requisito
+// de tesis. Estas funciones CRUD son la base para Fase 3.B
+// (backfill UI) y Fase 3.C (UI updates).
+//
+// Decisiones:
+//   - `name` se normaliza con LOWER(TRIM(...)) en los SELECT
+//     para que la búsqueda sea case-insensitive. El INSERT
+//     confía en el UNIQUE INDEX de la BD para rechazar dupes.
+//   - `data_validity` se setea en `needs_review` por default
+//     en CREATE — el operador lo cambia a `fresh` después de
+//     confirmar manualmente.
+//   - `created_by_email` es el actor que crea el registro
+//     (auditoría básica).
+//   - Soft delete NO se implementa todavía — los registros se
+//     pueden hard-deletear desde la UI admin (Fase 3.C). Si el
+//     cliente tiene parcelas, ON DELETE SET NULL mantiene la
+//     parcela pero le borra la FK.
+
+export interface Client {
+  id: number;
+  name: string;
+  notes: string | null;
+  data_validity: "fresh" | "needs_review" | "stale" | "unknown";
+  last_validated_at: string | null;
+  validated_by_email: string | null;
+  created_at: string;
+  updated_at: string;
+  created_by_email: string;
+}
+
+export interface Farm {
+  id: number;
+  client_id: number;
+  name: string;
+  municipality: string | null;
+  department: string | null;
+  data_validity: "fresh" | "needs_review" | "stale" | "unknown";
+  last_validated_at: string | null;
+  validated_by_email: string | null;
+  created_at: string;
+  updated_at: string;
+  created_by_email: string;
+}
+
+/**
+ * Búsqueda fuzzy de clients por nombre. Cap 50.
+ *
+ * Usado por el autocomplete del ParcelDrawer / parcel detail
+ * (Fase 3.C — UI). Similar a `searchDjiProducts` (mismo patrón
+ * starts-with > contains).
+ */
+export async function searchClients(
+  search: string,
+  limit: number = 10
+): Promise<Client[]> {
+  const cappedLimit = Math.min(50, Math.max(1, Math.floor(limit)));
+  const q = (search ?? "").trim();
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      if (q.length < 1) {
+        const r = await db.query<Client>(
+          `SELECT id, name, notes, data_validity, last_validated_at,
+                  validated_by_email, created_at, updated_at, created_by_email
+             FROM clients
+            ORDER BY updated_at DESC, name ASC
+            LIMIT $1`,
+          [cappedLimit]
+        );
+        return r.rows;
+      }
+      const r = await db.query<Client>(
+        `SELECT id, name, notes, data_validity, last_validated_at,
+                validated_by_email, created_at, updated_at, created_by_email
+           FROM clients
+          WHERE LOWER(name) LIKE LOWER($1) || '%'
+             OR LOWER(name) LIKE '%' || LOWER($1) || '%'
+          ORDER BY
+            CASE WHEN LOWER(name) LIKE LOWER($1) || '%' THEN 0 ELSE 1 END,
+            name ASC
+          LIMIT $2`,
+        [q, cappedLimit]
+      );
+      return r.rows;
+    },
+    async () => []
+  );
+}
+
+/**
+ * Crea un client. El `name` se normaliza (trim) antes de insertar.
+ * Si ya existe (case-insensitive), tira `23505` (unique violation)
+ * que el route handler mapea a 409.
+ *
+ * NO usa `withLocalFallback` porque queremos propagar el error
+ * original (incluyendo 23505) — el route handler depende de `err.code`
+ * para devolver 409 vs 500.
+ */
+export async function createClient(input: {
+  name: string;
+  notes?: string | null;
+  created_by_email: string;
+}): Promise<Client> {
+  const name = (input.name ?? "").trim();
+  if (!name) {
+    throw new Error("createClient: name vacío");
+  }
+  const db = getDb();
+  const r = await db.query<Client>(
+    `INSERT INTO clients (name, notes, created_by_email, data_validity)
+     VALUES ($1, $2, $3, 'needs_review')
+     RETURNING id, name, notes, data_validity, last_validated_at,
+               validated_by_email, created_at, updated_at, created_by_email`,
+    [name, input.notes?.trim() ?? null, input.created_by_email]
+  );
+  const row = r.rows[0];
+  if (!row) throw new Error("createClient: INSERT sin row");
+  return row;
+}
+
+export async function getClientById(id: number): Promise<Client | null> {
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      const r = await db.query<Client>(
+        `SELECT id, name, notes, data_validity, last_validated_at,
+                validated_by_email, created_at, updated_at, created_by_email
+           FROM clients
+          WHERE id = $1`,
+        [id]
+      );
+      return r.rows[0] ?? null;
+    },
+    async () => null
+  );
+}
+
+/**
+ * Búsqueda fuzzy de farms. Si se pasa `clientId`, filtra por
+ * ese cliente (caso de uso típico: autocomplete de fincas del
+ * cliente X). Si `clientId` es null, devuelve farms de todos
+ * los clientes (caso de uso admin / reporting).
+ */
+export async function searchFarms(
+  search: string,
+  options: { clientId?: number | null; limit?: number } = {}
+): Promise<Farm[]> {
+  const cappedLimit = Math.min(50, Math.max(1, Math.floor(options.limit ?? 10)));
+  const q = (search ?? "").trim();
+  const clientId = options.clientId ?? null;
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      if (q.length < 1 && clientId === null) {
+        const r = await db.query<Farm>(
+          `SELECT id, client_id, name, municipality, department,
+                  data_validity, last_validated_at, validated_by_email,
+                  created_at, updated_at, created_by_email
+             FROM farms
+            ORDER BY updated_at DESC, name ASC
+            LIMIT $1`,
+          [cappedLimit]
+        );
+        return r.rows;
+      }
+      const params: unknown[] = [];
+      const conds: string[] = [];
+      if (clientId !== null) {
+        params.push(clientId);
+        conds.push(`client_id = $${params.length}`);
+      }
+      if (q.length >= 1) {
+        params.push(q);
+        conds.push(
+          `(LOWER(name) LIKE LOWER($${params.length}) || '%'
+            OR LOWER(name) LIKE '%' || LOWER($${params.length}) || '%')`
+        );
+      }
+      params.push(cappedLimit);
+      const startsWithIdx = q.length >= 1 ? params.length - 1 : null;
+      const orderStartsWith = startsWithIdx
+        ? `CASE WHEN LOWER(name) LIKE LOWER($${startsWithIdx}) || '%' THEN 0 ELSE 1 END`
+        : "0";
+      const r = await db.query<Farm>(
+        `SELECT id, client_id, name, municipality, department,
+                data_validity, last_validated_at, validated_by_email,
+                created_at, updated_at, created_by_email
+           FROM farms
+          WHERE ${conds.join(" AND ")}
+          ORDER BY ${orderStartsWith}, name ASC
+          LIMIT $${params.length}`,
+        params
+      );
+      return r.rows;
+    },
+    async () => []
+  );
+}
+
+/**
+ * Crea una farm. El `name` se normaliza (trim). La UNIQUE
+ * (client_id, LOWER(TRIM(name))) rechaza dupes con 23505.
+ *
+ * NO usa `withLocalFallback` (igual que `createClient`) — el
+ * route handler depende de `err.code` para 409 vs 500.
+ */
+export async function createFarm(input: {
+  client_id: number;
+  name: string;
+  municipality?: string | null;
+  department?: string | null;
+  created_by_email: string;
+}): Promise<Farm> {
+  const name = (input.name ?? "").trim();
+  if (!name) {
+    throw new Error("createFarm: name vacío");
+  }
+  if (!input.client_id || input.client_id < 1) {
+    throw new Error("createFarm: client_id requerido");
+  }
+  const db = getDb();
+  const r = await db.query<Farm>(
+    `INSERT INTO farms (client_id, name, municipality, department,
+                        created_by_email, data_validity)
+     VALUES ($1, $2, $3, $4, $5, 'needs_review')
+     RETURNING id, client_id, name, municipality, department,
+               data_validity, last_validated_at, validated_by_email,
+               created_at, updated_at, created_by_email`,
+    [
+      input.client_id,
+      name,
+      input.municipality?.trim() ?? null,
+      input.department?.trim() ?? null,
+      input.created_by_email
+    ]
+  );
+  const row = r.rows[0];
+  if (!row) throw new Error("createFarm: INSERT sin row");
+  return row;
+}
+
+export async function getFarmById(id: number): Promise<Farm | null> {
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      const r = await db.query<Farm>(
+        `SELECT id, client_id, name, municipality, department,
+                data_validity, last_validated_at, validated_by_email,
+                created_at, updated_at, created_by_email
+           FROM farms
+          WHERE id = $1`,
+        [id]
+      );
+      return r.rows[0] ?? null;
+    },
+    async () => null
+  );
+}
+
+/**
+ * S11+ / Fase 3.A — asigna client_id / farm_id a una parcela
+ * existente, y opcionalmente actualiza la data_validity.
+ * Usado por el backfill UI (Fase 3.B) y por la edición manual
+ * desde el parcel detail.
+ *
+ * NO usa `withLocalFallback` — UPDATE debe propagar errores
+ * (parcel no existe, FK violation, etc.).
+ */
+export async function setParcelClientFarm(input: {
+  parcel_id: number;
+  client_id: number | null;
+  farm_id: number | null;
+  data_validity?: "fresh" | "needs_review" | "stale" | "unknown";
+  validated_by_email?: string | null;
+}): Promise<{ parcel_id: number; client_id: number | null; farm_id: number | null }> {
+  const db = getDb();
+  const r = await db.query<{ client_id: number | null; farm_id: number | null }>(
+    `UPDATE dji_parcels
+        SET client_id = $1,
+            farm_id = $2,
+            data_validity = COALESCE($3, data_validity),
+            last_validated_at = CASE WHEN $3 IS NOT NULL THEN NOW() ELSE last_validated_at END,
+            validated_by_email = CASE WHEN $3 IS NOT NULL THEN $4 ELSE validated_by_email END
+      WHERE id = $5
+    RETURNING id, client_id, farm_id`,
+    [
+      input.client_id,
+      input.farm_id,
+      input.data_validity ?? null,
+      input.validated_by_email ?? null,
+      input.parcel_id
+    ]
+  );
+  const row = r.rows[0];
+  if (!row) throw new Error(`setParcelClientFarm: parcel ${input.parcel_id} no existe`);
+  return { parcel_id: input.parcel_id, client_id: row.client_id, farm_id: row.farm_id };
+}
+
+// ============================================================
+// Fase 3.B — Backfill: listar parcelas sin asignar + asignación bulk
+// ============================================================
+
+/**
+ * Lista las parcelas que NO tienen client_id O farm_id asignado.
+ * Usado por la página /admin/parcels/assign (Fase 3.B) para
+ * mostrarle al operador las parcelas que aún necesitan asignación.
+ *
+ * Soporta paginación server-side y filtro por texto (busca en
+ * `land_name` y `external_id`).
+ */
+export interface UnassignedParcel {
+  id: number;
+  land_name: string | null;
+  external_id: string;
+  client_name: string | null;  // denormalizado (referencia)
+  farm_name: string | null;    // denormalizado (referencia)
+  municipality: string | null;
+  data_validity: "fresh" | "needs_review" | "stale" | "unknown";
+  has_client: boolean;
+  has_farm: boolean;
+}
+
+export async function listUnassignedParcels(
+  page: number = 1,
+  pageSize: number = 50,
+  search: string = ""
+): Promise<{
+  data: UnassignedParcel[];
+  total: number;
+  totalPages: number;
+}> {
+  const cappedPage = Math.max(1, Math.floor(page));
+  const cappedSize = Math.min(200, Math.max(1, Math.floor(pageSize)));
+  const offset = (cappedPage - 1) * cappedSize;
+  const q = search.trim();
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      // WHERE: client_id IS NULL OR farm_id IS NULL
+      // Filtro de búsqueda: LIKE en land_name y external_id
+      const params: unknown[] = [];
+      let where = "WHERE (client_id IS NULL OR farm_id IS NULL)";
+      if (q.length > 0) {
+        params.push(`%${q}%`);
+        where += ` AND (land_name ILIKE $${params.length} OR external_id ILIKE $${params.length})`;
+      }
+      // Total count
+      const countResult = await db.query<{ count: string }>(
+        `SELECT count(*)::text AS count FROM dji_parcels ${where}`,
+        params
+      );
+      const total = Number(countResult.rows[0]?.count ?? 0);
+      // Page
+      params.push(cappedSize);
+      params.push(offset);
+      const r = await db.query<{
+        id: number;
+        land_name: string | null;
+        external_id: string;
+        client_name: string | null;
+        farm_name: string | null;
+        municipality: string | null;
+        data_validity: "fresh" | "needs_review" | "stale" | "unknown";
+        client_id: number | null;
+        farm_id: number | null;
+      }>(
+        `SELECT id, land_name, external_id, client_name, farm_name, municipality,
+                data_validity, client_id, farm_id
+           FROM dji_parcels
+           ${where}
+          ORDER BY id ASC
+          LIMIT $${params.length - 1} OFFSET $${params.length}`,
+        params
+      );
+      const data: UnassignedParcel[] = r.rows.map((row) => ({
+        id: row.id,
+        land_name: row.land_name,
+        external_id: row.external_id,
+        client_name: row.client_name,
+        farm_name: row.farm_name,
+        municipality: row.municipality,
+        data_validity: row.data_validity,
+        has_client: row.client_id !== null,
+        has_farm: row.farm_id !== null
+      }));
+      return {
+        data,
+        total,
+        totalPages: Math.ceil(total / cappedSize)
+      };
+    },
+    async () => ({ data: [], total: 0, totalPages: 0 })
+  );
+}
+
+/**
+ * Asigna el mismo (client_id, farm_id) a N parcelas. Usado por
+ * la acción bulk de /admin/parcels/assign.
+ *
+ * Devuelve un array con el resultado por parcela (éxito/error).
+ * NO es transaccional — si una falla, las anteriores ya se
+ * commitearon. Es bulk-best-effort; el operador puede re-ejecutar
+ * la asignación para las que fallaron.
+ */
+export interface BulkAssignResult {
+  parcel_id: number;
+  success: boolean;
+  error?: string;
+}
+
+export async function bulkSetParcelClientFarm(input: {
+  parcel_ids: number[];
+  client_id: number | null;
+  farm_id: number | null;
+  data_validity?: "fresh" | "needs_review" | "stale" | "unknown";
+  validated_by_email: string;
+}): Promise<BulkAssignResult[]> {
+  if (input.parcel_ids.length === 0) return [];
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      const results: BulkAssignResult[] = [];
+      // Hacemos N updates (no un solo UPDATE WHERE id = ANY(...) para
+      // poder reportar per-row success/error). En el futuro, si el
+      // volumen crece, se puede hacer un UPDATE con RETURNING y
+      // detectar los ids que NO volvieron (los que fallaron).
+      for (const parcelId of input.parcel_ids) {
+        try {
+          await setParcelClientFarm({
+            parcel_id: parcelId,
+            client_id: input.client_id,
+            farm_id: input.farm_id,
+            data_validity: input.data_validity,
+            validated_by_email: input.validated_by_email
+          });
+          results.push({ parcel_id: parcelId, success: true });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : "error desconocido";
+          results.push({ parcel_id: parcelId, success: false, error: message });
+        }
+      }
+      return results;
+    },
+    async () =>
+      input.parcel_ids.map((id) => ({
+        parcel_id: id,
+        success: false,
+        error: "DB no disponible"
+      }))
+  );
+}
+
+

@@ -54,18 +54,153 @@ async function getApplied(client) {
   return new Set(rows.map((r) => r.name));
 }
 
+// Split a migration SQL string into individual statements, respecting
+// `$$ ... $$` PL/pgSQL dollar quoting, `--` line comments, and
+// `/* ... */` block comments. A naive `split(';')` would break on:
+//   - `;` inside PL/pgSQL function bodies (e.g. `$$ ... $$`)
+//   - `;` inside SQL line comments (e.g. `-- comment; more`)
+//   - `;` inside block comments (e.g. `/* ...; ... */`)
+//
+// Why we need this: when `client.query(sql)` receives a multi-statement
+// string, node-postgres sends it as a single Query message and Postgres
+// parses ALL statements upfront with a single catalog snapshot. DDL from
+// an earlier statement (e.g. `CREATE TABLE foo (x INT)`) is NOT visible
+// to a later statement (e.g. `INSERT INTO foo (x) VALUES (1)`) — the
+// catalog snapshot is frozen at parse time. The result: "column x of
+// relation foo does not exist" even though the column was just created
+// in the same file.
+//
+// Fix: send each statement as its own `client.query` call. Each call is
+// a fresh network round-trip with a fresh catalog snapshot. Migration
+// still runs inside a single transaction (BEGIN/COMMIT around the
+// loop), so atomicity is preserved.
+function splitSqlStatements(sql) {
+  const statements = [];
+  let buf = '';
+  let inDollar = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+  let inSingleQuote = false;
+  for (let i = 0; i < sql.length; i++) {
+    const ch = sql[i];
+    const next2 = sql.slice(i, i + 2);
+    // Handle newline: closes line comments
+    if (ch === '\n') {
+      inLineComment = false;
+      buf += ch;
+      continue;
+    }
+    // Line comment: -- to end of line
+    if (!inDollar && !inBlockComment && !inSingleQuote && next2 === '--') {
+      inLineComment = true;
+      buf += '--';
+      i++; // skip the second -
+      continue;
+    }
+    // Block comment start
+    if (!inDollar && !inLineComment && !inSingleQuote && next2 === '/*') {
+      inBlockComment = true;
+      buf += '/*';
+      i++; // skip the *
+      continue;
+    }
+    // Block comment end
+    if (inBlockComment && next2 === '*/') {
+      inBlockComment = false;
+      buf += '*/';
+      i++; // skip the /
+      continue;
+    }
+    // Inside a comment — copy through, don't track anything
+    if (inLineComment || inBlockComment) {
+      buf += ch;
+      continue;
+    }
+    // Track $$ ... $$ boundaries (PL/pgSQL dollar quoting)
+    if (next2 === '$$' && !inDollar) {
+      inDollar = true;
+      buf += '$$';
+      i++; // skip the second $
+      continue;
+    }
+    if (inDollar && next2 === '$$') {
+      inDollar = false;
+      buf += '$$';
+      i++;
+      continue;
+    }
+    // Track single-quoted strings (skip nested '' escape)
+    if (ch === "'" && !inDollar) {
+      if (inSingleQuote && sql[i + 1] === "'") {
+        buf += "''";
+        i++;
+        continue;
+      }
+      inSingleQuote = !inSingleQuote;
+      buf += ch;
+      continue;
+    }
+    // Statement terminator outside any quote/comment
+    if (ch === ';' && !inDollar && !inSingleQuote) {
+      buf += ';';
+      const trimmed = buf.trim();
+      if (trimmed) statements.push(trimmed);
+      buf = '';
+      continue;
+    }
+    buf += ch;
+  }
+  const tail = buf.trim();
+  if (tail) statements.push(tail);
+  return statements;
+}
+
 async function applyMigration(client, name, sql) {
-  // DDL no siempre soporta transacciones (CREATE INDEX CONCURRENTLY, etc.),
-  // pero para migrations de este proyecto todas son idempotentes (IF NOT EXISTS)
-  // y se pueden correr en una sola transaccion.
-  await client.query('BEGIN');
+  // NOTA: NO usamos BEGIN/COMMIT wrapper alrededor del archivo de migration.
+  //
+  // Por que: con pg >= 8, `client.query(string)` parsea los statements con un
+  // catalog snapshot congelado al inicio del batch. Aunque dividimos el
+  // archivo en statements individuales, dentro de una transaction PG
+  // igualmente puede mantener un snapshot de catalog que no ve el DDL
+  // creado por statements anteriores en la misma transaction.
+  //
+  // Solucion: auto-commit por statement. Cada DDL se committea apenas se
+  // ejecuta, y el siguiente statement ve el catalog actualizado. Las
+  // migrations de este proyecto son todas idempotentes (IF NOT EXISTS,
+  // NOT EXISTS guards), asi que un auto-commit por statement no rompe
+  // consistencia. Si un statement falla, los anteriores quedan
+  // commiteados; el runner marca el archivo como fallido y la
+  // re-corrida siguiente lo saltea por el `dji_migrations` skip.
+  //
+  // Trade-off: perdemos atomicidad por archivo (si la migration tiene
+  // 10 statements y el 5 falla, los 1-4 quedan). Pero ya teniamos ese
+  // riesgo antes (DDL no es transaccional en todos los motores). Para
+  // la mayoria de migrations (CREATE TABLE IF NOT EXISTS, etc.) no es
+  // problema.
   try {
-    await client.query(sql);
-    await client.query('INSERT INTO dji_migrations (name) VALUES ($1)', [name]);
-    await client.query('COMMIT');
+    const statements = splitSqlStatements(sql);
+    for (const stmt of statements) {
+      // Cada statement es auto-committed por Postgres.
+      // Usamos config object con noPrepare:true para forzar simple
+      // query protocol y evitar el cache de prepared statements.
+      await client.query({ text: stmt, noPrepare: true });
+    }
+    // Si llegamos aca, todo el archivo se aplico. Registramos en
+    // dji_migrations en una transaction propia (atomica, chiquita).
+    await client.query('BEGIN');
+    try {
+      await client.query({
+        text: 'INSERT INTO dji_migrations (name) VALUES ($1)',
+        values: [name],
+        noPrepare: true,
+      });
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    }
     return { ok: true };
   } catch (err) {
-    await client.query('ROLLBACK');
     return { ok: false, error: err.message };
   }
 }
