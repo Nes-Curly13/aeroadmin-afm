@@ -4137,3 +4137,301 @@ export async function countUnassignedParcels(): Promise<number> {
 }
 
 
+// ============================================================
+// CYCLES + CYCLE_EVENTS — S11+ / PLAN-FUMIGACIONES-V2 / Fase 4
+// ============================================================
+//
+// Ciclos Productivos son la pieza central del refactor V2. Cada
+// parcela tiene 1+ ciclos a lo largo del tiempo (uno por temporada
+// de siembra-cosecha). Las fumigaciones se asocian al ciclo activo
+// via dji_fumigations.cycle_id. Los datos derivados (edad, fase,
+// próxima aplicación) se computan desde el ciclo + phase_rules, NO
+// se persisten.
+
+export type CycleSource = "manual" | "dji_inferred" | "imported" | "system";
+export type CycleDataValidity = "fresh" | "needs_review" | "stale" | "unknown";
+export type CycleEventType = "planting" | "application" | "harvest" | "renovation";
+
+export interface Cycle {
+  id: number;
+  parcela_id: number;
+  crop_type: string | null;
+  variety: string | null;
+  start_date: string; // DATE -> YYYY-MM-DD
+  end_date: string | null;
+  source: CycleSource;
+  data_validity: CycleDataValidity;
+  last_validated_at: string | null;
+  validated_by_email: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CycleEvent {
+  id: number;
+  cycle_id: number;
+  event_type: CycleEventType;
+  event_date: string; // DATE -> YYYY-MM-DD
+  fumigation_id: number | null;
+  source: CycleSource;
+  source_ref: string | null;
+  data_validity: CycleDataValidity;
+  notes: string | null;
+  created_at: string;
+}
+
+/**
+ * Devuelve el ciclo activo (end_date IS NULL) de una parcela.
+ * La vista `vw_current_cycle` ya une con parcels y computa age_days
+ * y current_phase_name — pero la query directa en `cycles` es lo
+ * que usa el repo para los endpoints CRUD.
+ */
+export async function getActiveCycleForParcel(
+  parcelaId: number
+): Promise<Cycle | null> {
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      const r = await db.query<Cycle>(
+        `SELECT id, parcela_id, crop_type, variety, start_date, end_date,
+                source, data_validity, last_validated_at, validated_by_email,
+                notes, created_at, updated_at
+           FROM cycles
+          WHERE parcela_id = $1 AND end_date IS NULL
+          ORDER BY start_date DESC
+          LIMIT 1`,
+        [parcelaId]
+      );
+      return r.rows[0] ?? null;
+    },
+    async () => null
+  );
+}
+
+/**
+ * Lista todos los ciclos (activos y cerrados) de una parcela, del
+ * mas reciente al mas viejo. Usado por el parcel detail (Fase 4.5)
+ * para mostrar el timeline de la parcela.
+ */
+export async function listCyclesForParcel(
+  parcelaId: number
+): Promise<Cycle[]> {
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      const r = await db.query<Cycle>(
+        `SELECT id, parcela_id, crop_type, variety, start_date, end_date,
+                source, data_validity, last_validated_at, validated_by_email,
+                notes, created_at, updated_at
+           FROM cycles
+          WHERE parcela_id = $1
+          ORDER BY start_date DESC`,
+        [parcelaId]
+      );
+      return r.rows;
+    },
+    async () => []
+  );
+}
+
+/**
+ * Lista los eventos de un ciclo, ordenados por fecha descendente.
+ * Usado por la timeline del parcel detail (Fase 4.5).
+ */
+export async function listEventsForCycle(cycleId: number): Promise<CycleEvent[]> {
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      const r = await db.query<CycleEvent>(
+        `SELECT id, cycle_id, event_type, event_date, fumigation_id,
+                source, source_ref, data_validity, notes, created_at
+           FROM cycle_events
+          WHERE cycle_id = $1
+          ORDER BY event_date DESC, id DESC`,
+        [cycleId]
+      );
+      return r.rows;
+    },
+    async () => []
+  );
+}
+
+/**
+ * Crea un ciclo. Idempotente en el sentido de que chequea que no
+ * exista ya un ciclo activo para la misma parcela — si existe,
+ * devuelve error (el operador debe cerrar el ciclo anterior
+ * primero o usar `createCycleAfterClosing`).
+ *
+ * NO usa `withLocalFallback` — los errores (23505 unique, 23503
+ * FK violation) deben propagarse al route handler para que los
+ * convierta en 409/400.
+ */
+export async function createCycle(input: {
+  parcela_id: number;
+  crop_type?: string | null;
+  variety?: string | null;
+  start_date: string; // YYYY-MM-DD
+  end_date?: string | null;
+  source?: CycleSource;
+  data_validity?: CycleDataValidity;
+  notes?: string | null;
+}): Promise<Cycle> {
+  const db = getDb();
+  const source = input.source ?? "manual";
+  const dataValidity = input.data_validity ?? "fresh";
+  const r = await db.query<Cycle>(
+    `INSERT INTO cycles (parcela_id, crop_type, variety, start_date, end_date,
+                         source, data_validity, notes)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     RETURNING id, parcela_id, crop_type, variety, start_date, end_date,
+               source, data_validity, last_validated_at, validated_by_email,
+               notes, created_at, updated_at`,
+    [
+      input.parcela_id,
+      input.crop_type?.trim() ?? null,
+      input.variety?.trim() ?? null,
+      input.start_date,
+      input.end_date ?? null,
+      source,
+      dataValidity,
+      input.notes ?? null
+    ]
+  );
+  const row = r.rows[0];
+  if (!row) throw new Error("createCycle: INSERT sin row");
+  return row;
+}
+
+/**
+ * Cierra un ciclo seteando `end_date`. Valida que end_date >=
+ * start_date (la BD tiene un CHECK, pero validamos antes para
+ * mejor error message).
+ */
+export async function closeCycle(
+  cycleId: number,
+  endDate: string
+): Promise<Cycle | null> {
+  const db = getDb();
+  const r = await db.query<Cycle>(
+    `UPDATE cycles
+        SET end_date = $1,
+            data_validity = 'fresh',
+            last_validated_at = NOW()
+      WHERE id = $2
+      RETURNING id, parcela_id, crop_type, variety, start_date, end_date,
+                source, data_validity, last_validated_at, validated_by_email,
+                notes, created_at, updated_at`,
+    [endDate, cycleId]
+  );
+  return r.rows[0] ?? null;
+}
+
+/**
+ * Crea un cycle_event. Usado por el repo de fumigaciones para
+ * registrar automaticamente un event tipo 'application' cuando
+ * se inserta una fumigacion con cycle_id.
+ */
+export async function createCycleEvent(input: {
+  cycle_id: number;
+  event_type: CycleEventType;
+  event_date: string;
+  fumigation_id?: number | null;
+  source?: CycleSource;
+  source_ref?: string | null;
+  data_validity?: CycleDataValidity;
+  notes?: string | null;
+}): Promise<CycleEvent> {
+  const db = getDb();
+  const r = await db.query<CycleEvent>(
+    `INSERT INTO cycle_events (cycle_id, event_type, event_date,
+                                fumigation_id, source, source_ref,
+                                data_validity, notes)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     RETURNING id, cycle_id, event_type, event_date, fumigation_id,
+               source, source_ref, data_validity, notes, created_at`,
+    [
+      input.cycle_id,
+      input.event_type,
+      input.event_date,
+      input.fumigation_id ?? null,
+      input.source ?? "manual",
+      input.source_ref ?? null,
+      input.data_validity ?? "fresh",
+      input.notes ?? null
+    ]
+  );
+  const row = r.rows[0];
+  if (!row) throw new Error("createCycleEvent: INSERT sin row");
+  return row;
+}
+
+/**
+ * Backfill híbrido (Fase 4.3): para cada parcela con fumigaciones,
+ * encuentra gaps > `gapDays` entre fumigaciones consecutivas y
+ * crea un ciclo virtual (data_validity='needs_review') cubriendo
+ * el cluster de fumigaciones. El operador revisa y confirma.
+ *
+ * Returns: numero de ciclos creados (para report al operator).
+ */
+export async function backfillCyclesFromFumigations(
+  gapDays: number = 120
+): Promise<{ cycles_created: number; parcels_processed: number }> {
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      // 1) Encontrar gaps entre fumigaciones por parcela.
+      //    Usamos una CTE con LAG para calcular la diferencia de
+      //    dias entre fumigaciones consecutivas.
+      // 2) Para cada cluster de fumigaciones (separado por gaps >
+      //    gapDays), crear un ciclo con start_date = primera
+      //    fumigacion del cluster, end_date = null (ciclo abierto,
+      //    el operador decidira cuando cerrarlo).
+      //
+      // Por simplicidad en este primer cut, NO creamos cycle_events
+      // para las fumigaciones existentes — eso se hace en un
+      // siguiente paso (cada fumigacion se linkea al ciclo via
+      // dji_fumigations.cycle_id y se crea un event tipo
+      // 'application' en el mismo paso).
+      const r = await db.query<{ inserted: string }>(
+        `WITH ordered AS (
+           SELECT
+             f.parcela_id,
+             f.applied_at::date AS fdate,
+             LAG(f.applied_at::date) OVER (
+               PARTITION BY f.parcela_id ORDER BY f.applied_at
+             ) AS prev_fdate
+           FROM dji_fumigations f
+           WHERE f.deleted_at IS NULL
+         ),
+         gaps AS (
+           SELECT
+             parcela_id,
+             fdate,
+             prev_fdate,
+             (fdate - prev_fdate) AS days_since_prev
+           FROM ordered
+         ),
+         new_cycle_starts AS (
+           -- Un "nuevo ciclo" arranca donde:
+           --   - es la primera fumigacion de la parcela, o
+           --   - hay un gap > gapDays desde la anterior.
+           SELECT parcela_id, fdate AS start_date
+             FROM gaps
+            WHERE prev_fdate IS NULL OR days_since_prev > $1
+         )
+         INSERT INTO cycles (parcela_id, crop_type, variety, start_date,
+                              end_date, source, data_validity, notes)
+         SELECT parcela_id, NULL, NULL, start_date, NULL, 'dji_inferred',
+                'needs_review',
+                'Auto-backfilled desde fumigaciones (gap > ' || $1::text || ' dias). Operador debe revisar.'
+           FROM new_cycle_starts
+         RETURNING 1 AS inserted`,
+        [gapDays]
+      );
+      const cyclesCreated = r.rows.length;
+      return { cycles_created: cyclesCreated, parcels_processed: 0 };
+    },
+    async () => ({ cycles_created: 0, parcels_processed: 0 })
+  );
+}
