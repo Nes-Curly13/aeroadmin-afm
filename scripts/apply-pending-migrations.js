@@ -156,27 +156,51 @@ function splitSqlStatements(sql) {
 }
 
 async function applyMigration(client, name, sql) {
-  // DDL no siempre soporta transacciones (CREATE INDEX CONCURRENTLY, etc.),
-  // pero para migrations de este proyecto todas son idempotentes (IF NOT EXISTS)
-  // y se pueden correr en una sola transaccion.
-  await client.query('BEGIN');
+  // NOTA: NO usamos BEGIN/COMMIT wrapper alrededor del archivo de migration.
+  //
+  // Por que: con pg >= 8, `client.query(string)` parsea los statements con un
+  // catalog snapshot congelado al inicio del batch. Aunque dividimos el
+  // archivo en statements individuales, dentro de una transaction PG
+  // igualmente puede mantener un snapshot de catalog que no ve el DDL
+  // creado por statements anteriores en la misma transaction.
+  //
+  // Solucion: auto-commit por statement. Cada DDL se committea apenas se
+  // ejecuta, y el siguiente statement ve el catalog actualizado. Las
+  // migrations de este proyecto son todas idempotentes (IF NOT EXISTS,
+  // NOT EXISTS guards), asi que un auto-commit por statement no rompe
+  // consistencia. Si un statement falla, los anteriores quedan
+  // commiteados; el runner marca el archivo como fallido y la
+  // re-corrida siguiente lo saltea por el `dji_migrations` skip.
+  //
+  // Trade-off: perdemos atomicidad por archivo (si la migration tiene
+  // 10 statements y el 5 falla, los 1-4 quedan). Pero ya teniamos ese
+  // riesgo antes (DDL no es transaccional en todos los motores). Para
+  // la mayoria de migrations (CREATE TABLE IF NOT EXISTS, etc.) no es
+  // problema.
   try {
     const statements = splitSqlStatements(sql);
     for (const stmt of statements) {
-      // Use the object form with noPrepare to force the simple query
-      // protocol and bypass pg's auto-prepared-statement cache. This is
-      // important because a cached plan from one statement can shadow
-      // a fresh catalog view (DDL) created by an earlier statement in
-      // the same transaction. Bug seen in CI: "column X of relation Y
-      // does not exist" for columns that were just CREATEd in the
-      // same file.
+      // Cada statement es auto-committed por Postgres.
+      // Usamos config object con noPrepare:true para forzar simple
+      // query protocol y evitar el cache de prepared statements.
       await client.query({ text: stmt, noPrepare: true });
     }
-    await client.query({ text: 'INSERT INTO dji_migrations (name) VALUES ($1)', values: [name], noPrepare: true });
-    await client.query('COMMIT');
+    // Si llegamos aca, todo el archivo se aplico. Registramos en
+    // dji_migrations en una transaction propia (atomica, chiquita).
+    await client.query('BEGIN');
+    try {
+      await client.query({
+        text: 'INSERT INTO dji_migrations (name) VALUES ($1)',
+        values: [name],
+        noPrepare: true,
+      });
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    }
     return { ok: true };
   } catch (err) {
-    await client.query('ROLLBACK');
     return { ok: false, error: err.message };
   }
 }
