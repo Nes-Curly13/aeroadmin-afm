@@ -55,8 +55,11 @@ async function getApplied(client) {
 }
 
 // Split a migration SQL string into individual statements, respecting
-// `$$ ... $$` PL/pgSQL dollar quoting (a naive `split(';')` would break
-// function bodies that contain `;` inside dollar-quoted strings).
+// `$$ ... $$` PL/pgSQL dollar quoting, `--` line comments, and
+// `/* ... */` block comments. A naive `split(';')` would break on:
+//   - `;` inside PL/pgSQL function bodies (e.g. `$$ ... $$`)
+//   - `;` inside SQL line comments (e.g. `-- comment; more`)
+//   - `;` inside block comments (e.g. `/* ...; ... */`)
 //
 // Why we need this: when `client.query(sql)` receives a multi-statement
 // string, node-postgres sends it as a single Query message and Postgres
@@ -75,27 +78,70 @@ function splitSqlStatements(sql) {
   const statements = [];
   let buf = '';
   let inDollar = false;
-  let dollarTag = '';
+  let inLineComment = false;
+  let inBlockComment = false;
+  let inSingleQuote = false;
   for (let i = 0; i < sql.length; i++) {
     const ch = sql[i];
     const next2 = sql.slice(i, i + 2);
+    // Handle newline: closes line comments
+    if (ch === '\n') {
+      inLineComment = false;
+      buf += ch;
+      continue;
+    }
+    // Line comment: -- to end of line
+    if (!inDollar && !inBlockComment && !inSingleQuote && next2 === '--') {
+      inLineComment = true;
+      buf += '--';
+      i++; // skip the second -
+      continue;
+    }
+    // Block comment start
+    if (!inDollar && !inLineComment && !inSingleQuote && next2 === '/*') {
+      inBlockComment = true;
+      buf += '/*';
+      i++; // skip the *
+      continue;
+    }
+    // Block comment end
+    if (inBlockComment && next2 === '*/') {
+      inBlockComment = false;
+      buf += '*/';
+      i++; // skip the /
+      continue;
+    }
+    // Inside a comment — copy through, don't track anything
+    if (inLineComment || inBlockComment) {
+      buf += ch;
+      continue;
+    }
     // Track $$ ... $$ boundaries (PL/pgSQL dollar quoting)
     if (next2 === '$$' && !inDollar) {
       inDollar = true;
-      dollarTag = '$$';
       buf += '$$';
       i++; // skip the second $
       continue;
     }
     if (inDollar && next2 === '$$') {
       inDollar = false;
-      dollarTag = '';
       buf += '$$';
       i++;
       continue;
     }
-    // Statement terminator outside dollar-quoting
-    if (ch === ';' && !inDollar) {
+    // Track single-quoted strings (skip nested '' escape)
+    if (ch === "'" && !inDollar) {
+      if (inSingleQuote && sql[i + 1] === "'") {
+        buf += "''";
+        i++;
+        continue;
+      }
+      inSingleQuote = !inSingleQuote;
+      buf += ch;
+      continue;
+    }
+    // Statement terminator outside any quote/comment
+    if (ch === ';' && !inDollar && !inSingleQuote) {
       buf += ';';
       const trimmed = buf.trim();
       if (trimmed) statements.push(trimmed);
