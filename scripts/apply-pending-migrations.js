@@ -54,13 +54,71 @@ async function getApplied(client) {
   return new Set(rows.map((r) => r.name));
 }
 
+// Split a migration SQL string into individual statements, respecting
+// `$$ ... $$` PL/pgSQL dollar quoting (a naive `split(';')` would break
+// function bodies that contain `;` inside dollar-quoted strings).
+//
+// Why we need this: when `client.query(sql)` receives a multi-statement
+// string, node-postgres sends it as a single Query message and Postgres
+// parses ALL statements upfront with a single catalog snapshot. DDL from
+// an earlier statement (e.g. `CREATE TABLE foo (x INT)`) is NOT visible
+// to a later statement (e.g. `INSERT INTO foo (x) VALUES (1)`) — the
+// catalog snapshot is frozen at parse time. The result: "column x of
+// relation foo does not exist" even though the column was just created
+// in the same file.
+//
+// Fix: send each statement as its own `client.query` call. Each call is
+// a fresh network round-trip with a fresh catalog snapshot. Migration
+// still runs inside a single transaction (BEGIN/COMMIT around the
+// loop), so atomicity is preserved.
+function splitSqlStatements(sql) {
+  const statements = [];
+  let buf = '';
+  let inDollar = false;
+  let dollarTag = '';
+  for (let i = 0; i < sql.length; i++) {
+    const ch = sql[i];
+    const next2 = sql.slice(i, i + 2);
+    // Track $$ ... $$ boundaries (PL/pgSQL dollar quoting)
+    if (next2 === '$$' && !inDollar) {
+      inDollar = true;
+      dollarTag = '$$';
+      buf += '$$';
+      i++; // skip the second $
+      continue;
+    }
+    if (inDollar && next2 === '$$') {
+      inDollar = false;
+      dollarTag = '';
+      buf += '$$';
+      i++;
+      continue;
+    }
+    // Statement terminator outside dollar-quoting
+    if (ch === ';' && !inDollar) {
+      buf += ';';
+      const trimmed = buf.trim();
+      if (trimmed) statements.push(trimmed);
+      buf = '';
+      continue;
+    }
+    buf += ch;
+  }
+  const tail = buf.trim();
+  if (tail) statements.push(tail);
+  return statements;
+}
+
 async function applyMigration(client, name, sql) {
   // DDL no siempre soporta transacciones (CREATE INDEX CONCURRENTLY, etc.),
   // pero para migrations de este proyecto todas son idempotentes (IF NOT EXISTS)
   // y se pueden correr en una sola transaccion.
   await client.query('BEGIN');
   try {
-    await client.query(sql);
+    const statements = splitSqlStatements(sql);
+    for (const stmt of statements) {
+      await client.query(stmt);
+    }
     await client.query('INSERT INTO dji_migrations (name) VALUES ($1)', [name]);
     await client.query('COMMIT');
     return { ok: true };
