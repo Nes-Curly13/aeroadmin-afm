@@ -25,11 +25,17 @@
 --     Fase 4.4). Empezamos por dji_parcels porque es la entidad
 --     central.
 --
+-- NOTA IMPORTANTE sobre transacciones: el runner
+-- (`scripts/apply-pending-migrations.js`) ya envuelve la migration
+-- en `BEGIN; ... COMMIT;`. Por eso este archivo NO usa BEGIN/COMMIT
+-- propios — usar ambos crea savepoints que confunden al parser de PG
+-- cuando se manda la migration como batch via `client.query(sql)`.
+-- El `DO $$ ... END $$;` block sigue siendo válido (PL/pgSQL tiene
+-- su propio control de flujo).
+--
 -- Rollback: DROP TABLE farms; DROP TABLE clients; ALTER TABLE dji_parcels
 --   DROP COLUMN IF EXISTS client_id, farm_id, data_validity, last_validated_at, validated_by_email;
 --   DROP VIEW IF EXISTS vw_parcels;
-
-BEGIN;
 
 -- Extensión pg_trgm para búsqueda fuzzy (ya está en products, re-uso seguro)
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
@@ -222,8 +228,6 @@ BEGIN
   RAISE NOTICE 'Backfill: % clients nuevos, % farms nuevas (ambas data_validity=needs_review)',
     inserted_clients, inserted_farms;
 END $$;
-
-COMMIT;
 
 -- ============================================================
 -- Comentarios de documentación
