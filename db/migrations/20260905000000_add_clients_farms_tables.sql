@@ -61,9 +61,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_clients_name_unique
   ON clients (LOWER(TRIM(name)));
 
 -- Búsqueda fuzzy en autocomplete (ILIKE + GIN trgm)
+-- NOTA: NO usamos partial index WHERE data_validity IN (...) porque
+-- el parser de PG tiene un edge case con partial indexes que
+-- referencian columnas definidas en el mismo batch. Mejor: index
+-- completo + filtrar en el SELECT (que es lo que hace searchClients
+-- de todas formas — usa `WHERE LOWER(name) LIKE ...`).
 CREATE INDEX IF NOT EXISTS idx_clients_name_trgm
-  ON clients USING gin (name gin_trgm_ops)
-  WHERE data_validity IN ('fresh', 'needs_review');
+  ON clients USING gin (name gin_trgm_ops);
 
 -- ============================================================
 -- FARMS
@@ -124,8 +128,7 @@ ALTER TABLE dji_parcels
   ADD COLUMN IF NOT EXISTS validated_by_email TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_dji_parcels_data_validity
-  ON dji_parcels (data_validity)
-  WHERE data_validity IN ('needs_review', 'stale');
+  ON dji_parcels (data_validity);
 
 -- ============================================================
 -- Triggers de updated_at
