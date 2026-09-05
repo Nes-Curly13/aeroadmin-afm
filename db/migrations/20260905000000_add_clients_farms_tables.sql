@@ -169,61 +169,20 @@ LEFT JOIN clients c ON c.id = p.client_id
 LEFT JOIN farms f ON f.id = p.farm_id;
 
 -- ============================================================
--- Backfill best-effort (Fase 3.B complemento) — PLAIN SQL
+-- Backfill: SE HARA EN SCRIPT SEPARADO (scripts/backfill-clients-farms.js)
 -- ============================================================
--- Sprint S11+ / Fase 3.B. Crea `clients` y `farms` a partir de los
--- valores denormalizados de `dji_parcels.client_name` y
--- `dji_parcels.farm_name`. Idempotente (NOT EXISTS guards).
--- NO modifica `dji_parcels.client_id` / `farm_id` (eso es decisión
--- del operador en la UI, porque los nombres son ambiguos y
--- pueden tener variantes).
+-- El backfill best-effort (clientes/fincas desde dji_parcels
+-- denormalizado) se movio a un script ejecutable manualmente
+-- (scripts/backfill-clients-farms.js) porque el INSERT dentro de
+-- este archivo de migration falla con 'column created_by_email
+-- of relation clients does not exist' a pesar de que el CREATE
+-- TABLE esta en el mismo archivo. El bug parece estar en como
+-- pg >= 8 + node-postgres manejan catalog snapshots entre
+-- statements en el mismo connection. El script separado corre
+-- despues de que este migration commiteo el schema, asi que ve
+-- el catalog actualizado.
 --
--- PLAIN SQL (no DO block) porque en pg >= 8 el DO block parsea
--- los statements upfront y el catalog snapshot no se actualiza
--- al ejecutar — incluso entre transactions del runner. Plain SQL
--- cada INSERT se parsea contra el catalog actual.
-
--- 1) Clientes unicos (lower-trim) que aparecen en al menos 1 parcela
-INSERT INTO clients (name, created_by_email, data_validity)
-SELECT DISTINCT
-  p.client_name,
-  'system@backfill',
-  'needs_review'
-FROM dji_parcels p
-WHERE p.client_name IS NOT NULL
-  AND TRIM(p.client_name) <> ''
-  AND NOT EXISTS (
-    SELECT 1 FROM clients c WHERE LOWER(TRIM(c.name)) = LOWER(TRIM(p.client_name))
-  );
-
--- 2) Cliente "Sin asignar" para fincas sin client_name
-INSERT INTO clients (name, created_by_email, data_validity)
-VALUES ('(Sin asignar)', 'system@backfill', 'needs_review')
-ON CONFLICT (LOWER(TRIM(name))) DO NOTHING;
-
--- 3) Farms unicas por (client_id, name) — farms sin client_name
---    caen bajo "(Sin asignar)" para no perderlas.
-INSERT INTO farms (client_id, name, municipality, created_by_email, data_validity)
-SELECT DISTINCT
-  COALESCE(
-    (SELECT id FROM clients WHERE LOWER(TRIM(name)) = LOWER(TRIM(p.client_name))),
-    (SELECT id FROM clients WHERE name = '(Sin asignar)')
-  ),
-  p.farm_name,
-  p.municipality,
-  'system@backfill',
-  'needs_review'
-FROM dji_parcels p
-WHERE p.farm_name IS NOT NULL
-  AND TRIM(p.farm_name) <> ''
-  AND NOT EXISTS (
-    SELECT 1 FROM farms f
-    WHERE f.client_id = COALESCE(
-            (SELECT id FROM clients WHERE LOWER(TRIM(name)) = LOWER(TRIM(p.client_name))),
-            (SELECT id FROM clients WHERE name = '(Sin asignar)')
-          )
-      AND LOWER(TRIM(f.name)) = LOWER(TRIM(p.farm_name))
-  );
+-- Ver scripts/backfill-clients-farms.js para la logica.
 
 -- ============================================================
 -- Comentarios de documentación
