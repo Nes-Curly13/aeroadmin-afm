@@ -98,8 +98,13 @@ const recentParcels: ParcelPickerRow[] = [
 // Wizard de 3 steps
 // ============================================================
 
-describe("NewFumigationPageClient — wizard V2 de 3 steps", () => {
-  it("1. Stepper visible desde el inicio con step 1 (Parcela) activo", () => {
+// Helper: navega del step 0 (mode) al step 1 (pick) eligiendo manual
+async function goToStep1(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole("button", { name: /registro manual/i }));
+}
+
+describe("NewFumigationPageClient — wizard V2 (4 steps desde S11+ Fase 2.5)", () => {
+  it("1. Stepper visible desde el inicio con step 0 (Modalidad) activo", () => {
     render(
       <NewFumigationPageClient
         initialParcelId={null}
@@ -109,21 +114,24 @@ describe("NewFumigationPageClient — wizard V2 de 3 steps", () => {
     // El stepper existe
     const stepper = screen.getByRole("navigation", { name: /pasos/i });
     expect(stepper).toBeInTheDocument();
-    // Step 1 está marcado como activo
-    const step1 = screen.getByTestId("step-pick");
-    expect(step1).toHaveAttribute("aria-current", "step");
-    // Step 2 y 3 no están activos
+    // Step 0 (mode) está marcado como activo
+    const step0 = screen.getByTestId("step-mode");
+    expect(step0).toHaveAttribute("aria-current", "step");
+    // Los otros steps no están activos
+    expect(screen.getByTestId("step-pick")).not.toHaveAttribute("aria-current", "step");
     expect(screen.getByTestId("step-form")).not.toHaveAttribute("aria-current", "step");
     expect(screen.getByTestId("step-confirm")).not.toHaveAttribute("aria-current", "step");
   });
 
-  it("2. Step 1: muestra el ParcelPicker, NO muestra el mapa", () => {
+  it("2. Step 1: muestra el ParcelPicker, NO muestra el mapa", async () => {
+    const user = userEvent.setup();
     render(
       <NewFumigationPageClient
         initialParcelId={null}
         recentParcels={recentParcels}
       />
     );
+    await goToStep1(user);
     // El picker está visible
     expect(
       screen.getByText(/¿A qué parcela le vas a registrar/i)
@@ -132,13 +140,15 @@ describe("NewFumigationPageClient — wizard V2 de 3 steps", () => {
     expect(screen.queryByTestId("fumigation-map")).not.toBeInTheDocument();
   });
 
-  it("3. Step 1: 'Crear nueva parcela' es PROMINENTE (no <details> colapsado)", () => {
+  it("3. Step 1: 'Crear nueva parcela' es PROMINENTE (no <details> colapsado)", async () => {
+    const user = userEvent.setup();
     render(
       <NewFumigationPageClient
         initialParcelId={null}
         recentParcels={recentParcels}
       />
     );
+    await goToStep1(user);
     // El botón de crear nueva parcela debe ser un <button>, no un <summary>
     const createButton = screen.getByRole("button", { name: /crear.*nueva.*parcela/i });
     expect(createButton).toBeInTheDocument();
@@ -152,6 +162,7 @@ describe("NewFumigationPageClient — wizard V2 de 3 steps", () => {
         recentParcels={recentParcels}
       />
     );
+    await goToStep1(user);
     // Filtrar para mostrar el resultado
     const searchInput = screen.getByPlaceholderText(/buscar/i);
     await user.type(searchInput, "Lote");
@@ -178,6 +189,7 @@ describe("NewFumigationPageClient — wizard V2 de 3 steps", () => {
         recentParcels={recentParcels}
       />
     );
+    await goToStep1(user);
     // Avanzar a step 2
     const searchInput = screen.getByPlaceholderText(/buscar/i);
     await user.type(searchInput, "Lote");
@@ -196,19 +208,17 @@ describe("NewFumigationPageClient — wizard V2 de 3 steps", () => {
     expect(screen.queryByTestId("fumigation-map")).not.toBeInTheDocument();
   });
 
-  it("6. Header copy: NO menciona 'manual' (refactor de UX)", () => {
+  it("6. Header copy: NO menciona 'manual' en el título", () => {
     render(
       <NewFumigationPageClient
         initialParcelId={null}
         recentParcels={recentParcels}
       />
     );
-    // El header del page (no del client) podría tener "manual" — el test
-    // verifica que el TÍTULO del wizard no lo tenga. El page.tsx
-    // también se va a refactorear.
+    // El page.tsx tiene "Nueva fumigación"; el client component no
+    // debería duplicar el header. Verificamos que NO diga "manual" en
+    // el título visible.
     const headerTitle = screen.queryByText(/^Nueva fumigación$/i);
-    // El page.tsx ya lo tiene; el client component no debería duplicar
-    // el header. Verificamos que NO diga "manual" en el título.
     if (headerTitle) {
       expect(headerTitle.textContent).not.toMatch(/manual/i);
     }

@@ -138,8 +138,16 @@ const recentParcels: ParcelPickerRow[] = [
   }
 ];
 
+// Helper: navega del step 0 (mode) al step 1 (pick) eligiendo manual
+async function goToStep1(user: ReturnType<typeof userEvent.setup>) {
+  // El step 0 tiene 2 cards. Default: "Registro manual" para mantener
+  // el comportamiento previo (sin DjiFlightPicker en el form).
+  await user.click(screen.getByRole("button", { name: /registro manual/i }));
+}
+
 // Helper: navega del step 1 al step 2 eligiendo parcela
 async function goToStep2(user: ReturnType<typeof userEvent.setup>) {
+  await goToStep1(user);
   const searchInput = screen.getByPlaceholderText(/buscar/i);
   await user.type(searchInput, "Lote");
   const result = await screen.findByText(/Lote 24/);
