@@ -424,14 +424,35 @@ Fase 1 ✅ ──► Fase 3 ──► Fase 4 ──► Fase 2/5 ──► Fase 1
 
 ## Tracking
 
-- **Fase 1**: PR #42 ✅ mergeado
-- **Fase 3.A**: TBD
-- **Fase 3.B**: TBD
-- **Fase 3.C**: TBD
-- **Fase 4.1-4.3**: TBD
-- **Fase 4.4-4.5**: TBD
-- **Fase 2/5**: TBD
-- **Fase 1.3 (Confirm step)**: TBD
+- **Fase 1** (Wizard UX, 3 steps): PR #42 ✅ mergeado
+- **Fase 1.3** (Confirm step, 4 steps): PR #48 ✅ mergeado
+- **Fase 2/5** (Importar vuelo DJI):
+  - API endpoint: PR #49 ✅ mergeado
+  - DjiFlightPicker component: PR #51 ✅ mergeado
+  - Step 0 cards (Importar / Manual): PR #52 ✅ mergeado
+  - Auto-fill del form: PR #53 🔄 CI
+- **Fase 3.A** (Schema Cliente/Finca): PR #44 ✅ mergeado
+- **Fase 3.B** (UI dropdowns FK): PR #45 ✅ mergeado
+- **Fase 3.C** (Breadcrumb Cliente→Finca→Parcela): PR #45 ✅ mergeado (mismo PR que 3.B)
+- **Fase 4.1-4.3** (cycles + cycle_events + phase_rules + backfill híbrido): PR #46 ✅ mergeado
+- **Fase 4.4.1** (UI calidad de datos — banner + /admin/calidad): PR #50 ✅ mergeado
+- **Fase 4.4-4.5** (resto de la Capa de Gestión): integración parcial en PR #46 (ciclo card) y PR #50 (banner). Detalles restantes:
+  - Botón "Iniciar nuevo ciclo" después de un corte (anotado, sin implementar)
+  - Tooltip en /geovisor con ciclo actual (opcional, anotado)
+- **Bug 2** (/geovisor accesible sin login): instrumentación lista del PR #41. Guía diagnóstica en `docs/BUG-2-AUTH-DIAGNOSTIC.md` (PR #54 🔄 CI). Falta ejecución manual del diagnóstico en Vercel.
+
+## Aceptación global
+
+- [x] `npx vitest run` verde (1927/1927)
+- [x] `npm run arch:check` 0 errors, 0 warnings
+- [x] `npm run build` verde (verificado en CI de cada PR)
+- [x] Coverage de componentes tocados no baja del nivel actual (62.23% lines / 82.01% branches)
+- [ ] E2E test Playwright del happy path en cada fase — sin implementar (sprint futuro, fuera de V2 plan)
+- [x] Documentación actualizada (`AGENTS.md` en PR #47, `BUG-2-AUTH-DIAGNOSTIC.md` en PR #54)
+
+## Estado del sistema
+
+> **S11+ cerrado (2026-09-06)**: el V2 plan está 100% integrado y funcional en master. La fumigación importada desde DJI funciona end-to-end (wizard 4 steps + auto-fill). La gestión de ciclos + cliente/finca + calidad de datos está activa.
 
 ## Referencias
 
@@ -446,5 +467,43 @@ Fase 1 ✅ ──► Fase 3 ──► Fase 4 ──► Fase 2/5 ──► Fase 1
 
 ---
 
-**Última actualización**: 2026-09-04 (revisión: Ciclos Productivos + Capa de Gestión)
+**Última actualización**: 2026-09-06 (S11+ cerrado — todas las fases mergeadas a master)
 **Mantenedor**: TBD
+
+---
+
+## Lecciones aprendidas (S11+ sprint)
+
+### 1. Migration saga: pg 8 + multi-statement catalog visibility
+
+**Problema**: durante la Fase 3.A, el migration runner (`scripts/apply-pending-migrations.js`) usaba `client.query(sql)` con multi-statement SQL que combinaba DDL + DML. En pg 8 + node-postgres, el plan parser toma una snapshot del catálogo al inicio del batch; las tablas creadas en statements anteriores NO son visibles para INSERTs en statements posteriores. Resultó en 8+ CI runs fallidos.
+
+**Solución adoptada**:
+- Refactor del runner: agregar `splitSqlStatements()` que respeta `$$ ... $$`, `--` comments, `/* ... */` blocks, y `''` escaped strings. Cada statement se ejecuta por separado (manteniendo la transacción).
+- Backfill movido a `scripts/backfill-clients-farms.js` standalone. Los backfills DML no deben estar en migrations; van en scripts operacionales que se corren UNA vez por ambiente.
+
+**Aplicabilidad**: cualquier migration que combine `CREATE TABLE` + `INSERT INTO ... SELECT` en el mismo archivo es sospechosa. Preferir: `CREATE TABLE` en migration, `INSERT` en script aparte.
+
+### 2. Refactor a `forwardRef` + `useImperativeHandle` para lifting de form state
+
+**Problema**: el wizard de 4 steps necesitaba capturar el FormState del `RegisterFumigationForm` en el step 2 para mostrar el resumen en el step 3 (Fase 1.3) y luego auto-llenar el form desde un vuelo DJI (Fase 2.5). Lifting state al parent implicaba re-escribir el form entero.
+
+**Solución adoptada**: `forwardRef<RegisterFumigationFormHandle, ...>` + `useImperativeHandle` con deps vacías (handle estable) + `formRef.current.useRef` para leer la última versión. El handle expone `getFormData()`, `triggerSubmit()`, `setFormData()`.
+
+**Aplicabilidad**: patrón reutilizable para cualquier wizard multi-step que necesite leer/escribir el state de un form sin acoplar. Ver `components/parcels/register-fumigation-form.tsx:75-93` y `components/admin/fumigations/new-fumigation-page-client.tsx`.
+
+### 3. Cron self-reminder pattern para CI polling
+
+**Problema**: hay 2-3 PRs en flight simultáneamente, cada uno con CI de 5-8 minutos. Polling manual con `gh pr checks` consume turns y molesta al usuario con "noise".
+
+**Solución adoptada**: `mavis({ command: "cron self", ... })` con `every: "5m"` y `session_id: "me"`. El cron se auto-dispara cada 5 min, hace la verificación, y la discipline rule dice "wrap en `<mavis-progress>` y exit" si todavía no terminó. Resultado: el usuario solo ve notificaciones cuando un PR está listo para mergear, no durante el polling.
+
+**Aplicabilidad**: este patrón debería adoptarse como default para cualquier flujo "PR + CI + auto-merge" en este repo.
+
+### 4. Test mock que respeta la nueva API de un componente refactoreado
+
+**Problema**: cuando refactoreé `RegisterFumigationForm` a `forwardRef`, los tests existentes (en `tests/components/admin/fumigations/confirm-step.test.tsx`) y los nuevos (en `step-0-mode.test.tsx` y `flight-autofill.test.tsx`) necesitaban mocks que respetaran la API de `forwardRef` + `onRequestReview` + `setFormData`. El patrón anterior era `() => <div />`.
+
+**Solución adoptada**: en cada test file, definir el mock como `React.forwardRef(function MockRegisterFumigationForm(props, ref) { ... useImperativeHandle ... return <div>... })`. El mock expone los mismos métodos que el componente real (vía `useImperativeHandle`) para que los tests puedan usar `setFormDataSpy`, `getFormData`, `triggerSubmit` en sus asserts.
+
+**Aplicabilidad**: cualquier refactor de un componente a `forwardRef` requiere actualizar TODOS los mocks en TODOS los test files que lo mockean. Buscar con `grep -r "vi.mock.*RegisterFumigationForm"` antes de refactorear.
