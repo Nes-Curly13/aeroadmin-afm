@@ -31,7 +31,9 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardCheck,
+  Edit3,
   MapPin,
+  Plane,
   Plus,
   Search,
   Sprout
@@ -52,6 +54,10 @@ import {
   type FormState,
   type RegisterFumigationFormHandle
 } from "@/components/parcels/register-fumigation-form";
+import {
+  DjiFlightPicker,
+  type DjiFlight
+} from "@/components/fumigations/dji-flight-picker";
 import type { ParcelPickerRow } from "@/api/repositories";
 import {
   APPLICATION_TYPES,
@@ -64,9 +70,17 @@ interface NewFumigationPageClientProps {
   recentParcels: ParcelPickerRow[];
 }
 
-type Phase = "pick" | "form" | "confirm";
+type Phase = "mode" | "pick" | "form" | "confirm";
+type EntryMode = "import" | "manual";
 
+/**
+ * Sprint S11+ Fase 2.5 — el wizard ahora arranca en step 0 (mode) donde
+ * el operator elige entre "Importar vuelo DJI" o "Registro manual". El
+ * modo persiste en `entryMode` y se usa en step 2 (form) para decidir
+ * si mostrar el DjiFlightPicker arriba del form.
+ */
 const STEPS = [
+  { id: "mode" as const, label: "Modalidad", description: "¿Importar o manual?" },
   { id: "pick" as const, label: "Parcela", description: "¿Dónde se realizó?" },
   { id: "form" as const, label: "Detalles", description: "¿Qué, cuándo y con qué?" },
   { id: "confirm" as const, label: "Confirmar", description: "Revisar y registrar" }
@@ -76,7 +90,25 @@ export function NewFumigationPageClient({
   initialParcelId,
   recentParcels
 }: NewFumigationPageClientProps) {
-  const [phase, setPhase] = useState<Phase>(initialParcelId ? "form" : "pick");
+  const [phase, setPhase] = useState<Phase>(
+    initialParcelId ? "form" : "mode"
+  );
+  /**
+   * Sprint S11+ Fase 2.5 — modalidad de entrada. `import` = el operator
+   * quiere auto-llenar desde un vuelo DJI; `manual` = registro manual.
+   * Se setea en step 0 (cards) y se lee en step 2 (form) para decidir
+   * si mostrar el DjiFlightPicker. `null` antes de elegir modalidad.
+   */
+  const [entryMode, setEntryMode] = useState<EntryMode | null>(
+    initialParcelId ? "manual" : null
+  );
+  /**
+   * Sprint S11+ Fase 2.5 — vuelo DJI seleccionado por el operator
+   * (solo cuando entryMode === "import"). En MVP, lo guardamos para
+   * mostrar un hint en el form; el auto-fill completo del form
+   * queda para un PR siguiente (requiere lifting de form state).
+   */
+  const [pickedFlight, setPickedFlight] = useState<DjiFlight | null>(null);
   const [chosenParcel, setChosenParcel] = useState<ParcelPickerRow | null>(
     initialParcelId
       ? recentParcels.find((p) => p.id === initialParcelId) ?? null
@@ -124,6 +156,15 @@ export function NewFumigationPageClient({
     };
   }, [chosenParcel?.id]);
 
+  /**
+   * Sprint S11+ Fase 2.5 — handler del step 0 (mode). Setea el
+   * entryMode y avanza al step 1 (pick).
+   */
+  function chooseMode(mode: EntryMode) {
+    setEntryMode(mode);
+    setPhase("pick");
+  }
+
   function chooseParcel(p: ParcelPickerRow) {
     setChosenParcel(p);
     setParcelGeom(null);
@@ -131,11 +172,39 @@ export function NewFumigationPageClient({
     setPhase("form");
   }
 
+  /**
+   * Sprint S11+ Fase 2.5 — handler del DjiFlightPicker (step 2 en
+   * modo "import"). En MVP guardamos el vuelo elegido y mostramos un
+   * hint en el form. El auto-fill completo del form (lifted state +
+   * pre-fill de campos) queda para un PR siguiente.
+   */
+  function handlePickFlight(flight: DjiFlight) {
+    setPickedFlight(flight);
+  }
+
   function reset() {
+    // Sprint S11+ Fase 2.5 — "Atrás" desde el form (step 2) va al
+    // step 1 (pick), NO al step 0 (mode). El operator eligió una
+    // modalidad y debería poder cambiar de parcela sin re-elegir la
+    // modalidad. Para volver al step 0 desde el principio, el
+    // operator puede recargar la página o usar el stepper si está
+    // implementado como clickeable (sprint futuro).
     setChosenParcel(null);
     setParcelGeom(null);
     setPendingFormData(null);
+    setPickedFlight(null);
     setPhase("pick");
+  }
+
+  function resetToMode() {
+    // Full reset al step 0 (mode). Usado solo por el reset de página
+    // (no expuesto en UI por ahora).
+    setChosenParcel(null);
+    setParcelGeom(null);
+    setPendingFormData(null);
+    setPickedFlight(null);
+    setEntryMode(null);
+    setPhase("mode");
   }
 
   /**
@@ -166,7 +235,10 @@ export function NewFumigationPageClient({
     <div className="flex flex-col gap-6">
       <Stepper currentStep={phase} />
 
-      {phase === "pick" ? (
+      {phase === "mode" ? (
+        // Sprint S11+ Fase 2.5 — step 0: el operator elige modalidad.
+        <ModeStep onChoose={chooseMode} />
+      ) : phase === "pick" ? (
         <ParcelPicker
           recentParcels={recentParcels}
           onChoose={chooseParcel}
@@ -190,8 +262,42 @@ export function NewFumigationPageClient({
         // y `ref` para que el wizard pueda capturar la snapshot y
         // disparar el submit programáticamente desde el step 3.
         // El form NO persiste al click — eso pasa en handleConfirm.
+        // Sprint S11+ Fase 2.5: si entryMode === "import", se muestra
+        // el DjiFlightPicker ARRIBA del form. Al pickear un vuelo, se
+        // guarda en `pickedFlight` (placeholder para auto-fill futuro).
         <>
           <ParcelSummaryCard parcel={chosenParcel} onChange={reset} />
+          {entryMode === "import" ? (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Plane className="size-4 text-primary" aria-hidden />
+                  Importar vuelo DJI
+                </CardTitle>
+                <CardDescription>
+                  Elegí un vuelo DJI de la lista. Los datos del vuelo
+                  (fecha, duración, área) se van a usar para registrar la
+                  fumigación.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <DjiFlightPicker
+                  parcelaId={chosenParcel.id}
+                  onPick={handlePickFlight}
+                />
+                {pickedFlight ? (
+                  <p
+                    data-testid="picked-flight-hint"
+                    className="mt-3 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-xs text-primary"
+                  >
+                    Vuelo DJI #{pickedFlight.flight_id} seleccionado del{" "}
+                    {pickedFlight.start_at.slice(0, 10)}. (Auto-fill del
+                    form: pendiente en próximo PR.)
+                  </p>
+                ) : null}
+              </CardContent>
+            </Card>
+          ) : null}
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
             <div className="lg:col-span-3">
               <Card>
@@ -267,6 +373,72 @@ export function NewFumigationPageClient({
           </div>
         </>
       ) : null}
+    </div>
+  );
+}
+
+// ============================================================
+// ModeStep — step 0 del wizard (Fase 2.5)
+// ============================================================
+//
+// Dos cards grandes: "Importar vuelo DJI" y "Registro manual".
+// El operator elige UNA y avanza al step 1 (elegir parcela).
+//
+// Patrón visual consistente con ParcelPicker y la ParcelSummaryCard
+// (cards con icon + título + descripción + botón de acción).
+
+function ModeStep({ onChoose }: { onChoose: (mode: "import" | "manual") => void }) {
+  return (
+    <div
+      className="grid grid-cols-1 gap-4 md:grid-cols-2"
+      data-testid="mode-step"
+    >
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Plane className="size-4 text-primary" aria-hidden />
+            Importar vuelo DJI
+          </CardTitle>
+          <CardDescription>
+            Usá los datos de un vuelo registrado por DJI (fecha, duración,
+            área, dron, piloto). El sistema busca los vuelos de la parcela
+            elegida en los últimos 30 días.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button
+            type="button"
+            onClick={() => onChoose("import")}
+            className="w-full"
+          >
+            <Plane className="size-4" aria-hidden />
+            Importar vuelo
+          </Button>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Edit3 className="size-4 text-primary" aria-hidden />
+            Registro manual
+          </CardTitle>
+          <CardDescription>
+            Registrá una fumigación que no tiene información de vuelo DJI
+            (manual, re-tratamiento, fuera de rango). Llenas el form a mano.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => onChoose("manual")}
+            className="w-full"
+          >
+            <Edit3 className="size-4" aria-hidden />
+            Registro manual
+          </Button>
+        </CardContent>
+      </Card>
     </div>
   );
 }
