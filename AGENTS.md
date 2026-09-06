@@ -5,7 +5,7 @@
 
 AeroAdmin AFM es la plataforma admin para el operador de drones cañero en Valle del Cauca, Colombia. Lee datos de la nube de DJI SmartFarm, los persiste en PostGIS, y los expone vía Next.js. Cliente: 1 piloto, ~1200 parcelas, ~16k vuelos, ~17k fumigaciones. Single contributor (1 dev).
 
-**Estado actual (2026-09-06)**: sprint **S11+ cerrado** (V2 plan — wizard UX + Cliente/Finca + Ciclos Productivos + Capa de Gestión). Master `8b6f703` (post-merge de PR #46).
+**Estado actual (2026-09-06)**: sprints **S11+ cerrado (V2 plan completo)** + **Quality Gauntlet #1 (zod) cerrado**. Master `4da38d9` (post-merge de PR #58). Cobertura de tests 2042/2042 verde, arch:check 0 errors.
 
 Sprints cerrados anteriores:
 - **S5** (2026-07-28): migración a MapLibre + port del mockup V0
@@ -14,7 +14,8 @@ Sprints cerrados anteriores:
 - **S8** (2026-08-29): E2E prod + Bloques A-G (5 fixes + bulk ops + cleanup)
 - **S9** (2026-08-30): fumigaciones multi-parcela standalone (PR #25, `ac890a5`) — autoría del agente paralelo
 - **S10** (2026-09-02): 4 sprints chicos de cleanup + fix real de AppShell en /login (PRs #27-#31)
-- **S11+ (V2 plan)** (2026-09-05): 7 PRs del refactor V2 (PRs #40-#46) — ver `docs/PLAN-FUMIGACIONES-V2.md`
+- **S11+ (V2 plan)** (2026-09-05/06): 14 PRs del refactor V2 (PRs #40-#55) — ver `docs/PLAN-FUMIGACIONES-V2.md`
+- **Quality Gauntlet #1 (zod)** (2026-09-06): 3 PRs de adopción zod (PRs #56-#58) — tests anti-Bug-2 + request bodies + FormState
 
 S10 se desglosó en:
 - **S10.1** (PR #27 `8fbd391`): bulk cleanup con knip — 46 unused exports + 14 types borrados (22 archivos, +7/-1130).
@@ -27,15 +28,33 @@ S11+ (V2 plan) se desglosó en:
 - **Fase 3.A** (PR #44 `23fa4b1`): schema `clients` + `farms` + FKs en `dji_parcels` + columnas `data_validity`/`last_validated_at`/`validated_by_email`. API CRUD `app/api/admin/clients/route.ts` y `app/api/admin/farms/route.ts`. **Lección**: pg 8 + multi-statement `client.query(sql)` tiene cross-statement catalog visibility — backfill se mueve a `scripts/backfill-clients-farms.js` standalone.
 - **Fase 3.B/3.C UI** (PR #45 `42baacb`): dropdowns Cliente/Finca (FK) en el parcel metadata editor, vigencia chip, banner "X parcelas sin cliente/finca" en admin, breadcrumb Cliente → Finca → Parcela en parcel detail. Server actions + `updateParcelMetadata` extendido (auto-deriva name desde FK si no viene).
 - **Fase 4.1-4.4** (PR #46 `8b6f703`): `cycles` (1+ por parcela) + `cycle_events` (siembra/aplicación/corte/renovación) + `phase_rules` (configurable) + `vw_current_cycle` + función `current_phase(crop, variety, start_date)` STABLE. Backfill híbrido `POST /api/admin/cycles/backfill` que crea ciclos virtuales con `source='dji_inferred'` y `data_validity='needs_review'` para gaps >120d. Endpoint `GET /api/data-quality/invariants` con 5 patrones (parcela sin cliente, sin finca, sin ciclo activo, fumigación en ciclo cerrado, ciclo sin phase rule, parcela data stale). UI parcel detail muestra cycle card con fase actual.
-- **Fase 1.3 (Confirm step)**: PENDIENTE — agregar step de resumen editable antes del submit.
-- **Fase 2/5 (Importar vuelo DJI)**: PENDIENTE — Step 0 con 2 cards (Importar vuelo / Manual) + `DjiFlightPicker` + `GET /api/dji-flights/search`.
+- **Fase 1.3 Confirm step** (PR #48 `7e0e570`): wizard 4 steps (mode/pick/form/confirm). `RegisterFumigationForm` refactoreado a `forwardRef` + `useImperativeHandle` exponiendo `getFormData()` y `triggerSubmit()`. `ConfirmStep` muestra resumen read-only. 5 nuevos tests (`tests/components/admin/fumigations/confirm-step.test.tsx`).
+- **Fase 2/5 API** (PR #49 `4d176b9`): `GET /api/dji-flights/search?parcelId=X&dateFrom=Y&dateTo=Z&limit=N` con 13 tests (auth, params, query, shape). Path primer nivel (no `/api/admin/`) — read-only data reutilizable para supervisor.
+- **Fase 4.4.1 UI calidad de datos** (PR #50 `058770c`): `components/data-quality/data-quality-banner.tsx` (8 tests) + `app/(auth)/admin/calidad/page.tsx` con 4 KPIs + lista agrupada. Reusa `/api/data-quality/invariants`.
+- **Fase 2/5 DjiFlightPicker** (PR #51 `b09febe`): componente client con cards clickeables (tabindex=0 + role=button + onKeyDown). TZ Bogota, area m²→ha con `fmtDec`. 8 tests.
+- **Fase 2/5 Step 0 cards** (PR #52 `edd6c5d`): `phase = "mode" | "pick" | "form" | "confirm"`, `ModeStep` con 2 cards (Importar/Manual), `entryMode` state, `pickedFlight` state. Step 2 muestra DjiFlightPicker cuando `entryMode === "import"`. 6 tests.
+- **Fase 2/5 Auto-fill** (PR #53 `d4cbbe7`): `setFormData(data: Partial<FormState>): void` en el handle del form. `handlePickFlight` autollena `fumigation_date`, `duration_minutes`, `area_fumigated_m2`, `drone_code_used` (vía `DRONE_MODELS.find`), `notes`. 3 tests.
 
 **Bugs críticos abiertos:**
-- **Bug 2 — `/geovisor` accesible sin login** (PR #41 abrió diagnóstico con `console.log("[auth.authorized]", ...)` en `lib/auth.config.ts`). Owner: manual, requiere abrir `/geovisor` en incognito en Vercel y capturar el log.
+- **Bug 2 — `/geovisor` accesible sin login** (PR #41 abrió diagnóstico con `console.log("[auth.authorized]", ...)` en `lib/auth.config.ts`). Owner: manual, requiere abrir `/geovisor` en incognito en Vercel y capturar el log. Guia en `docs/BUG-2-AUTH-DIAGNOSTIC.md` (PR #54 `3a4ff61`) — incluye sección zod anti-Bug-2.
 
 **Backfill operacional pendiente (manual, cada ambiente, UNA sola vez):**
 - `node scripts/backfill-clients-farms.js` — local, preview, prod.
 - `POST /api/admin/cycles/backfill` — local, preview, prod. **NO correr dos veces** (idempotente, pero el segundo pass duplica detecciones).
+
+**Quality Gauntlet #1 (zod) cerrado — 3 PRs, 2026-09-06:**
+- **PR #56** (`986f40e`) — zod 4.5.4 devDep + `lib/api-schemas.ts` con 5 schemas de response + `parseWithSchema` helper + `formatZodIssues` + 17 tests anti-Bug-2. Cubre `errorResponseSchema`, `djiFlightSchema`, `dataQualityWarningSchema`, `authSessionSchema`. Documentación extendida en `docs/BUG-2-AUTH-DIAGNOSTIC.md`.
+- **PR #57** (`34e31dc`) — zod para request bodies en 3 endpoints POST (`/api/admin/clients`, `/api/admin/farms`, `/api/admin/fumigations`). Reemplaza ~336 lineas de if-checks con 3 schemas declarativos. Response 400 ahora incluye `issues: [{ path, message }]` además de `error` (backward compat preservado). 60 tests nuevos.
+- **PR #58** (`4da38d9`) — zod para FormState del wizard 4-step. `formStateSchema` valida ANTES de avanzar al step 3 (Confirm). Banner de error con field path (`data-testid="form-validation-error"`). `formStateToBody()` helper para conversion. 26 tests nuevos.
+
+**Total Quality Gauntlet #1**: +2744 / -358 lineas, 103 tests nuevos, 0 regresiones, 2042/2042 tests verde final.
+
+**Lecciones zod** (en `docs/PLAN-FUMIGACIONES-V2.md` + comentarios de `lib/api-schemas.ts`):
+1. `z.preprocess(v, schema.nullable())` + `.transform(v => v === "" ? null : v)` = el patron para campos opcionales (string, number, int). Reemplaza 5-10 if-checks por campo.
+2. `formatZodIssues(error)` retorna `{ error, issues }` — primer issue al `error` (humano), lista completa al `issues` (machine-readable).
+3. Forms con `string` + `Number()` conversion: usar `z.string().refine(v => { const n = Number(v); return !isNaN(n) && ... })` deja HTML nativo y validacion runtime.
+4. `zod` `path` es `PropertyKey[]` (incluye `symbol`), no `string[]`. Para mensaje legible: `String(first.path[0] ?? "form")` (TS2731 si no se coerce).
+5. Compatibilidad entre schemas testeable: parsea el body derivado con el segundo schema. Si pasa, el flujo entero es coherente.
 
 **Deuda S10/S10.5 anotada (separar en PRs futuros):**
 - SVG 400 en `/_next/image?url=%2Fafm-logo-mark.svg` (cosmético, no bloquea login). El SVG tiene UTF-8 malformado + el `sandbox` CSP de `next.config.ts` hace que el Image optimizer rechace.
@@ -44,16 +63,14 @@ S11+ (V2 plan) se desglosó en:
 - Index en `dji_fumigaciones.product_id` (FK sin index desde S9, ver #32) — migration con `CREATE INDEX CONCURRENTLY`. 1h.
 - Wire-up CSV/PDF exports con date range (quick-range buttons en /reportes). 2h.
 
-**S11+ candidates (próximos, en orden de prioridad):**
-1. Bug 2 auth — diagnosticar `/geovisor` accesible sin login (PR #41 instrumentación lista).
+**Candidates (próximos, en orden de prioridad):**
+1. Bug 2 auth — diagnosticar `/geovisor` accesible sin login (PR #41 instrumentación lista, guía PR #54).
 2. Correr backfills de `clients/farms` y `cycles` en cada ambiente.
-3. **Fase 1.3** — Confirm step en wizard (½ día, 1 PR).
-4. **Fase 2/5** — Importar vuelo DJI + auto-fill (½ sprint, 2 PRs).
-5. Refactor a `app/(auth)/` route group (2-3h).
-6. Index en `dji_fumigaciones.product_id` (1h).
-7. Fix SVG 400 en Image optimizer (1h).
-8. Wire-up CSV/PDF exports con date range en /reportes (2h).
-9. Quality Gauntlet compuertas 4-7 (BDD Gherkin, StrykerJS, smoke DB, métricas continuas). ~½ día cada una.
+3. Refactor a `app/(auth)/` route group (2-3h).
+4. Index en `dji_fumigaciones.product_id` (1h).
+5. Fix SVG 400 en Image optimizer (1h).
+6. Wire-up CSV/PDF exports con date range en /reportes (2h).
+7. Quality Gauntlet compuertas 5-7 (StrykerJS, BDD Gherkin, smoke DB, métricas continuas) — requiere deps nuevas (autorización explícita del user).
 
 ---
 
@@ -90,6 +107,8 @@ S11+ (V2 plan) se desglosó en:
 7. `docs/FUMIGATION_CADENCE.md` — la regla de negocio más sensible (cuándo una parcela necesita fumigación).
 8. `docs/QUALITY_GAUNTLET.md` — la metodología de calidad (7 compuertas) y su estado de adopción.
 9. `docs/DJI_SCRAPER.md` + `docs/DJI_CLOUD_API.md` — el scraper (la parte más frágil).
+10. `docs/PLAN-FUMIGACIONES-V2.md` — el plan V2 cerrado: 5 fases (wizard UX + Cliente/Finca + Ciclos Productivos + Capa de Gestión + Confirm step). Tracking cerrado + 4 lecciones aprendidas (S11+, PRs #40-#55).
+11. `docs/BUG-2-AUTH-DIAGNOSTIC.md` — guia para diagnosticar por qué `/geovisor` es accesible sin login. 3 pasos para Vercel logs + sección zod anti-Bug-2.
 
 > Este AGENTS.md hace de `03_MEJORES_PRACTICAS_AGENTES.md` (prácticas para agentes). `docs/SDD.md` y `docs/TDD.md` son los `01` y `02` formales (escritos en el sprint S5, 2026-07-28).
 
@@ -225,7 +244,7 @@ Un PR de un agente está listo para merge cuando:
 - [ ] No agregaste dependencias sin avisar en el chat.
 - [ ] CI en GitHub Actions pasó todos los jobs.
 
-> **Nota 2026-07-28**: las compuertas 4-7 del Gauntlet (BDD Gherkin, mutation testing, smoke DB, métricas continuas) están documentadas pero **no activas todavía**. Ver `docs/QUALITY_GAUNTLET.md` para el roadmap. Esto es el sprint de fase 1 (arquitectura + coverage global). Las fases 2-5 se activan progresivamente.
+> **Nota 2026-09-06**: compuerta 4 (zod para testeo de bugs) **cerrada** con PRs #56, #57, #58. Compuertas 5-7 (BDD Gherkin, mutation testing, smoke DB, métricas continuas) siguen documentadas pero **no activas** — requieren deps nuevas (StrykerJS, Cucumber, etc). Ver `docs/QUALITY_GAUNTLET.md` para el roadmap.
 
 ---
 
@@ -239,5 +258,5 @@ Un PR de un agente está listo para merge cuando:
 
 ---
 
-**Última actualización:** 2026-09-06 (sprint S11+ cerrado — V2 plan: wizard UX + Cliente/Finca schema/UI + Ciclos Productivos + Capa de Gestión. PRs #40-#46 mergeados, master `8b6f703`).
+**Última actualización:** 2026-09-06 (S11+ V2 plan completo: PRs #40-#55. Quality Gauntlet #1 zod: PRs #56-#58. Master `4da38d9`, 2042/2042 tests verde).
 **Mantenedor:** @agFab (single contributor, dev actual en transición — ver `docs/HANDOFF-2026-09-02.md`).
