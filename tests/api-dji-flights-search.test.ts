@@ -33,7 +33,7 @@ const validFlights = [
     id: 1,
     flight_id: 638640703,
     drone_serial: "R1272065674",
-    drone_nickname: "AFM T40 1",
+    drone_nickname: "Agras T40 / T50",
     pilot_name: "breiner pelaez",
     start_at: "2026-09-15T08:00:00.000Z",
     end_at: "2026-09-15T08:45:00.000Z",
@@ -47,7 +47,7 @@ const validFlights = [
     id: 2,
     flight_id: 638640800,
     drone_serial: "R1272065674",
-    drone_nickname: "AFM T40 1",
+    drone_nickname: "Agras T16 / T20",
     pilot_name: "breiner pelaez",
     start_at: "2026-09-10T09:00:00.000Z",
     end_at: "2026-09-10T09:30:00.000Z",
@@ -174,35 +174,38 @@ describe("GET /api/dji-flights/search — query behavior", () => {
 // ============================================================
 
 describe("GET /api/dji-flights/search — response shape", () => {
-  it("11. success: devuelve { flights: [...] } con shape estable", async () => {
+  it("11. success: devuelve { flights: [...] } con shape estable (zod)", async () => {
     const res = await GET(makeRequest({ parcelId: "42" }));
     expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.flights).toHaveLength(2);
-    expect(body.flights[0]).toMatchObject({
-      id: 1,
-      flight_id: 638640703,
-      drone_nickname: "AFM T40 1",
-      pilot_name: "breiner pelaez",
-      duration_seconds: 2700,
-      area_m2: "12000.00",
-      spray_usage_ml: 15000
-    });
+    // Sprint S11+ — usar zod para validar la shape completa.
+    // Caza cambios accidentales de tipo/nombre de campo.
+    const { djiFlightListResponseSchema } = await import("@/lib/api-schemas");
+    const parsed = djiFlightListResponseSchema.parse(await res.json());
+    expect(parsed.flights).toHaveLength(2);
+    expect(parsed.flights[0].id).toBe(1);
+    expect(parsed.flights[0].flight_id).toBe(638640703);
+    expect(parsed.flights[0].drone_nickname).toBe("Agras T40 / T50");
+    expect(parsed.flights[0].pilot_name).toBe("breiner pelaez");
+    expect(parsed.flights[0].duration_seconds).toBe(2700);
+    expect(parsed.flights[0].area_m2).toBe("12000.00");
+    expect(parsed.flights[0].spray_usage_ml).toBe(15000);
   });
 
   it("12. parcelId NO se devuelve (información redundante, ya viene en el path)", async () => {
     const res = await GET(makeRequest({ parcelId: "42" }));
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const { djiFlightListResponseSchema } = await import("@/lib/api-schemas");
+    const parsed = djiFlightListResponseSchema.parse(await res.json());
     // parcel_id no se expone — el cliente ya sabe cuál parcela eligió
-    expect(body.flights[0].parcel_id).toBeUndefined();
+    expect((parsed.flights[0] as Record<string, unknown>).parcel_id).toBeUndefined();
   });
 
-  it("13. error de DB → 500 con mensaje", async () => {
+  it("13. error de DB → 500 con mensaje (zod error shape)", async () => {
     mockQuery.mockRejectedValueOnce(new Error("connection refused"));
     const res = await GET(makeRequest({ parcelId: "42" }));
     expect(res.status).toBe(500);
-    const body = await res.json();
-    expect(body.error).toMatch(/connection refused/);
+    const { errorResponseSchema } = await import("@/lib/api-schemas");
+    const parsed = errorResponseSchema.parse(await res.json());
+    expect(parsed.error).toMatch(/connection refused/);
   });
 });

@@ -63,3 +63,68 @@ Copialo y pegamelo en el chat. Con eso puedo diagnosticar:
 
 Una vez diagnosticado y arreglado, remover el `console.log` en `lib/auth.config.ts:149-157`
 y commit con `fix(auth): Bug 2 — /geovisor accesible sin login`.
+
+---
+
+## Patron zod para tests anti-Bug-2 (Sprint S11+)
+
+> **Sprint S11+ / Quality Gauntlet compuerta 4**: usar zod para validar
+> la shape de responses en tests, especialmente en endpoints auth-gated.
+
+### Por que zod aca
+
+El Bug 2 era conceptualmente "un endpoint (page route o API) que deberia
+bloquear retorna 200 con shape incorrecta en vez de 401". El patron
+zod que sigue evita este tipo de bug en futuras regresiones:
+
+```ts
+import { errorResponseSchema } from "@/lib/api-schemas";
+
+it("endpoint sin sesion → 401 con body zod-valid", async () => {
+  mockRequireRole.mockRejectedValueOnce({
+    code: "UNAUTHENTICATED",
+    message: "no auth"
+  });
+  const res = await handler(makeRequest("/api/...") as NextRequest);
+  // Check 1: status code
+  expect(res.status).toBe(401);
+  // Check 2: body shape via zod (catches rename/refactor bugs)
+  const parsed = errorResponseSchema.parse(await res.json());
+  expect(parsed.error).toBeDefined();
+});
+```
+
+### Que tests ya tenemos con este patron
+
+`tests/api-auth-zod-validation.test.ts` (PR #56) cubre 5 endpoints
+auth-gated:
+
+| Endpoint | Sin sesion | Sin role |
+|---|---|---|
+| GET /api/dji-flights/search | 401 ✅ | 403 ✅ |
+| GET /api/data-quality/invariants | 401 ✅ | n/a (admin-only) |
+| GET /api/admin/parcels/search | 401 ✅ | n/a |
+| POST /api/admin/cycles/backfill | 401 ✅ | n/a |
+
+### Como agregar el patron a un nuevo endpoint
+
+1. Importa `errorResponseSchema` de `@/lib/api-schemas`.
+2. En el test, simula `requireRole` tirando `UNAUTHENTICATED`.
+3. Assert: `expect(res.status).toBe(401)`.
+4. Parsea: `errorResponseSchema.parse(await res.json())`.
+5. Si la API route retorna 200 con shape incorrecta, el test #4 falla
+   con detalle del path que no matchea.
+
+### Cuando el patron NO alcanza
+
+El Bug 2 es un page route (`/geovisor`), no un API endpoint. Los
+tests de API no van a detectarlo porque el proxy/middleware bloquea
+a nivel de page request, no de API. El patron zod funciona
+principalmente para:
+
+- API routes: el test anti-Bug-2 es directo
+- Page routes: el test es a nivel de `proxy.ts` matcher y del callback
+  `authorized` en `lib/auth.config.ts`
+
+Para page routes, la guia actual (pasos 1-3) sigue siendo el approach
+correcto. Los tests zod complementan, no reemplazan.
