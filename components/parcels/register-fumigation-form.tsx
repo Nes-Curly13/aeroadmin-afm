@@ -88,6 +88,15 @@ export interface RegisterFumigationFormHandle {
    * del form). Resuelve cuando termina (success o error).
    */
   triggerSubmit: () => Promise<void>;
+  /**
+   * Actualiza el FormState con un patch parcial. Usado por el wizard
+   * V2 para auto-llenar campos desde un vuelo DJI seleccionado. Los
+   * campos provistos en `data` se mergean sobre el state actual; los
+   * que NO estén en `data` quedan intactos.
+   *
+   * Sprint S11+ Fase 2.5 — auto-fill del form desde DjiFlightPicker.
+   */
+  setFormData: (data: Partial<FormState>) => void;
 }
 
 interface RegisterFumigationFormProps {
@@ -282,7 +291,13 @@ export const RegisterFumigationForm = forwardRef<
     ref,
     () => ({
       getFormData: () => formRef.current,
-      triggerSubmit: () => doSubmit()
+      triggerSubmit: () => doSubmit(),
+      // Sprint S11+ Fase 2.5 — auto-fill desde un vuelo DJI. Merge
+      // sobre el state actual; los campos que el flight no provee
+      // quedan intactos (e.g. `product_used`, `dose_l_per_ha`).
+      setFormData: (data: Partial<FormState>) => {
+        setForm((prev) => ({ ...prev, ...data }));
+      }
     }),
     // doSubmit es una función interna definida abajo; intencionalmente
     // la lista de deps está vacía para que el handle sea estable.
