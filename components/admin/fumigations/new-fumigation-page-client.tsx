@@ -64,6 +64,7 @@ import {
   DRONE_MODELS,
   FUMIGATION_CATEGORIES
 } from "@/lib/data-constants";
+import { formStateSchema } from "@/lib/api-schemas";
 
 interface NewFumigationPageClientProps {
   initialParcelId: number | null;
@@ -124,6 +125,16 @@ export function NewFumigationPageClient({
    * al click del "Confirmar y registrar" del step 3, vía formRef.
    */
   const [pendingFormData, setPendingFormData] = useState<FormState | null>(null);
+  /**
+   * Sprint S11+ / zod PR #3 — error de validacion del FormState
+   * (zod formStateSchema) al hacer click en "Revisar y confirmar".
+   * Si no es null, mostramos un banner arriba del form y NO avanzamos
+   * al step 3. El operator tiene que corregir el campo y volver a
+   * intentar. Esto cierra el gap entre el auto-fill del DjiFlightPicker
+   * y el POST — antes, el form podia llegar al step 3 con datos
+   * invalidos y fallar en el server round-trip.
+   */
+  const [formValidationError, setFormValidationError] = useState<string | null>(null);
   const formRef = useRef<RegisterFumigationFormHandle | null>(null);
 
   // Fetch de la geometría cuando hay una parcela elegida (initial o posterior).
@@ -238,10 +249,42 @@ export function NewFumigationPageClient({
    * Sprint S11+ Fase 1.3 — handler del "Revisar y confirmar" del step 2.
    * Captura la snapshot del form (vía el handle imperativo) y avanza
    * al step 3 (Confirm). El form NO hace POST — el parent controla.
+   *
+   * Sprint S11+ / zod PR #3 — valida con `formStateSchema` antes de
+   * avanzar. Si hay issues, muestra un banner arriba del form y NO
+   * avanza al step 3. Esto previene que el operator llegue al resumen
+   * con data invalida (e.g. el DjiFlightPicker introdujo un valor
+   * problematico via auto-fill, o el operator borro un required sin
+   * darse cuenta).
    */
   function handleRequestReview(data: FormState) {
+    const result = formStateSchema.safeParse(data);
+    if (!result.success) {
+      // Mostrar el primer issue en el banner. El operador puede ver
+      // el resto abriendo la consola del form si quiere detalle, pero
+      // lo importante es el campo exacto (path[0]).
+      const first = result.error.issues[0];
+      // zod `path` is `(string | number)[]`, pero TS lo tipea como
+      // `PropertyKey[]` que incluye `symbol`. Forzamos a string para
+      // el mensaje (TS2731: implicit symbol→string conversion falla).
+      const field = String(first.path[0] ?? "form");
+      const msg = first.message;
+      setFormValidationError(`${field}: ${msg}`);
+      return; // no avanzar al step 3
+    }
+    setFormValidationError(null);
     setPendingFormData(data);
     setPhase("confirm");
+  }
+
+  /**
+   * Sprint S11+ / zod PR #3 — limpiar el error de validacion cuando
+   * el operator edita cualquier campo del form. Asi el banner
+   * desaparece apenas corrigen, sin esperar al "Revisar y confirmar"
+   * de nuevo.
+   */
+  function clearFormValidationError() {
+    if (formValidationError) setFormValidationError(null);
   }
 
   /**
@@ -340,6 +383,25 @@ export function NewFumigationPageClient({
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
+                  {/*
+                    Sprint S11+ / zod PR #3 — banner de error de
+                    validacion. Aparece si `handleRequestReview`
+                    encontro issues con `formStateSchema`. El operator
+                    corrige y vuelve a "Revisar y confirmar".
+                  */}
+                  {formValidationError ? (
+                    <div
+                      role="alert"
+                      data-testid="form-validation-error"
+                      className="mb-4 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+                    >
+                      <span aria-hidden>⚠️</span>
+                      <div>
+                        <strong>Revisá el formulario antes de continuar:</strong>{" "}
+                        {formValidationError}
+                      </div>
+                    </div>
+                  ) : null}
                   <RegisterFumigationForm
                     ref={formRef}
                     parcelId={chosenParcel.id || 0}

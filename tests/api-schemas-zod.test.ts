@@ -31,7 +31,9 @@ import {
   createFarmBodySchema,
   createFumigationBodySchema,
   formatZodIssues,
-  validationErrorResponseSchema
+  validationErrorResponseSchema,
+  formStateSchema,
+  formStateToBody
 } from "@/lib/api-schemas";
 
 // ============================================================
@@ -591,5 +593,294 @@ describe("formatZodIssues", () => {
     const data = validationErrorResponseSchema.parse({ error: "boom" });
     expect(data.error).toBe("boom");
     expect(data.issues).toBeUndefined();
+  });
+});
+
+// ============================================================
+// formStateSchema — FormState del wizard 4-step (zod PR #3)
+// ============================================================
+
+const VALID_FORM_STATE = {
+  fumigation_date: "2026-08-02",
+  category_id: "",
+  application_type_id: "",
+  vehicle_plate: "",
+  product_used: "Glifosato 48%",
+  product_id: null,
+  dose_l_per_ha: "2.5",
+  area_fumigated_m2: "",
+  duration_minutes: "",
+  drone_code_used: "0",
+  notes: "",
+  product_registered_ica: "",
+  pilot_license: ""
+};
+
+describe("formStateSchema — happy path", () => {
+  it("42. parsea formState minimo valido (solo requeridos)", () => {
+    const data = formStateSchema.parse(VALID_FORM_STATE);
+    expect(data.fumigation_date).toBe("2026-08-02");
+    expect(data.product_used).toBe("Glifosato 48%");
+    expect(data.dose_l_per_ha).toBe("2.5");
+  });
+
+  it("43. parsea formState completo con todos los opcionales", () => {
+    const data = formStateSchema.parse({
+      ...VALID_FORM_STATE,
+      product_id: 5,
+      category_id: "2",
+      application_type_id: "3",
+      vehicle_plate: "abc-123",
+      area_fumigated_m2: "5000",
+      duration_minutes: "45",
+      drone_code_used: "201",
+      notes: "Aplicacion manual",
+      product_registered_ica: "ICA-1234-PN",
+      pilot_license: "PCA-12345"
+    });
+    expect(data.product_id).toBe(5);
+    expect(data.vehicle_plate).toBe("ABC-123"); // normalizado
+    expect(data.category_id).toBe("2");
+  });
+
+  it("44. trimea product_used antes de validar", () => {
+    const data = formStateSchema.parse({
+      ...VALID_FORM_STATE,
+      product_used: "  Glifosato 48%  "
+    });
+    expect(data.product_used).toBe("Glifosato 48%");
+  });
+
+  it("45. normaliza vehicle_plate a UPPER", () => {
+    const data = formStateSchema.parse({
+      ...VALID_FORM_STATE,
+      vehicle_plate: "abc-123"
+    });
+    expect(data.vehicle_plate).toBe("ABC-123");
+  });
+});
+
+describe("formStateSchema — required fields", () => {
+  it("46. rechaza fumigation_date con formato incorrecto", () => {
+    expect(() =>
+      formStateSchema.parse({ ...VALID_FORM_STATE, fumigation_date: "08/02/2026" })
+    ).toThrow();
+    expect(() =>
+      formStateSchema.parse({ ...VALID_FORM_STATE, fumigation_date: "2026-8-2" })
+    ).toThrow();
+  });
+
+  it("47. rechaza product_used vacio o whitespace", () => {
+    expect(() =>
+      formStateSchema.parse({ ...VALID_FORM_STATE, product_used: "" })
+    ).toThrow();
+    expect(() =>
+      formStateSchema.parse({ ...VALID_FORM_STATE, product_used: "   " })
+    ).toThrow();
+  });
+
+  it("48. rechaza product_used > 200 chars", () => {
+    expect(() =>
+      formStateSchema.parse({ ...VALID_FORM_STATE, product_used: "x".repeat(201) })
+    ).toThrow();
+  });
+
+  it("49. rechaza dose_l_per_ha faltante o invalido", () => {
+    expect(() =>
+      formStateSchema.parse({ ...VALID_FORM_STATE, dose_l_per_ha: "" })
+    ).toThrow();
+    expect(() =>
+      formStateSchema.parse({ ...VALID_FORM_STATE, dose_l_per_ha: "abc" })
+    ).toThrow();
+    expect(() =>
+      formStateSchema.parse({ ...VALID_FORM_STATE, dose_l_per_ha: "0" })
+    ).toThrow();
+    expect(() =>
+      formStateSchema.parse({ ...VALID_FORM_STATE, dose_l_per_ha: "-1" })
+    ).toThrow();
+    expect(() =>
+      formStateSchema.parse({ ...VALID_FORM_STATE, dose_l_per_ha: "2000" })
+    ).toThrow();
+  });
+
+  it("50. acepta dose_l_per_ha como string numerico (Number conversion)", () => {
+    const data = formStateSchema.parse({
+      ...VALID_FORM_STATE,
+      dose_l_per_ha: "2.5"
+    });
+    expect(data.dose_l_per_ha).toBe("2.5");
+  });
+});
+
+describe("formStateSchema — optional fields", () => {
+  it("51. area_fumigated_m2: '' o numero >= 0", () => {
+    // Vacio OK
+    const d1 = formStateSchema.parse({ ...VALID_FORM_STATE, area_fumigated_m2: "" });
+    expect(d1.area_fumigated_m2).toBe("");
+    // 0 OK
+    const d2 = formStateSchema.parse({ ...VALID_FORM_STATE, area_fumigated_m2: "0" });
+    expect(d2.area_fumigated_m2).toBe("0");
+    // Negativo NO
+    expect(() =>
+      formStateSchema.parse({ ...VALID_FORM_STATE, area_fumigated_m2: "-1" })
+    ).toThrow();
+    // String no-numerico NO
+    expect(() =>
+      formStateSchema.parse({ ...VALID_FORM_STATE, area_fumigated_m2: "mucho" })
+    ).toThrow();
+  });
+
+  it("52. drone_code_used: '0' (sin asignar) o entero positivo como string", () => {
+    // "0" OK
+    const d1 = formStateSchema.parse({ ...VALID_FORM_STATE, drone_code_used: "0" });
+    expect(d1.drone_code_used).toBe("0");
+    // "201" OK
+    const d2 = formStateSchema.parse({ ...VALID_FORM_STATE, drone_code_used: "201" });
+    expect(d2.drone_code_used).toBe("201");
+    // "72" OK
+    const d3 = formStateSchema.parse({ ...VALID_FORM_STATE, drone_code_used: "72" });
+    expect(d3.drone_code_used).toBe("72");
+    // "210" OK
+    const d4 = formStateSchema.parse({ ...VALID_FORM_STATE, drone_code_used: "210" });
+    expect(d4.drone_code_used).toBe("210");
+    // "-1" NO
+    expect(() =>
+      formStateSchema.parse({ ...VALID_FORM_STATE, drone_code_used: "-1" })
+    ).toThrow();
+    // "abc" NO
+    expect(() =>
+      formStateSchema.parse({ ...VALID_FORM_STATE, drone_code_used: "abc" })
+    ).toThrow();
+  });
+
+  it("53. vehicle_plate: '' o regex, normalizado a UPPER", () => {
+    const d1 = formStateSchema.parse({ ...VALID_FORM_STATE, vehicle_plate: "" });
+    expect(d1.vehicle_plate).toBe("");
+    const d2 = formStateSchema.parse({ ...VALID_FORM_STATE, vehicle_plate: "ABC-123" });
+    expect(d2.vehicle_plate).toBe("ABC-123");
+    // Muy corto
+    expect(() =>
+      formStateSchema.parse({ ...VALID_FORM_STATE, vehicle_plate: "AB" })
+    ).toThrow();
+    // Muy largo
+    expect(() =>
+      formStateSchema.parse({ ...VALID_FORM_STATE, vehicle_plate: "ABCDEFGHIJKLM" })
+    ).toThrow();
+    // Caracteres invalidos
+    expect(() =>
+      formStateSchema.parse({ ...VALID_FORM_STATE, vehicle_plate: "ABC 123" })
+    ).toThrow();
+  });
+
+  it("54. notes / ica / license: '' o max length", () => {
+    // Vacio OK
+    const d1 = formStateSchema.parse(VALID_FORM_STATE);
+    expect(d1.notes).toBe("");
+    // Max length OK
+    const d2 = formStateSchema.parse({
+      ...VALID_FORM_STATE,
+      notes: "x".repeat(2000)
+    });
+    expect(d2.notes).toHaveLength(2000);
+    // Excede NO
+    expect(() =>
+      formStateSchema.parse({ ...VALID_FORM_STATE, notes: "x".repeat(2001) })
+    ).toThrow();
+    expect(() =>
+      formStateSchema.parse({ ...VALID_FORM_STATE, product_registered_ica: "x".repeat(51) })
+    ).toThrow();
+    expect(() =>
+      formStateSchema.parse({ ...VALID_FORM_STATE, pilot_license: "x".repeat(21) })
+    ).toThrow();
+  });
+});
+
+// ============================================================
+// formStateToBody — conversion FormState → API body (zod PR #3)
+// ============================================================
+
+describe("formStateToBody", () => {
+  it("55. form minimo: solo campos requeridos en body", () => {
+    const body = formStateToBody(formStateSchema.parse(VALID_FORM_STATE));
+    expect(body.fumigation_date).toBe("2026-08-02");
+    expect(body.product_used).toBe("Glifosato 48%");
+    expect(body.dose_l_per_ha).toBe(2.5); // number, no string
+    // Opcionales vacios NO incluidos
+    expect(body.area_fumigated_m2).toBeUndefined();
+    expect(body.duration_minutes).toBeUndefined();
+    expect(body.drone_code_used).toBeUndefined();
+    expect(body.notes).toBeUndefined();
+    expect(body.vehicle_plate).toBeUndefined();
+    expect(body.category_id).toBeUndefined();
+    expect(body.application_type_id).toBeUndefined();
+  });
+
+  it("56. form completo: incluye todos los opcionales con valor", () => {
+    const body = formStateToBody(
+      formStateSchema.parse({
+        ...VALID_FORM_STATE,
+        product_id: 5,
+        category_id: "2",
+        application_type_id: "3",
+        vehicle_plate: "abc-123",
+        area_fumigated_m2: "5000",
+        duration_minutes: "45",
+        drone_code_used: "201",
+        notes: "Aplicacion",
+        product_registered_ica: "ICA-1234-PN",
+        pilot_license: "PCA-12345"
+      })
+    );
+    expect(body.product_id).toBe(5);
+    expect(body.category_id).toBe(2);
+    expect(body.application_type_id).toBe(3);
+    expect(body.vehicle_plate).toBe("ABC-123"); // UPPER
+    expect(body.area_fumigated_m2).toBe(5000); // number
+    expect(body.duration_minutes).toBe(45); // number
+    expect(body.drone_code_used).toBe(201); // number, no "0"
+    expect(body.notes).toBe("Aplicacion");
+    expect(body.product_registered_ica).toBe("ICA-1234-PN");
+    expect(body.pilot_license).toBe("PCA-12345");
+  });
+
+  it("57. drone_code_used='0' (sin asignar) → no incluido en body", () => {
+    const body = formStateToBody(
+      formStateSchema.parse({ ...VALID_FORM_STATE, drone_code_used: "0" })
+    );
+    expect(body.drone_code_used).toBeUndefined();
+  });
+
+  it("58. dose_l_per_ha: string → number", () => {
+    const body = formStateToBody(
+      formStateSchema.parse({ ...VALID_FORM_STATE, dose_l_per_ha: "3.0" })
+    );
+    expect(body.dose_l_per_ha).toBe(3.0);
+    expect(typeof body.dose_l_per_ha).toBe("number");
+  });
+
+  it("59. el body que retorna es compatible con createFumigationBodySchema", () => {
+    // Re-assemble body a partir de form completo, parsear con el schema
+    // de la API (PR #2). Si esto pasa, el cliente puede mandar directo
+    // sin que el server rechace.
+    const form = formStateSchema.parse({
+      ...VALID_FORM_STATE,
+      product_id: 5,
+      category_id: "2",
+      application_type_id: "3",
+      vehicle_plate: "ABC-123",
+      area_fumigated_m2: "5000",
+      duration_minutes: "45",
+      drone_code_used: "201",
+      notes: "Manual",
+      product_registered_ica: "ICA-1234",
+      pilot_license: "PCA-12345"
+    });
+    const body = formStateToBody(form);
+    // El schema de la API espera `recorded_by` server-side, no del body.
+    // El body sin recorded_by debe parsear OK (parcel_id falta del form,
+    // pero eso lo agrega el route handler despues).
+    body.parcel_id = 1;
+    const result = createFumigationBodySchema.safeParse(body);
+    expect(result.success).toBe(true);
   });
 });
