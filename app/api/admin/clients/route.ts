@@ -22,15 +22,20 @@
  *
  * POST responses:
  *   201 + { client: Client }       — creado
- *   400 + { error: string }        — body inválido
+ *   400 + { error: string, issues?: [...] }  — body inválido (zod)
  *   409 + { error: string }        — name duplicado (UNIQUE)
  *   401 / 403                      — auth
  *   500                            — error inesperado
+ *
+ * Sprint S11+ / zod PR #2 — body validation via createClientBodySchema
+ * (lib/api-schemas.ts). Reemplaza 18 lines de if-checks manuales.
  */
 
 import { NextResponse, type NextRequest } from "next/server";
 import { requireRole } from "@/lib/auth/role";
 import { searchClients, createClient } from "@/api/repositories";
+import { createClientBodySchema, formatZodIssues } from "@/lib/api-schemas";
+import type { CreateClientBody } from "@/lib/api-schemas";
 
 export async function GET(request: NextRequest) {
   // Gate: solo admin puede listar clientes
@@ -65,40 +70,27 @@ export async function POST(request: NextRequest) {
     return authErrorToResponse(err);
   }
 
-  let body: unknown;
+  let raw: unknown;
   try {
-    body = await request.json();
+    raw = await request.json();
   } catch {
     return NextResponse.json({ error: "body debe ser JSON válido" }, { status: 400 });
   }
-  if (!body || typeof body !== "object" || Array.isArray(body)) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return NextResponse.json({ error: "body debe ser un objeto" }, { status: 400 });
   }
 
-  const b = body as Record<string, unknown>;
-  if (typeof b.name !== "string" || b.name.trim().length < 1) {
-    return NextResponse.json(
-      { error: "name es obligatorio y debe ser string no vacío" },
-      { status: 400 }
-    );
+  // Sprint S11+ / zod PR #2 — schema validation reemplaza if-checks
+  const parsed = createClientBodySchema.safeParse(raw);
+  if (!parsed.success) {
+    return NextResponse.json(formatZodIssues(parsed.error), { status: 400 });
   }
-  if (typeof b.created_by_email !== "string" || b.created_by_email.length < 1) {
-    return NextResponse.json(
-      { error: "created_by_email es obligatorio" },
-      { status: 400 }
-    );
-  }
-  if (b.notes !== undefined && b.notes !== null && typeof b.notes !== "string") {
-    return NextResponse.json(
-      { error: "notes debe ser string o null" },
-      { status: 400 }
-    );
-  }
+  const b: CreateClientBody = parsed.data;
 
   try {
     const client = await createClient({
       name: b.name,
-      notes: typeof b.notes === "string" ? b.notes : null,
+      notes: b.notes,
       created_by_email: b.created_by_email
     });
     return NextResponse.json({ client }, { status: 201 });
