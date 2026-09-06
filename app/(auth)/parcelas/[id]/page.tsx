@@ -7,6 +7,7 @@ import { IntervalChart } from "@/components/parcels/interval-chart"
 import { ParcelMap } from "@/components/parcels/parcel-map"
 import { RegisterFumigationForm } from "@/components/parcels/register-fumigation-form"
 import { AutoFocusFumigation } from "@/components/parcels/auto-focus-fumigation"
+import { DataQualityBanner } from "@/components/data-quality/data-quality-banner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -293,6 +294,9 @@ export default async function ParcelaPage({ params }: { params: Promise<{ id: st
       </header>
 
       <div className="flex flex-col gap-6 px-4 py-6 sm:px-6">
+        {/* S11+ / Fase 4.4.1 — banner de calidad de datos (admin-only,
+            silencioso para supervisor que no tiene acceso al endpoint). */}
+        <DataQualityBanner parcelaId={parcelIdNum} />
         <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           {stats.map(({ label, value, icon: Icon }) => (
             <Card key={label}>
