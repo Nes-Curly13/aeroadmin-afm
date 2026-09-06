@@ -5,7 +5,7 @@
 
 AeroAdmin AFM es la plataforma admin para el operador de drones cañero en Valle del Cauca, Colombia. Lee datos de la nube de DJI SmartFarm, los persiste en PostGIS, y los expone vía Next.js. Cliente: 1 piloto, ~1200 parcelas, ~16k vuelos, ~17k fumigaciones. Single contributor (1 dev).
 
-**Estado actual (2026-09-02)**: sprint **S10 cerrado** (cleanup, audit, SVG Image, fix real de AppShell en /login). Master `ef97c69` (post-merge de PR #31 + cleanup de 4 unused files).
+**Estado actual (2026-09-06)**: sprint **S11+ cerrado** (V2 plan — wizard UX + Cliente/Finca + Ciclos Productivos + Capa de Gestión). Master `8b6f703` (post-merge de PR #46).
 
 Sprints cerrados anteriores:
 - **S5** (2026-07-28): migración a MapLibre + port del mockup V0
@@ -14,25 +14,46 @@ Sprints cerrados anteriores:
 - **S8** (2026-08-29): E2E prod + Bloques A-G (5 fixes + bulk ops + cleanup)
 - **S9** (2026-08-30): fumigaciones multi-parcela standalone (PR #25, `ac890a5`) — autoría del agente paralelo
 - **S10** (2026-09-02): 4 sprints chicos de cleanup + fix real de AppShell en /login (PRs #27-#31)
+- **S11+ (V2 plan)** (2026-09-05): 7 PRs del refactor V2 (PRs #40-#46) — ver `docs/PLAN-FUMIGACIONES-V2.md`
 
 S10 se desglosó en:
 - **S10.1** (PR #27 `8fbd391`): bulk cleanup con knip — 46 unused exports + 14 types borrados (22 archivos, +7/-1130).
 - **S10.2** (PR #28 `6750419`): 4 UI audit fixes — `fmtTime` TZ Bogota (hydration #418), branch `role==="viewer"` borrado, docstring drift, test helper huérfano.
 - **S10.3** (PR #29 `10b1148`): `next.config.ts` habilita SVG en `next/image` con CSP `sandbox` + `dangerouslyAllowSVG: true`.
-- **S10.4** (PR #30 `70c114c` + PR #31 `daee3c8`): AppShell ya NO se muestra en `/login`. PR #30 intentó route group `(public)/` (insuficiente en Next.js 16 — los route groups son children del root, no siblings). PR #31 lo arregló con `proxy.ts` que setea `x-pathname` header + check de `PUBLIC_PATHS` en `app/layout.tsx`. TDD estructural: `tests/app-layout-login-routing.test.ts` (5 tests). Cleanup post-merge en `ef97c69`: 4 unused files (`_middleware_disabled.ts`, `scripts/debug-login.mjs`, `scripts/test-login.mjs`, `scripts/screenshot-login-clean.mjs`) → `tmp-trash/s10-4-scripts/`.
+- **S10.4** (PR #30 `70c114c` + PR #31 `daee3c8`): AppShell ya NO se muestra en `/login`. PR #30 intentó route group `(public)/` (insuficiente en Next.js 16 — los route groups son children del root, no siblings). PR #31 lo arregló con `proxy.ts` que setea `x-pathname` header + check de `PUBLIC_PATHS` en `app/layout.tsx`. TDD estructural: `tests/app-layout-login-routing.test.ts` (5 tests). Cleanup post-merge en `ef97c69`: 4 unused files → `tmp-trash/s10-4-scripts/`.
 
-**Deuda S10 anotada (separar en PRs futuros):**
+S11+ (V2 plan) se desglosó en:
+- **Fase 1** (PR #42 `f2d59e5`): wizard 3 steps en `/fumigaciones/nueva` con map-after-selection. UX refactor — sin cambios al data model. 6 nuevos tests (`tests/components/admin/fumigations/new-fumigation-page-client.test.tsx`).
+- **Fase 3.A** (PR #44 `23fa4b1`): schema `clients` + `farms` + FKs en `dji_parcels` + columnas `data_validity`/`last_validated_at`/`validated_by_email`. API CRUD `app/api/admin/clients/route.ts` y `app/api/admin/farms/route.ts`. **Lección**: pg 8 + multi-statement `client.query(sql)` tiene cross-statement catalog visibility — backfill se mueve a `scripts/backfill-clients-farms.js` standalone.
+- **Fase 3.B/3.C UI** (PR #45 `42baacb`): dropdowns Cliente/Finca (FK) en el parcel metadata editor, vigencia chip, banner "X parcelas sin cliente/finca" en admin, breadcrumb Cliente → Finca → Parcela en parcel detail. Server actions + `updateParcelMetadata` extendido (auto-deriva name desde FK si no viene).
+- **Fase 4.1-4.4** (PR #46 `8b6f703`): `cycles` (1+ por parcela) + `cycle_events` (siembra/aplicación/corte/renovación) + `phase_rules` (configurable) + `vw_current_cycle` + función `current_phase(crop, variety, start_date)` STABLE. Backfill híbrido `POST /api/admin/cycles/backfill` que crea ciclos virtuales con `source='dji_inferred'` y `data_validity='needs_review'` para gaps >120d. Endpoint `GET /api/data-quality/invariants` con 5 patrones (parcela sin cliente, sin finca, sin ciclo activo, fumigación en ciclo cerrado, ciclo sin phase rule, parcela data stale). UI parcel detail muestra cycle card con fase actual.
+- **Fase 1.3 (Confirm step)**: PENDIENTE — agregar step de resumen editable antes del submit.
+- **Fase 2/5 (Importar vuelo DJI)**: PENDIENTE — Step 0 con 2 cards (Importar vuelo / Manual) + `DjiFlightPicker` + `GET /api/dji-flights/search`.
+
+**Bugs críticos abiertos:**
+- **Bug 2 — `/geovisor` accesible sin login** (PR #41 abrió diagnóstico con `console.log("[auth.authorized]", ...)` en `lib/auth.config.ts`). Owner: manual, requiere abrir `/geovisor` en incognito en Vercel y capturar el log.
+
+**Backfill operacional pendiente (manual, cada ambiente, UNA sola vez):**
+- `node scripts/backfill-clients-farms.js` — local, preview, prod.
+- `POST /api/admin/cycles/backfill` — local, preview, prod. **NO correr dos veces** (idempotente, pero el segundo pass duplica detecciones).
+
+**Deuda S10/S10.5 anotada (separar en PRs futuros):**
 - SVG 400 en `/_next/image?url=%2Fafm-logo-mark.svg` (cosmético, no bloquea login). El SVG tiene UTF-8 malformado + el `sandbox` CSP de `next.config.ts` hace que el Image optimizer rechace.
 - Refactor a `app/(auth)/` route group: mover todas las pages autenticadas, poner el AppShell en `app/(auth)/layout.tsx`, remover el check de pathname en `app/layout.tsx`. El workaround `proxy.ts + x-pathname` es funcional pero no idiomático (~30 min de refactor).
 - `pg` bump a `^8.20.0` en master (era `8.20.0` exacto) — el caret es para tolerar patches automáticos del lockfile.
+- Index en `dji_fumigaciones.product_id` (FK sin index desde S9, ver #32) — migration con `CREATE INDEX CONCURRENTLY`. 1h.
+- Wire-up CSV/PDF exports con date range (quick-range buttons en /reportes). 2h.
 
-**S10.5 candidates (próximos, en orden de prioridad):**
-1. Post-merge cleanup de knip (ya hecho, ver S10.4).
-2. Index en `dji_fumigaciones.product_id` (FK sin index desde S9) — migration con `CREATE INDEX CONCURRENTLY`. 1h.
-3. Fix SVG 400 en Image optimizer. 1h.
-4. Refactor a `app/(auth)/` route group. 2-3h.
-5. Wire-up CSV/PDF exports con date range (quick-range buttons en /reportes). 2h.
-6. Quality Gauntlet compuertas 4-7 (BDD Gherkin, StrykerJS, smoke DB, métricas continuas). ~½ día cada una.
+**S11+ candidates (próximos, en orden de prioridad):**
+1. Bug 2 auth — diagnosticar `/geovisor` accesible sin login (PR #41 instrumentación lista).
+2. Correr backfills de `clients/farms` y `cycles` en cada ambiente.
+3. **Fase 1.3** — Confirm step en wizard (½ día, 1 PR).
+4. **Fase 2/5** — Importar vuelo DJI + auto-fill (½ sprint, 2 PRs).
+5. Refactor a `app/(auth)/` route group (2-3h).
+6. Index en `dji_fumigaciones.product_id` (1h).
+7. Fix SVG 400 en Image optimizer (1h).
+8. Wire-up CSV/PDF exports con date range en /reportes (2h).
+9. Quality Gauntlet compuertas 4-7 (BDD Gherkin, StrykerJS, smoke DB, métricas continuas). ~½ día cada una.
 
 ---
 
@@ -218,5 +239,5 @@ Un PR de un agente está listo para merge cuando:
 
 ---
 
-**Última actualización:** 2026-09-02 (sprint S10 cerrado — knip cleanup + UI audit + SVG Image + fix real de AppShell en /login. PRs #27-#31 mergeados, master `ef97c69`).
-**Mantenedor:** @agFab (single contributor).
+**Última actualización:** 2026-09-06 (sprint S11+ cerrado — V2 plan: wizard UX + Cliente/Finca schema/UI + Ciclos Productivos + Capa de Gestión. PRs #40-#46 mergeados, master `8b6f703`).
+**Mantenedor:** @agFab (single contributor, dev actual en transición — ver `docs/HANDOFF-2026-09-02.md`).
