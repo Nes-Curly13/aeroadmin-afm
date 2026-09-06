@@ -25,11 +25,12 @@
  * role admin|supervisor. Esta página no requiere role especial.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
   ChevronLeft,
   ChevronRight,
+  ClipboardCheck,
   MapPin,
   Plus,
   Search,
@@ -46,8 +47,17 @@ import {
 } from "@/components/ui/card";
 import { FumigationMap } from "@/components/parcels/fumigation-map";
 import { ParcelDrawer } from "@/components/admin/parcels/parcel-drawer";
-import { RegisterFumigationForm } from "@/components/parcels/register-fumigation-form";
+import {
+  RegisterFumigationForm,
+  type FormState,
+  type RegisterFumigationFormHandle
+} from "@/components/parcels/register-fumigation-form";
 import type { ParcelPickerRow } from "@/api/repositories";
+import {
+  APPLICATION_TYPES,
+  DRONE_MODELS,
+  FUMIGATION_CATEGORIES
+} from "@/lib/data-constants";
 
 interface NewFumigationPageClientProps {
   initialParcelId: number | null;
@@ -75,6 +85,14 @@ export function NewFumigationPageClient({
   const [parcelGeom, setParcelGeom] = useState<
     { type: "Polygon"; coordinates: number[][][] } | null
   >(null);
+  /**
+   * Sprint S11+ Fase 1.3 — snapshot del FormState en el momento en que
+   * el operador hace click en "Revisar y confirmar" (step 2). El step 3
+   * (Confirm) lee de acá para mostrar el resumen. El POST real se hace
+   * al click del "Confirmar y registrar" del step 3, vía formRef.
+   */
+  const [pendingFormData, setPendingFormData] = useState<FormState | null>(null);
+  const formRef = useRef<RegisterFumigationFormHandle | null>(null);
 
   // Fetch de la geometría cuando hay una parcela elegida (initial o posterior).
   useEffect(() => {
@@ -109,13 +127,39 @@ export function NewFumigationPageClient({
   function chooseParcel(p: ParcelPickerRow) {
     setChosenParcel(p);
     setParcelGeom(null);
+    setPendingFormData(null);
     setPhase("form");
   }
 
   function reset() {
     setChosenParcel(null);
     setParcelGeom(null);
+    setPendingFormData(null);
     setPhase("pick");
+  }
+
+  /**
+   * Sprint S11+ Fase 1.3 — handler del "Revisar y confirmar" del step 2.
+   * Captura la snapshot del form (vía el handle imperativo) y avanza
+   * al step 3 (Confirm). El form NO hace POST — el parent controla.
+   */
+  function handleRequestReview(data: FormState) {
+    setPendingFormData(data);
+    setPhase("confirm");
+  }
+
+  /**
+   * Sprint S11+ Fase 1.3 — handler del "Confirmar y registrar" del
+   * step 3. Dispara el submit del form (vía el handle imperativo),
+   * que hace el POST real. El form maneja su propio estado de loading
+   * y success/error (banners + router.refresh).
+   */
+  async function handleConfirm() {
+    await formRef.current?.triggerSubmit();
+  }
+
+  function backToForm() {
+    setPhase("form");
   }
 
   return (
@@ -141,7 +185,11 @@ export function NewFumigationPageClient({
             setParcelGeom(geom);
           }}
         />
-      ) : chosenParcel ? (
+      ) : phase === "form" && chosenParcel ? (
+        // Step 2 — Detalles. El form se renderiza con `onRequestReview`
+        // y `ref` para que el wizard pueda capturar la snapshot y
+        // disparar el submit programáticamente desde el step 3.
+        // El form NO persiste al click — eso pasa en handleConfirm.
         <>
           <ParcelSummaryCard parcel={chosenParcel} onChange={reset} />
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
@@ -158,7 +206,11 @@ export function NewFumigationPageClient({
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <RegisterFumigationForm parcelId={chosenParcel.id || 0} />
+                  <RegisterFumigationForm
+                    ref={formRef}
+                    parcelId={chosenParcel.id || 0}
+                    onRequestReview={handleRequestReview}
+                  />
                 </CardContent>
               </Card>
             </div>
@@ -189,11 +241,174 @@ export function NewFumigationPageClient({
               Atrás
             </Button>
             <p className="text-xs text-muted-foreground">
-              Paso 2 de {STEPS.length}
+              Paso 2 de {STEPS.length}. Revisá los datos y avanzá al paso 3.
+            </p>
+          </div>
+        </>
+      ) : phase === "confirm" && chosenParcel && pendingFormData ? (
+        // Sprint S11+ Fase 1.3 — step 3 (Confirm). El form ya NO está
+        // montado — el operator ve un resumen read-only. El botón
+        // "Confirmar y registrar" dispara el POST vía formRef.
+        <>
+          <ParcelSummaryCard parcel={chosenParcel} onChange={reset} />
+          <ConfirmStep
+            formData={pendingFormData}
+            onBack={backToForm}
+            onConfirm={handleConfirm}
+          />
+          <div className="flex items-center justify-between border-t border-border pt-4">
+            <Button variant="ghost" onClick={backToForm}>
+              <ChevronLeft className="size-4" aria-hidden />
+              Atrás
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              Paso 3 de {STEPS.length}. Revisá y confirmá para registrar.
             </p>
           </div>
         </>
       ) : null}
+    </div>
+  );
+}
+
+// ============================================================
+// ConfirmStep — step 3 del wizard (Fase 1.3)
+// ============================================================
+//
+// Muestra un resumen read-only de la fumigación a registrar:
+//   - Parcela (resumida, en el ParcelSummaryCard que viene de arriba)
+//   - Campos clave del form: fecha, producto, dosis, área, dron, etc.
+//
+// El operator puede:
+//   - Volver a step 2 (botón "Atrás") para editar
+//   - Confirmar (botón "Confirmar y registrar") para ejecutar el POST
+//
+// La data del form se pasa como `formData` (snapshot tomada en el step
+// 2 vía `onRequestReview`). El POST real lo dispara el parent vía
+// `onConfirm` → `formRef.current?.triggerSubmit()`.
+
+interface ConfirmStepProps {
+  formData: FormState;
+  onBack: () => void;
+  onConfirm: () => void | Promise<void>;
+}
+
+function ConfirmStep({ formData, onBack, onConfirm }: ConfirmStepProps) {
+  const date = String(formData.fumigation_date ?? "");
+  const product = String(formData.product_used ?? "");
+  const productId = formData.product_id as number | null | undefined;
+  const dose = String(formData.dose_l_per_ha ?? "");
+  const area = String(formData.area_fumigated_m2 ?? "");
+  const duration = String(formData.duration_minutes ?? "");
+  const droneCode = String(formData.drone_code_used ?? "0");
+  const vehiclePlate = String(formData.vehicle_plate ?? "");
+  const categoryId = String(formData.category_id ?? "");
+  const applicationTypeId = String(formData.application_type_id ?? "");
+  const ica = String(formData.product_registered_ica ?? "");
+  const license = String(formData.pilot_license ?? "");
+  const notes = String(formData.notes ?? "");
+
+  const droneName = (() => {
+    const d = DRONE_MODELS.find((m) => String(m.id) === droneCode);
+    if (!d) return null;
+    return d.id === 0 ? "Sin asignar" : `${d.name} (${d.tank_l} L)`;
+  })();
+  const categoryName = FUMIGATION_CATEGORIES.find((c) => String(c.id) === categoryId)?.label;
+  const applicationTypeName = APPLICATION_TYPES.find(
+    (t) => String(t.id) === applicationTypeId
+  )?.label;
+
+  return (
+    <div className="flex flex-col gap-4">
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <ClipboardCheck className="size-4 text-primary" aria-hidden />
+            Revisá los datos antes de registrar
+          </CardTitle>
+          <CardDescription>
+            Si todo está correcto, confirmá para registrar la fumigación. Si
+            hay algo mal, volvé al paso anterior para editarlo.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <dl className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
+            <SummaryRow label="Fecha" value={date || "—"} />
+            <SummaryRow
+              label="Producto"
+              value={
+                product
+                  ? product
+                  : productId != null
+                    ? `#${productId} (sin nombre)`
+                    : "—"
+              }
+            />
+            <SummaryRow label="Dosis" value={dose ? `${dose} L/ha` : "—"} />
+            <SummaryRow label="Área fumigada" value={area ? `${area} m²` : "—"} />
+            <SummaryRow
+              label="Duración"
+              value={duration ? `${duration} min` : "—"}
+            />
+            <SummaryRow label="Dron" value={droneName ?? "—"} />
+            <SummaryRow
+              label="Placa vehículo"
+              value={vehiclePlate || "—"}
+            />
+            <SummaryRow
+              label="Tipo de fumigación"
+              value={categoryName ?? "—"}
+            />
+            <SummaryRow label="Fase de uso" value={applicationTypeName ?? "—"} />
+            <SummaryRow
+              label="Registro ICA"
+              value={ica || "—"}
+            />
+            <SummaryRow
+              label="Licencia piloto"
+              value={license || "—"}
+            />
+            {notes ? (
+              <div className="sm:col-span-2">
+                <SummaryRow label="Notas" value={notes} multiline />
+              </div>
+            ) : null}
+          </dl>
+        </CardContent>
+      </Card>
+      <div className="flex items-center justify-end gap-2">
+        <Button variant="ghost" onClick={onBack}>
+          <ChevronLeft className="size-4" aria-hidden />
+          Volver a editar
+        </Button>
+        <Button onClick={onConfirm}>
+          <Check className="size-4" aria-hidden />
+          Confirmar y registrar
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function SummaryRow({
+  label,
+  value,
+  multiline = false
+}: {
+  label: string;
+  value: string;
+  multiline?: boolean;
+}) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <dt className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        {label}
+      </dt>
+      <dd
+        className={`text-sm text-foreground ${multiline ? "whitespace-pre-wrap" : ""}`}
+      >
+        {value}
+      </dd>
     </div>
   );
 }

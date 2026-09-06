@@ -55,7 +55,13 @@
  */
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import {
+  forwardRef,
+  useImperativeHandle,
+  useRef,
+  useState,
+  useTransition
+} from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FieldSelect } from "@/components/ui/field-select";
@@ -63,8 +69,26 @@ import { SpinnerInline } from "@/components/ui/loading";
 import { DRONE_MODELS, FUMIGATION_CATEGORIES, APPLICATION_TYPES } from "@/lib/data-constants";
 import { VehiclePicker } from "@/components/fumigations/vehicle-picker";
 import { ProductPicker } from "@/components/fumigations/product-picker";
-import { Plus, Save, X } from "lucide-react";
+import { ClipboardCheck, Plus, Save, X } from "lucide-react";
 import type { DjiFumigationEvent } from "@/lib/types";
+
+/**
+ * Handle imperativo expuesto via `forwardRef` para que el parent
+ * (e.g. el wizard de `/fumigaciones/nueva`) pueda:
+ *   - leer el FormState actual sin acoplar el state al parent
+ *   - disparar el submit programáticamente (e.g. desde el step 3 Confirm)
+ *
+ * Sprint S11+ Fase 1.3 — Confirm step en wizard.
+ */
+export interface RegisterFumigationFormHandle {
+  /** Devuelve la snapshot actual del FormState. */
+  getFormData: () => FormState;
+  /**
+   * Dispara el POST/PATCH de la fumigación (mismo flujo que el submit
+   * del form). Resuelve cuando termina (success o error).
+   */
+  triggerSubmit: () => Promise<void>;
+}
 
 interface RegisterFumigationFormProps {
   parcelId: number;
@@ -80,9 +104,19 @@ interface RegisterFumigationFormProps {
    * flight_ids, recorded_at NO se exponen en el form (son inmutables).
    */
   initialFumigation?: DjiFumigationEvent;
+  /**
+   * Si está set, el form NO hace POST/PATCH al click del submit.
+   * En su lugar llama `onRequestReview(formData)` para que el parent
+   * (e.g. el wizard) capture los datos y avance al paso de revisión.
+   * El label del submit cambia a "Revisar y confirmar".
+   *
+   * Sprint S11+ Fase 1.3 — wizard de nueva fumigación: el "Registrar
+   * fumigación" final vive en el step 3 (Confirm step), no en el form.
+   */
+  onRequestReview?: (formData: FormState) => void;
 }
 
-interface FormState {
+export interface FormState {
   fumigation_date: string;
   /** Sprint 2026-08-13 — sub-2. "" = sin clasificar, "1".."7" = id de FUMIGATION_CATEGORIES. */
   category_id: string;
@@ -172,11 +206,13 @@ function fromFumigation(f: DjiFumigationEvent): FormState {
   };
 }
 
-export function RegisterFumigationForm({
-  parcelId,
-  mode = "create",
-  initialFumigation
-}: RegisterFumigationFormProps) {
+export const RegisterFumigationForm = forwardRef<
+  RegisterFumigationFormHandle,
+  RegisterFumigationFormProps
+>(function RegisterFumigationForm(
+  { parcelId, mode = "create", initialFumigation, onRequestReview },
+  ref
+) {
   const router = useRouter();
   const [form, setForm] = useState<FormState>(() =>
     mode === "edit" && initialFumigation
@@ -199,6 +235,13 @@ export function RegisterFumigationForm({
   // solo para envolver el router.refresh() y no bloquear la UI.
   const [isPending, setIsPending] = useState(false);
   const [, startTransition] = useTransition();
+
+  // Sprint S11+ Fase 1.3 — ref "live" del form para que el handle
+  // imperativo siempre lea la última versión, sin necesidad de re-crear
+  // el handle en cada render. `useImperativeHandle` se llama una vez
+  // con deps=[] para que el objeto handle sea estable.
+  const formRef = useRef(form);
+  formRef.current = form;
 
   // Validación de props en dev (no rompemos en prod — solo log).
   if (mode === "edit" && !initialFumigation) {
@@ -230,8 +273,38 @@ export function RegisterFumigationForm({
     setSuccess(null);
   }
 
+  // Sprint S11+ Fase 1.3 — handle imperativo para el wizard de
+  // /fumigaciones/nueva. Expone `getFormData()` (snapshot del form
+  // actual) y `triggerSubmit()` (ejecuta el POST/PATCH). Usado por
+  // el step 3 (Confirm) para mostrar el resumen y disparar el submit
+  // final sin re-renderizar el form.
+  useImperativeHandle(
+    ref,
+    () => ({
+      getFormData: () => formRef.current,
+      triggerSubmit: () => doSubmit()
+    }),
+    // doSubmit es una función interna definida abajo; intencionalmente
+    // la lista de deps está vacía para que el handle sea estable.
+    // `formRef.current` se actualiza en cada render (ver línea ~236),
+    // así que getFormData siempre lee la última versión.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+    // Sprint S11+ Fase 1.3 — si el parent (wizard) nos pidió un
+    // "review", NO hacemos POST. En su lugar le pasamos los datos
+    // actuales para que el wizard muestre el summary en el step 3.
+    if (onRequestReview) {
+      onRequestReview(form);
+      return;
+    }
+    await doSubmit();
+  }
+
+  async function doSubmit() {
     setError(null);
     setSuccess(null);
     setIsPending(true);
@@ -714,6 +787,15 @@ export function RegisterFumigationForm({
               <SpinnerInline />
               Guardando…
             </>
+          ) : onRequestReview ? (
+            // Sprint S11+ Fase 1.3 — wizard mode: el submit del form
+            // NO persiste, solo captura los datos para que el wizard
+            // muestre el step 3 (Confirm). El POST real se dispara
+            // desde el "Confirmar y registrar" del step 3.
+            <>
+              <ClipboardCheck className="size-3.5" aria-hidden />
+              Revisar y confirmar
+            </>
           ) : mode === "edit" ? (
             <>
               <Save className="size-3.5" aria-hidden />
@@ -729,4 +811,4 @@ export function RegisterFumigationForm({
       </div>
     </form>
   );
-}
+});
