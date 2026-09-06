@@ -266,6 +266,199 @@ export type ValidationErrorResponse = z.infer<
 >;
 
 // ============================================================
+// FormState — zod para validar el form del wizard 4-step
+// ============================================================
+//
+// Sprint S11+ / Quality Gauntlet #1 PR #3 — zod en el cliente.
+// Por que:
+//   - El `FormState` del wizard (en `components/parcels/register-fumigation-form.tsx`)
+//     tiene 14 campos string-typed (HTML inputs). El form hace su propia
+//     validacion al submit, pero hay un gap entre el "Revisar y confirmar"
+//     del step 2 y la submission real del step 3. Si el operator edita
+//     el form, o si el DjiFlightPicker auto-fill introduce data invalida,
+//     no hay chequeo antes de mostrar el resumen en step 3.
+//   - zod aca es el "client-side boundary check" — analog al de la API
+//     en PR #2. Si el form pasa el schema, el POST al server no va a
+//     fallar por formato (el server igual valida, pero zod evita el
+//     round-trip y muestra el error en UI sin esperar el 400).
+//   - El `formStateToBody()` convierte el FormState validado al body
+//     que espera la API (`createFumigationBodySchema`). Antes: 100 lineas
+//     de if-checks + Number() en `doSubmit()`. Despues: 1 llamada.
+//
+// Por que NO zod para TODA la UI:
+//   - Inputs HTML nativos ya tienen su propia validacion (required, type=number).
+//   - El form tiene banners de error que muestran el mensaje del server.
+//   - zod agrega valor donde hay LOGICA de conversion (string → number,
+//     empty → null) o donde el form state se modifica programaticamente
+//     (auto-fill del flight picker).
+
+// --- Primitives string-based (FormState usa strings) ------------
+
+/**
+ * String opcional para FormState: trim, max length. NO convierte
+ * empty a null (FormState distingue "" de null — la conversion a
+ * body la hace `formStateToBody()` despues).
+ */
+function optionalFormString(max: number) {
+  return z.string().max(max);
+}
+
+/**
+ * String que debe ser YYYY-MM-DD (no valida que la fecha sea real,
+ * eso lo hace el server con Postgres DATE).
+ */
+const formDateString = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "formato YYYY-MM-DD");
+
+/**
+ * String que debe parsear como numero positivo. Usado para `dose_l_per_ha`.
+ * `Number("abc")` = NaN → fail. `Number("")` = 0 → fail (queremos positivo).
+ * `Number("2.5")` = 2.5 → ok. `Number("2000")` → fail (> max).
+ */
+function positiveNumberString(max: number) {
+  return z
+    .string()
+    .min(1, "obligatorio")
+    .refine((v) => {
+      const n = Number(v);
+      return !Number.isNaN(n) && Number.isFinite(n) && n > 0 && n <= max;
+    }, `numero positivo, max ${max}`);
+}
+
+/**
+ * String que debe parsear como numero no-negativo o estar vacio.
+ * Empty string es valido (representa "no llenar" en la UI). El
+ * server luego lo trata como null.
+ */
+function optionalNonnegativeNumberString() {
+  return z.string().refine((v) => {
+    if (v === "") return true;
+    const n = Number(v);
+    return !Number.isNaN(n) && Number.isFinite(n) && n >= 0;
+  }, "numero >= 0 o vacio");
+}
+
+/**
+ * String que debe parsear como entero positivo o ser "0" (que
+ * representa "Sin asignar" en el form). El "0" se traduce a no
+ * incluir el campo en el body (server default).
+ */
+function droneCodeString() {
+  return z.string().refine((v) => {
+    if (v === "0") return true;
+    const n = Number(v);
+    return !Number.isNaN(n) && Number.isInteger(n) && n > 0;
+  }, "0 (sin asignar) o entero positivo");
+}
+
+// --- formStateSchema (el FormState completo) --------------------
+
+export const formStateSchema = z.object({
+  // Requeridos
+  fumigation_date: formDateString,
+  product_used: z
+    .string()
+    .transform((v) => v.trim())
+    .refine((v) => v.length >= 1 && v.length <= 200, "1-200 caracteres"),
+  dose_l_per_ha: positiveNumberString(1000),
+
+  // Opcionales con "" como "sin valor"
+  category_id: z.string(), // "" o "1".."7"
+  application_type_id: z.string(), // "" o "1".."4"
+  vehicle_plate: z
+    .string()
+    .transform((v) => v.trim().toUpperCase())
+    .refine(
+      (v) => v === "" || /^[A-Z0-9-]{3,12}$/.test(v),
+      "formato: letras mayusculas, numeros y guiones, 3-12 caracteres"
+    ),
+  product_id: z.union([z.number().int().positive(), z.null()]),
+  area_fumigated_m2: optionalNonnegativeNumberString(),
+  duration_minutes: optionalNonnegativeNumberString(),
+  drone_code_used: droneCodeString(),
+  notes: optionalFormString(2000),
+  product_registered_ica: optionalFormString(50),
+  pilot_license: optionalFormString(20)
+});
+export type FormStateSchema = z.infer<typeof formStateSchema>;
+
+// --- formStateToBody (FormState validado → API body) ------------
+
+/**
+ * Convierte `FormState` (validated via `formStateSchema`) al body
+ * que espera `POST /api/admin/fumigations` (valida via `createFumigationBodySchema`).
+ *
+ * Reglas de conversion (extraidas del antiguo `doSubmit`):
+ *   - `product_used` ya esta trimeado por el schema
+ *   - `vehicle_plate` ya esta en UPPER por el schema
+ *   - Strings vacios "" en opcionales → no incluir el campo (server
+ *     los trata como null)
+ *   - `dose_l_per_ha` (string) → `number` (Number())
+ *   - `drone_code_used` "0" → no incluir el campo (server default)
+ *   - `category_id` "" → no incluir; "1".."7" → Number
+ *   - `application_type_id` "" → no incluir; "1".."4" → Number
+ *
+ * El body que retorna es un `Record<string, unknown>` con SOLO los
+ * campos que tienen valor. Esto es lo que el form mandaba antes,
+ * pero ahora con la validacion explicita al inicio.
+ */
+export function formStateToBody(form: FormStateSchema): Record<string, unknown> {
+  const body: Record<string, unknown> = {};
+
+  // Requeridos — siempre van
+  body.fumigation_date = form.fumigation_date;
+  body.product_used = form.product_used;
+  body.dose_l_per_ha = Number(form.dose_l_per_ha);
+
+  // product_id: null = no incluir
+  if (form.product_id != null) {
+    body.product_id = form.product_id;
+  }
+
+  // Numericos opcionales: "" → no incluir
+  if (form.area_fumigated_m2 !== "") {
+    body.area_fumigated_m2 = Number(form.area_fumigated_m2);
+  }
+  if (form.duration_minutes !== "") {
+    body.duration_minutes = Number(form.duration_minutes);
+  }
+
+  // drone_code_used: "0" → no incluir (server default)
+  if (form.drone_code_used !== "0") {
+    body.drone_code_used = Number(form.drone_code_used);
+  }
+
+  // category_id: "" → no incluir; "1".."7" → Number
+  if (form.category_id !== "") {
+    body.category_id = Number(form.category_id);
+  }
+
+  // application_type_id: "" → no incluir; "1".."4" → Number
+  if (form.application_type_id !== "") {
+    body.application_type_id = Number(form.application_type_id);
+  }
+
+  // vehicle_plate: "" → no incluir; trim+UPPER ya hecho por schema
+  if (form.vehicle_plate !== "") {
+    body.vehicle_plate = form.vehicle_plate;
+  }
+
+  // Strings opcionales: "" → no incluir
+  if (form.notes !== "") {
+    body.notes = form.notes;
+  }
+  if (form.product_registered_ica !== "") {
+    body.product_registered_ica = form.product_registered_ica;
+  }
+  if (form.pilot_license !== "") {
+    body.pilot_license = form.pilot_license;
+  }
+
+  return body;
+}
+
+// ============================================================
 // Helper: parseWithSchema — fail-fast wrapper para tests
 // ============================================================
 
