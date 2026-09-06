@@ -174,12 +174,39 @@ export function NewFumigationPageClient({
 
   /**
    * Sprint S11+ Fase 2.5 — handler del DjiFlightPicker (step 2 en
-   * modo "import"). En MVP guardamos el vuelo elegido y mostramos un
-   * hint en el form. El auto-fill completo del form (lifted state +
-   * pre-fill de campos) queda para un PR siguiente.
+   * modo "import"). Auto-llena el form con los datos del vuelo:
+   *   - fumigation_date: YYYY-MM-DD del start_at
+   *   - duration_minutes: duration_seconds / 60
+   *   - area_fumigated_m2: area_m2 (m²)
+   *   - drone_code_used: derivado del drone_nickname via DRONE_MODELS
+   *     (MVP: hardcoded "1" para "AFM T40 1" porque el picker tiene
+   *     un set fijo de modelos — ver lib/data-constants.ts)
+   *   - notes: "Importado de vuelo DJI #X del YYYY-MM-DD"
+   *
+   * El product_used, dose_l_per_ha, etc. NO se sobreescriben — el
+   * operator los llena a mano. La fumigación importada se
+   * pre-completa con metadata operativa; el catálogo de productos
+   * sigue siendo decisión humana.
    */
   function handlePickFlight(flight: DjiFlight) {
     setPickedFlight(flight);
+    // Auto-fill del form via ref. Hacemos un patch parcial — los
+    // campos que el vuelo no provee quedan intactos.
+    const dateStr = flight.start_at.slice(0, 10);
+    const durationMin = String(Math.round(flight.duration_seconds / 60));
+    // MVP: mapeamos el drone_nickname a drone_code_used buscando
+    // en DRONE_MODELS. Si no matchea, queda "0" (sin asignar).
+    const droneCode = (() => {
+      const match = DRONE_MODELS.find((m) => m.name === flight.drone_nickname);
+      return match ? String(match.id) : "0";
+    })();
+    formRef.current?.setFormData({
+      fumigation_date: dateStr,
+      duration_minutes: durationMin,
+      area_fumigated_m2: flight.area_m2 ?? "",
+      drone_code_used: droneCode,
+      notes: `Importado de vuelo DJI #${flight.flight_id} del ${dateStr}`
+    });
   }
 
   function reset() {
@@ -290,9 +317,10 @@ export function NewFumigationPageClient({
                     data-testid="picked-flight-hint"
                     className="mt-3 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-xs text-primary"
                   >
-                    Vuelo DJI #{pickedFlight.flight_id} seleccionado del{" "}
-                    {pickedFlight.start_at.slice(0, 10)}. (Auto-fill del
-                    form: pendiente en próximo PR.)
+                    Auto-llenado con datos del vuelo DJI #
+                    {pickedFlight.flight_id} del{" "}
+                    {pickedFlight.start_at.slice(0, 10)}. Revisá los campos
+                    antes de avanzar.
                   </p>
                 ) : null}
               </CardContent>
