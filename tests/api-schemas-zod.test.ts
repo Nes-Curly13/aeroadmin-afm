@@ -26,7 +26,12 @@ import {
   dataQualityInvariantsResponseSchema,
   errorResponseSchema,
   parseWithSchema,
-  djiFlightSchema
+  djiFlightSchema,
+  createClientBodySchema,
+  createFarmBodySchema,
+  createFumigationBodySchema,
+  formatZodIssues,
+  validationErrorResponseSchema
 } from "@/lib/api-schemas";
 
 // ============================================================
@@ -208,5 +213,383 @@ describe("auth-gated endpoints — patron anti-Bug-2", () => {
       caughtError = e;
     }
     expect(caughtError).toBeTruthy();
+  });
+});
+
+// ============================================================
+// Request body schemas — POST /api/admin/clients (zod PR #2)
+// ============================================================
+
+describe("createClientBodySchema", () => {
+  it("13. parsea body valido con campos requeridos", () => {
+    const data = createClientBodySchema.parse({
+      name: "Ingenio La Cabaña",
+      created_by_email: "admin@aeroadmin.local"
+    });
+    expect(data.name).toBe("Ingenio La Cabaña");
+    expect(data.notes).toBeNull();
+  });
+
+  it("14. parsea body con notes y trimea espacios", () => {
+    const data = createClientBodySchema.parse({
+      name: "  Cliente  ",
+      notes: "  nota con espacios  ",
+      created_by_email: "admin@aeroadmin.local"
+    });
+    expect(data.name).toBe("Cliente");
+    expect(data.notes).toBe("nota con espacios");
+  });
+
+  it("15. trata string vacio en notes como null (clear semantics)", () => {
+    const data = createClientBodySchema.parse({
+      name: "X",
+      notes: "",
+      created_by_email: "admin@aeroadmin.local"
+    });
+    expect(data.notes).toBeNull();
+  });
+
+  it("16. rechaza name vacio o whitespace-only", () => {
+    expect(() =>
+      createClientBodySchema.parse({ name: "", created_by_email: "a@b.c" })
+    ).toThrow();
+    expect(() =>
+      createClientBodySchema.parse({ name: "   ", created_by_email: "a@b.c" })
+    ).toThrow();
+  });
+
+  it("17. rechaza name > 200 chars", () => {
+    expect(() =>
+      createClientBodySchema.parse({
+        name: "x".repeat(201),
+        created_by_email: "a@b.c"
+      })
+    ).toThrow();
+  });
+
+  it("18. rechaza falta de created_by_email", () => {
+    expect(() =>
+      createClientBodySchema.parse({ name: "X" })
+    ).toThrow();
+  });
+
+  it("19. rechaza name que no es string (e.g. numero)", () => {
+    expect(() =>
+      createClientBodySchema.parse({ name: 123, created_by_email: "a@b.c" })
+    ).toThrow();
+  });
+});
+
+// ============================================================
+// Request body schemas — POST /api/admin/farms (zod PR #2)
+// ============================================================
+
+describe("createFarmBodySchema", () => {
+  it("20. parsea body valido completo", () => {
+    const data = createFarmBodySchema.parse({
+      client_id: 1,
+      name: "Finca La Esperanza",
+      municipality: "Candelaria",
+      department: "Valle del Cauca",
+      created_by_email: "admin@aeroadmin.local"
+    });
+    expect(data.client_id).toBe(1);
+    expect(data.municipality).toBe("Candelaria");
+  });
+
+  it("21. campos opcionales omitidos → null (no undefined)", () => {
+    const data = createFarmBodySchema.parse({
+      client_id: 1,
+      name: "Finca",
+      created_by_email: "a@b.c"
+    });
+    expect(data.municipality).toBeNull();
+    expect(data.department).toBeNull();
+  });
+
+  it("22. rechaza client_id <= 0 o no-integer", () => {
+    expect(() =>
+      createFarmBodySchema.parse({ client_id: 0, name: "X", created_by_email: "a@b.c" })
+    ).toThrow();
+    expect(() =>
+      createFarmBodySchema.parse({ client_id: 1.5, name: "X", created_by_email: "a@b.c" })
+    ).toThrow();
+    expect(() =>
+      createFarmBodySchema.parse({ client_id: "1", name: "X", created_by_email: "a@b.c" })
+    ).toThrow();
+  });
+
+  it("23. rechaza falta de name o created_by_email", () => {
+    expect(() =>
+      createFarmBodySchema.parse({ client_id: 1 })
+    ).toThrow();
+    expect(() =>
+      createFarmBodySchema.parse({ client_id: 1, name: "X" })
+    ).toThrow();
+  });
+});
+
+// ============================================================
+// Request body schemas — POST /api/admin/fumigations (zod PR #2)
+// ============================================================
+
+const VALID_FUMIGATION = {
+  parcel_id: 1,
+  fumigation_date: "2026-08-02",
+  product_used: "Glifosato 48%",
+  dose_l_per_ha: 2.5
+};
+
+describe("createFumigationBodySchema", () => {
+  it("24. parsea body minimo valido (solo requeridos)", () => {
+    const data = createFumigationBodySchema.parse(VALID_FUMIGATION);
+    expect(data.parcel_id).toBe(1);
+    expect(data.dose_l_per_ha).toBe(2.5);
+    expect(data.area_fumigated_m2).toBeNull();
+    expect(data.notes).toBeNull();
+  });
+
+  it("25. parsea body completo con todos los opcionales", () => {
+    const data = createFumigationBodySchema.parse({
+      ...VALID_FUMIGATION,
+      area_fumigated_m2: 5000,
+      duration_minutes: 45,
+      drone_code_used: 201,
+      notes: "Aplicación manual",
+      product_registered_ica: "ICA-1234-PN",
+      pilot_license: "PCA-12345",
+      product_id: 5,
+      category_id: 2,
+      application_type_id: 3,
+      vehicle_plate: "abc-123"
+    });
+    expect(data.area_fumigated_m2).toBe(5000);
+    expect(data.vehicle_plate).toBe("ABC-123"); // normalizado a UPPER
+    expect(data.drone_code_used).toBe(201);
+  });
+
+  it("26. trimea product_used y rechaza empty", () => {
+    const data = createFumigationBodySchema.parse({
+      ...VALID_FUMIGATION,
+      product_used: "  Glifosato 48%  "
+    });
+    expect(data.product_used).toBe("Glifosato 48%");
+    expect(() =>
+      createFumigationBodySchema.parse({ ...VALID_FUMIGATION, product_used: "   " })
+    ).toThrow();
+  });
+
+  it("27. fumigation_date con formato incorrecto → reject", () => {
+    expect(() =>
+      createFumigationBodySchema.parse({ ...VALID_FUMIGATION, fumigation_date: "08/02/2026" })
+    ).toThrow();
+    expect(() =>
+      createFumigationBodySchema.parse({ ...VALID_FUMIGATION, fumigation_date: "2026-8-2" })
+    ).toThrow();
+  });
+
+  it("28. dose_l_per_ha: positive y <= 1000", () => {
+    expect(() =>
+      createFumigationBodySchema.parse({ ...VALID_FUMIGATION, dose_l_per_ha: 0 })
+    ).toThrow();
+    expect(() =>
+      createFumigationBodySchema.parse({ ...VALID_FUMIGATION, dose_l_per_ha: -1 })
+    ).toThrow();
+    expect(() =>
+      createFumigationBodySchema.parse({ ...VALID_FUMIGATION, dose_l_per_ha: 2000 })
+    ).toThrow();
+    expect(() =>
+      createFumigationBodySchema.parse({ ...VALID_FUMIGATION, dose_l_per_ha: "2.5" })
+    ).toThrow();
+  });
+
+  it("29. parcel_id: required, positive integer", () => {
+    expect(() =>
+      createFumigationBodySchema.parse({ ...VALID_FUMIGATION, parcel_id: "1" })
+    ).toThrow();
+    expect(() =>
+      createFumigationBodySchema.parse({ ...VALID_FUMIGATION, parcel_id: 0 })
+    ).toThrow();
+    expect(() =>
+      createFumigationBodySchema.parse({ ...VALID_FUMIGATION, parcel_id: -1 })
+    ).toThrow();
+    expect(() =>
+      createFumigationBodySchema.parse({ ...VALID_FUMIGATION, parcel_id: 1.5 })
+    ).toThrow();
+  });
+
+  it("30. drone_code_used: positive integer o null/undefined", () => {
+    // undefined → null
+    const data1 = createFumigationBodySchema.parse(VALID_FUMIGATION);
+    expect(data1.drone_code_used).toBeNull();
+    // null explícito
+    const data2 = createFumigationBodySchema.parse({
+      ...VALID_FUMIGATION,
+      drone_code_used: null
+    });
+    expect(data2.drone_code_used).toBeNull();
+    // 0 no es valido (positive, no nonnegative)
+    expect(() =>
+      createFumigationBodySchema.parse({ ...VALID_FUMIGATION, drone_code_used: 0 })
+    ).toThrow();
+  });
+
+  it("31. vehicle_plate: valida regex y normaliza a UPPER", () => {
+    // Input valido (sin espacios) → trim + UPPER + acepta
+    const data = createFumigationBodySchema.parse({
+      ...VALID_FUMIGATION,
+      vehicle_plate: "abc-123"
+    });
+    expect(data.vehicle_plate).toBe("ABC-123");
+    // Input con espacio → rechazado (regex no matchea)
+    expect(() =>
+      createFumigationBodySchema.parse({
+        ...VALID_FUMIGATION,
+        vehicle_plate: "ABC 123"
+      })
+    ).toThrow();
+  });
+
+  it("32. vehicle_plate: rechaza formatos invalidos", () => {
+    expect(() =>
+      createFumigationBodySchema.parse({
+        ...VALID_FUMIGATION,
+        vehicle_plate: "AB" // muy corto
+      })
+    ).toThrow();
+    expect(() =>
+      createFumigationBodySchema.parse({
+        ...VALID_FUMIGATION,
+        vehicle_plate: "ABCDEFGHIJKLM" // muy largo
+      })
+    ).toThrow();
+  });
+
+  it("33. vehicle_plate: vacio o null → null", () => {
+    const data1 = createFumigationBodySchema.parse({
+      ...VALID_FUMIGATION,
+      vehicle_plate: ""
+    });
+    expect(data1.vehicle_plate).toBeNull();
+    const data2 = createFumigationBodySchema.parse({
+      ...VALID_FUMIGATION,
+      vehicle_plate: "   " // solo espacios → trim → "" → null
+    });
+    expect(data2.vehicle_plate).toBeNull();
+  });
+
+  it("34. strings opcionales: vacio → null (notes, ica, license)", () => {
+    const data = createFumigationBodySchema.parse({
+      ...VALID_FUMIGATION,
+      notes: "",
+      product_registered_ica: "",
+      pilot_license: ""
+    });
+    expect(data.notes).toBeNull();
+    expect(data.product_registered_ica).toBeNull();
+    expect(data.pilot_license).toBeNull();
+  });
+
+  it("35. rechaza strings que exceden max length (notes > 2000, ica > 50, license > 20)", () => {
+    expect(() =>
+      createFumigationBodySchema.parse({ ...VALID_FUMIGATION, notes: "x".repeat(2001) })
+    ).toThrow();
+    expect(() =>
+      createFumigationBodySchema.parse({
+        ...VALID_FUMIGATION,
+        product_registered_ica: "x".repeat(51)
+      })
+    ).toThrow();
+    expect(() =>
+      createFumigationBodySchema.parse({
+        ...VALID_FUMIGATION,
+        pilot_license: "x".repeat(21)
+      })
+    ).toThrow();
+  });
+
+  it("36. area_fumigated_m2 / duration_minutes: number >= 0 o null", () => {
+    // 0 es valido (>= 0)
+    const data = createFumigationBodySchema.parse({
+      ...VALID_FUMIGATION,
+      area_fumigated_m2: 0,
+      duration_minutes: 0
+    });
+    expect(data.area_fumigated_m2).toBe(0);
+    expect(data.duration_minutes).toBe(0);
+    // negativo no
+    expect(() =>
+      createFumigationBodySchema.parse({ ...VALID_FUMIGATION, area_fumigated_m2: -1 })
+    ).toThrow();
+    // string no
+    expect(() =>
+      createFumigationBodySchema.parse({ ...VALID_FUMIGATION, area_fumigated_m2: "mucho" })
+    ).toThrow();
+  });
+
+  it("37. product_id / category_id / application_type_id: positive int o null", () => {
+    expect(() =>
+      createFumigationBodySchema.parse({ ...VALID_FUMIGATION, product_id: 0 })
+    ).toThrow();
+    expect(() =>
+      createFumigationBodySchema.parse({ ...VALID_FUMIGATION, category_id: -5 })
+    ).toThrow();
+    expect(() =>
+      createFumigationBodySchema.parse({ ...VALID_FUMIGATION, application_type_id: 1.5 })
+    ).toThrow();
+  });
+});
+
+// ============================================================
+// formatZodIssues — helper para route handlers
+// ============================================================
+
+describe("formatZodIssues", () => {
+  it("38. convierte ZodError a response shape con error + issues", () => {
+    const result = createFumigationBodySchema.safeParse({
+      ...VALID_FUMIGATION,
+      parcel_id: "not-a-number"
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const formatted = formatZodIssues(result.error);
+      expect(formatted.error).toMatch(/parcel_id/);
+      expect(formatted.issues).toBeDefined();
+      expect(formatted.issues!.length).toBeGreaterThan(0);
+      expect(formatted.issues![0].message).toBeTruthy();
+    }
+  });
+
+  it("39. multiple issues: devuelve lista completa, primer issue en error", () => {
+    const result = createFumigationBodySchema.safeParse({
+      parcel_id: 0, // invalido
+      fumigation_date: "bad-date", // invalido
+      product_used: "", // invalido
+      dose_l_per_ha: 0 // invalido
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const formatted = formatZodIssues(result.error);
+      expect(formatted.issues!.length).toBeGreaterThanOrEqual(4);
+      // `error` es el primer issue — el operador ve UN mensaje claro
+      expect(formatted.error).toBeTruthy();
+    }
+  });
+
+  it("40. validationErrorResponseSchema parsea la forma { error, issues }", () => {
+    const formatted: unknown = {
+      error: "parcel_id: debe ser positivo",
+      issues: [
+        { path: ["parcel_id"], message: "debe ser positivo" }
+      ]
+    };
+    const data = validationErrorResponseSchema.parse(formatted);
+    expect(data.issues![0].path[0]).toBe("parcel_id");
+  });
+
+  it("41. validationErrorResponseSchema acepta { error } sin issues (backward compat)", () => {
+    const data = validationErrorResponseSchema.parse({ error: "boom" });
+    expect(data.error).toBe("boom");
+    expect(data.issues).toBeUndefined();
   });
 });
