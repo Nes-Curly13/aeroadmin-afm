@@ -93,9 +93,22 @@ export function NewParcelForm() {
   // adentro de startTransition era el bug que rompía el form de
   // fumigación manual en S8). Ver docs del fix.
   const [isPending, setIsPending] = useState(false);
+  // QA-12 (2026-09-06): el área se calcula automáticamente del
+  // polígono dibujado en el mapa y se muestra como solo-lectura en el
+  // form. Inicializa a 0 (sin polígono).
+  const [areaHa, setAreaHa] = useState<number>(0);
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function handlePolygonChange(geom: { type: "Polygon"; coordinates: number[][][] } | null) {
+    setGeometry(geom);
+    // Si no hay polígono, reseteamos el área. El cálculo de ha vive
+    // adentro del ParcelDrawer para evitar duplicar la fórmula acá.
+    if (!geom) {
+      setAreaHa(0);
+    }
   }
 
   async function onSubmit(e: React.FormEvent) {
@@ -165,7 +178,22 @@ export function NewParcelForm() {
       className="grid grid-cols-1 gap-6 lg:grid-cols-2"
       aria-label="Alta manual de parcela"
     >
-      {/* Columna izquierda: form alfanumérico */}
+      {/* QA-12 (2026-09-06): swap de columnas. El operador fumigador
+          necesita ver el mapa satelital mientras completa los datos
+          del lote. La parcela se identifica en el aire, no en la
+          calle. Por eso el mapa va PRIMERO (columna izquierda en
+          desktop) y el form alfanumérico queda a la derecha. */}
+      {/* Columna izquierda: mapa con drawing tool (QA-12 swap) */}
+      <div className="flex flex-col gap-3 lg:sticky lg:top-4 lg:self-start">
+        <h3 className="text-sm font-semibold">Geometría de la parcela</h3>
+        <p className="text-xs text-muted-foreground">
+          Dibujá el polígono sobre el mapa satelital. La geometría se
+          puede re-dibujar después desde el detalle de la parcela.
+        </p>
+        <ParcelDrawer onPolygonChange={handlePolygonChange} />
+      </div>
+
+      {/* Columna derecha: form alfanumérico */}
       <div className="flex flex-col gap-3">
         {error && (
           <p
@@ -408,16 +436,6 @@ export function NewParcelForm() {
             )}
           </Button>
         </div>
-      </div>
-
-      {/* Columna derecha: mapa con drawing tool */}
-      <div className="flex flex-col gap-3 lg:sticky lg:top-4 lg:self-start">
-        <h3 className="text-sm font-semibold">Geometría de la parcela</h3>
-        <p className="text-xs text-muted-foreground">
-          Dibujá el polígono del lote. La geometría se puede re-dibujar después
-          desde el detalle de la parcela.
-        </p>
-        <ParcelDrawer onPolygonChange={setGeometry} />
       </div>
     </form>
   );
