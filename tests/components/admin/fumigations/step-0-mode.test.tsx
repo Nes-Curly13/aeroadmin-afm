@@ -184,6 +184,60 @@ describe("NewFumigationPageClient — Step 0 (Fase 2/5)", () => {
     expect(screen.getByTestId("step-confirm")).toBeInTheDocument();
   });
 
+  // QA-11 fix (2026-09-06): el operator no podia volver al step 0
+  // (mode) una vez que eligio modalidad. Hicimos:
+  // 1. Steppers con steps COMPLETADOS son cliqueables (saltan
+  //    hacia atras). Steps futuros siguen no-cliqueables.
+  // 2. Boton "Volver a modalidad" explicito en el ParcelPicker
+  //    (step 1).
+  it("15.1 QA-11: boton 'Volver a modalidad' en step 1 (pick)", async () => {
+    const user = userEvent.setup();
+    render(
+      <NewFumigationPageClient
+        initialParcelId={null}
+        recentParcels={recentParcels}
+      />
+    );
+    // Avanzar a step 1
+    await user.click(screen.getByRole("button", { name: /registro manual/i }));
+    // Boton "Volver a modalidad" debe estar visible. Usamos el
+    // data-testid (estable) en vez del aria-label (cambia con i18n).
+    const backButton = screen.getByTestId("back-to-mode");
+    expect(backButton).toBeInTheDocument();
+    // Click → vuelve a step 0
+    await user.click(backButton);
+    // Step 0 visible de nuevo
+    expect(screen.getByRole("button", { name: /registro manual/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /importar vuelo/i })).toBeInTheDocument();
+  });
+
+  it("15.2 QA-11: stepper de step 2 (form) es cliqueable para step-mode y step-pick", async () => {
+    const user = userEvent.setup();
+    render(
+      <NewFumigationPageClient
+        initialParcelId={null}
+        recentParcels={recentParcels}
+      />
+    );
+    // Avanzar hasta step 2 (form)
+    await user.click(screen.getByRole("button", { name: /registro manual/i }));
+    const searchInput = screen.getByPlaceholderText(/buscar/i);
+    await user.type(searchInput, "Lote");
+    const result = await screen.findByText(/Lote 24/);
+    await user.click(result);
+    await waitFor(() => {
+      expect(screen.getByTestId("fumigation-map")).toBeInTheDocument();
+    });
+    // En step 2, los steppers de mode y pick son botones (completados)
+    const stepMode = screen.getByTestId("step-mode");
+    expect(stepMode.tagName).toBe("BUTTON");
+    const stepPick = screen.getByTestId("step-pick");
+    expect(stepPick.tagName).toBe("BUTTON");
+    // Click en step-mode → vuelve al step 0
+    await user.click(stepMode);
+    expect(screen.getByRole("button", { name: /registro manual/i })).toBeInTheDocument();
+  });
+
   it("16. Step 2 con entryMode='import' (post-#51) muestra el DjiFlightPicker", async () => {
     const user = userEvent.setup();
     render(
