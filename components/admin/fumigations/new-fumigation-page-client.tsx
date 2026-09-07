@@ -303,7 +303,22 @@ export function NewFumigationPageClient({
 
   return (
     <div className="flex flex-col gap-6">
-      <Stepper currentStep={phase} />
+      <Stepper
+        currentStep={phase}
+        onJump={(target) => {
+          // QA-11 fix: el operator puede saltar a cualquier step
+          // anterior via click en el stepper. Saltar hacia atras
+          // implica perder el state de los steps futuros — eso
+          // es esperable (se muestra el boton "Revisar y confirmar"
+          // de nuevo cuando re-avance).
+          setPhase(target);
+          // Si vuelve a pick/form/confirm, los states (parcela,
+          // formData, etc) ya quedaron seteados en su viaje
+          // forward. Si el operator quiere resetear de verdad,
+          // puede usar los botones "Atras" / "Volver" de cada
+          // step para limpiar.
+        }}
+      />
 
       {phase === "mode" ? (
         // Sprint S11+ Fase 2.5 — step 0: el operator elige modalidad.
@@ -326,6 +341,7 @@ export function NewFumigationPageClient({
             setChosenParcel(p);
             setParcelGeom(geom);
           }}
+          onBack={() => setPhase("mode")}
         />
       ) : phase === "form" && chosenParcel ? (
         // Step 2 — Detalles. El form se renderiza con `onRequestReview`
@@ -679,7 +695,7 @@ function SummaryRow({
 // Stepper — siempre visible, marca el step activo
 // ============================================================
 
-function Stepper({ currentStep }: { currentStep: Phase }) {
+function Stepper({ currentStep, onJump }: { currentStep: Phase; onJump: (step: Phase) => void }) {
   const currentIdx = STEPS.findIndex((s) => s.id === currentStep);
   return (
     <nav
@@ -689,16 +705,29 @@ function Stepper({ currentStep }: { currentStep: Phase }) {
       {STEPS.map((step, idx) => {
         const isActive = step.id === currentStep;
         const isComplete = idx < currentIdx;
+        // QA-11 fix (2026-09-06): el operator reporto que no podia
+        // volver a la parte 1 del formulario (modalidad). El stepper
+        // era solo decorativo — no cliqueable. Hicimos que los
+        // steps COMPLETADOS (anteriores al current) sean botones
+        // cliqueables que navegan al step correspondiente via
+        // onJump. Steps futuros (idx > currentIdx) siguen siendo
+        // no-cliqueables (no se puede saltar hacia adelante sin
+        // completar el actual). El step activo tampoco es cliqueable
+        // (es donde estas parado).
+        const isClickable = isComplete;
+        const Wrapper = isClickable ? "button" : "div";
         return (
           <div key={step.id} className="flex items-center gap-2 sm:flex-1">
-            <div
+            <Wrapper
+              type={isClickable ? "button" : undefined}
+              onClick={isClickable ? () => onJump(step.id) : undefined}
               data-testid={`step-${step.id}`}
               aria-current={isActive ? "step" : undefined}
-              className={`flex flex-1 items-center gap-3 rounded-md border px-3 py-2 ${
+              className={`flex flex-1 items-center gap-3 rounded-md border px-3 py-2 text-left ${
                 isActive
                   ? "border-primary bg-primary/5"
                   : isComplete
-                    ? "border-border bg-muted/30"
+                    ? "border-border bg-muted/30 cursor-pointer transition-colors hover:border-primary/40 hover:bg-primary/5 focus-visible:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
                     : "border-border"
               }`}
             >
@@ -718,7 +747,7 @@ function Stepper({ currentStep }: { currentStep: Phase }) {
                   {step.description}
                 </span>
               </div>
-            </div>
+            </Wrapper>
             {idx < STEPS.length - 1 ? (
               <ChevronRight
                 className="size-4 shrink-0 text-muted-foreground sm:hidden"
@@ -739,11 +768,17 @@ function Stepper({ currentStep }: { currentStep: Phase }) {
 function ParcelPicker({
   recentParcels,
   onChoose,
-  onNewParcel
+  onNewParcel,
+  onBack
 }: {
   recentParcels: ParcelPickerRow[];
   onChoose: (p: ParcelPickerRow) => void;
   onNewParcel: (geom: { type: "Polygon"; coordinates: number[][][] }) => void;
+  // QA-11 fix: callback para volver al step 0 (mode) y re-elegir
+  // modalidad. Sin esto, el operator quedaba atrapado en step 1
+  // una vez que eligio parcela — la unica forma de cambiar
+  // modalidad era recargar la pagina.
+  onBack?: () => void;
 }) {
   const [query, setQuery] = useState("");
   const [drawerGeom, setDrawerGeom] = useState<{
@@ -774,6 +809,22 @@ function ParcelPicker({
 
   return (
     <div className="flex flex-col gap-4">
+      {onBack ? (
+        // QA-11 fix: el operator puede volver al step 0 (mode) para
+        // re-elegir modalidad sin recargar la pagina.
+        <div className="flex items-center justify-between">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onBack}
+            data-testid="back-to-mode"
+            aria-label="Volver a elegir modalidad"
+          >
+            <ChevronLeft className="size-3.5" aria-hidden />
+            Volver a modalidad
+          </Button>
+        </div>
+      ) : null}
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-base">
