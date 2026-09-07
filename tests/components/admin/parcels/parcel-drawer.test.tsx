@@ -57,18 +57,41 @@ const mockMapInstance = {
   dragPan: { isEnabled: () => true, enable: vi.fn(), disable: vi.fn() },
   dragRotate: { isEnabled: () => true, enable: vi.fn(), disable: vi.fn() },
   getCanvas: vi.fn(() => ({})),
-  getContainer: vi.fn(() => ({}))
+  getContainer: vi.fn(() => ({})),
+  getStyle: vi.fn(() => ({ sources: {}, layers: [] })),
+  setStyle: vi.fn(),
+  setLayoutProperty: vi.fn(),
+  addSource: vi.fn(),
+  addLayer: vi.fn(),
+  addControl: vi.fn(),
+  flyTo: vi.fn()
 };
 
 const MapMock = vi.fn(function (this: unknown) {
   return mockMapInstance;
 });
 
-// Mock de maplibre-gl. Exporta default con `Map` y un named export `Map`.
+const NavigationControlMock = vi.fn(function (this: unknown) {
+  return { kind: "navigation" };
+});
+const ScaleControlMock = vi.fn(function (this: unknown) {
+  return { kind: "scale" };
+});
+
+// Mock de maplibre-gl. Exporta default con `Map`/`NavigationControl`/
+// `ScaleControl` y los mismos como named exports. QA-12 agregó los
+// controles de navegación y escala al mapa, así que el mock los
+// provee para no romper los tests existentes.
 vi.mock("maplibre-gl", () => {
   return {
-    default: { Map: MapMock },
-    Map: MapMock
+    default: {
+      Map: MapMock,
+      NavigationControl: NavigationControlMock,
+      ScaleControl: ScaleControlMock
+    },
+    Map: MapMock,
+    NavigationControl: NavigationControlMock,
+    ScaleControl: ScaleControlMock
   };
 });
 
@@ -103,12 +126,24 @@ const mockDrawInstance = {
     if (event === "ready") readyHandlers.push(handler);
     else if (event === "finish") finishHandlers.push(handler);
     else if (event === "change") changeHandlers.push(handler);
+    else if (event === "history") {
+      // QA-12: history handler. No necesitamos dispararlo en estos
+      // tests, pero la registración debe estar permitida.
+    }
     return mockDrawInstance;
   }),
   off: vi.fn(),
   addFeatures: vi.fn(),
   getSnapshot: vi.fn(() => []),
-  clear: vi.fn()
+  clear: vi.fn(),
+  // QA-12: history stack API de terra-draw. El drawer llama canUndo
+  // y canRedo después de cada change/history event para sincronizar
+  // el estado de los botones del toolbar.
+  undo: vi.fn(() => true),
+  redo: vi.fn(() => true),
+  canUndo: vi.fn(() => false),
+  canRedo: vi.fn(() => false),
+  clearUndoRedoHistory: vi.fn()
 };
 
 const TerraDrawMock = vi.fn(function (this: unknown) {
@@ -117,10 +152,14 @@ const TerraDrawMock = vi.fn(function (this: unknown) {
 const TerraDrawPolygonModeMock = vi.fn(function (this: unknown) {
   return { mode: "polygon" };
 });
+const TerraDrawSelectModeMock = vi.fn(function (this: unknown) {
+  return { mode: "select" };
+});
 
 vi.mock("terra-draw", () => ({
   TerraDraw: TerraDrawMock,
-  TerraDrawPolygonMode: TerraDrawPolygonModeMock
+  TerraDrawPolygonMode: TerraDrawPolygonModeMock,
+  TerraDrawSelectMode: TerraDrawSelectModeMock
 }));
 
 // =====================================================================
@@ -191,14 +230,17 @@ describe("ParcelDrawer — inicialización (bug fix 2026-08-22)", () => {
     act(() => {
       loadHandlers.forEach((h) => h());
     });
-    // Antes del ready, no se llamó disable
-    expect(mockMapInstance.doubleClickZoom.disable).not.toHaveBeenCalled();
+    // QA-12: agregamos un disable defensivo fuera del ready callback
+    // (también es idempotente), por lo que la expectativa es que
+    // después del ready se haya llamado AL MENOS una vez más.
+    const beforeReady = mockMapInstance.doubleClickZoom.disable.mock.calls.length;
     // Disparar los ready handlers manualmente
     act(() => {
       readyHandlers.forEach((h) => h());
     });
-    // Ahora sí
-    expect(mockMapInstance.doubleClickZoom.disable).toHaveBeenCalledTimes(1);
+    // Ahora sí — al menos una llamada adicional dentro del ready.
+    const afterReady = mockMapInstance.doubleClickZoom.disable.mock.calls.length;
+    expect(afterReady).toBeGreaterThan(beforeReady);
   });
 
   it("dentro del callback 'ready' se llama a draw.setMode('polygon')", () => {
