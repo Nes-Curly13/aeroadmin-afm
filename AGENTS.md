@@ -5,7 +5,7 @@
 
 AeroAdmin AFM es la plataforma admin para el operador de drones cañero en Valle del Cauca, Colombia. Lee datos de la nube de DJI SmartFarm, los persiste en PostGIS, y los expone vía Next.js. Cliente: 1 piloto, ~1200 parcelas, ~16k vuelos, ~17k fumigaciones. Single contributor (1 dev).
 
-**Estado actual (2026-09-06)**: sprints **S11+ cerrado (V2 plan completo)** + **Quality Gauntlet #1 (zod) cerrado**. Master `4da38d9` (post-merge de PR #58). Cobertura de tests 2042/2042 verde, arch:check 0 errors.
+**Estado actual (2026-09-06)**: sprints **S11+ cerrado (V2 plan completo)** + **Quality Gauntlet #1 (zod) cerrado** + **Sprint QA closeout cerrado** (PRs #60-#66). Master `6ea1d20` (post-merge de PR #65 geovisor simplify; PR #66 reportes tabs en CI). Cobertura de tests ~2070+ verde, arch:check 0 errors, tsc 0 errors.
 
 Sprints cerrados anteriores:
 - **S5** (2026-07-28): migración a MapLibre + port del mockup V0
@@ -16,6 +16,7 @@ Sprints cerrados anteriores:
 - **S10** (2026-09-02): 4 sprints chicos de cleanup + fix real de AppShell en /login (PRs #27-#31)
 - **S11+ (V2 plan)** (2026-09-05/06): 14 PRs del refactor V2 (PRs #40-#55) — ver `docs/PLAN-FUMIGACIONES-V2.md`
 - **Quality Gauntlet #1 (zod)** (2026-09-06): 3 PRs de adopción zod (PRs #56-#58) — tests anti-Bug-2 + request bodies + FormState
+- **QA closeout** (2026-09-06): 7 PRs del feedback del operador fumigador (PRs #60-#66) — ver "QA closeout" abajo
 
 S10 se desglosó en:
 - **S10.1** (PR #27 `8fbd391`): bulk cleanup con knip — 46 unused exports + 14 types borrados (22 archivos, +7/-1130).
@@ -56,12 +57,23 @@ S11+ (V2 plan) se desglosó en:
 4. `zod` `path` es `PropertyKey[]` (incluye `symbol`), no `string[]`. Para mensaje legible: `String(first.path[0] ?? "form")` (TS2731 si no se coerce).
 5. Compatibilidad entre schemas testeable: parsea el body derivado con el segundo schema. Si pasa, el flujo entero es coherente.
 
+**QA closeout (2026-09-06, 7 PRs)** — feedback del operador fumigador en `C:\Users\agFab\OneDrive\Documents\Obsidian\General\TG_correcciones\QA actual.md`:
+
+- **PR #60** (`5c09cf2`) — **QA-01 logo** sidebar: usar logo AFM original (`public/afm-logo.svg`, mismo SHA256 que `docs/afm_png.svg`) en vez del mark chico.
+- **PR #61** (`caee258`) — **QA-10 drone dup** en `components/parcels/register-fumigation-form.tsx`: el `FieldSelect` ya renderea su propio label; eliminamos el wrapper externo que duplicaba el texto en "Dron usado", "Tipo de fumigación", "Fase de uso".
+- **PR #62** (`047d2f5`) — **QA-11 wizard back**: botón "Volver a modalidad" en el step 1 del wizard de fumigaciones + stepper cliqueable para steps ya completados. 2 nuevos tests.
+- **PR #63** (`f9515ca5`) — **QA-06 test data script**: `scripts/cleanup-test-data.js` (380 lineas) para identificar y borrar datos de prueba en prod. Dry-run por default + `--apply` + `--yes` + `--pattern=foo,bar`. 7 tablas en orden FK-safe. Tarea operacional del usuario, no auto-deploy.
+- **PR #64** (`429201a0`) — **QA-12 polygon UX**: rediseño completo de `components/admin/parcels/parcel-drawer.tsx`. Toolbar flotante con Dibujar/Editar/Limpiar/Undo/Redo + search Nominatim. Toggle de basemap (Satélite/Híbrido/Callejero) con default Satélite. Empty state con "Comenzar dibujo". Display de área calculada en ha. Modo "select" (TerraDrawSelectMode) para editar vértices. Swap de columnas en `NewParcelForm` (mapa izquierda, form derecha). Bug fix 2026-08-22 preservado (setMode dentro de ready callback). 16 nuevos tests.
+- **PR #65** (`6ea1d20`) — **QA-02 geovisor simplify**: `components/geovisor/geovisor-client.tsx` reescrito. Sin cadencia, sin cliente/hacienda/drone/source — solo búsqueda de texto. Date range manual (Desde / Hasta) con defaults 90 días. Lista de fumigaciones en sidebar derecho (ordenada por fecha DESC) en vez de lista de parcelas. Card de detalle del evento seleccionado. KPIs simplificados (Fumigaciones/Parcelas/Área/Última). Leyenda de cadencia removida del mapa. 10 nuevos tests.
+- **PR #66** (CI al cierre de este doc) — **QA-14 reportes tabs**: refactor de `app/(auth)/reportes/page.tsx`. Bloque introductorio "¿Qué hace esta página?" con bullets explicativos. 3 tabs (Resumen / Por hacienda / Detalle) en `components/reports/reports-tabs.tsx` (client component con useState, role=tab/tabpanel, aria-selected, aria-labelledby). Tabla detallada extraida a `components/reports/fumigations-table.tsx` (server component puro). 13 nuevos tests.
+
+**Total QA closeout**: 7 PRs, +2411 / -453 lineas, 31 tests nuevos, 0 regresiones, arch:check 0 errors, tsc 0 errors.
+
 **Deuda S10/S10.5 anotada (separar en PRs futuros):**
 - SVG 400 en `/_next/image?url=%2Fafm-logo-mark.svg` (cosmético, no bloquea login). El SVG tiene UTF-8 malformado + el `sandbox` CSP de `next.config.ts` hace que el Image optimizer rechace.
 - Refactor a `app/(auth)/` route group: mover todas las pages autenticadas, poner el AppShell en `app/(auth)/layout.tsx`, remover el check de pathname en `app/layout.tsx`. El workaround `proxy.ts + x-pathname` es funcional pero no idiomático (~30 min de refactor).
 - `pg` bump a `^8.20.0` en master (era `8.20.0` exacto) — el caret es para tolerar patches automáticos del lockfile.
 - Index en `dji_fumigaciones.product_id` (FK sin index desde S9, ver #32) — migration con `CREATE INDEX CONCURRENTLY`. 1h.
-- Wire-up CSV/PDF exports con date range (quick-range buttons en /reportes). 2h.
 
 **Candidates (próximos, en orden de prioridad):**
 1. Bug 2 auth — diagnosticar `/geovisor` accesible sin login (PR #41 instrumentación lista, guía PR #54).
@@ -69,8 +81,7 @@ S11+ (V2 plan) se desglosó en:
 3. Refactor a `app/(auth)/` route group (2-3h).
 4. Index en `dji_fumigaciones.product_id` (1h).
 5. Fix SVG 400 en Image optimizer (1h).
-6. Wire-up CSV/PDF exports con date range en /reportes (2h).
-7. Quality Gauntlet compuertas 5-7 (StrykerJS, BDD Gherkin, smoke DB, métricas continuas) — requiere deps nuevas (autorización explícita del user).
+6. Quality Gauntlet compuertas 5-7 (StrykerJS, BDD Gherkin, smoke DB, métricas continuas) — requiere deps nuevas (autorización explícita del user).
 
 ---
 
