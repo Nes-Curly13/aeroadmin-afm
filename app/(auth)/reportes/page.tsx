@@ -3,10 +3,23 @@
 // Página de reportes por hacienda / multi-hacienda (nivel 2 de
 // feature/reports-level, 2026-08-08).
 //
+// QA-14 (2026-09-06, fix/qa-14-reportes-tabs): el operador pidio
+// "mejorar la logica y la usabilidad" porque la pagina apilaba
+// 4-5 secciones sin diferenciacion clara. Refactor:
+//
+//   1. Bloque "Que hace esta pagina" arriba — explica que hace
+//      cada tab y los botones PDF/CSV.
+//   2. KPIs siempre visibles arriba de las tabs (no cambian con
+//      la tab activa).
+//   3. 3 tabs (Resumen / Por hacienda / Detalle) en vez de
+//      secciones apiladas. Cada tab muestra solo lo relevante
+//      para su nivel de detalle.
+//   4. Tabla detallada extraida a `FumigationsTable` (server
+//      component puro).
+//
 // Server component: lee los query params (from, to, farm), carga el
-// data layer y renderiza el form + la última fumigación destacada +
-// la tabla de parcelas + la lista de fumigaciones. Los botones de
-// descarga son <a href> con los query params preservados.
+// data layer y renderiza. Los botones de descarga son <a href> con
+// los query params preservados.
 
 import { redirect } from "next/navigation";
 import { getDistinctFarmsWithCounts } from "@/api/repositories";
@@ -15,11 +28,12 @@ import { defaultWindow, quickRange } from "@/lib/reports/date-range";
 import { ReportsForm } from "@/components/reports/reports-form";
 import { LastFumigationCard } from "@/components/reports/last-fumigation-card";
 import { FarmsTable } from "@/components/reports/farms-table";
+import { FumigationsTable } from "@/components/reports/fumigations-table";
+import { ReportsTabs } from "@/components/reports/reports-tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { ArrowLeft, FileText, History } from "lucide-react";
+import { ArrowLeft, FileText, Info } from "lucide-react";
 import Link from "next/link";
-import { fmtInt, fmtDate } from "@/lib/format";
+import { fmtInt } from "@/lib/format";
 
 /** Helper con 2 decimales. */
 function fmtDec2(value: number | null | undefined): string {
@@ -107,6 +121,48 @@ export default async function ReportesPage({ searchParams }: ReportsPageProps) {
       </header>
 
       <div className="flex flex-col gap-6 px-4 py-6 sm:px-6">
+        {/* QA-14: bloque introductorio "Que hace esta pagina". Antes
+            la pagina apilaba 5 secciones sin explicacion y el
+            operador decia "no entiendo que hace". Ahora hay un
+            bloque claro arriba con bullets cortos que resumen que
+            muestra cada tab y para que sirven los exports. */}
+        <Card data-testid="reports-intro">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Info className="size-4 text-primary" aria-hidden />
+              ¿Qué hace esta página?
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground">
+            <ul className="list-disc space-y-1 pl-5">
+              <li>
+                <strong>Resumen</strong> — KPIs del período
+                (fumigaciones, área, volumen, parcelas) + la última
+                fumigación destacada. Vista rápida para entender
+                qué se fumigó.
+              </li>
+              <li>
+                <strong>Por hacienda</strong> — Agregado por parcela
+                (cuántas fumigaciones, área total, última fecha).
+                Útil para comparar el rendimiento entre haciendas
+                o detectar las más activas.
+              </li>
+              <li>
+                <strong>Detalle</strong> — Cada fumigación del
+                rango individual (cap 200). Click en la parcela
+                para abrir su hoja de vida completa.
+              </li>
+              <li>
+                <strong>Descargar PDF / CSV</strong> — Los botones
+                exportan el reporte completo con los mismos
+                filtros que tenés en pantalla. El CSV es
+                compatible con Excel-es (separador{" "}
+                <code className="rounded bg-muted px-1 text-[11px]">;</code>).
+              </li>
+            </ul>
+          </CardContent>
+        </Card>
+
         {/* Form de filtros + botones de descarga */}
         <Card>
           <CardHeader>
@@ -133,7 +189,7 @@ export default async function ReportesPage({ searchParams }: ReportsPageProps) {
           </CardContent>
         </Card>
 
-        {/* Stats resumen (siempre visible) */}
+        {/* Stats resumen (siempre visible, pase la tab que pase) */}
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <SummaryStat
             label="Fumigaciones"
@@ -153,94 +209,26 @@ export default async function ReportesPage({ searchParams }: ReportsPageProps) {
           />
         </div>
 
-        {/* Última fumigación destacada */}
-        <LastFumigationCard last={data.lastFumigation} />
-
-        {/* Por parcela (agregado) */}
-        <FarmsTable
-          parcels={data.parcels}
-          totalCount={data.totals.nParcels}
-          cap={50}
+        {/* QA-14: tabs que organizan las 3 vistas. El state vive en
+            el client component ReportsTabs (no en URL). Si en el
+            futuro se quiere deep-link, migrar a searchParams. */}
+        <ReportsTabs
+          resumen={<LastFumigationCard last={data.lastFumigation} />}
+          parcelas={
+            <FarmsTable
+              parcels={data.parcels}
+              totalCount={data.totals.nParcels}
+              cap={50}
+            />
+          }
+          detalle={
+            <FumigationsTable
+              fumigations={data.fumigations}
+              totalCount={data.totals.nFumigations}
+              capReached={data.capReached}
+            />
+          }
         />
-
-        {/* Lista detallada de fumigaciones (cap 200) */}
-        {data.fumigations.length > 0 ? (
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between gap-3">
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <History className="size-4 text-primary" aria-hidden />
-                  Fumigaciones del rango
-                </CardTitle>
-                <span className="font-mono text-xs text-muted-foreground">
-                  {`${data.fumigations.length} de ${data.totals.nFumigations}`}
-                </span>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="max-h-[40rem] overflow-y-auto">
-                <table className="w-full text-sm">
-                  <thead className="sticky top-0 bg-card">
-                    <tr className="border-b border-border text-[11px] uppercase tracking-wide text-muted-foreground">
-                      <th className="py-2 text-left font-semibold">Fecha</th>
-                      <th className="py-2 text-left font-semibold">Parcela</th>
-                      <th className="py-2 text-left font-semibold">Piloto</th>
-                      <th className="py-2 text-right font-semibold">Área (ha)</th>
-                      <th className="py-2 text-right font-semibold">Vol (L)</th>
-                      <th className="py-2 text-left font-semibold">Producto</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.fumigations.map((f) => (
-                      <tr
-                        key={f.id}
-                        className="border-b border-border/60 last:border-0"
-                      >
-                        <td className="py-2 font-mono text-xs tabular-nums">
-                          {fmtDate(f.fumigation_date)}
-                        </td>
-                        <td className="py-2">
-                          <Link
-                            href={`/parcelas/${f.parcel_id}`}
-                            className="font-medium text-foreground hover:text-primary"
-                          >
-                            {f.parcel_name}
-                          </Link>
-                          {f.farm_name ? (
-                            <span className="ml-2 text-xs text-muted-foreground">
-                              {f.farm_name}
-                            </span>
-                          ) : null}
-                        </td>
-                        <td className="py-2 text-muted-foreground">
-                          {f.pilot_name ?? "—"}
-                        </td>
-                        <td className="py-2 text-right font-mono tabular-nums">
-                          {f.area_fumigated_ha === null
-                            ? "—"
-                            : fmtDec2(f.area_fumigated_ha)}
-                        </td>
-                        <td className="py-2 text-right font-mono tabular-nums">
-                          {f.dose_l_per_ha !== null && f.area_fumigated_ha !== null
-                            ? fmtDec2(f.dose_l_per_ha * f.area_fumigated_ha)
-                            : "—"}
-                        </td>
-                        <td className="py-2 text-muted-foreground">
-                          {f.product_used ?? "—"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              {data.capReached ? (
-                <p className="mt-3 text-xs text-muted-foreground">
-                  Mostrando las primeras 200 fumigaciones (cap del PDF).
-                </p>
-              ) : null}
-            </CardContent>
-          </Card>
-        ) : null}
       </div>
     </>
   );
