@@ -81,20 +81,22 @@ export async function AppShell({
             aria-label="Ir al panel principal"
             className="flex items-center gap-3"
           >
-            {/* v2.7.2 (2026-08-22 — QA): reemplazamos el logo vertical
-                485x695 (que se cortaba en el contenedor 48x34) por el
-                mark horizontal `afm-logo-mark.svg` 120x40. El mark usa
-                `currentColor` para los letters principales (hereda el
-                color de texto del sidebar, así se ve bien en dark y
-                light) y un acento lime (#84cc16) en la F. Sin fondo
-                blanco: el contenedor hereda el bg del sidebar.
-                La palabra "AFM Geovisor" + subtitulo siguen a la derecha. */}
-            <div className="flex h-10 w-[120px] shrink-0 items-center justify-center text-sidebar-foreground">
+            {/* QA-01 (2026-09-06): el operador reporto que el logo del
+                sidebar no era el que el habia entregado. La version
+                previa usaba `/afm-logo-mark.svg` (1.3KB, 120x40, mark
+                simplificado con currentColor). El usuario quiere ver
+                el logo ORIGINAL: `/afm-logo.svg` (57KB, 485x695,
+                archivo provisto en docs/afm_png.svg). Lo mostramos a
+                escala 64x92 (aspect 0.7 = 485/695) con el texto
+                "AFM Geovisor" + subtitulo a la derecha. El favicon del
+                browser tab sigue usando el mark (es un asset de 16x16,
+                el logo completo se veria terrible). */}
+            <div className="flex h-[92px] w-[64px] shrink-0 items-center justify-center">
               <Image
-                src="/afm-logo-mark.svg"
+                src="/afm-logo.svg"
                 alt="Logo AFM"
-                width={120}
-                height={40}
+                width={64}
+                height={92}
                 className="h-full w-full"
                 priority
               />
