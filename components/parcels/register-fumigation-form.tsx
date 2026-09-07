@@ -543,23 +543,25 @@ export const RegisterFumigationForm = forwardRef<
             aria-required="true"
           />
         </label>
-        <label className="flex flex-col gap-1">
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Dron usado
-          </span>
-          <FieldSelect
-            label="Dron usado"
-            value={form.drone_code_used}
-            onChange={(e) => update("drone_code_used", e.target.value)}
-            disabled={isPending}
-          >
-            {DRONE_MODELS.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.id === 0 ? "Sin asignar" : `${m.name} (${m.tank_l} L)`}
-              </option>
-            ))}
-          </FieldSelect>
-        </label>
+        {/* QA-10 fix (2026-09-06): el form envolvia el FieldSelect en un
+            <label> con un <span> cuyo texto era IGUAL al `label` prop
+            que FieldSelect ya renderiza internamente. Resultado: el
+            label "Dron usado" aparecia 2 veces apilado. Mismo bug
+            afectaba "Tipo de fumigacion" y "Fase de uso" (lineas
+            abajo). Fix: remover el wrapper <label>/<span> externo y
+            dejar que FieldSelect renderice su propio label. */}
+        <FieldSelect
+          label="Dron usado"
+          value={form.drone_code_used}
+          onChange={(e) => update("drone_code_used", e.target.value)}
+          disabled={isPending}
+        >
+          {DRONE_MODELS.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.id === 0 ? "Sin asignar" : `${m.name} (${m.tank_l} L)`}
+            </option>
+          ))}
+        </FieldSelect>
       </div>
 
       {/**
@@ -617,27 +619,25 @@ export const RegisterFumigationForm = forwardRef<
         disabled={isPending}
       />
 
-      <label className="flex flex-col gap-1">
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Tipo de fumigación
-        </span>
-        <FieldSelect
-          label="Tipo de fumigación"
-          value={form.category_id}
-          onChange={(e) => update("category_id", e.target.value)}
-          disabled={isPending}
-        >
-          <option value="">Sin clasificar</option>
-          {FUMIGATION_CATEGORIES.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.label}
-            </option>
-          ))}
-        </FieldSelect>
-        <span className="text-[10px] text-muted-foreground">
-          Herbicida, insecticida, fertilizante, etc. Útil para reportes por tipo y auditoría ICA.
-        </span>
-      </label>
+      {/* QA-10 fix: ver el comentario en el FieldSelect de Dron usado
+          mas arriba. Misma correccion: sin wrapper <label>/<span>
+          externo. La descripcion va dentro de un <p> al lado. */}
+      <FieldSelect
+        label="Tipo de fumigación"
+        value={form.category_id}
+        onChange={(e) => update("category_id", e.target.value)}
+        disabled={isPending}
+      >
+        <option value="">Sin clasificar</option>
+        {FUMIGATION_CATEGORIES.map((c) => (
+          <option key={c.id} value={c.id}>
+            {c.label}
+          </option>
+        ))}
+      </FieldSelect>
+      <p className="-mt-2 text-[10px] text-muted-foreground">
+        Herbicida, insecticida, fertilizante, etc. Útil para reportes por tipo y auditoría ICA.
+      </p>
 
       {/**
        * Sprint S7 — feature/s7-schema-extension / Fase 1 (PR-A).
@@ -647,27 +647,22 @@ export const RegisterFumigationForm = forwardRef<
        * Una fumigación puede tener AMBOS: ej "Glifosato 48% (herbicida)
        * aplicado en pre-emergente".
        */}
-      <label className="flex flex-col gap-1">
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Fase de uso
-        </span>
-        <FieldSelect
-          label="Fase de uso"
-          value={form.application_type_id}
-          onChange={(e) => update("application_type_id", e.target.value)}
-          disabled={isPending}
-        >
-          <option value="">Sin clasificar</option>
-          {APPLICATION_TYPES.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.label}
-            </option>
-          ))}
-        </FieldSelect>
-        <span className="text-[10px] text-muted-foreground">
-          Cuándo se aplica: pre-emergente, post-emergente, bioestimulante, otro. Ortogonal al tipo de producto.
-        </span>
-      </label>
+      <FieldSelect
+        label="Fase de uso"
+        value={form.application_type_id}
+        onChange={(e) => update("application_type_id", e.target.value)}
+        disabled={isPending}
+      >
+        <option value="">Sin clasificar</option>
+        {APPLICATION_TYPES.map((t) => (
+          <option key={t.id} value={t.id}>
+            {t.label}
+          </option>
+        ))}
+      </FieldSelect>
+      <p className="-mt-2 text-[10px] text-muted-foreground">
+        Cuándo se aplica: pre-emergente, post-emergente, bioestimulante, otro. Ortogonal al tipo de producto.
+      </p>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <label className="flex flex-col gap-1">

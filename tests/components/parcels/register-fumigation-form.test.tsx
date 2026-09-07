@@ -143,6 +143,22 @@ describe("RegisterFumigationForm — render", () => {
     expect(options).toContain("210");
   });
 
+  // QA-10 fix (2026-09-06): el form envolvia el FieldSelect en un
+  // <label> con un <span> cuyo texto era IGUAL al `label` prop que
+  // FieldSelect ya renderiza. Resultado: 2 labels apilados. Este
+  // test verifica que solo hay UN label por field.
+  it("QA-10: solo un label por field (no duplicados)", () => {
+    render(<RegisterFumigationForm parcelId={1} />);
+    // `getByLabelText` tira si hay multiples matches — usar
+    // `getAllByLabelText` para contar
+    const dronLabels = screen.getAllByLabelText("Dron usado", { exact: true });
+    expect(dronLabels).toHaveLength(1);
+    const tipoLabels = screen.getAllByLabelText("Tipo de fumigación", { exact: true });
+    expect(tipoLabels).toHaveLength(1);
+    const faseLabels = screen.getAllByLabelText("Fase de uso", { exact: true });
+    expect(faseLabels).toHaveLength(1);
+  });
+
   it("campos ICA están en un <details> colapsable", async () => {
     const user = userEvent.setup();
     render(<RegisterFumigationForm parcelId={1} />);
