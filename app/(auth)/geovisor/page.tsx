@@ -6,7 +6,11 @@ import { getGeovisorPayload } from "@/lib/data"
 
 export const metadata: Metadata = {
   title: "Geovisor | AFM",
-  description: "Mapa de parcelas de caña con filtro temporal de aplicaciones y estado de cadencia.",
+  // QA-02 (2026-09-06): simplificación del propósito del geovisor.
+  // La utilidad principal es "consultar el histórico de fumigaciones
+  // realizadas sobre las parcelas" — sin cadencia ni estado.
+  description:
+    "Mapa de parcelas con histórico de fumigaciones aplicadas. Filtrá por fecha y consultá el detalle de cada aplicación."
 }
 
 export const dynamic = "force-dynamic"
