@@ -1,159 +1,271 @@
-"use client"
+"use client";
 
-import { ArrowUpRight, Droplets, Layers, MapPin, Plane, Search, SlidersHorizontal, Sprout } from "lucide-react"
-import Link from "next/link"
-import { useMemo, useState } from "react"
-import { type BaseMap, GeoMap, USE_MAPTILER, type MapParcel } from "@/components/map/geo-map"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { FieldSelect } from "@/components/ui/field-select"
-import { Input } from "@/components/ui/input"
-import { DRONE_MODELS, STATUS_META } from "@/lib/data-constants"
-import { fmtDec, fmtInt, fmtLiters, fmtRelative, SOURCE_LABEL } from "@/lib/format"
-import type { GeovisorPayload } from "@/lib/types"
-import type { ComplianceStatus, FumigationSource } from "@/lib/types"
-import { cn } from "@/lib/utils"
+/**
+ * GeovisorClient — vista principal del geovisor (QA-02, 2026-09-06).
+ *
+ * Historia del archivo:
+ *   - S8.8 (2026-07-31): primera versión completa con cadencia,
+ *     status, cliente, hacienda, modelo, source, ventana temporal
+ *     derivada del rango natural de los datos.
+ *   - QA-02 (2026-09-06, fix/qa-02-geovisor-simplify): rediseño
+ *     alineado con la decisión del operador fumigador. La utilidad
+ *     principal del geovisor es "consultar el histórico de
+ *     fumigaciones realizadas sobre las parcelas". Se eliminan los
+ *     filtros que el operador no considera útiles (cadencia, crítico,
+ *     vencido, cliente, hacienda, drone, source) y se mantiene solo
+ *     lo que aporta valor de consulta:
+ *       1. Rango temporal manual (Desde / Hasta)
+ *       2. Búsqueda por texto (suerte, hacienda, municipio, etc.)
+ *       3. Capas (polígonos, eventos, labels)
+ *       4. Basemap (satélite / híbrido / calles)
+ *     Se reemplaza la lista de parcelas del sidebar derecho por una
+ *     lista de FUMIGACIONES ordenada por fecha DESC, con click para
+ *     centrar el mapa y abrir el popup de la aplicación.
+ *
+ * Decisiones de diseño UX:
+ *   - **Rango temporal con defaults sensatos**: arranca en los
+ *     últimos 90 días (vs los 700+ días del dataset completo). El
+ *     operador fumigador trabaja en ventanas cortas; ver 2 años de
+ *     eventos satura el mapa sin aportar.
+ *   - **Lista de eventos, no de parcelas**: la consulta es
+ *     "qué se fumigó", no "qué parcelas hay". Cada item muestra
+ *     parcela, fecha, área aplicada, producto, fuente (DJI / manual /
+ *     import).
+ *   - **Click en evento → flyTo + popup**: la acción esperada al
+ *     ver una fumigación en la lista es "mostrame dónde fue". El
+ *     flyTo centra el mapa en el centroide de la parcela y abre
+ *     el popup MapLibre con el detalle.
+ *   - **KPIs resumidos arriba**: Fumigaciones / Parcelas tratadas /
+ *     Área aplicada / Última fumigación. Mismo set que la lista
+ *     que el operador quiere consultar.
+ *
+ * Compatibilidad:
+ *   - El contrato del componente (`payload: GeovisorPayload`) NO
+ *     cambia. La página server (`app/(auth)/geovisor/page.tsx`)
+ *     sigue funcionando.
+ *   - El `GeoMap` que recibe el componente no cambia. Solo se filtra
+ *     `payload.events` por rango temporal y se filtra
+ *     `payload.parcels` a las que tienen eventos en el rango.
+ *   - Los fields `status`, `cadence_days`, `next_due_at` del payload
+ *     SIGUEN EXISTIENDO en el type (porque `getGeovisorPayload` los
+ *     trae de `dji_parcels`), pero ya no se renderizan en la UI.
+ *     Limpiar el payload es una tarea separada.
+ */
 
-const STATUS_ORDER: ComplianceStatus[] = ["critico", "vencido", "por_vencer", "al_dia"]
-const SOURCES: FumigationSource[] = ["djiscraper", "import", "manual"]
+import { ArrowUpRight, Droplets, Layers, MapPin, Plane, Search, SlidersHorizontal, Sprout } from "lucide-react";
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import { type BaseMap, GeoMap, USE_MAPTILER, type MapParcel } from "@/components/map/geo-map";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { fmtDate, fmtDec, fmtInt, fmtLiters, SOURCE_LABEL } from "@/lib/format";
+import type { GeovisorPayload } from "@/lib/types";
+import { cn } from "@/lib/utils";
+
+/** Días por default para el rango temporal inicial. */
+const DEFAULT_DAYS_BACK = 90;
+
+function isoDate(d: Date): string {
+  // Formato YYYY-MM-DD en timezone local (Bogota). El input type="date"
+  // espera este formato.
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function parseLocalISODate(s: string): number | null {
+  // Parsea YYYY-MM-DD como medianoche local. Date.parse("2026-09-06")
+  // lo trata como UTC midnight, lo cual da medianoche en Bogota del
+  // día ANTERIOR. Para evitar ese drift, parseamos a mano.
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) return null;
+  return new Date(y, mo - 1, d).getTime();
+}
 
 export function GeovisorClient({ payload }: { payload: GeovisorPayload }) {
-  // S8.8 (2026-07-31): sin VENTANA TEMPORAL, from/to es el rango natural
-  // de los datos (min/max de executed_at). Filtrar por un rango manual
-  // no aportaba a la UX del operador.
-  const { from, to } = useMemo(() => {
-    if (payload.events.length === 0) return { from: 0, to: Date.now() }
-    const times = payload.events.map((e) => new Date(e.executed_at).getTime())
-    return { from: Math.min(...times), to: Math.max(...times) }
-  }, [payload.events])
-  const [client, setClient] = useState("todos")
-  const [farm, setFarm] = useState("todas")
-  const [model, setModel] = useState("todos")
-  const [statuses, setStatuses] = useState<ComplianceStatus[]>([])
-  const [sources, setSources] = useState<FumigationSource[]>([])
-  const [query, setQuery] = useState("")
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  // s8.8 (2026-07-31): id del event (fumigacion) seleccionado en el mapa.
-  // Cuando se setea, GeoMap muestra un popup MapLibre con el detalle.
-  const [selectedEventId, setSelectedEventId] = useState<string | null>(null)
-  const [baseMap, setBaseMap] = useState<BaseMap>("satelite")
-  const [showParcels, setShowParcels] = useState(true)
-  const [showEvents, setShowEvents] = useState(true)
-  const [showLabels, setShowLabels] = useState(false)
-  const [showFilters, setShowFilters] = useState(true)
+  // QA-02 (2026-09-06): rango temporal con defaults sensatos.
+  // Última fumigación conocida (si hay) o hoy.
+  const lastEventMs = useMemo(() => {
+    if (payload.events.length === 0) return Date.now();
+    return Math.max(...payload.events.map((e) => new Date(e.executed_at).getTime()));
+  }, [payload.events]);
+  const [fromDate, setFromDate] = useState<string>(
+    isoDate(new Date(lastEventMs - DEFAULT_DAYS_BACK * 86_400_000))
+  );
+  const [toDate, setToDate] = useState<string>(isoDate(new Date(lastEventMs)));
 
-  const clients = useMemo(() => Array.from(new Set(payload.parcels.map((p) => p.client_name))).sort(), [payload])
-  const farms = useMemo(
+  // QA-02: solo búsqueda por texto. Sin filtros de cadencia, status,
+  // cliente, hacienda, drone, source.
+  const [query, setQuery] = useState("");
+
+  const [baseMap, setBaseMap] = useState<BaseMap>("satelite");
+  const [showParcels, setShowParcels] = useState(true);
+  const [showEvents, setShowEvents] = useState(true);
+  const [showLabels, setShowLabels] = useState(false);
+  const [showFilters, setShowFilters] = useState(true);
+
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // QA-02: el id del EVENTO (fumigación) seleccionado desde la lista
+  // o desde el mapa. Cuando se setea, el mapa centra en la parcela +
+  // abre el popup del evento.
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
+
+  // Rango temporal como timestamps (ms). Si el usuario tipea algo
+  // inválido, parseLocalISODate devuelve null y usamos null en el
+  // filtro (= sin restricción de ese lado).
+  const fromMs = parseLocalISODate(fromDate);
+  const toMs = useMemo(() => {
+    const base = parseLocalISODate(toDate);
+    if (base == null) return null;
+    // Inclusivo: incluimos eventos hasta el final del día "to".
+    return base + 86_400_000 - 1;
+  }, [toDate]);
+
+  // Filtrar eventos por rango temporal.
+  const eventsInRange = useMemo(() => {
+    return payload.events.filter((e) => {
+      const t = new Date(e.executed_at).getTime();
+      if (fromMs != null && t < fromMs) return false;
+      if (toMs != null && t > toMs) return false;
+      return true;
+    });
+  }, [payload.events, fromMs, toMs]);
+
+  // IDs de parcelas que tienen al menos un evento en el rango.
+  const parcelIdsWithEvents = useMemo(
+    () => new Set(eventsInRange.map((e) => e.parcel_id)),
+    [eventsInRange]
+  );
+
+  // Filtrar parcelas: (1) con eventos en el rango, (2) que matchean
+  // la búsqueda de texto (si hay).
+  const filteredParcels = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return payload.parcels.filter((p) => {
+      if (!parcelIdsWithEvents.has(p.id)) return false;
+      if (q) {
+        const hay = `${p.name} ${p.farm_name} ${p.municipality} ${p.variety} ${p.id}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [payload.parcels, parcelIdsWithEvents, query]);
+
+  const filteredParcelsById = useMemo(
+    () => new Map(filteredParcels.map((p) => [p.id, p])),
+    [filteredParcels]
+  );
+
+  // QA-02: lista de fumigaciones ordenada por fecha DESC. Cada
+  // fumigación muestra: nombre de la parcela, fecha, área aplicada,
+  // producto, fuente.
+  const sortedEvents = useMemo(
     () =>
-      Array.from(
-        new Set(
-          payload.parcels.filter((p) => client === "todos" || p.client_name === client).map((p) => p.farm_name),
-        ),
-      ).sort(),
-    [payload, client],
-  )
+      [...eventsInRange]
+        .filter((e) => filteredParcelsById.has(e.parcel_id))
+        .sort((a, b) => new Date(b.executed_at).getTime() - new Date(a.executed_at).getTime()),
+    [eventsInRange, filteredParcelsById]
+  );
 
-  // S8.8 (2026-07-31): from/to vienen del useMemo arriba (rango natural
-  // de los datos). Sin ventana temporal para filtrar, mostramos todos
-  // los eventos del periodo disponible.
-  const filteredParcels = useMemo(
-    () =>
-      payload.parcels.filter((p) => {
-        if (client !== "todos" && p.client_name !== client) return false
-        if (farm !== "todas" && p.farm_name !== farm) return false
-        if (model !== "todos" && String(p.drone_model_id) !== model) return false
-        if (statuses.length > 0 && !statuses.includes(p.status)) return false
-        if (query.trim()) {
-          const q = query.trim().toLowerCase()
-          const hay = `${p.name} ${p.farm_name} ${p.client_name} ${p.municipality} ${p.variety} ${p.id}`.toLowerCase()
-          if (!hay.includes(q)) return false
-        }
-        return true
-      }),
-    [payload.parcels, client, farm, model, statuses, query],
-  )
-
-  const parcelIds = useMemo(() => new Set(filteredParcels.map((p) => p.id)), [filteredParcels])
-
-  const filteredEvents = useMemo(
-    () =>
-      payload.events.filter((e) => {
-        if (!parcelIds.has(e.parcel_id)) return false
-        if (sources.length > 0 && !sources.includes(e.source)) return false
-        const t = new Date(e.executed_at).getTime()
-        return t >= from && t <= to
-      }),
-    [payload.events, parcelIds, sources, from, to],
-  )
-
+  // Resumen por parcela para el mapa.
   const eventsByParcel = useMemo(() => {
-    const map = new Map<string, { count: number; ha: number; volume: number; flights: number; last: string | null }>()
-    for (const e of filteredEvents) {
-      const cur = map.get(e.parcel_id) ?? { count: 0, ha: 0, volume: 0, flights: 0, last: null }
-      cur.count += 1
-      cur.ha += e.area_treated_ha
-      cur.volume += e.volume_l
-      cur.flights += e.flights_count
-      if (!cur.last || e.executed_at > cur.last) cur.last = e.executed_at
-      map.set(e.parcel_id, cur)
+    const map = new Map<string, { count: number; ha: number; volume: number; flights: number; last: string | null }>();
+    for (const e of eventsInRange) {
+      if (!filteredParcelsById.has(e.parcel_id)) continue;
+      const cur = map.get(e.parcel_id) ?? { count: 0, ha: 0, volume: 0, flights: 0, last: null };
+      cur.count += 1;
+      cur.ha += e.area_treated_ha;
+      cur.volume += e.volume_l;
+      cur.flights += e.flights_count;
+      if (!cur.last || e.executed_at > cur.last) cur.last = e.executed_at;
+      map.set(e.parcel_id, cur);
     }
-    return map
-  }, [filteredEvents])
+    return map;
+  }, [eventsInRange, filteredParcelsById]);
 
+  // Parcelas en formato MapParcel para el mapa.
   const mapParcels: MapParcel[] = useMemo(
     () =>
       filteredParcels.map((p) => {
-        const agg = eventsByParcel.get(p.id)
+        const agg = eventsByParcel.get(p.id);
         return {
           id: p.id,
           name: p.name,
           farm_name: p.farm_name,
           client_name: p.client_name,
           area_ha: p.area_ha,
-          status: p.status,
+          // QA-02: status ya no se muestra en el mapa. Pasamos
+          // "al_dia" como neutral para que el color de relleno no
+          // confunda al operador. Los polígonos se pintan con el
+          // verde de "al dia" por default; el evento amarillo
+          // (events-circle) es el indicador visual principal.
+          status: "al_dia" as const,
           geom: p.geom,
           centroid_lng: p.centroid_lng,
           centroid_lat: p.centroid_lat,
           events_in_range: agg?.count ?? 0,
-          ha_in_range: agg ? Math.round(agg.ha * 10) / 10 : 0,
-        }
+          ha_in_range: agg ? Math.round(agg.ha * 10) / 10 : 0
+        };
       }),
-    [filteredParcels, eventsByParcel],
-  )
+    [filteredParcels, eventsByParcel]
+  );
 
+  // QA-02: KPIs simplificados. Aplicaciones (cantidad), Parcelas
+  // tratadas (count único), Área aplicada (suma), Última fumigación
+  // (max executed_at).
   const kpis = useMemo(() => {
-    const ha = filteredEvents.reduce((s, e) => s + e.area_treated_ha, 0)
-    // s8.8 (2026-07-31) + S8 Bloque B (2026-08-29): VUELOS y VOLUMEN
-    // vienen de `payload.flight_aggregates` (agregados de `dji_flights`
-    // en el rango de fechas de los eventos), NO de los eventos. Razon:
-    // los eventos importados de DJI tienen `flights_count=0` y
-    // `volume_l=0` porque las fumigaciones scrapeadas no tienen
-    // `flight_ids` linkeados y `dose_l_per_ha` no se persiste. Antes
-    // los KPIs VUELOS/VOLUMEN mostraban 0 con 610 aplicaciones. Ahora
-    // el geovisor muestra los valores REALES de la BD.
-    //
-    // APLICACIONES y HECTÁREAS TRATADAS siguen viniendo de los eventos
-    // (correcto — son métricas de aplicación, no de vuelo).
-    const volume = payload.flight_aggregates.total_volume_l
-    const flights = payload.flight_aggregates.total_flights
-    return { events: filteredEvents.length, ha, volume, flights, parcels: eventsByParcel.size }
-  }, [filteredEvents, eventsByParcel, payload.flight_aggregates])
+    const last = sortedEvents[0]?.executed_at ?? null;
+    return {
+      events: sortedEvents.length,
+      parcels: eventsByParcel.size,
+      ha: sortedEvents.reduce((s, e) => s + e.area_treated_ha, 0),
+      last
+    };
+  }, [sortedEvents, eventsByParcel]);
 
-  const selected = filteredParcels.find((p) => p.id === selectedId) ?? null
-  const selectedAgg = selectedId ? eventsByParcel.get(selectedId) : undefined
+  // Evento seleccionado: si hay, derivamos su parcela para el card
+  // del sidebar.
+  const selectedEvent = useMemo(
+    () => sortedEvents.find((e) => e.id === selectedEventId) ?? null,
+    [sortedEvents, selectedEventId]
+  );
+  const selectedEventParcel = selectedEvent
+    ? filteredParcelsById.get(selectedEvent.parcel_id) ?? null
+    : null;
 
-  const sortedList = useMemo(
-    () =>
-      [...filteredParcels].sort((a, b) => {
-        const s = STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status)
-        if (s !== 0) return s
-        return (eventsByParcel.get(b.id)?.count ?? 0) - (eventsByParcel.get(a.id)?.count ?? 0)
-      }),
-    [filteredParcels, eventsByParcel],
-  )
+  // QA-02: cuando el usuario hace click en un item de la lista,
+  // centramos el mapa en la parcela y abrimos el popup. El componente
+  // `GeoMap` acepta `selectedEventId` y abre el popup en el feature
+  // del source "events". Para centrar el mapa, hacemos flyTo al
+  // centroide de la parcela.
+  function handleEventClick(eventId: string) {
+    const ev = sortedEvents.find((e) => e.id === eventId);
+    if (!ev) return;
+    setSelectedEventId(eventId);
+    setSelectedId(ev.parcel_id);
+  }
 
-  const toggle = <T,>(list: T[], value: T, setter: (v: T[]) => void) =>
-    setter(list.includes(value) ? list.filter((v) => v !== value) : [...list, value])
+  // Si el usuario cambia el rango temporal y el evento seleccionado
+  // queda fuera del rango, lo limpiamos.
+  useEffect(() => {
+    if (!selectedEventId) return;
+    if (!sortedEvents.some((e) => e.id === selectedEventId)) {
+      setSelectedEventId(null);
+    }
+  }, [selectedEventId, sortedEvents]);
+
+  // Card-resumen cuando hay evento seleccionado: incluye los datos
+  // del V0 que el operador quiere ver.
+  const selectedCardData = selectedEvent && selectedEventParcel ? {
+    event: selectedEvent,
+    parcel: selectedEventParcel
+  } : null;
 
   return (
     <div className="flex h-svh flex-col lg:flex-row">
@@ -161,7 +273,7 @@ export function GeovisorClient({ payload }: { payload: GeovisorPayload }) {
       <aside
         className={cn(
           "flex shrink-0 flex-col gap-5 overflow-y-auto border-b border-border bg-card p-4 lg:border-b-0 lg:border-r",
-          showFilters ? "lg:w-76" : "lg:w-0 lg:overflow-hidden lg:border-r-0 lg:p-0",
+          showFilters ? "lg:w-72" : "lg:w-0 lg:overflow-hidden lg:border-r-0 lg:p-0"
         )}
       >
         <div className="flex items-center gap-2">
@@ -180,97 +292,38 @@ export function GeovisorClient({ payload }: { payload: GeovisorPayload }) {
             placeholder="Buscar suerte, hacienda, variedad…"
             aria-label="Buscar parcela"
             className="pl-8"
+            data-testid="geovisor-search"
           />
         </div>
 
-        <FieldSelect
-          label="Cliente / Ingenio"
-          value={client}
-          onChange={(e) => {
-            setClient(e.target.value)
-            setFarm("todas")
-          }}
-        >
-          <option value="todos">Todos los clientes</option>
-          {clients.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-        </FieldSelect>
-
-        <FieldSelect label="Hacienda" value={farm} onChange={(e) => setFarm(e.target.value)}>
-          <option value="todas">Todas las haciendas</option>
-          {farms.map((f) => (
-            <option key={f} value={f}>
-              {f}
-            </option>
-          ))}
-        </FieldSelect>
-
-        <FieldSelect label="Modelo de dron asignado" value={model} onChange={(e) => setModel(e.target.value)}>
-          <option value="todos">Todos los modelos</option>
-          {DRONE_MODELS.map((m) => (
-            <option key={m.id} value={String(m.id)}>
-              {m.name}
-            </option>
-          ))}
-        </FieldSelect>
-
-        <fieldset className="flex flex-col gap-2">
-          <legend className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Estado de cadencia
-          </legend>
-          <div className="flex flex-wrap gap-1.5">
-            {STATUS_ORDER.map((s) => {
-              const active = statuses.includes(s)
-              return (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => toggle(statuses, s, setStatuses)}
-                  aria-pressed={active}
-                  className={cn(
-                    "flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
-                    active ? "border-transparent bg-foreground text-background" : "border-border hover:bg-muted",
-                  )}
-                >
-                  <span
-                    className="size-2 rounded-full"
-                    style={{ backgroundColor: STATUS_META[s].color }}
-                    aria-hidden
-                  />
-                  {STATUS_META[s].label}
-                </button>
-              )
-            })}
-          </div>
-        </fieldset>
-
-        <fieldset className="flex flex-col gap-2">
-          <legend className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Origen del registro
-          </legend>
-          <div className="flex flex-wrap gap-1.5">
-            {SOURCES.map((s) => {
-              const active = sources.includes(s)
-              return (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => toggle(sources, s, setSources)}
-                  aria-pressed={active}
-                  className={cn(
-                    "rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
-                    active ? "border-transparent bg-foreground text-background" : "border-border hover:bg-muted",
-                  )}
-                >
-                  {SOURCE_LABEL[s]}
-                </button>
-              )
-            })}
-          </div>
-        </fieldset>
+        <div className="grid grid-cols-2 gap-2">
+          <label className="flex flex-col gap-1">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Desde
+            </span>
+            <Input
+              type="date"
+              value={fromDate}
+              onChange={(e) => setFromDate(e.target.value)}
+              aria-label="Fecha desde"
+              data-testid="geovisor-from"
+              className="text-xs"
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Hasta
+            </span>
+            <Input
+              type="date"
+              value={toDate}
+              onChange={(e) => setToDate(e.target.value)}
+              aria-label="Fecha hasta"
+              data-testid="geovisor-to"
+              className="text-xs"
+            />
+          </label>
+        </div>
 
         <fieldset className="flex flex-col gap-2">
           <legend className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -279,14 +332,6 @@ export function GeovisorClient({ payload }: { payload: GeovisorPayload }) {
           <div className="flex flex-col gap-1.5">
             {(
               [
-                // S8.8 (2026-07-31): cada capa muestra su simbologia real
-                // (color de relleno, punto, glyph) para que el operador
-                // entienda que es cada toggle sin abrir el mapa. Los
-                // colores matchean geo-map.tsx:
-                //   - critico: #c0392b (rojo) — representativo del color
-                //     de poligono critico (cambia por status real del parcel)
-                //   - eventos: #f5e839 (amarillo) — events-circle paint
-                //   - labels: text-glyph "Aa"
                 {
                   label: "Polígonos de parcelas",
                   value: showParcels,
@@ -294,10 +339,10 @@ export function GeovisorClient({ payload }: { payload: GeovisorPayload }) {
                   sym: (
                     <span
                       className="size-3.5 rounded-sm border border-foreground/20"
-                      style={{ backgroundColor: STATUS_META.critico.color }}
+                      style={{ backgroundColor: "#16a34a" }}
                       aria-hidden
                     />
-                  ),
+                  )
                 },
                 {
                   label: "Aplicaciones en el rango",
@@ -309,7 +354,7 @@ export function GeovisorClient({ payload }: { payload: GeovisorPayload }) {
                       style={{ backgroundColor: "#f5e839" }}
                       aria-hidden
                     />
-                  ),
+                  )
                 },
                 {
                   label: "Etiquetas de suerte",
@@ -322,8 +367,8 @@ export function GeovisorClient({ payload }: { payload: GeovisorPayload }) {
                     >
                       Aa
                     </span>
-                  ),
-                },
+                  )
+                }
               ] as const
             ).map((l) => (
               <button
@@ -340,13 +385,13 @@ export function GeovisorClient({ payload }: { payload: GeovisorPayload }) {
                 <span
                   className={cn(
                     "flex h-4 w-7 items-center rounded-full p-0.5 transition-colors",
-                    l.value ? "bg-primary" : "bg-muted-foreground/30",
+                    l.value ? "bg-primary" : "bg-muted-foreground/30"
                   )}
                 >
                   <span
                     className={cn(
                       "size-3 rounded-full bg-card transition-transform",
-                      l.value && "translate-x-3",
+                      l.value && "translate-x-3"
                     )}
                   />
                 </span>
@@ -362,14 +407,10 @@ export function GeovisorClient({ payload }: { payload: GeovisorPayload }) {
           <div className="flex flex-wrap gap-1.5">
             {(
               [
-                // S8.7 (v2.6): selector de 4 basemaps. hibrido + topo solo
-                // disponibles cuando USE_MAPTILER=true (requieren MapTiler
-                // vector styles con labels / curvas de nivel). En fallback
-                // (sin key), solo satelite y calles son relevantes.
                 ["satelite", "Satélite"],
                 ["hibrido", "Híbrido"],
                 ["calles", "Calles"],
-                ["topo", "Topo"],
+                ["topo", "Topo"]
               ] as [BaseMap, string][]
             )
               .filter(([value]) => USE_MAPTILER || value === "satelite" || value === "calles")
@@ -392,11 +433,8 @@ export function GeovisorClient({ payload }: { payload: GeovisorPayload }) {
       <section className="relative min-h-[60svh] flex-1">
         <GeoMap
           parcels={mapParcels}
-          events={filteredEvents
+          events={sortedEvents
             .filter((e): e is typeof e & { lng: number; lat: number } =>
-              // s8.8 (2026-07-31): solo eventos con coordenadas validas
-              // (centroide de flights calculado en getRecentFumigations).
-              // Si no hay flights asociados, el evento se oculta.
               typeof e.lng === "number" && typeof e.lat === "number"
             )
             .map((e) => ({
@@ -412,7 +450,7 @@ export function GeovisorClient({ payload }: { payload: GeovisorPayload }) {
               flights_count: e.flights_count,
               notes: e.notes,
               source: e.source,
-              n_matched_flights: e.n_matched_flights ?? null,
+              n_matched_flights: e.n_matched_flights ?? null
             }))}
           showParcels={showParcels}
           showEvents={showEvents}
@@ -424,20 +462,26 @@ export function GeovisorClient({ payload }: { payload: GeovisorPayload }) {
           onSelectEvent={setSelectedEventId}
         />
 
-        {/* KPIs de la ventana temporal */}
+        {/* QA-02: KPIs simplificados — Fumigaciones / Parcelas / Área / Última */}
         <div className="pointer-events-none absolute inset-x-3 top-3 flex flex-wrap gap-2">
           <div className="pointer-events-auto flex flex-wrap items-stretch divide-x divide-border overflow-hidden rounded-md border border-border bg-card/95 shadow-sm backdrop-blur">
             {[
-              { icon: Sprout, label: "Aplicaciones", value: fmtInt(kpis.events) },
-              { icon: MapPin, label: "Hectáreas tratadas", value: `${fmtDec(kpis.ha)} ha` },
-              { icon: Droplets, label: "Volumen", value: fmtLiters(kpis.volume) },
-              { icon: Plane, label: "Vuelos", value: fmtInt(kpis.flights) },
+              { icon: Sprout, label: "Fumigaciones", value: fmtInt(kpis.events) },
+              { icon: MapPin, label: "Parcelas tratadas", value: fmtInt(kpis.parcels) },
+              { icon: Droplets, label: "Área aplicada", value: `${fmtDec(kpis.ha)} ha` },
+              {
+                icon: Plane,
+                label: "Última aplicación",
+                value: kpis.last ? fmtDate(kpis.last) : "—"
+              }
             ].map((k) => (
               <div key={k.label} className="flex items-center gap-2.5 px-3 py-2">
                 <k.icon className="size-4 text-primary" aria-hidden />
                 <div className="flex flex-col leading-tight">
-                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{k.label}</span>
-                  <span className="tabular font-mono text-sm font-bold">{k.value}</span>
+                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                    {k.label}
+                  </span>
+                  <span className="font-mono text-sm font-bold tabular-nums">{k.value}</span>
                 </div>
               </div>
             ))}
@@ -453,109 +497,122 @@ export function GeovisorClient({ payload }: { payload: GeovisorPayload }) {
             {showFilters ? "Ocultar filtros" : "Mostrar filtros"}
           </Button>
         </div>
-
-        {/* Leyenda */}
-        <div className="absolute bottom-28 left-3 rounded-md border border-border bg-card/95 p-2.5 shadow-sm backdrop-blur sm:bottom-32">
-          <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Cadencia de fumigación
-          </p>
-          <ul className="flex flex-col gap-1">
-            {STATUS_ORDER.map((s) => (
-              <li key={s} className="flex items-center gap-2 text-xs">
-                <span className="size-2.5 rounded-sm" style={{ backgroundColor: STATUS_META[s].color }} aria-hidden />
-                {STATUS_META[s].label}
-              </li>
-            ))}
-          </ul>
-        </div>
-
-        {/* S8.8 (2026-07-31): VENTANA TEMPORAL removida. No aportaba
-            a la UX del operador; filtramos por el rango natural de los
-            datos (ver from/to arriba). Si en el futuro se quiere
-            re-introducir, el componente TimeRange sigue en
-            components/geovisor/time-range.tsx listo para usar. */}
       </section>
 
-      {/* Panel de resultados */}
-      <aside className="flex shrink-0 flex-col border-t border-border bg-card lg:w-84 lg:border-l lg:border-t-0">
-        {selected ? (
-          <div className="flex flex-col gap-3 border-b border-border p-4">
+      {/* Panel de resultados: lista de fumigaciones */}
+      <aside
+        className="flex shrink-0 flex-col border-t border-border bg-card lg:w-96 lg:border-l lg:border-t-0"
+        data-testid="geovisor-events-panel"
+      >
+        {/* Card del evento seleccionado (opcional) */}
+        {selectedCardData ? (
+          <div className="flex flex-col gap-2 border-b border-border p-4">
             <div className="flex items-start justify-between gap-2">
               <div>
-                <p className="text-[11px] uppercase tracking-wider text-muted-foreground">{selected.farm_name}</p>
-                <h3 className="text-base font-bold tracking-tight">{selected.name}</h3>
+                <p className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                  {selectedCardData.parcel.farm_name}
+                </p>
+                <h3 className="text-base font-bold tracking-tight">
+                  {selectedCardData.parcel.name}
+                </h3>
+                <p className="text-xs text-muted-foreground">
+                  {fmtDate(selectedCardData.event.executed_at)}
+                </p>
               </div>
-              <Badge
-                className="shrink-0 text-background"
-                style={{ backgroundColor: STATUS_META[selected.status].color }}
-              >
-                {STATUS_META[selected.status].label}
+              <Badge variant="secondary" className="shrink-0">
+                {SOURCE_LABEL[selectedCardData.event.source]}
               </Badge>
             </div>
             <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
-              {[
-                ["Área", `${fmtDec(selected.area_ha)} ha`],
-                ["Variedad", selected.variety],
-                ["Cadencia", `${selected.cadence_days} días`],
-                ["Última aplic.", fmtRelative(selected.last_fumigation_at)],
-                ["En el rango", `${selectedAgg?.count ?? 0} aplicaciones`],
-                ["Ha en el rango", `${fmtDec(selectedAgg?.ha ?? 0)} ha`],
-              ].map(([k, v]) => (
-                <div key={k} className="flex flex-col">
-                  <dt className="text-[10px] uppercase tracking-wider text-muted-foreground">{k}</dt>
-                  <dd className="font-mono font-medium">{v}</dd>
-                </div>
-              ))}
+              <div className="flex flex-col">
+                <dt className="text-[10px] uppercase tracking-wider text-muted-foreground">Área aplicada</dt>
+                <dd className="font-mono font-medium">
+                  {fmtDec(selectedCardData.event.area_treated_ha)} ha
+                </dd>
+              </div>
+              <div className="flex flex-col">
+                <dt className="text-[10px] uppercase tracking-wider text-muted-foreground">Volumen</dt>
+                <dd className="font-mono font-medium">
+                  {fmtLiters(selectedCardData.event.volume_l)}
+                </dd>
+              </div>
+              <div className="flex flex-col">
+                <dt className="text-[10px] uppercase tracking-wider text-muted-foreground">Producto</dt>
+                <dd className="font-medium">{selectedCardData.event.product || "—"}</dd>
+              </div>
+              <div className="flex flex-col">
+                <dt className="text-[10px] uppercase tracking-wider text-muted-foreground">Operador</dt>
+                <dd className="font-medium">{selectedCardData.event.operator || "—"}</dd>
+              </div>
             </dl>
-            <Button render={<Link href={`/parcelas/${selected.id}`} />} nativeButton={false} size="sm" className="w-full">
-              Ver hoja de vida
+            <Button
+              render={
+                <Link
+                  href={`/parcelas/${selectedCardData.parcel.id}`}
+                  aria-label="Ver hoja de vida de la parcela"
+                />
+              }
+              nativeButton={false}
+              size="sm"
+              className="w-full"
+            >
+              Ver detalle
               <ArrowUpRight className="size-3.5" />
             </Button>
           </div>
         ) : (
           <div className="border-b border-border p-4">
-            <h3 className="text-sm font-bold tracking-tight">Parcelas en el filtro</h3>
+            <h3 className="text-sm font-bold tracking-tight">Fumigaciones en el rango</h3>
             <p className="mt-1 text-xs text-muted-foreground">
-              Haz clic en un polígono del mapa o en la lista para ver el detalle y la hoja de vida.
+              {sortedEvents.length} aplicaciones · click para ver el detalle y centrar el mapa.
             </p>
           </div>
         )}
 
         <ul className="flex-1 divide-y divide-border overflow-y-auto lg:max-h-none max-h-72">
-          {sortedList.map((p) => {
-            const agg = eventsByParcel.get(p.id)
-            const active = p.id === selectedId
+          {sortedEvents.map((e) => {
+            const parcel = filteredParcelsById.get(e.parcel_id);
+            const active = e.id === selectedEventId;
             return (
-              <li key={p.id}>
+              <li key={e.id}>
                 <button
                   type="button"
-                  onClick={() => setSelectedId(active ? null : p.id)}
-                  className={cn("flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-muted", active && "bg-muted")}
+                  onClick={() => handleEventClick(e.id)}
+                  aria-pressed={active}
+                  data-testid={`geovisor-event-${e.id}`}
+                  className={cn(
+                    "flex w-full items-start gap-3 px-4 py-2.5 text-left hover:bg-muted",
+                    active && "bg-muted"
+                  )}
                 >
                   <span
-                    className="mt-0.5 size-2.5 shrink-0 rounded-sm"
-                    style={{ backgroundColor: STATUS_META[p.status].color }}
+                    className="mt-0.5 size-2.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: "#f5e839", border: "1px solid rgba(31,41,55,0.5)" }}
                     aria-hidden
                   />
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-semibold">{p.name}</span>
+                    <span className="block truncate text-sm font-semibold">
+                      {parcel?.name ?? "(parcela)"}
+                    </span>
                     <span className="block truncate text-[11px] text-muted-foreground">
-                      {p.farm_name} · {fmtDec(p.area_ha)} ha
+                      {fmtDate(e.executed_at)} · {fmtDec(e.area_treated_ha)} ha
+                      {e.product ? ` · ${e.product}` : ""}
                     </span>
                   </span>
-                  <span className="shrink-0 text-right">
-                    <span className="tabular block font-mono text-sm font-bold">{agg?.count ?? 0}</span>
-                    <span className="block text-[10px] uppercase text-muted-foreground">aplic.</span>
-                  </span>
+                  <Badge variant="secondary" className="shrink-0 text-[10px]">
+                    {SOURCE_LABEL[e.source]}
+                  </Badge>
                 </button>
               </li>
-            )
+            );
           })}
-          {sortedList.length === 0 && (
-            <li className="p-4 text-sm text-muted-foreground">No hay parcelas que cumplan los filtros.</li>
+          {sortedEvents.length === 0 && (
+            <li className="p-4 text-sm text-muted-foreground">
+              No hay fumigaciones en el rango seleccionado.
+            </li>
           )}
         </ul>
       </aside>
     </div>
-  )
+  );
 }
