@@ -378,7 +378,7 @@ function FumigationRow({
       </td>
       <td className="px-3 py-2.5">
         <Link
-          href={`/fumigacion/${f.id}`}
+          href={`/fumigaciones/${f.id}`}
           aria-label={`Ver detalle de la fumigación #${f.id} (${f.product_used ?? "sin producto"})${category ? `, tipo ${category.label}` : ", sin clasificar"}`}
           className="group -mx-1 inline-flex max-w-full cursor-pointer flex-col gap-0.5 rounded-sm px-1 py-0.5 text-foreground transition-colors hover:bg-primary/5 focus-visible:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
         >

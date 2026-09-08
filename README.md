@@ -58,8 +58,8 @@ npm run dev
 | `/parcelas/[id]` | Detalle de finca (timeline, cadencia, intervalo, mapa) |
 | `/fumigaciones` | Lista unificada DJI + manuales con filtros URL-driven + bulk ops |
 | `/fumigaciones/nueva` | Wizard 4 steps (mode/pick/form/confirm) |
-| `/fumigacion/[id]` | Detalle de fumigación (singular) con audit trail + invoices |
-| `/fumigacion/[id]/edit` | Editar fumigación |
+| `/fumigaciones/[id]` | Detalle de fumigación con audit trail + invoices |
+| `/fumigaciones/[id]/editar` | Editar fumigación |
 | `/reportes` | 3 tabs (Resumen / Por hacienda / Detalle) + exports CSV/PDF |
 | `/admin/calidad` | 5 patrones de data quality (admin) |
 | `/admin/parcels/new` | Crear parcela manual con mapa (admin) |

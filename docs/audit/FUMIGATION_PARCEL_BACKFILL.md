@@ -161,7 +161,7 @@ Skip con `--skip-backfill` si querés solo fetch+upsert.
 
 Una vez corrido el backfill:
 - `/fumigaciones` muestra todas las fumigaciones con su parcela.
-- `/fumigacion/[id]` renderiza el pin en el mapa.
+- `/fumigaciones/[id]` renderiza el pin en el mapa.
 - Reportes por hacienda (nivel 2) cuentan correctamente las
   fumigaciones por hacienda.
 - Dashboard de cadencia (sprint C — H1) muestra `last_fumigation_date`

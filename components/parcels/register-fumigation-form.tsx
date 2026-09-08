@@ -14,7 +14,7 @@
  * para soportar mode="create" | "edit". En mode="edit", el form se
  * inicializa con los valores del `initialFumigation` y hace PATCH en
  * lugar de POST. Esto permite editar fumigaciones una a una (no bulk)
- * desde /fumigacion/[id]/edit, sin perder trazabilidad (el id se
+ * desde /fumigaciones/[id]/editar, sin perder trazabilidad (el id se
  * mantiene, el `recorded_by` original no se toca, etc.).
  *
  * Campos editables (ambos modos):
@@ -37,7 +37,7 @@
  * Después de registrar/editar OK:
  *   - Muestra banner verde con el ID
  *   - Modo create: llama router.refresh() y queda en la misma página
- *   - Modo edit: llama router.push(`/fumigacion/${id}`) para volver
+ *   - Modo edit: llama router.push(`/fumigaciones/${id}`) para volver
  *     al detail (que re-fetchea con el JOIN de categoría)
  *
  * Si falla:
@@ -256,7 +256,7 @@ export const RegisterFumigationForm = forwardRef<
   if (mode === "edit" && !initialFumigation) {
     // En prod esto se renderiza como un form vacío que va a fallar
     // al hacer PATCH (id undefined). Es preferible al crashear la
-    // página entera; el caller (la página /fumigacion/[id]/edit) se
+    // página entera; el caller (la página /fumigaciones/[id]/editar) se
     // asegura de pasar initialFumigation.
     if (process.env.NODE_ENV !== "production") {
       // eslint-disable-next-line no-console
@@ -478,7 +478,7 @@ export const RegisterFumigationForm = forwardRef<
         // navegar al detail (que re-fetchea con el JOIN de categoría).
         setTimeout(() => {
           startTransition(() => {
-            router.push(`/fumigacion/${initialFumigation.id}`);
+            router.push(`/fumigaciones/${initialFumigation.id}`);
             router.refresh();
           });
         }, 600);

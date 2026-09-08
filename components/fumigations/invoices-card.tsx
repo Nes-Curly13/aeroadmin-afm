@@ -2,7 +2,7 @@
 
 /**
  * InvoicesCard — sección "Facturación" dentro del detail page de
- * una fumigación (`/fumigacion/[id]`).
+ * una fumigación (`/fumigaciones/[id]`).
  *
  * Sprint S7 — feature/s7-schema-extension / Fase 1 / PR-C.
  *

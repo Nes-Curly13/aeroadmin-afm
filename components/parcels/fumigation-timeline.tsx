@@ -51,9 +51,9 @@ export function FumigationTimeline({
                 <Badge variant="outline" className={`text-[10px] font-medium ${SOURCE_STYLE[f.source] ?? ""}`}>
                   {SOURCE_LABEL[f.source] ?? f.source}
                 </Badge>
-                {/* Sprint 2026-08-05: link a la ficha individual /fumigacion/[id] */}
+                {/* Sprint 2026-08-05: link a la ficha individual /fumigaciones/[id] */}
                 <Link
-                  href={`/fumigacion/${f.id}`}
+                  href={`/fumigaciones/${f.id}`}
                   className="rounded border border-border bg-muted/40 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
                   aria-label={`Ver ficha de fumigación #${f.id}`}
                 >
@@ -95,7 +95,7 @@ export function FumigationTimeline({
                   <Link
                     aria-label={`Multi-parcela: cubrió ${f.n_secondary_parcels} suerte${f.n_secondary_parcels === 1 ? "" : "s"} adicional${f.n_secondary_parcels === 1 ? "" : "es"}. Ver detalle.`}
                     className="inline-flex items-center gap-1 rounded-full border border-chart-1/40 bg-chart-1/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-chart-1 hover:bg-chart-1/20"
-                    href={`/fumigacion/${f.id}`}
+                    href={`/fumigaciones/${f.id}`}
                   >
                     <Layers className="size-3" aria-hidden />
                     {`+${f.n_secondary_parcels} suerte${f.n_secondary_parcels === 1 ? "" : "s"}`}

@@ -1,23 +1,39 @@
 "use client"
 
-import { LayoutDashboard, Map, Sprout, History, BarChart3 } from "lucide-react"
+import {
+  LayoutDashboard,
+  Map,
+  Sprout,
+  History,
+  BarChart3,
+  Settings
+} from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 
+/**
+ * NavLinks — links principales de la sidebar.
+ *
+ * Fase 8 (2026-09-08): reordenado a la spec del operador fumigador.
+ * Antes el orden era `Panel / Geovisor / Parcelas / Fumigaciones /
+ * Reportes` (el orden histórico del mockup V0). Ahora es
+ * `Inicio / Parcelas / Fumigaciones / Geovisor / Reportes /
+ * Administración` — el recurso "Parcelas" (lo más usado del día a día)
+ * queda segundo, después del dashboard. "Administración" es un link
+ * nuevo al landing `/admin` que se creó en este mismo PR.
+ *
+ * "Inicio" reemplaza el label "Panel" para alinearse con la
+ * terminología de la spec del producto (el operador no usa la palabra
+ * "panel" en su vocabulario). La URL sigue siendo `/`.
+ */
 const LINKS = [
-  { href: "/", label: "Panel", icon: LayoutDashboard },
-  { href: "/geovisor", label: "Geovisor", icon: Map },
+  { href: "/", label: "Inicio", icon: LayoutDashboard },
   { href: "/parcelas", label: "Parcelas", icon: Sprout },
-  // Sprint 2026-08-04 — feature/parcel-onboarding. El operador
-  // pidio un listado unificado de fumigaciones (en vez de tener
-  // que abrir parcela por parcela). El link en la nav lo hace
-  // accesible desde cualquier pagina.
   { href: "/fumigaciones", label: "Fumigaciones", icon: History },
-  // feature/reports-level-2 (2026-08-08) — reportes por hacienda
-  // y vista general multi-hacienda. Lo pone accesible desde el
-  // sidebar (no requiere entrar a una parcela específica).
+  { href: "/geovisor", label: "Geovisor", icon: Map },
   { href: "/reportes", label: "Reportes", icon: BarChart3 },
+  { href: "/admin", label: "Administración", icon: Settings }
 ]
 
 export function NavLinks() {
@@ -26,7 +42,14 @@ export function NavLinks() {
   return (
     <nav aria-label="Navegación principal" className="flex gap-1 overflow-x-auto lg:flex-col lg:overflow-visible">
       {LINKS.map(({ href, label, icon: Icon }) => {
-        const active = href === "/" ? pathname === "/" : pathname.startsWith(href)
+        // Active match:
+        //   - "/" matchea solo la home exacta
+        //   - "/admin" matchea "/admin", "/admin/parcels", "/admin/calidad", etc.
+        //   - resto matchea prefijo
+        const active =
+          href === "/"
+            ? pathname === "/"
+            : pathname === href || pathname.startsWith(`${href}/`)
         return (
           <Link
             key={href}

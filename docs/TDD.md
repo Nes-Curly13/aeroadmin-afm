@@ -317,7 +317,7 @@ pages que consumen las shapes nativas del proyecto (`DjiFumigationEvent`,
 
 - `app/page.tsx` (dashboard)
 - `app/fumigaciones/page.tsx` + `app/fumigaciones/nueva/page.tsx`
-- `app/fumigacion/[id]/page.tsx`
+- `app/fumigaciones/[id]/page.tsx`
 - `app/admin/parcels/**` (todas las pages admin)
 - `app/reportes/page.tsx`
 - `app/api/**/route.ts` (route handlers)

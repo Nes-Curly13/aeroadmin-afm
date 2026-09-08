@@ -109,11 +109,29 @@ const nextConfig: NextConfig = {
   // → doble entry point confuso. Redirect permanente para que cualquier
   // URL externa (bookmarks, links viejos, scrapers) aterrice en la
   // vista canónica sin perder SEO del histórico.
+  //
+  // Fase 8 (2026-09-08): unificación de URL del detail de fumigación.
+  // Antes: `/fumigacion/[id]` (singular, inconsistente con el recurso
+  // plural `/fumigaciones`). Ahora: `/fumigaciones/[id]`. Idem el
+  // editor `/fumigacion/[id]/edit` → `/fumigaciones/[id]/editar` (también
+  // `edit` → `editar` para consistencia con el resto del sitio en
+  // español). Redirects permanentes para backward compat con cualquier
+  // link externo (operator bookmarks, scrapers, screenshots viejos).
   async redirects() {
     return [
       {
         source: "/history",
         destination: "/task-history",
+        permanent: true
+      },
+      {
+        source: "/fumigacion/:id",
+        destination: "/fumigaciones/:id",
+        permanent: true
+      },
+      {
+        source: "/fumigacion/:id/edit",
+        destination: "/fumigaciones/:id/editar",
         permanent: true
       }
     ];

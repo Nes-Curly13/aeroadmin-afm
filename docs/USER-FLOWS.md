@@ -128,10 +128,10 @@ Bulk operations (Bloque F, 2026-08-29):
 - Selección múltiple → bulk-delete / bulk-category
 - "Select all" solo selecciona página actual (UX-005, mejorable)
 
-## 8. Detalle de fumigación (`/fumigacion/[id]`)
+## 8. Detalle de fumigación (`/fumigaciones/[id]`)
 
-**Path**: `/fumigacion/[id]` (AppShell, **singular** vs `/fumigaciones` plural — inconsistencia de naming)
-**Files**: `app/(auth)/fumigacion/[id]/page.tsx`
+**Path**: `/fumigaciones/[id]` (AppShell, **plural** — corregido en Fase 8 desde `/fumigacion/[id]`)
+**Files**: `app/(auth)/fumigaciones/[id]/page.tsx`
 
 Layout:
 - Header: producto, fecha, parcela(s), área, duración
@@ -141,12 +141,12 @@ Layout:
 - Multi-parcela: si `parcels[]` secundario, lista de suertes
 - Audit trail: timeline de cambios (created/edited/deleted/restored)
 - Invoices: facturas asociadas (si hay)
-- Admin: botón "Editar" → `/fumigacion/[id]/edit`
+- Admin: botón "Editar" → `/fumigaciones/[id]/editar`
 - Admin: botón "Eliminar" (soft-delete con confirmación)
 
-## 9. Editar fumigación (`/fumigacion/[id]/edit`)
+## 9. Editar fumigación (`/fumigaciones/[id]/editar`)
 
-**Path**: `/fumigacion/[id]/edit` (AppShell)
+**Path**: `/fumigaciones/[id]/editar` (AppShell)
 **Files**: `app/(auth)/fumigacion/[id]/edit/page.tsx`
 
 Mismo `RegisterFumigationForm` en `mode="edit"`. Inicializa con `initialFumigation`. PATCH en lugar de POST.
@@ -223,8 +223,8 @@ Helpers: `requireRole(['admin', 'supervisor'])` en route handlers, `getViewerRol
 | `/parcelas/[id]` | AppShell | Detalle de finca |
 | `/fumigaciones` | AppShell | Lista de fumigaciones |
 | `/fumigaciones/nueva` | AppShell | Wizard 4 steps |
-| `/fumigacion/[id]` | AppShell | Detalle de fumigación (singular!) |
-| `/fumigacion/[id]/edit` | AppShell | Editar fumigación |
+| `/fumigaciones/[id]` | AppShell | Detalle de fumigación |
+| `/fumigaciones/[id]/editar` | AppShell | Editar fumigación |
 | `/reportes` | AppShell | Reportes (3 tabs) |
 | `/admin/calidad` | admin | Data quality |
 | `/admin/parcels/new` | admin | Crear parcela manual |

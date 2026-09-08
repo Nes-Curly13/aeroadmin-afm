@@ -341,7 +341,7 @@ export interface DjiFumigationEvent {
    *
    * Default `[]` para fumigaciones single-parcela. Lo hidrata
    * `getFumigationById` y `getFumigationRawById`. La UI lo muestra
-   * en `/fumigacion/[id]` como "Otras suertes cubiertas" y en
+   * en `/fumigaciones/[id]` como "Otras suertes cubiertas" y en
    * `/parcelas/[id]` como badge "También cubrió N suertes" en el
    * timeline.
    *

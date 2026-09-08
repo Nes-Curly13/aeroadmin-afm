@@ -9,7 +9,7 @@
  *     la columna real es `duration_seconds` y la conversion a minutos
  *     la hace la BD con `duration_seconds / 60.0`.
  *   - Query proyecta `parcel_id` (s9.0 — para mostrar la suerte
- *     cubierta por cada vuelo en `/fumigacion/[id]`).
+ *     cubierta por cada vuelo en `/fumigaciones/[id]`).
  *   - Query ordena por `start_at ASC` (timeline cronologico).
  *
  * Bug pre-S9: `duration_min` no existia en la tabla, el query fallaba

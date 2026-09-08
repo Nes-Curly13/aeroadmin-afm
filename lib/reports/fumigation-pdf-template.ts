@@ -10,7 +10,7 @@
 //     estilos inline, escape de user input).
 //   - Más compacto: 1 fumigación, no necesita secciones largas.
 //   - SIN imagen satelital (reuso del parcel report sería scope creep).
-//     Si el operador quiere ver el mapa, lo ve en /fumigacion/[id].
+//     Si el operador quiere ver el mapa, lo ve en /fumigaciones/[id].
 //   - SIN SVG del polígono (idem).
 //   - Tabla de vuelos asociados al final (si hay).
 
