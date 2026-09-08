@@ -92,6 +92,17 @@ export async function AppShell({
                 browser tab sigue usando el mark (es un asset de 16x16,
                 el logo completo se veria terrible). */}
             <div className="flex h-[92px] w-[64px] shrink-0 items-center justify-center">
+              {/* QA-01 + fix SVG 400 (2026-09-08): despues del cambio al
+                  logo grande en QA-01 (PR #60), el <Image> usa
+                  `/afm-logo.svg` (57KB, 485x695 paths complejos). El Image
+                  optimizer de Next.js devuelve 400 cuando el SVG no se
+                  puede rasterizar al tamano pedido (e.g. aspect ratio
+                  no standard del asset original, o paths con
+                  currentColor/fill complejos). El fix es `unoptimized`
+                  — servimos el SVG directo del /public. Mismo patron que
+                  el fix original de S10.5 (PR #37) para el mark chico.
+                  Cosmetico — el favicon del browser tab no usa Image,
+                  asi que el side-effect es solo en el sidebar. */}
               <Image
                 src="/afm-logo.svg"
                 alt="Logo AFM"
@@ -99,6 +110,7 @@ export async function AppShell({
                 height={92}
                 className="h-full w-full"
                 priority
+                unoptimized
               />
             </div>
             <div className="flex flex-col leading-tight">

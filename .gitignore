@@ -154,6 +154,7 @@ playwright-report/
 # ============================================================
 /gh-pr-body-*.md
 /git-commit-msg-*.txt
+/dev-server-bg.log
 /docs/HANDOFF-*.md
 .gitignore.tmp-cleanup
 
