@@ -82,6 +82,7 @@ import {
 } from "react";
 import { Button } from "@/components/ui/button";
 import {
+  Check,
   Eraser,
   Loader2,
   MapPin,
@@ -90,7 +91,8 @@ import {
   Redo2,
   Satellite,
   Search,
-  Undo2
+  Undo2,
+  X
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -168,6 +170,20 @@ function polygonAreaHectares(p: PolygonGeom): number {
   return areaM2 / 10_000;
 }
 
+/**
+ * QA-13 (2026-09-08) — Detecta si el primer ring de un feature
+ * poligonal está cerrado (primer punto == último punto). Usado por
+ * el botón "Cerrar polígono" para no hacer nada si ya está cerrado.
+ */
+function isPolygonRingClosed(f: GeoJSONStoreFeatures): boolean {
+  if (f.geometry.type !== "Polygon") return true;
+  const ring = (f.geometry as PolygonGeom).coordinates[0];
+  if (!ring || ring.length < 4) return false;
+  const first = ring[0];
+  const last = ring[ring.length - 1];
+  return first[0] === last[0] && first[1] === last[1];
+}
+
 /** Estilos MapTiler (vector). Si NEXT_PUBLIC_MAPTILER_KEY no está, usamos EOX. */
 const MAPTILER_KEY = process.env.NEXT_PUBLIC_MAPTILER_KEY || "";
 const USE_MAPTILER = MAPTILER_KEY.length > 0;
@@ -237,6 +253,16 @@ export function ParcelDrawer({
   const [searchQuery, setSearchQuery] = useState("");
   const [searchPending, setSearchPending] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
+  // QA-13 (2026-09-08): track del estado de dibujo en curso para
+  // mostrar hints contextuales y un botón "Cerrar polígono" más
+  // rápido que el dblclick.
+  const [vertexCount, setVertexCount] = useState(0);
+  // QA-13: dialog para pegar coordenadas manuales como fallback
+  // cuando el operador no puede dibujar con mouse (o tiene el dato
+  // de un agrimensor).
+  const [coordsOpen, setCoordsOpen] = useState(false);
+  const [coordsText, setCoordsText] = useState("");
+  const [coordsError, setCoordsError] = useState<string | null>(null);
   const onChangeRef = useRef(onPolygonChange);
   // Mantener el callback actualizado sin re-inicializar el mapa.
   useEffect(() => {
@@ -371,6 +397,8 @@ export function ParcelDrawer({
 
         // QA-12: en cada change (vertex drag, undo/redo, etc.)
         // recalculamos el área + publicamos el polígono al padre.
+        // QA-13: también trackeamos el vertex count para mostrar
+        // hints contextuales y habilitar el botón "Cerrar polígono".
         draw.on("change", () => {
           const snapshot = draw.getSnapshot();
           const polygons = snapshot.filter(
@@ -380,10 +408,23 @@ export function ParcelDrawer({
             onChangeRef.current(null);
             setHasPolygon(false);
             setAreaHa(0);
+            setVertexCount(0);
             return;
           }
           const last = polygons[polygons.length - 1];
           const geom = last.geometry as PolygonGeom;
+          // Vertex count = puntos del primer ring, sin contar el
+          // closing point (que repide el primero).
+          const ring = geom.coordinates[0] ?? [];
+          let count = ring.length;
+          if (count >= 2) {
+            const first = ring[0];
+            const lastPt = ring[ring.length - 1];
+            if (first[0] === lastPt[0] && first[1] === lastPt[1]) {
+              count = ring.length - 1;
+            }
+          }
+          setVertexCount(count);
           onChangeRef.current(geom);
           setHasPolygon(true);
           setAreaHa(polygonAreaHectares(geom));
@@ -577,10 +618,122 @@ export function ParcelDrawer({
     [searchQuery]
   );
 
+  /**
+   * QA-13 (2026-09-08) — Cerrar polígono manualmente. En desktop el
+   * dblclick para cerrar es lento (mouse con doble click lento). Este
+   * botón acelera el flujo: cuando el operador puso 3+ vértices, puede
+   * cerrar el polígono de un click.
+   */
+  const handleClosePolygon = useCallback(() => {
+    const draw = drawRef.current;
+    if (!draw) return;
+    const snapshot = draw.getSnapshot();
+    const polygonFeature = snapshot.find(
+      (f): f is GeoJSONStoreFeatures & { id: string | number } =>
+        f.geometry.type === "Polygon" && f.id != null && !isPolygonRingClosed(f)
+    );
+    if (!polygonFeature) return;
+    const ring = (polygonFeature.geometry as PolygonGeom).coordinates[0];
+    if (ring.length < 3) return;
+    const closed = [...ring, ring[0]];
+    const closedGeom: PolygonGeom = {
+      type: "Polygon",
+      coordinates: [closed]
+    };
+    const featureId = polygonFeature.id as string;
+    draw.removeFeatures([featureId]);
+    draw.addFeatures([
+      {
+        ...polygonFeature,
+        geometry: closedGeom
+      } as GeoJSONStoreFeatures
+    ]);
+  }, []);
+
+  /**
+   * QA-13 — Importar coordenadas manuales. Acepta "lat,lng" una por
+   * línea. Mínimo 3 puntos para cerrar un polígono.
+   */
+  const handleImportCoords = useCallback(() => {
+    setCoordsError(null);
+    const lines = coordsText
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0);
+    if (lines.length < 3) {
+      setCoordsError("Necesitás al menos 3 puntos (vértices del polígono).");
+      return;
+    }
+    const points: Array<[number, number]> = [];
+    for (let i = 0; i < lines.length; i++) {
+      const raw = lines[i];
+      if (i === 0 && /^lat/i.test(raw) && /lng|lon/i.test(raw)) continue;
+      const parts = raw.split(/[,;\s]+/).filter((p) => p.length > 0);
+      if (parts.length < 2) {
+        setCoordsError(`Línea ${i + 1} malformada: "${raw}". Usá formato lat,lng.`);
+        return;
+      }
+      const lat = Number(parts[0]);
+      const lng = Number(parts[1]);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        setCoordsError(`Línea ${i + 1} con coordenadas inválidas: "${raw}"`);
+        return;
+      }
+      if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+        setCoordsError(
+          `Línea ${i + 1} fuera de rango: "${raw}" (lat -90..90, lng -180..180)`
+        );
+        return;
+      }
+      points.push([lng, lat]);
+    }
+    if (points.length < 3) {
+      setCoordsError("Necesitás al menos 3 puntos válidos.");
+      return;
+    }
+    const first = points[0];
+    const last = points[points.length - 1];
+    const closed =
+      first[0] === last[0] && first[1] === last[1] ? points : [...points, first];
+    const feature: GeoJSONStoreFeatures = {
+      type: "Feature",
+      geometry: { type: "Polygon", coordinates: [closed] },
+      properties: { mode: "polygon" }
+    };
+    const draw = drawRef.current;
+    if (!draw) {
+      setCoordsError("El mapa todavía no está listo. Esperá un instante.");
+      return;
+    }
+    draw.clear();
+    draw.addFeatures([feature]);
+    setCoordsOpen(false);
+    setCoordsText("");
+    const geom = (feature.geometry as unknown) as PolygonGeom;
+    onChangeRef.current(geom);
+    setHasPolygon(true);
+    setAreaHa(polygonAreaHectares(geom));
+    setVertexCount(closed.length - 1);
+  }, [coordsText]);
+
   return (
-    <div className="flex flex-col gap-2">
-      {/* Toolbar flotante: encima del mapa, posición absolute via CSS. */}
-      <div className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-card/95 p-2 shadow-sm backdrop-blur">
+    <div className="relative h-full w-full overflow-hidden rounded-lg border border-input">
+      {/* Contenedor del mapa — absolute inset-0 para que llene el
+          parent. El parent maneja el height (en new-parcel-form
+          usamos h-[calc(100vh-220px)] min-h-[640px] para desktop). */}
+      <div
+        ref={containerRef}
+        className="absolute inset-0"
+        data-testid="parcel-drawer-map"
+        role="application"
+        aria-label="Mapa para dibujar el polígono de la parcela"
+      />
+
+      {/* Toolbar flotante (top-left). */}
+      <div
+        className="absolute left-3 top-3 z-10 flex flex-wrap items-center gap-1 rounded-lg border border-border bg-card/95 p-1.5 shadow-lg backdrop-blur"
+        data-testid="drawer-toolbar"
+      >
         <Button
           type="button"
           variant={mode === "draw" ? "default" : "outline"}
@@ -642,44 +795,42 @@ export function ParcelDrawer({
           <Redo2 className="size-3.5" aria-hidden />
         </Button>
         <div className="mx-1 h-5 w-px bg-border" />
-        <form
-          onSubmit={handleSearch}
-          className="flex flex-1 items-center gap-1"
-          role="search"
+        <Button
+          type="button"
+          variant="default"
+          size="sm"
+          onClick={handleClosePolygon}
+          disabled={vertexCount < 3}
+          aria-label="Cerrar polígono"
+          data-testid="drawer-close-polygon"
+          className="gap-1"
         >
-          <div className="relative flex-1 min-w-[140px]">
-            <Search
-              className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
-              aria-hidden
-            />
-            <input
-              type="search"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Buscar ubicación"
-              aria-label="Buscar ubicación"
-              disabled={searchPending}
-              data-testid="drawer-search"
-              className="h-7 w-full rounded-md border border-input bg-background pl-7 pr-2 text-xs outline-none focus:border-ring focus:ring-2 focus:ring-ring/40 disabled:opacity-50"
-            />
-          </div>
-          {searchError && (
-            <span
-              className="text-[10px] font-medium text-destructive"
-              role="alert"
-              data-testid="drawer-search-error"
-            >
-              {searchError}
-            </span>
-          )}
-        </form>
+          <Check className="size-3.5" aria-hidden />
+          Cerrar
+        </Button>
+        <div className="mx-1 h-5 w-px bg-border" />
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => {
+            setCoordsOpen(true);
+            setCoordsError(null);
+          }}
+          aria-label="Importar coordenadas manuales"
+          data-testid="drawer-import-coords"
+        >
+          <MapPin className="size-3.5" aria-hidden />
+          Coords
+        </Button>
       </div>
 
-      {/* Toggle de basemap (segmented control). */}
+      {/* Toggle de basemap flotante (bottom-right). */}
       <div
-        className="flex items-center gap-1 self-start rounded-md border border-border bg-card/95 p-1 shadow-sm"
+        className="absolute bottom-3 right-3 z-10 flex items-center gap-1 rounded-lg border border-border bg-card/95 p-1 shadow-lg backdrop-blur"
         role="tablist"
         aria-label="Cambiar basemap"
+        data-testid="drawer-basemap-bar"
       >
         {(
           [
@@ -712,67 +863,194 @@ export function ParcelDrawer({
         })}
       </div>
 
-      {/* Contenedor del mapa + empty state overlay. */}
-      <div className="relative">
-        <div
-          ref={containerRef}
-          className="h-[400px] w-full rounded-lg border border-input"
-          data-testid="parcel-drawer-map"
-          role="application"
-          aria-label="Mapa para dibujar el polígono de la parcela"
-        />
-        {!hasPolygon && (
-          <div
-            className="pointer-events-none absolute inset-0 grid place-items-center rounded-lg bg-background/40"
-            data-testid="drawer-empty-state"
+      {/* Search flotante (top-right, debajo del nav control). */}
+      <form
+        onSubmit={handleSearch}
+        className="absolute right-3 top-3 z-10 flex items-center gap-1 rounded-lg border border-border bg-card/95 p-1.5 shadow-lg backdrop-blur"
+        role="search"
+        data-testid="drawer-search-bar"
+        style={{ marginTop: "44px" }}
+      >
+        <div className="relative">
+          <Search
+            className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
+            aria-hidden
+          />
+          <input
+            type="search"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Buscar ubicación"
+            aria-label="Buscar ubicación"
+            disabled={searchPending}
+            data-testid="drawer-search"
+            className="h-7 w-[180px] rounded-md border border-input bg-background pl-7 pr-2 text-xs outline-none focus:border-ring focus:ring-2 focus:ring-ring/40 disabled:opacity-50"
+          />
+        </div>
+        {searchError && (
+          <span
+            className="text-[10px] font-medium text-destructive"
+            role="alert"
+            data-testid="drawer-search-error"
           >
-            <div className="pointer-events-auto flex flex-col items-center gap-2 rounded-md border border-border bg-card/95 px-4 py-3 shadow-sm">
-              <p className="text-sm font-medium text-foreground">
-                Dibujá el límite de la parcela sobre el mapa
-              </p>
-              <p className="text-xs text-muted-foreground">
-                Hacé click en cada vértice y doble-click para cerrar.
-              </p>
-              {mode !== "draw" && (
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={() => switchMode("draw")}
-                  data-testid="drawer-empty-start"
-                  aria-label="Comenzar dibujo"
-                >
-                  <Pencil className="size-3.5" aria-hidden />
-                  Comenzar dibujo
-                </Button>
-              )}
-            </div>
-          </div>
+            {searchError}
+          </span>
         )}
-        {searchPending && (
-          <div
-            className="pointer-events-none absolute right-2 top-2 flex items-center gap-1 rounded-md bg-card/95 px-2 py-1 text-[10px] font-medium text-muted-foreground shadow-sm"
-            data-testid="drawer-search-pending"
-          >
-            <Loader2 className="size-3 animate-spin" aria-hidden />
-            Buscando…
-          </div>
-        )}
-      </div>
+      </form>
 
-      {/* Display del área calculada. */}
+      {/* Empty state (esquina inferior-izquierda, no cubre el mapa). */}
+      {!hasPolygon && (
+        <div
+          className="pointer-events-none absolute bottom-3 left-3 z-10 max-w-[280px] rounded-lg border border-border bg-card/95 p-3 text-xs shadow-lg backdrop-blur"
+          data-testid="drawer-empty-state"
+        >
+          <p className="text-sm font-semibold text-foreground">
+            Cómo dibujar la parcela
+          </p>
+          <ol className="mt-1.5 list-decimal space-y-0.5 pl-4 text-[11px] text-muted-foreground">
+            <li>Buscá la ubicación con la barra de arriba a la derecha</li>
+            <li>Hacé click en cada vértice del límite del lote</li>
+            <li>
+              Cuando tengas 3+ puntos, click en <strong>Cerrar</strong>
+            </li>
+          </ol>
+          {mode !== "draw" && (
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => switchMode("draw")}
+              data-testid="drawer-empty-start"
+              aria-label="Comenzar dibujo"
+              className="pointer-events-auto mt-2 w-full"
+            >
+              <Pencil className="size-3.5" aria-hidden />
+              Comenzar dibujo
+            </Button>
+          )}
+        </div>
+      )}
+
+      {/* Drawing hint (vertex count en curso). */}
+      {hasPolygon && vertexCount > 0 && vertexCount < 3 && (
+        <div
+          className="pointer-events-none absolute bottom-3 left-3 z-10 flex items-center gap-2 rounded-lg border border-border bg-card/95 px-3 py-1.5 text-xs shadow-lg backdrop-blur"
+          data-testid="drawer-drawing-hint"
+        >
+          <Pencil className="size-3 text-primary" aria-hidden />
+          <span className="text-foreground">
+            {vertexCount} {vertexCount === 1 ? "vértice" : "vértices"} — agregá{" "}
+            {3 - vertexCount} más para cerrar
+          </span>
+        </div>
+      )}
+
+      {/* Display del área calculada (bottom-left, sobre scale control). */}
       <div
-        className="flex items-center justify-between text-xs text-muted-foreground"
+        className="pointer-events-none absolute bottom-12 left-3 z-10 flex items-center gap-2 rounded-md border border-border bg-card/95 px-3 py-1.5 text-xs shadow-md backdrop-blur"
         data-testid="drawer-area"
       >
-        <span>
+        <span className="text-muted-foreground">
           {hasPolygon
-            ? "Polígono dibujado"
-            : "Sin polígono — dibujá el límite del lote"}
+            ? vertexCount > 0
+              ? "Área"
+              : "Polígono dibujado"
+            : "Sin polígono"}
         </span>
-        <span className="font-mono tabular-nums">
+        <span className="font-mono text-sm font-semibold tabular-nums text-foreground">
           {areaHa > 0 ? `${areaHa.toFixed(2)} ha` : "—"}
         </span>
       </div>
+
+      {searchPending && (
+        <div
+          className="pointer-events-none absolute right-3 top-16 z-10 flex items-center gap-1 rounded-md bg-card/95 px-2 py-1 text-[10px] font-medium text-muted-foreground shadow-md"
+          data-testid="drawer-search-pending"
+        >
+          <Loader2 className="size-3 animate-spin" aria-hidden />
+          Buscando…
+        </div>
+      )}
+
+      {/* Dialog de coordenadas manuales. */}
+      {coordsOpen && (
+        <div
+          className="absolute inset-0 z-20 grid place-items-center bg-background/60 backdrop-blur-sm"
+          data-testid="drawer-coords-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="coords-modal-title"
+        >
+          <div className="w-[min(420px,calc(100%-32px))] rounded-lg border border-border bg-card p-4 shadow-xl">
+            <div className="mb-3 flex items-start justify-between gap-2">
+              <div>
+                <h3
+                  id="coords-modal-title"
+                  className="text-sm font-semibold text-foreground"
+                >
+                  Pegar coordenadas de la parcela
+                </h3>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Una por línea, formato{" "}
+                  <code className="rounded bg-muted px-1">lat,lng</code>.
+                  Mínimo 3 puntos.
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => {
+                  setCoordsOpen(false);
+                  setCoordsError(null);
+                }}
+                aria-label="Cerrar"
+                data-testid="drawer-coords-close"
+              >
+                <X className="size-4" aria-hidden />
+              </Button>
+            </div>
+            <textarea
+              value={coordsText}
+              onChange={(e) => setCoordsText(e.target.value)}
+              placeholder={"3.4567,-76.3123\n3.4570,-76.3120\n3.4570,-76.3115\n3.4567,-76.3115"}
+              rows={6}
+              data-testid="drawer-coords-textarea"
+              className="w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs outline-none focus:border-ring focus:ring-2 focus:ring-ring/40"
+            />
+            {coordsError && (
+              <p
+                className="mt-2 text-[11px] font-medium text-destructive"
+                role="alert"
+                data-testid="drawer-coords-error"
+              >
+                {coordsError}
+              </p>
+            )}
+            <div className="mt-3 flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setCoordsOpen(false);
+                  setCoordsError(null);
+                }}
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={handleImportCoords}
+                data-testid="drawer-coords-submit"
+              >
+                <Check className="size-3.5" aria-hidden />
+                Importar
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

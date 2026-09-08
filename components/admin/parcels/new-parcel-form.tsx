@@ -175,26 +175,39 @@ export function NewParcelForm() {
   return (
     <form
       onSubmit={onSubmit}
-      className="grid grid-cols-1 gap-6 lg:grid-cols-2"
+      className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_360px]"
       aria-label="Alta manual de parcela"
     >
-      {/* QA-12 (2026-09-06): swap de columnas. El operador fumigador
-          necesita ver el mapa satelital mientras completa los datos
-          del lote. La parcela se identifica en el aire, no en la
-          calle. Por eso el mapa va PRIMERO (columna izquierda en
-          desktop) y el form alfanumérico queda a la derecha. */}
-      {/* Columna izquierda: mapa con drawing tool (QA-12 swap) */}
+      {/* QA-13 (2026-09-08): desktop-first. La columna del mapa es
+          flexible (1fr) y ocupa el grueso del viewport; el form
+          alfanumérico es una sidebar fija de 360px a la derecha. */}
       <div className="flex flex-col gap-3 lg:sticky lg:top-4 lg:self-start">
-        <h3 className="text-sm font-semibold">Geometría de la parcela</h3>
-        <p className="text-xs text-muted-foreground">
-          Dibujá el polígono sobre el mapa satelital. La geometría se
-          puede re-dibujar después desde el detalle de la parcela.
-        </p>
-        <ParcelDrawer onPolygonChange={handlePolygonChange} />
+        <div className="flex items-baseline justify-between gap-3">
+          <h3 className="text-sm font-semibold">
+            Geometría de la parcela
+          </h3>
+          <span className="text-[11px] text-muted-foreground">
+            {areaHa > 0 ? (
+              <>
+                <span className="font-mono font-semibold tabular-nums text-foreground">
+                  {areaHa.toFixed(2)} ha
+                </span>{" "}
+                calculadas automáticamente
+              </>
+            ) : (
+              "Sin polígono — el área se calcula al dibujar"
+            )}
+          </span>
+        </div>
+        {/* QA-13: el contenedor padre maneja el alto del mapa. En
+            desktop ocupa toda la altura visible menos el page header. */}
+        <div className="h-[calc(100vh-220px)] min-h-[640px]">
+          <ParcelDrawer onPolygonChange={handlePolygonChange} />
+        </div>
       </div>
 
-      {/* Columna derecha: form alfanumérico */}
-      <div className="flex flex-col gap-3">
+      {/* Columna derecha: form alfanumérico (sticky sidebar). */}
+      <div className="flex flex-col gap-3 lg:max-h-[calc(100vh-180px)] lg:overflow-y-auto lg:pr-1">
         {error && (
           <p
             role="alert"
