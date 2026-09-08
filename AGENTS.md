@@ -5,7 +5,7 @@
 
 AeroAdmin AFM es la plataforma admin para el operador de drones cañero en Valle del Cauca, Colombia. Lee datos de la nube de DJI SmartFarm, los persiste en PostGIS, y los expone vía Next.js. Cliente: 1 piloto, ~1200 parcelas, ~16k vuelos, ~17k fumigaciones. Single contributor (1 dev).
 
-**Estado actual (2026-09-08)**: sprints **S11+ cerrado (V2 plan completo)** + **Quality Gauntlet #1 (zod) cerrado** + **Sprint QA closeout cerrado** (PRs #60-#66) + **Bug 2 fix** (PR #67 `6a9fa06`) + **SVG 400 fix** (PR #68 `abb6f34`). Master `abb6f34` (post-merge de PR #68 SVG 400). Cobertura de tests ~2078+ verde, arch:check 0 errors, tsc 0 errors.
+**Estado actual (2026-09-08)**: sprints **S11+ cerrado (V2 plan completo)** + **Quality Gauntlet #1 (zod) cerrado** + **Sprint QA closeout cerrado** (PRs #60-#66) + **Bug 2 fix** (PR #67 `6a9fa06`) + **SVG 400 fix** (PR #68 `abb6f34`) + **QA-13 desktop-first UX** (PR #70 `320073f`). Master `320073f` (post-merge de PR #70 desktop UX). Cobertura de tests ~2088+ verde, arch:check 0 errors, tsc 0 errors.
 
 Sprints cerrados anteriores:
 - **S5** (2026-07-28): migración a MapLibre + port del mockup V0
