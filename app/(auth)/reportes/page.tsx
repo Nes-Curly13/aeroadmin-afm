@@ -17,6 +17,17 @@
 //   4. Tabla detallada extraida a `FumigationsTable` (server
 //      component puro).
 //
+// Fase 7 (2026-09-08): refactor de 3 tabs a 2 niveles segun
+// feedback del operador fumigador:
+//
+//   - "Resumen" (KPIs + last fumigation) → ELIMINADO. Era redundante
+//     con los KPIs que ya se muestran arriba. La "ultima fumigacion
+//     destacada" se movio a un callout arriba de las tabs.
+//   - "Por hacienda" → "Resumen por parcela" (mas honesto: el
+//     agregado es por parcela, no por hacienda).
+//   - "Detalle" → "Reporte operativo" (mas claro: es la lista
+//     operativa de las fumigaciones del periodo).
+//
 // Server component: lee los query params (from, to, farm), carga el
 // data layer y renderiza. Los botones de descarga son <a href> con
 // los query params preservados.
@@ -26,12 +37,11 @@ import { getDistinctFarmsWithCounts } from "@/api/repositories";
 import { fetchFarmsReportData } from "@/lib/reports/fetch-farms-report-data";
 import { defaultWindow, quickRange } from "@/lib/reports/date-range";
 import { ReportsForm } from "@/components/reports/reports-form";
-import { LastFumigationCard } from "@/components/reports/last-fumigation-card";
 import { FarmsTable } from "@/components/reports/farms-table";
 import { FumigationsTable } from "@/components/reports/fumigations-table";
 import { ReportsTabs } from "@/components/reports/reports-tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, FileText, Info } from "lucide-react";
+import { ArrowLeft, FileText, Info, Calendar } from "lucide-react";
 import Link from "next/link";
 import { fmtInt } from "@/lib/format";
 
@@ -136,21 +146,16 @@ export default async function ReportesPage({ searchParams }: ReportsPageProps) {
           <CardContent className="text-sm text-muted-foreground">
             <ul className="list-disc space-y-1 pl-5">
               <li>
-                <strong>Resumen</strong> — KPIs del período
-                (fumigaciones, área, volumen, parcelas) + la última
-                fumigación destacada. Vista rápida para entender
-                qué se fumigó.
+                <strong>Reporte operativo</strong> — Lista de cada
+                fumigación del rango (cap 200). Click en la parcela
+                para abrir su hoja de vida completa. Vista
+                cronológica del trabajo del operador.
               </li>
               <li>
-                <strong>Por hacienda</strong> — Agregado por parcela
-                (cuántas fumigaciones, área total, última fecha).
-                Útil para comparar el rendimiento entre haciendas
-                o detectar las más activas.
-              </li>
-              <li>
-                <strong>Detalle</strong> — Cada fumigación del
-                rango individual (cap 200). Click en la parcela
-                para abrir su hoja de vida completa.
+                <strong>Resumen por parcela</strong> — Agregado por
+                parcela: cuántas fumigaciones, área total y última
+                fecha. Útil para comparar parcelas o detectar las
+                más activas.
               </li>
               <li>
                 <strong>Descargar PDF / CSV</strong> — Los botones
@@ -209,23 +214,22 @@ export default async function ReportesPage({ searchParams }: ReportsPageProps) {
           />
         </div>
 
-        {/* QA-14: tabs que organizan las 3 vistas. El state vive en
+        {/* Fase 7: tabs que organizan las 2 vistas. El state vive en
             el client component ReportsTabs (no en URL). Si en el
             futuro se quiere deep-link, migrar a searchParams. */}
         <ReportsTabs
-          resumen={<LastFumigationCard last={data.lastFumigation} />}
-          parcelas={
-            <FarmsTable
-              parcels={data.parcels}
-              totalCount={data.totals.nParcels}
-              cap={50}
-            />
-          }
-          detalle={
+          operativo={
             <FumigationsTable
               fumigations={data.fumigations}
               totalCount={data.totals.nFumigations}
               capReached={data.capReached}
+            />
+          }
+          parcela={
+            <FarmsTable
+              parcels={data.parcels}
+              totalCount={data.totals.nParcels}
+              cap={50}
             />
           }
         />

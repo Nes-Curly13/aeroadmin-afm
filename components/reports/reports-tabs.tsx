@@ -2,65 +2,63 @@
 
 // components/reports/reports-tabs.tsx
 //
-// Tabs para organizar la vista de /reportes (QA-14, 2026-09-06).
+// Tabs para organizar la vista de /reportes.
 //
-// Antes la pagina tenia 3 secciones (KPIs + last fumigation, FarmsTable,
-// tabla detallada) apiladas verticalmente. El operador pidio "mejorar
-// la logica y la usabilidad" — la confusion era que las 3 secciones
-// no estaban claramente diferenciadas y no se entendia que hacian.
+// Sprint 2026-09-08 — refactor a 2 niveles (Fase 7):
+//   - Antes (QA-14, 2026-09-06): 3 tabs (Resumen / Por hacienda / Detalle).
+//   - Ahora (Fase 7): 2 tabs (Reporte operativo / Resumen por parcela).
+//
+// Por que 2 niveles:
+//   - El operador fumigador (1 piloto, ~1200 parcelas) quiere 2 vistas
+//     mentales: "que paso" (cronologico, fumigacion por fumigacion) y
+//     "que parcelas" (agregado, para comparar).
+//   - El tab "Resumen" anterior era redundante con los KPIs que ya
+//     se muestran arriba de las tabs. Lo sacamos.
+//   - El "Detalle" pasa a ser "Reporte operativo" (nombre mas claro:
+//     es la lista operativa de las fumigaciones del periodo).
+//   - "Por hacienda" pasa a ser "Resumen por parcela" (mas honesto:
+//     el agregado es POR PARCELA, no por hacienda).
 //
 // Decisiones:
-//   - 3 tabs: "Resumen" / "Por hacienda" / "Detalle de fumigaciones".
+//   - 2 tabs: "Reporte operativo" / "Resumen por parcela".
 //     Cada tab tiene un titulo + descripcion breve de QUE muestra.
 //   - Estado en useState (no URL) — los tabs son UI-only, no
 //     afectan la data ni los exports PDF/CSV. Si en el futuro se
 //     quiere deep-linking, migrar a searchParams.
-//   - Los KPIs (Fumigaciones / Area total / Volumen total / Parcelas
-//     activas) SIEMPRE se muestran arriba de las tabs. Son el
-//     resumen que el operador quiere ver pase lo que pase.
-//   - La "Ultima fumigacion destacada" se movio al tab Resumen.
-//     En los otros dos tabs no aporta — es redundante con el
-//     detalle del tab 3.
+//   - Default: "Reporte operativo" (es lo primero que el operador
+//     quiere ver: que fumigaciones hubo en el periodo).
 
 import { useState } from "react";
-import { BarChart3, History, ListTree } from "lucide-react";
+import { History, ListTree } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export type ReportsTab = "resumen" | "parcelas" | "detalle";
+export type ReportsTab = "operativo" | "parcela";
 
 export interface ReportsTabsProps {
-  resumen: React.ReactNode;
-  parcelas: React.ReactNode;
-  detalle: React.ReactNode;
+  operativo: React.ReactNode;
+  parcela: React.ReactNode;
 }
 
-const TABS: Array<{ id: ReportsTab; label: string; icon: typeof BarChart3; description: string }> = [
+const TABS: Array<{ id: ReportsTab; label: string; icon: typeof History; description: string }> = [
   {
-    id: "resumen",
-    label: "Resumen",
-    icon: BarChart3,
-    description:
-      "KPIs del período + la última fumigación destacada. Vista general rápida."
-  },
-  {
-    id: "parcelas",
-    label: "Por hacienda",
-    icon: ListTree,
-    description:
-      "Agregado por parcela: cuántas fumigaciones, área total y última fecha. Útil para comparar haciendas."
-  },
-  {
-    id: "detalle",
-    label: "Detalle",
+    id: "operativo",
+    label: "Reporte operativo",
     icon: History,
     description:
       "Lista de cada fumigación del rango (cap 200). Click en la parcela para ver la hoja de vida completa."
+  },
+  {
+    id: "parcela",
+    label: "Resumen por parcela",
+    icon: ListTree,
+    description:
+      "Agregado por parcela: cuántas fumigaciones, área total y última fecha. Útil para comparar parcelas."
   }
 ];
 
-export function ReportsTabs({ resumen, parcelas, detalle }: ReportsTabsProps) {
-  const [active, setActive] = useState<ReportsTab>("resumen");
-  const content = active === "resumen" ? resumen : active === "parcelas" ? parcelas : detalle;
+export function ReportsTabs({ operativo, parcela }: ReportsTabsProps) {
+  const [active, setActive] = useState<ReportsTab>("operativo");
+  const content = active === "operativo" ? operativo : parcela;
 
   return (
     <div className="flex flex-col gap-3" data-testid="reports-tabs">
