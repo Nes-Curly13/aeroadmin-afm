@@ -609,8 +609,23 @@ export type CreateManualParcelInput = {
   luck_name?: string | null;
   /** Cliente / ingenio (opcional, max 200). */
   client_name?: string | null;
+  /**
+   * FK al catálogo `clients.id` (Sprint S11+ / Fase 3.A).
+   * Si está setead, se valida que el cliente exista. Si está setead
+   * Y `client_name` también, el `client_name` se ignora (la fuente
+   * de verdad es el FK). Si es null y `client_name` está setead, se
+   * guarda el denormalizado como antes (backward compat).
+   */
+  client_id?: number | null;
   /** Hacienda (opcional, max 200). */
   farm_name?: string | null;
+  /**
+   * FK al catálogo `farms.id` (Sprint S11+ / Fase 3.A). Misma
+   * semántica que `client_id`. Si está setead, `farm_id` debe
+   * pertenecer al mismo `client_id` (validamos en la BD via FK
+   * compuesta + CHECK).
+   */
+  farm_id?: number | null;
   /** Municipio (opcional, max 100). */
   municipality?: string | null;
   /** Variedad (opcional, max 100). */
@@ -664,6 +679,26 @@ function validateManualParcelInput(input: CreateManualParcelInput): void {
   }
   if (input.client_name != null && input.client_name.length > 200) {
     throw validationError("client_name max 200 chars");
+  }
+  // Sprint S11+ / Fase 3.A — FK validation. client_id y farm_id deben
+  // ser enteros positivos si están seteados. La existencia del row
+  // la valida la BD via FK (23503 → 400 via mapErrorToHttp).
+  if (input.client_id != null) {
+    if (!Number.isInteger(input.client_id) || input.client_id < 1) {
+      throw validationError("client_id debe ser entero positivo");
+    }
+  }
+  if (input.farm_id != null) {
+    if (!Number.isInteger(input.farm_id) || input.farm_id < 1) {
+      throw validationError("farm_id debe ser entero positivo");
+    }
+    // Si tenemos farm_id, también necesitamos client_id (las farms
+    // pertenecen a un cliente). Sin esto, la BD rechaza con 23503
+    // cuando intentamos INSERT — mejor fallar antes con mensaje
+    // claro.
+    if (input.client_id == null) {
+      throw validationError("farm_id requiere client_id");
+    }
   }
   if (input.farm_name != null && input.farm_name.length > 200) {
     throw validationError("farm_name max 200 chars");
@@ -746,7 +781,7 @@ export async function createManualParcel(
         batch_id, external_id, source,
         land_name, field_type, is_orchard,
         declared_area_ha, spray_area_m2,
-        luck_name, client_name, farm_name, municipality, variety,
+        luck_name, client_id, client_name, farm_id, farm_name, municipality, variety,
         crop_type, planting_date, owner_name, owner_contact, supervisor_notes,
         spray_geom, reference_point
       )
@@ -754,12 +789,12 @@ export async function createManualParcel(
         NULL, $1, 'manual',
         $2, $3, false,
         $4, $5,
-        $6, $7, $8, $9, $10,
-        $11, $12, $13, $14, $15,
-        ST_Multi(ST_GeomFromGeoJSON($16::text)),
-        CASE WHEN $17::text IS NULL
-             THEN ST_Centroid(ST_Multi(ST_GeomFromGeoJSON($16::text)))
-             ELSE ST_GeomFromGeoJSON($17::text)
+        $6, $7, $8, $9, $10, $11, $12,
+        $13, $14, $15, $16, $17,
+        ST_Multi(ST_GeomFromGeoJSON($18::text)),
+        CASE WHEN $19::text IS NULL
+             THEN ST_Centroid(ST_Multi(ST_GeomFromGeoJSON($18::text)))
+             ELSE ST_GeomFromGeoJSON($19::text)
         END
       )
       RETURNING id
@@ -774,8 +809,13 @@ export async function createManualParcel(
       null,
       null,
       input.luck_name?.trim() ?? null,
-      input.client_name?.trim() ?? null,
-      input.farm_name?.trim() ?? null,
+      // Sprint S11+ / Fase 3.A — FKs del catálogo. Si el caller
+      // setea `client_id`, ese manda; si no, se persiste el
+      // denormalizado `client_name` (backward compat).
+      input.client_id ?? null,
+      input.client_id == null ? input.client_name?.trim() ?? null : null,
+      input.farm_id ?? null,
+      input.farm_id == null ? input.farm_name?.trim() ?? null : null,
       input.municipality?.trim() ?? null,
       input.variety?.trim() ?? null,
       input.crop_type?.trim() ?? null,
@@ -843,7 +883,7 @@ export async function createManualParcelsBulk(
             batch_id, external_id, source,
             land_name, field_type, is_orchard,
             declared_area_ha, spray_area_m2,
-            luck_name, client_name, farm_name, municipality, variety,
+            luck_name, client_id, client_name, farm_id, farm_name, municipality, variety,
             crop_type, planting_date, owner_name, owner_contact, supervisor_notes,
             spray_geom, reference_point
           )
@@ -851,10 +891,10 @@ export async function createManualParcelsBulk(
             NULL, $1, 'imported',
             $2, $3, false,
             NULL, NULL,
-            $4, $5, $6, $7, $8,
-            $9, $10, $11, $12, $13,
-            ST_Multi(ST_GeomFromGeoJSON($14::text)),
-            ST_Centroid(ST_Multi(ST_GeomFromGeoJSON($14::text)))
+            $4, $5, $6, $7, $8, $9, $10,
+            $11, $12, $13, $14, $15,
+            ST_Multi(ST_GeomFromGeoJSON($16::text)),
+            ST_Centroid(ST_Multi(ST_GeomFromGeoJSON($16::text)))
           )
           RETURNING id
         `,
@@ -863,8 +903,13 @@ export async function createManualParcelsBulk(
           input.land_name.trim(),
           input.field_type,
           input.luck_name?.trim() ?? null,
-          input.client_name?.trim() ?? null,
-          input.farm_name?.trim() ?? null,
+          // Sprint S11+ / Fase 3.A — FKs del catálogo (mismo patrón
+          // que createManualParcel). El bulk import puede recibir
+          // client_id/farm_id si el GIS los proveyó.
+          input.client_id ?? null,
+          input.client_id == null ? input.client_name?.trim() ?? null : null,
+          input.farm_id ?? null,
+          input.farm_id == null ? input.farm_name?.trim() ?? null : null,
           input.municipality?.trim() ?? null,
           input.variety?.trim() ?? null,
           input.crop_type?.trim() ?? null,
