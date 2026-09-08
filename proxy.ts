@@ -12,6 +12,17 @@
  * (`app/(public)/login/`) no lo heredan — el pathname ya no se
  * necesita en el root layout.
  *
+ * Bug 2 fix (2026-09-08): el default export es ahora `auth` (la función
+ * cruda de NextAuth) en vez de `auth((_request) => NextResponse.next())`.
+ * Cuando wrappeás `auth` con un handler propio, el callback `authorized`
+ * SE IGNORA — el handler siempre corre y deja pasar la request. Eso
+ * hacía que `/geovisor` (y todas las pages autenticadas) fueran
+ * accesibles sin login. La guía de Auth.js v5 lo dice explícito:
+ * "When using `auth` without a handler, it returns a request handler
+ * that will use the `authorized` callback to determine if a request
+ * is authorized. If not, it will redirect to the signIn page." Ver
+ * `docs/BUG-2-AUTH-DIAGNOSTIC.md` para el detalle del diagnóstico.
+ *
  * Por qué importa de `auth.config` (no `auth`):
  *   - El proxy corre en Edge runtime. La lib `auth` usa bcryptjs
  *     (Node-only) para el Credentials provider. Si importamos `auth`
@@ -21,17 +32,15 @@
  *     asi que es seguro para Edge.
  */
 
-import { NextResponse } from "next/server";
 import NextAuth from "next-auth";
 import { authConfig } from "@/lib/auth.config";
 
 const { auth } = NextAuth(authConfig);
 
-export default auth((_request) => {
-  // S10.5: ya no inyectamos headers — el AppShell vive en (auth)/layout.tsx
-  // y el root layout no necesita saber el pathname.
-  return NextResponse.next();
-});
+// CRITICO: exportamos `auth` directo, SIN wrappear con un handler.
+// Si wrappeamos, el `authorized` callback se bypasea y la auth
+// gate deja de funcionar. Ver comment del header.
+export default auth;
 
 export const config = {
   /**
