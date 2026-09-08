@@ -2937,7 +2937,15 @@ export async function getScheduleHistory(
  *     /fumigacion/[id] para mostrar el badge de tipo.
  */
 export async function getRecentFumigations(
-  limit: number = 12
+  limit: number = 12,
+  filter?: {
+    /** Fecha mínima inclusiva (YYYY-MM-DD). Null = sin límite inferior. */
+    fromDate?: string;
+    /** Fecha máxima inclusiva (YYYY-MM-DD). Null = sin límite superior. */
+    toDate?: string;
+    /** Filtrar por parcela específica. Null = todas. */
+    parcelId?: number;
+  }
 ): Promise<DjiFumigationEvent[]> {
   const db = getDb();
   return withLocalFallback(
@@ -2958,6 +2966,14 @@ export async function getRecentFumigations(
       // tiene `category_id IS NULL` (fumigación histórica pre-migration),
       // la CASE devuelve NULL y el objeto `category` en el row es null.
       // Mismo patrón que `getFumigationById` arriba.
+      //
+      // Fase 5 (2026-09-08): agregamos `filter` opcional (fromDate, toDate,
+      // parcelId). El cap de 2000 sigue como safety net, pero ahora el
+      // caller puede acotar por fecha antes de pedir datos — fixea el
+      // bug donde buscar "fumigación de 2024" devolvía 0 results porque
+      // el cap solo cargaba las 2000 más recientes (todas 2025+).
+      // Los filtros se aplican con `($N::tipo IS NULL OR col op $N)` así
+      // un solo SQL funciona con cualquier combinación de filtros.
       const result = await db.query<DjiFumigationEvent>(
         `SELECT
             f.id,
@@ -3005,10 +3021,18 @@ export async function getRecentFumigations(
              ON at.id = f.application_type_id AND at.is_active = TRUE
           WHERE f.deleted_at IS NULL
             AND f.parcel_id IS NOT NULL
+            AND ($2::date IS NULL OR f.fumigation_date >= $2)
+            AND ($3::date IS NULL OR f.fumigation_date <= $3)
+            AND ($4::bigint IS NULL OR f.parcel_id = $4)
           GROUP BY f.id, cat.id, at.id
           ORDER BY f.fumigation_date DESC, f.recorded_at DESC
           LIMIT $1`,
-        [limit]
+        [
+          limit,
+          filter?.fromDate ?? null,
+          filter?.toDate ?? null,
+          filter?.parcelId ?? null
+        ]
       );
       return result.rows.map((row) => ({
         ...row,
