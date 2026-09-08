@@ -4,13 +4,28 @@
  * NewParcelForm — form completo para alta manual de una parcela.
  *
  * Sprint 2026-08-04 — feature/parcel-onboarding (sub-sprint 1).
+ * Sprint QA-13 (2026-09-08) — feature/parcel-onboarding v2:
+ *   desktop-first. La columna del mapa es flexible (1fr) y ocupa
+ *   el grueso del viewport; el form alfanumérico es una sidebar
+ *   fija de 360px a la derecha.
+ * Sprint Fase 3 (2026-09-08) — feature/parcela-form-3-sections:
+ *   los 12 campos alfanuméricos se agrupan en 3 secciones visuales
+ *   con fieldset/legend para accesibilidad. Las secciones son:
+ *     1. Identificación (3): Nombre del lote*, Tipo*, Suerte
+ *     2. Tenencia y ubicación (5): Cliente, Hacienda, Municipio,
+ *        Propietario, Contacto
+ *     3. Cultivo (4): Variedad, Cultivo, Fecha de siembra, Notas
+ *   Cada sección tiene un header visual (uppercase + tracking)
+ *   y separador entre secciones. La navegación por Tab sigue
+ *   siendo secuencial y lineal (los fieldsets no son interactivos).
  *
- * Layout: 2 columnas en desktop, 1 columna en mobile.
- *   - Izquierda: form alfanumérico (land_name, field_type, suerte, etc.)
- *   - Derecha: mapa con ParcelDrawer para dibujar el polígono
+ * Layout general:
+ *   - 2 columnas en desktop, 1 columna en mobile.
+ *   - Izquierda: form alfanumérico con 3 secciones.
+ *   - derecha: mapa con ParcelDrawer para dibujar el polígono.
  *
  * Estado:
- *   - `form` — los 11 campos alfanuméricos
+ *   - `form` — los 12 campos alfanuméricos
  *   - `geometry` — el polígono GeoJSON (null hasta que el operador dibuja)
  *   - `error` / `success` — banners
  *   - `isPending` — durante el POST
@@ -26,6 +41,13 @@
  *     la UI durante el POST), useRouter (redirect).
  *   - El ParcelDrawer también es client (MapLibre + terra-draw son
  *     client-only).
+ *
+ * TODO Fase 3.2 (siguiente PR, no incluido acá): reemplazar los
+ * Inputs de texto libre `client_name` y `farm_name` por selects
+ * contra el catálogo (`/api/admin/clients` + `/api/admin/farms`).
+ * Hoy el form guarda solo strings; el catálogo existe pero no se
+ * usa para alta manual. Para no expandir el scope de este PR
+ * (cambia SQL + repo + tests del repo), se deja como follow-up.
  */
 
 import { useRouter } from "next/navigation";
@@ -80,6 +102,71 @@ const FIELD_TYPE_OPTIONS = [
   { value: "Farmland", label: "Tierra de cultivo" },
   { value: "Orchards", label: "Huerto / plantación" }
 ];
+
+/**
+ * SectionHeader — header visual para las 3 secciones del form.
+ * Es un `<legend>` accesible dentro de un `<fieldset>` (con padding
+ * cero + border-none para que el fieldset no agregue chrome nativo).
+ *
+ * Decisión: en vez de usar fieldset/legend (que tienen border + padding
+ * por default en navegadores), usamos un div con role="group" +
+ * aria-labelledby para que el screen reader anuncie el grupo pero el
+ * visual sea 100% controlable. Es el patrón usado por shadcn/Radix
+ * para formularios accesibles.
+ */
+function SectionHeader({
+  id,
+  number,
+  title,
+  hint
+}: {
+  id: string;
+  number: number;
+  title: string;
+  hint?: string;
+}) {
+  return (
+    <header className="flex items-baseline justify-between gap-2 border-b border-border pb-1.5">
+      <h4
+        id={id}
+        className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground"
+      >
+        <span className="inline-flex size-5 items-center justify-center rounded-full bg-muted text-[10px] font-bold text-foreground">
+          {number}
+        </span>
+        {title}
+      </h4>
+      {hint ? (
+        <span className="text-[10px] font-normal italic text-muted-foreground/80">
+          {hint}
+        </span>
+      ) : null}
+    </header>
+  );
+}
+
+/**
+ * FormSection — wrapper accesible para una sección del form.
+ * Usa role="group" + aria-labelledby apuntando al SectionHeader.
+ * Aplica spacing vertical uniforme entre campos dentro de la sección.
+ */
+function FormSection({
+  id,
+  children
+}: {
+  id: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section
+      role="group"
+      aria-labelledby={id}
+      className="flex flex-col gap-3"
+    >
+      {children}
+    </section>
+  );
+}
 
 export function NewParcelForm() {
   const router = useRouter();
@@ -206,8 +293,9 @@ export function NewParcelForm() {
         </div>
       </div>
 
-      {/* Columna derecha: form alfanumérico (sticky sidebar). */}
-      <div className="flex flex-col gap-3 lg:max-h-[calc(100vh-180px)] lg:overflow-y-auto lg:pr-1">
+      {/* Columna derecha: form alfanumérico (sticky sidebar).
+          Fase 3: dividido en 3 secciones con headers visuales. */}
+      <div className="flex flex-col gap-5 lg:max-h-[calc(100vh-180px)] lg:overflow-y-auto lg:pr-1">
         {error && (
           <p
             role="alert"
@@ -217,42 +305,47 @@ export function NewParcelForm() {
           </p>
         )}
 
-        <label className="flex flex-col gap-1">
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Nombre del lote *
-          </span>
-          <Input
-            type="text"
-            value={form.land_name}
-            onChange={(e) => update("land_name", e.target.value)}
-            placeholder="ej. Lote 12 — Suerte 3"
-            required
-            maxLength={200}
-            disabled={isPending}
-            aria-required="true"
-            aria-label="Nombre del lote"
+        {/* ─── SECCIÓN 1: Identificación ─── */}
+        <FormSection id="parcel-section-id">
+          <SectionHeader
+            id="parcel-section-id"
+            number={1}
+            title="Identificación"
+            hint="nombre y tipo de campo"
           />
-        </label>
-
-        <label className="flex flex-col gap-1">
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Tipo *
-          </span>
-          <FieldSelect
-            label="Tipo"
-            value={form.field_type}
-            onChange={(e) => update("field_type", e.target.value)}
-            disabled={isPending}
-          >
-            {FIELD_TYPE_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </FieldSelect>
-        </label>
-
-        <div className="grid grid-cols-2 gap-3">
+          <label className="flex flex-col gap-1">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Nombre del lote *
+            </span>
+            <Input
+              type="text"
+              value={form.land_name}
+              onChange={(e) => update("land_name", e.target.value)}
+              placeholder="ej. Lote 12 — Suerte 3"
+              required
+              maxLength={200}
+              disabled={isPending}
+              aria-required="true"
+              aria-label="Nombre del lote"
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Tipo *
+            </span>
+            <FieldSelect
+              label="Tipo"
+              value={form.field_type}
+              onChange={(e) => update("field_type", e.target.value)}
+              disabled={isPending}
+            >
+              {FIELD_TYPE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </FieldSelect>
+          </label>
           <label className="flex flex-col gap-1">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               Suerte
@@ -267,54 +360,46 @@ export function NewParcelForm() {
               aria-label="Suerte (división interna de la hacienda)"
             />
           </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Variedad
-            </span>
-            <Input
-              type="text"
-              value={form.variety}
-              onChange={(e) => update("variety", e.target.value)}
-              placeholder="ej. CC 85-92"
-              maxLength={100}
-              disabled={isPending}
-              aria-label="Variedad de caña"
-            />
-          </label>
-        </div>
+        </FormSection>
 
-        <div className="grid grid-cols-2 gap-3">
-          <label className="flex flex-col gap-1">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Cliente / Ingenio
-            </span>
-            <Input
-              type="text"
-              value={form.client_name}
-              onChange={(e) => update("client_name", e.target.value)}
-              placeholder="ej. Ingenio La Cabaña"
-              maxLength={200}
-              disabled={isPending}
-              aria-label="Cliente o ingenio"
-            />
-          </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Hacienda
-            </span>
-            <Input
-              type="text"
-              value={form.farm_name}
-              onChange={(e) => update("farm_name", e.target.value)}
-              placeholder="ej. Hacienda El Edén"
-              maxLength={200}
-              disabled={isPending}
-              aria-label="Nombre de la hacienda"
-            />
-          </label>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
+        {/* ─── SECCIÓN 2: Tenencia y ubicación ─── */}
+        <FormSection id="parcel-section-tenure">
+          <SectionHeader
+            id="parcel-section-tenure"
+            number={2}
+            title="Tenencia y ubicación"
+            hint="cliente, hacienda y contacto"
+          />
+          <div className="grid grid-cols-2 gap-3">
+            <label className="flex flex-col gap-1">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Cliente / Ingenio
+              </span>
+              <Input
+                type="text"
+                value={form.client_name}
+                onChange={(e) => update("client_name", e.target.value)}
+                placeholder="ej. Ingenio La Cabaña"
+                maxLength={200}
+                disabled={isPending}
+                aria-label="Cliente o ingenio"
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Hacienda
+              </span>
+              <Input
+                type="text"
+                value={form.farm_name}
+                onChange={(e) => update("farm_name", e.target.value)}
+                placeholder="ej. Hacienda El Edén"
+                maxLength={200}
+                disabled={isPending}
+                aria-label="Nombre de la hacienda"
+              />
+            </label>
+          </div>
           <label className="flex flex-col gap-1">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               Municipio
@@ -329,23 +414,76 @@ export function NewParcelForm() {
               aria-label="Municipio"
             />
           </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Cultivo
-            </span>
-            <Input
-              type="text"
-              value={form.crop_type}
-              onChange={(e) => update("crop_type", e.target.value)}
-              placeholder="ej. Caña de azúcar"
-              maxLength={100}
-              disabled={isPending}
-              aria-label="Tipo de cultivo"
-            />
-          </label>
-        </div>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="flex flex-col gap-1">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Propietario
+              </span>
+              <Input
+                type="text"
+                value={form.owner_name}
+                onChange={(e) => update("owner_name", e.target.value)}
+                placeholder="ej. Juan Pérez"
+                maxLength={200}
+                disabled={isPending}
+                aria-label="Nombre del propietario"
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Contacto
+              </span>
+              <Input
+                type="text"
+                value={form.owner_contact}
+                onChange={(e) => update("owner_contact", e.target.value)}
+                placeholder="ej. +57 300 123 4567"
+                maxLength={200}
+                disabled={isPending}
+                aria-label="Contacto del propietario"
+              />
+            </label>
+          </div>
+        </FormSection>
 
-        <div className="grid grid-cols-2 gap-3">
+        {/* ─── SECCIÓN 3: Cultivo ─── */}
+        <FormSection id="parcel-section-crop">
+          <SectionHeader
+            id="parcel-section-crop"
+            number={3}
+            title="Cultivo"
+            hint="variedad, fecha de siembra y notas"
+          />
+          <div className="grid grid-cols-2 gap-3">
+            <label className="flex flex-col gap-1">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Variedad
+              </span>
+              <Input
+                type="text"
+                value={form.variety}
+                onChange={(e) => update("variety", e.target.value)}
+                placeholder="ej. CC 85-92"
+                maxLength={100}
+                disabled={isPending}
+                aria-label="Variedad de caña"
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Cultivo
+              </span>
+              <Input
+                type="text"
+                value={form.crop_type}
+                onChange={(e) => update("crop_type", e.target.value)}
+                placeholder="ej. Caña de azúcar"
+                maxLength={100}
+                disabled={isPending}
+                aria-label="Tipo de cultivo"
+              />
+            </label>
+          </div>
           <label className="flex flex-col gap-1">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               Fecha de siembra
@@ -360,50 +498,20 @@ export function NewParcelForm() {
           </label>
           <label className="flex flex-col gap-1">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Propietario
+              Notas del supervisor
             </span>
-            <Input
-              type="text"
-              value={form.owner_name}
-              onChange={(e) => update("owner_name", e.target.value)}
-              placeholder="ej. Juan Pérez"
-              maxLength={200}
+            <textarea
+              value={form.supervisor_notes}
+              onChange={(e) => update("supervisor_notes", e.target.value)}
+              rows={3}
+              maxLength={2000}
               disabled={isPending}
-              aria-label="Nombre del propietario"
+              placeholder="Contexto, restricciones, acuerdos especiales..."
+              className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-ring focus:ring-2 focus:ring-ring/40 disabled:opacity-50"
+              aria-label="Notas del supervisor"
             />
           </label>
-        </div>
-
-        <label className="flex flex-col gap-1">
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Contacto del propietario
-          </span>
-          <Input
-            type="text"
-            value={form.owner_contact}
-            onChange={(e) => update("owner_contact", e.target.value)}
-            placeholder="ej. +57 300 123 4567"
-            maxLength={200}
-            disabled={isPending}
-            aria-label="Contacto del propietario"
-          />
-        </label>
-
-        <label className="flex flex-col gap-1">
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Notas del supervisor
-          </span>
-          <textarea
-            value={form.supervisor_notes}
-            onChange={(e) => update("supervisor_notes", e.target.value)}
-            rows={3}
-            maxLength={2000}
-            disabled={isPending}
-            placeholder="Contexto, restricciones, acuerdos especiales..."
-            className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-ring focus:ring-2 focus:ring-ring/40 disabled:opacity-50"
-            aria-label="Notas del supervisor"
-          />
-        </label>
+        </FormSection>
 
         {/* Sub-sprint 3: checkbox "Fumigar inmediatamente". Si está
             marcado, después de crear la parcela redirigimos al detail
