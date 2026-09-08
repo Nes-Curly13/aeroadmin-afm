@@ -5,7 +5,7 @@
 
 AeroAdmin AFM es la plataforma admin para el operador de drones cañero en Valle del Cauca, Colombia. Lee datos de la nube de DJI SmartFarm, los persiste en PostGIS, y los expone vía Next.js. Cliente: 1 piloto, ~1200 parcelas, ~16k vuelos, ~17k fumigaciones. Single contributor (1 dev).
 
-**Estado actual (2026-09-08)**: sprints **S11+ cerrado (V2 plan completo)** + **Quality Gauntlet #1 (zod) cerrado** + **Sprint QA closeout cerrado** (PRs #60-#66) + **Bug 2 fix** (PR #67 `6a9fa06`) + **SVG 400 fix** (PR #68 `abb6f34`) + **QA-13 desktop-first UX** (PR #70 `320073f`). Master `320073f` (post-merge de PR #70 desktop UX). Cobertura de tests ~2088+ verde, arch:check 0 errors, tsc 0 errors.
+**Estado actual (2026-09-08)**: sprints **S11+ cerrado (V2 plan completo)** + **Quality Gauntlet #1 (zod) cerrado** + **Sprint QA closeout cerrado** (PRs #60-#66) + **Bug 2 fix** (PR #67 `6a9fa06`) + **SVG 400 fix** (PR #68 `abb6f34`) + **QA-13 desktop-first UX** (PR #70 `320073f`) + **Cerrar producto roadmap (Fase 0-8)** (PRs #71-#77). Master `b0e9bcb` (post-merge de PR #76 Fase 3.2 catalog). Cobertura de tests ~2130+ verde, arch:check 0 errors, tsc 0 errors. **Release Candidate.**
 
 Sprints cerrados anteriores:
 - **S5** (2026-07-28): migración a MapLibre + port del mockup V0
@@ -17,6 +17,7 @@ Sprints cerrados anteriores:
 - **S11+ (V2 plan)** (2026-09-05/06): 14 PRs del refactor V2 (PRs #40-#55) — ver `docs/PLAN-FUMIGACIONES-V2.md`
 - **Quality Gauntlet #1 (zod)** (2026-09-06): 3 PRs de adopción zod (PRs #56-#58) — tests anti-Bug-2 + request bodies + FormState
 - **QA closeout** (2026-09-06): 7 PRs del feedback del operador fumigador (PRs #60-#66) — ver "QA closeout" abajo
+- **Cerrar producto (Fase 0-8, 2026-09-08)**: 7 PRs del roadmap secuencial del producto (PRs #71-#77) — ver "Cerrar producto" abajo
 
 S10 se desglosó en:
 - **S10.1** (PR #27 `8fbd391`): bulk cleanup con knip — 46 unused exports + 14 types borrados (22 archivos, +7/-1130).
@@ -69,6 +70,33 @@ S11+ (V2 plan) se desglosó en:
 
 **Total QA closeout**: 7 PRs, +2411 / -453 lineas, 31 tests nuevos, 0 regresiones, arch:check 0 errors, tsc 0 errors.
 
+**Cerrar producto (2026-09-08, 7 PRs del roadmap "Fase 0-8")** — release candidate. El objetivo era entregar el producto con todos los fixes de UX del operador fumigador, listo para usar en producción. Roadmap:
+- **Fase 0 (Seguridad)**: limpieza del `.env.local.bak` que commiteó secretos (commit `b389a08`, merge pre-roadmap).
+- **Fase 1-2 (Parcelas)**: form 3 secciones (Fase 3.1) + catalog-driven Cliente/Hacienda (Fase 3.2).
+- **Fase 3-4 (Fumigaciones)**: wizard 3 pasos (Fase 4) + auto-fill del vuelo DJI.
+- **Fase 5 (Fumigaciones - data)**: filter params en `getRecentFumigations` para paginación parcial server-side.
+- **Fase 6 (Cadence)**: quitar `CompliancePanel` del dashboard principal (regla de cadencia pendiente de definir formal).
+- **Fase 7 (Reportes)**: reducir de 3 tabs a 2 (Reporte operativo + Resumen por parcela).
+- **Fase 8 (Nav)**: URL consistency + admin landing + quick actions.
+
+PRs:
+- **PR #71** (`14366aa`) — **Fase 6**: removido `CompliancePanel` del dashboard. Backend intacto, regla de cadencia pendiente. +3/-29 lineas.
+- **PR #72** (`9e57276`) — **Fase 5**: `getRecentFumigations(limit, filter?: { fromDate?, toDate?, parcelId? })` no-breaking. Callers existentes NO tocados.
+- **PR #73** (`8033d6f`) — **Fase 8**: URL consistency (`/fumigaciones/[id]/editar` en vez de `/fumigacion/[id]/edit`, redirects permanentes para backward compat). Nav reordenado (Inicio/Parcelas/Fumigaciones/Geovisor/Reportes/Administración). Active state fix para `/admin/` prefix. Admin landing nuevo (`/admin`). QuickActions nuevo en dashboard. 29 tests nuevos.
+- **PR #74** (`49031b7`) — **Fase 3.1**: `new-parcel-form.tsx` refactor a 3 secciones (Identificación/Tenencia y ubicación/Cultivo). `SectionHeader` + `FormSection` helpers (role=group + aria-labelledby). 6 tests nuevos.
+- **PR #75** (`b705281`) — **Fase 4**: wizard de fumigación de 4 pasos (V2) a 3 pasos (V3) — "¿Qué se fumigó?" / "¿Con qué se fumigó?" / "Confirmar". Tabs de modalidad (Importar/Manual) en step 1, DjiFlightPicker inline, `pendingFlightData` para auto-fill cross-step. 6 tests nuevos.
+- **PR #76** (`b0e9bcb`) — **Fase 3.2**: Cliente y Hacienda son SELECTs contra el catalog (`/api/admin/clients` + `/api/admin/farms?clientId=X`). `CreateManualParcelInput` agrega `client_id`/`farm_id` (FK). Fallback de texto libre preservado. Reset en cascada (cambiar cliente resetea finca). 7 tests nuevos.
+- **PR #77** (CI al cierre de este doc) — **Fase 7**: `/reportes` de 3 tabs a 2 (Reporte operativo / Resumen por parcela). "Resumen" eliminado (redundante con KPIs arriba). Nombres mas honestos. `LastFumigationCard` removido. 5 tests reescritos.
+
+**Total Cerrar producto**: 7 PRs, +2000 / -1000 lineas, ~70 tests nuevos, 0 regresiones, arch:check 0 errors, tsc 0 errors.
+
+**Deuda S10/S10.5 anotada (separar en PRs futuros):**
+- ~~SVG 400 en `/_next/image?url=%2Fafm-logo-mark.svg`~~ — **CERRADO en PR #68 (2026-09-08)**: root cause era el mismo del mark chico en S10.5 (PR #37) — el logo grande post-QA-01 también necesita `unoptimized`. Fix + test anti-regresion (`tests/app-shell-logo-unoptimized.test.ts`).
+- ~~Refactor a `app/(auth)/` route group~~ — **YA HECHO en S10.5** (PRs #30-#31). El check de pathname en `app/layout.tsx` se removió.
+- ~~`pg` bump a `^8.20.0` en master~~ — **YA HECHO** (package.json tiene `^8.20.0`).
+- ~~Index en `dji_fumigaciones.product_id`~~ — **YA HECHO en migration `20260829000000_add_products_catalog.sql:80-82`** (se creó junto con la FK del catalog de productos en S8 Bloque E).
+- Cleanup e2e tests broken post-QA-01: `tests/e2e/geovisor-ui-changes.spec.ts:30` busca `img[src="/afm-logo-mark.svg"]` que ya no existe. El test además valida "CAPAS" y "ventana temporal" que QA-02 removió del geovisor (~30 min cleanup, ortogonal).
+
 **Deuda S10/S10.5 anotada (separar en PRs futuros):**
 - ~~SVG 400 en `/_next/image?url=%2Fafm-logo-mark.svg`~~ — **CERRADO en PR #68 (2026-09-08)**: root cause era el mismo del mark chico en S10.5 (PR #37) — el logo grande post-QA-01 también necesita `unoptimized`. Fix + test anti-regresion (`tests/app-shell-logo-unoptimized.test.ts`).
 - ~~Refactor a `app/(auth)/` route group~~ — **YA HECHO en S10.5** (PRs #30-#31). El check de pathname en `app/layout.tsx` se removió.
@@ -77,10 +105,14 @@ S11+ (V2 plan) se desglosó en:
 - Cleanup e2e tests broken post-QA-01: `tests/e2e/geovisor-ui-changes.spec.ts:30` busca `img[src="/afm-logo-mark.svg"]` que ya no existe. El test además valida "CAPAS" y "ventana temporal" que QA-02 removió del geovisor (~30 min cleanup, ortogonal).
 
 **Candidates (próximos, en orden de prioridad):**
-1. ~~Bug 2 auth — diagnosticar `/geovisor` accesible sin login~~ — **CERRADO en PR #67 (2026-09-08)**: root cause = wrapper `auth((req) => NextResponse.next())` en `proxy.ts` bypaseaba el callback `authorized`. Fix: `export default auth` (función cruda).
-2. Correr backfills de `clients/farms` y `cycles` en cada ambiente (manual del user).
-3. Quality Gauntlet compuertas 5-7 (StrykerJS, BDD Gherkin, smoke DB, métricas continuas) — requiere deps nuevas (autorización explícita del user).
-4. Cleanup e2e tests broken post-QA-01 (geovisor-ui-changes.spec.ts) — ~30 min.
+1. ~~Bug 2 auth — diagnosticar `/geovisor` accesible sin login~~ — **CERRADO en PR #67 (2026-09-08)**.
+2. ~~Fases 1-8 del roadmap "cerrar producto"~~ — **CERRADO en PRs #71-#77 (2026-09-08)**. Producto en estado Release Candidate.
+3. Correr backfills de `clients/farms` y `cycles` en cada ambiente (manual del user).
+4. Regla de cadencia formal — definir el threshold de "vencido/crítico" antes de reintroducir el `CompliancePanel` en el dashboard. (Fase 6, deferred.)
+5. Quality Gauntlet compuertas 5-7 (StrykerJS, BDD Gherkin, smoke DB, métricas continuas) — requiere deps nuevas (autorización explícita del user).
+6. Pagination server-side completa de fumigaciones (largo plazo) — el cap 200 actual es suficiente para el Valle del Cauca, pero si se expande a otros clientes, considerar `?from=&to=&parcel=&page=&pageSize=`.
+7. Combobox typeahead para catalog Cliente/Hacienda — actualmente son SELECTs nativos. Para catalogs grandes (>50 clientes) mejorar UX.
+8. Cleanup e2e tests broken post-QA-01 (geovisor-ui-changes.spec.ts) — ~30 min.
 
 ---
 
