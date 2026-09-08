@@ -5,7 +5,7 @@
 
 AeroAdmin AFM es la plataforma admin para el operador de drones cañero en Valle del Cauca, Colombia. Lee datos de la nube de DJI SmartFarm, los persiste en PostGIS, y los expone vía Next.js. Cliente: 1 piloto, ~1200 parcelas, ~16k vuelos, ~17k fumigaciones. Single contributor (1 dev).
 
-**Estado actual (2026-09-06)**: sprints **S11+ cerrado (V2 plan completo)** + **Quality Gauntlet #1 (zod) cerrado** + **Sprint QA closeout cerrado** (PRs #60-#66). Master `6ea1d20` (post-merge de PR #65 geovisor simplify; PR #66 reportes tabs en CI). Cobertura de tests ~2070+ verde, arch:check 0 errors, tsc 0 errors.
+**Estado actual (2026-09-08)**: sprints **S11+ cerrado (V2 plan completo)** + **Quality Gauntlet #1 (zod) cerrado** + **Sprint QA closeout cerrado** (PRs #60-#66) + **Bug 2 fix** (PR #67 `6a9fa06`) + **SVG 400 fix** (PR #68 pendiente). Master `6a9fa06` (post-merge de PR #67 Bug 2). Cobertura de tests ~2077+ verde, arch:check 0 errors, tsc 0 errors.
 
 Sprints cerrados anteriores:
 - **S5** (2026-07-28): migración a MapLibre + port del mockup V0
@@ -37,7 +37,7 @@ S11+ (V2 plan) se desglosó en:
 - **Fase 2/5 Auto-fill** (PR #53 `d4cbbe7`): `setFormData(data: Partial<FormState>): void` en el handle del form. `handlePickFlight` autollena `fumigation_date`, `duration_minutes`, `area_fumigated_m2`, `drone_code_used` (vía `DRONE_MODELS.find`), `notes`. 3 tests.
 
 **Bugs críticos abiertos:**
-- **Bug 2 — `/geovisor` accesible sin login** (PR #41 abrió diagnóstico con `console.log("[auth.authorized]", ...)` en `lib/auth.config.ts`). Owner: manual, requiere abrir `/geovisor` en incognito en Vercel y capturar el log. Guia en `docs/BUG-2-AUTH-DIAGNOSTIC.md` (PR #54 `3a4ff61`) — incluye sección zod anti-Bug-2.
+- *(ninguno — Bug 2 cerrado en PR #67 el 2026-09-08. Root cause: `proxy.ts` wrappeaba `auth` con un handler que bypaseaba el callback `authorized`. Fix: `export default auth` (función cruda). Detalle en `docs/BUG-2-AUTH-DIAGNOSTIC.md` § "Resolution".)*
 
 **Backfill operacional pendiente (manual, cada ambiente, UNA sola vez):**
 - `node scripts/backfill-clients-farms.js` — local, preview, prod.
@@ -70,18 +70,17 @@ S11+ (V2 plan) se desglosó en:
 **Total QA closeout**: 7 PRs, +2411 / -453 lineas, 31 tests nuevos, 0 regresiones, arch:check 0 errors, tsc 0 errors.
 
 **Deuda S10/S10.5 anotada (separar en PRs futuros):**
-- SVG 400 en `/_next/image?url=%2Fafm-logo-mark.svg` (cosmético, no bloquea login). El SVG tiene UTF-8 malformado + el `sandbox` CSP de `next.config.ts` hace que el Image optimizer rechace.
-- Refactor a `app/(auth)/` route group: mover todas las pages autenticadas, poner el AppShell en `app/(auth)/layout.tsx`, remover el check de pathname en `app/layout.tsx`. El workaround `proxy.ts + x-pathname` es funcional pero no idiomático (~30 min de refactor).
-- `pg` bump a `^8.20.0` en master (era `8.20.0` exacto) — el caret es para tolerar patches automáticos del lockfile.
-- Index en `dji_fumigaciones.product_id` (FK sin index desde S9, ver #32) — migration con `CREATE INDEX CONCURRENTLY`. 1h.
+- ~~SVG 400 en `/_next/image?url=%2Fafm-logo-mark.svg`~~ — **CERRADO en PR #68 (2026-09-08)**: root cause era el mismo del mark chico en S10.5 (PR #37) — el logo grande post-QA-01 también necesita `unoptimized`. Fix + test anti-regresion (`tests/app-shell-logo-unoptimized.test.ts`).
+- ~~Refactor a `app/(auth)/` route group~~ — **YA HECHO en S10.5** (PRs #30-#31). El check de pathname en `app/layout.tsx` se removió.
+- ~~`pg` bump a `^8.20.0` en master~~ — **YA HECHO** (package.json tiene `^8.20.0`).
+- ~~Index en `dji_fumigaciones.product_id`~~ — **YA HECHO en migration `20260829000000_add_products_catalog.sql:80-82`** (se creó junto con la FK del catalog de productos en S8 Bloque E).
+- Cleanup e2e tests broken post-QA-01: `tests/e2e/geovisor-ui-changes.spec.ts:30` busca `img[src="/afm-logo-mark.svg"]` que ya no existe. El test además valida "CAPAS" y "ventana temporal" que QA-02 removió del geovisor (~30 min cleanup, ortogonal).
 
 **Candidates (próximos, en orden de prioridad):**
-1. Bug 2 auth — diagnosticar `/geovisor` accesible sin login (PR #41 instrumentación lista, guía PR #54).
-2. Correr backfills de `clients/farms` y `cycles` en cada ambiente.
-3. Refactor a `app/(auth)/` route group (2-3h).
-4. Index en `dji_fumigaciones.product_id` (1h).
-5. Fix SVG 400 en Image optimizer (1h).
-6. Quality Gauntlet compuertas 5-7 (StrykerJS, BDD Gherkin, smoke DB, métricas continuas) — requiere deps nuevas (autorización explícita del user).
+1. ~~Bug 2 auth — diagnosticar `/geovisor` accesible sin login~~ — **CERRADO en PR #67 (2026-09-08)**: root cause = wrapper `auth((req) => NextResponse.next())` en `proxy.ts` bypaseaba el callback `authorized`. Fix: `export default auth` (función cruda).
+2. Correr backfills de `clients/farms` y `cycles` en cada ambiente (manual del user).
+3. Quality Gauntlet compuertas 5-7 (StrykerJS, BDD Gherkin, smoke DB, métricas continuas) — requiere deps nuevas (autorización explícita del user).
+4. Cleanup e2e tests broken post-QA-01 (geovisor-ui-changes.spec.ts) — ~30 min.
 
 ---
 

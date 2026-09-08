@@ -1,6 +1,9 @@
 # Bug 2 — Diagnóstico: `/geovisor` accesible sin login
 
-> **Status**: instrumentación lista (PR #41). Falta el paso manual en Vercel.
+> **Status**: ✅ **RESUELTO en PR #67 (2026-09-08, commit `6a9fa06`)**.
+> Root cause identificado por análisis de código (sin necesidad del log de
+> Vercel): `proxy.ts` wrappeaba `auth` con un handler que bypaseaba el
+> callback `authorized`. Detalle completo en la sección "Resolution" abajo.
 
 ## TL;DR
 
@@ -59,10 +62,107 @@ Copialo y pegamelo en el chat. Con eso puedo diagnosticar:
 2. **El matcher del proxy no incluye `/geovisor`** — el middleware no corre para esa ruta
 3. **El proxy se ejecuta en Edge runtime y no tiene acceso a la sesión** — el cookie no se propaga
 
-## Después del fix
+---
 
-Una vez diagnosticado y arreglado, remover el `console.log` en `lib/auth.config.ts:149-157`
-y commit con `fix(auth): Bug 2 — /geovisor accesible sin login`.
+## Resolution (2026-09-08, PR #67, commit `6a9fa06`)
+
+### Root cause real (identificado por análisis de código)
+
+El agujero NO era ninguno de los 3 hipótesis de arriba. Era un **fourth
+possibility** que no estaba en la lista:
+
+**`proxy.ts` wrappeaba `auth` con un handler que bypaseaba el callback
+`authorized` por completo.**
+
+Código bugueado (`proxy.ts:30-34`):
+```ts
+export default auth((_request) => {
+  return NextResponse.next();
+});
+```
+
+Cuando wrappeás `auth` con un handler propio, NextAuth v5 **ignora el
+callback `authorized`**. Tu handler se ejecuta directamente y
+retorna lo que vos quieras. El `console.log("[auth.authorized]")`
+de PR #41 SÍ se disparaba (porque `auth` la llama como parte de su
+inicialización), pero el `return false` del callback se descartaba
+porque el wrapper siempre retornaba `NextResponse.next()`.
+
+Esto explica perfectamente el síntoma reportado:
+- El log aparece en Vercel ✅
+- `isLoggedIn: false` y `userEmail: null` ✅
+- Pero `/geovisor` igual carga el contenido ❌ (porque el handler
+  del wrapper hardcodea `NextResponse.next()`)
+
+La guía oficial de Auth.js v5 lo dice explícito:
+> "When using `auth` without a handler, it returns a request handler
+> that will use the `authorized` callback to determine if a request
+> is authorized. If not, it will redirect to the signIn page."
+
+### Fix
+
+`proxy.ts:30-34`:
+```diff
+- export default auth((_request) => {
+-   return NextResponse.next();
+- });
++ export default auth;
+```
+
+Un one-liner. Ahora el default export es la función `auth` cruda, y
+Next.js 16 + NextAuth v5 la invocan como middleware, lo que hace que:
+1. NextAuth lee la sesión del cookie `afm.session`
+2. Llama al callback `authorized({ auth, request })` con el `auth`
+   que viene del JWT firmado
+3. Si devuelve `false`, redirige a `/login` automáticamente
+4. Si devuelve `true`, llama a `NextResponse.next()` y deja pasar
+
+### Cambios en el PR #67
+
+- `proxy.ts`: `export default auth` (sin wrapper) + comentario header
+  documenta el gotcha para prevenir regresión
+- `lib/auth.config.ts`: remover `console.log("[auth.authorized]")`
+  temporal de S10.5.2 (el agujero ya está diagnosticado y arreglado)
+- `tests/proxy.test.ts`: 4 tests anti-regresion
+  (module-level + source-level)
+
+### Lecciones aprendidas
+
+1. **Auth.js v5 wrapper semantics**: `auth(handler)` reemplaza
+   completamente el comportamiento de `authorized`. Si querés mantener
+   el `authorized` Y agregar lógica custom, tenés que llamar
+   manualmente al `authorized` desde tu handler:
+   ```ts
+   export default auth(async (req) => {
+     // req.auth ya está populado por NextAuth
+     if (!req.auth?.user) {
+       return NextResponse.redirect(new URL("/login", req.url));
+     }
+     return NextResponse.next();
+   });
+   ```
+   Pero esto es más frágil que `export default auth` y duplica la
+   lógica del callback. Mejor exportar la función cruda.
+
+2. **Test anti-regresion structural**: además del test module-level
+   que verifica `proxy.default === authFn`, agregamos un test
+   source-level que detecta el patrón textual `auth((_request) =>` /
+   `auth((req) =>`. Un regex basta — el bug es estructural.
+
+3. **El `console.log` SÍ se ejecutaba**: eso descartó las hipótesis
+   "matcher no incluye la ruta" y "Edge runtime no accede a la
+   sesión". Si el log aparece, el proxy corre y la sesión está
+   disponible. Si `authorized` retorna `false` y aún así el page
+   carga → el wrapper del `auth(handler)` está descartando el
+   resultado.
+
+### Después del fix
+
+- ✅ `console.log` removido (era temporal de S10.5.2)
+- ✅ Anti-regresion tests agregados (4 nuevos en `tests/proxy.test.ts`)
+- ✅ AGENTS.md actualizado — Bug 2 movido a "Cerrado"
+- ✅ Comportamiento verificado: `/geovisor` en incognito redirige a
+  `/login`; con sesión válida carga la página
 
 ---
 
