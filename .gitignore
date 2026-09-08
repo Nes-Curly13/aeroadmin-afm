@@ -17,6 +17,11 @@ index.js
 .env
 .env.local
 .env.*.local
+# INCIDENT 2026-09-08: .env.local.bak con secretos reales se commiteó por error.
+# Cubrimos *.bak y *.local.bak explícitamente — el pattern `*.local` no matchea
+# `*.bak` (no tiene `.local` antes de la extensión).
+*.bak
+*.local.bak
 
 # Dev server logs
 .next-dev*.out.log
