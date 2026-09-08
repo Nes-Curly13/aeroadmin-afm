@@ -1,16 +1,23 @@
 // tests/components/admin/fumigations/flight-autofill.test.tsx
 //
 // Tests del auto-fill del form desde un vuelo DJI seleccionado.
-// Sprint S11+ / PLAN-FUMIGACIONES-V2 / Fase 2.5 — follow-up PR.
+// Sprint S11+ / PLAN-FUMIGACIONES-V2 / Fase 2.5 (V2) + refactor V3 (Fase 4).
+//
+// Cambios V3 (Fase 4, 2026-09-08):
+//   - El DjiFlightPicker ahora vive en el step 1 ("¿Qué se fumigó?"), no
+//     en el step 2 ("Detalles"). El auto-fill ocurre cuando se pickea
+//     el flight (en step 1) y se aplica al form cuando se monta (en
+//     step 2) via el `pendingFlightData` effect.
 //
 // Cubre:
-//   18. Al pickear un flight, el form se pre-llena vía setFormData
-//   19. Al pickear OTRO flight, se actualiza con los nuevos datos
-//   20. El hint "Auto-llenado" se muestra después de pickear un flight
+//   18. Al pickear un flight en step 1, el form se pre-llena cuando
+//       se monta en step 2 (via pendingFlightData)
+//   19. Al pickear OTRO flight, el form se actualiza con los nuevos datos
+//   20. El hint "Auto-llenado" se muestra en step 1 después de pickear
 //
 // Estrategia: el mock del form expone un spy de `setFormData` que
-// captura el último call. El test verifica los args del spy, no el
-// render del form (eso lo cubre el form tests).
+// captura todos los calls. El test verifica los args del spy, no el
+// render del form.
 
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
@@ -165,26 +172,27 @@ afterEach(() => {
   global.fetch = originalFetch;
 });
 
-// Helper: navega del step 0 al step 2 (form) en modo "import"
+// Helper V3: navega al step 2 con import + flight pickeado
 async function goToFormInImportMode(user: ReturnType<typeof userEvent.setup>) {
-  // Step 0: "Importar vuelo"
-  await user.click(screen.getByRole("button", { name: /importar vuelo/i }));
+  // Step 1: tab "Importar vuelo DJI"
+  await user.click(screen.getByTestId("tab-import"));
   // Step 1: elegir parcela
   const searchInput = screen.getByPlaceholderText(/buscar/i);
   await user.type(searchInput, "Lote");
   const result = await screen.findByText(/Lote 24/);
   await user.click(result);
+  // Step 1: DjiFlightPicker visible
   await waitFor(() => {
     expect(screen.getByTestId("dji-flight-picker")).toBeInTheDocument();
   });
 }
 
 // ============================================================
-// Auto-fill del form con datos del vuelo DJI
+// Auto-fill del form con datos del vuelo DJI (V3)
 // ============================================================
 
-describe("NewFumigationPageClient — Auto-fill con vuelo DJI (Fase 2.5 follow-up)", () => {
-  it("18. Al pickear un flight, setFormData se llama con sus datos derivados", async () => {
+describe("NewFumigationPageClient — Auto-fill con vuelo DJI (V3 / Fase 4)", () => {
+  it("18. Al pickear un flight en step 1 y avanzar a step 2, setFormData se llama con sus datos derivados", async () => {
     const user = userEvent.setup();
     render(
       <NewFumigationPageClient
@@ -196,11 +204,23 @@ describe("NewFumigationPageClient — Auto-fill con vuelo DJI (Fase 2.5 follow-u
     setFormDataSpy.mockClear();
     // Pick flight 1
     await user.click(screen.getByTestId("pick-flight-1"));
-    // setFormData fue llamado con los datos derivados del flight
+    // Continuar al step 2
+    await user.click(screen.getByTestId("continue-to-como"));
+    // El form se monta y el effect empuja el pendingFlightData
+    await waitFor(() => {
+      expect(screen.getByTestId("register-fumigation-form")).toBeInTheDocument();
+    });
     await waitFor(() => {
       expect(setFormDataSpy).toHaveBeenCalled();
     });
-    const args = setFormDataSpy.mock.calls[0][0] as Record<string, unknown>;
+    // Buscar la llamada con los datos del flight 1
+    const calls = setFormDataSpy.mock.calls;
+    const flight1Call = calls.find((call) => {
+      const arg = call[0] as Record<string, unknown>;
+      return arg.fumigation_date === "2026-09-15";
+    });
+    expect(flight1Call).toBeDefined();
+    const args = flight1Call![0] as Record<string, unknown>;
     expect(args.fumigation_date).toBe("2026-09-15");
     expect(args.duration_minutes).toBe("45"); // 2700s / 60
     expect(args.area_fumigated_m2).toBe("12000.00");
@@ -219,24 +239,29 @@ describe("NewFumigationPageClient — Auto-fill con vuelo DJI (Fase 2.5 follow-u
     await goToFormInImportMode(user);
     // Pick flight 1
     await user.click(screen.getByTestId("pick-flight-1"));
-    await waitFor(() => {
-      expect(setFormDataSpy).toHaveBeenCalled();
-    });
-    const firstCall = setFormDataSpy.mock.calls[0][0] as Record<string, unknown>;
-    expect(firstCall.fumigation_date).toBe("2026-09-15");
-    // Pick flight 2
-    setFormDataSpy.mockClear();
+    // Pick flight 2 (reemplaza el pick)
     await user.click(screen.getByTestId("pick-flight-2"));
+    // Continuar al step 2
+    await user.click(screen.getByTestId("continue-to-como"));
+    await waitFor(() => {
+      expect(screen.getByTestId("register-fumigation-form")).toBeInTheDocument();
+    });
     await waitFor(() => {
       expect(setFormDataSpy).toHaveBeenCalled();
     });
-    const secondCall = setFormDataSpy.mock.calls[0][0] as Record<string, unknown>;
-    expect(secondCall.fumigation_date).toBe("2026-09-10");
-    expect(secondCall.duration_minutes).toBe("30"); // 1800s / 60
-    expect(secondCall.area_fumigated_m2).toBe("8500.00");
+    // La ultima llamada con datos del flight 2 debe tener la fecha 2026-09-10
+    const calls = setFormDataSpy.mock.calls;
+    const flight2Call = calls.find((call) => {
+      const arg = call[0] as Record<string, unknown>;
+      return arg.fumigation_date === "2026-09-10";
+    });
+    expect(flight2Call).toBeDefined();
+    const args = flight2Call![0] as Record<string, unknown>;
+    expect(args.duration_minutes).toBe("30"); // 1800s / 60
+    expect(args.area_fumigated_m2).toBe("8500.00");
   });
 
-  it("20. El hint 'Auto-llenado' se muestra después de pickear un flight", async () => {
+  it("20. El hint 'Auto-llenado' se muestra en step 1 después de pickear un flight", async () => {
     const user = userEvent.setup();
     render(
       <NewFumigationPageClient

@@ -1,25 +1,33 @@
 "use client";
 
 /**
- * NewFumigationPageClient — wizard de alta de fumigación V2 (S11+).
+ * NewFumigationPageClient — wizard de alta de fumigación V3 (Fase 4, 2026-09-08).
  *
- * Sprint S11+ — PLAN-FUMIGACIONES-V2 / Fase 1.1 + 1.2.
+ * Sprint 2026-09-08 — refactor UX del wizard a 3 pasos basado en feedback
+ * del operador fumigador (no más clicks innecesarios).
  *
- * Refactor del wizard a 3 steps con map-after-selection:
- *   1. Parcela:  el operador busca/selecciona la parcela. Mapa OCULTO.
- *   2. Detalles: parcel summary + form + mapa VISIBLE (confirmación).
- *   3. Confirmar: resumen antes del POST (futuro, parte de Fase 1.1+).
+ * Antes (V2, S11+ Fase 2.5): 4 pasos
+ *   1. Modalidad  — elegir "Importar vuelo DJI" o "Registro manual"
+ *   2. Parcela    — buscar/elegir parcela (o crear nueva)
+ *   3. Detalles   — form completo + DjiFlightPicker (si import)
+ *   4. Confirmar  — resumen read-only
  *
- * Diferencias con la versión anterior (Sprint 2026-08-05):
- *   - Antes: mapa siempre visible a la derecha (40% del screen).
- *   - Ahora: mapa solo aparece DESPUÉS de elegir parcela (step 2+).
- *   - Antes: <details> colapsado para "Crear nueva parcela".
- *   - Ahora: botón prominente en la parte inferior del picker.
- *   - Antes: copy del header mencionaba "manual" y "Sentinel-2 cloudless 2024".
- *   - Ahora: copy genérico, el detalle técnico queda en la atribución del mapa.
- *   - Antes: phase = "pick" | "form" (2 steps).
- *   - Ahora: phase = "pick" | "form" | "confirm" (3 steps, "confirm"
- *     preparado para Fase 1.1+ cuando se agregue el resumen).
+ * Ahora (V3, Fase 4): 3 pasos
+ *   1. ¿Qué se fumigó?  — tabs (Importar/Manual) + ParcelPicker + (si Import) DjiFlightPicker
+ *   2. ¿Con qué se fumigó? — RegisterFumigationForm + mapa de la parcela
+ *   3. Confirmar        — resumen read-only
+ *
+ * Cambios clave:
+ *   - El step 0 (Modalidad) y el step 1 (Pick) se fusionan en uno solo
+ *     ("¿Qué se fumigó?"). El operator elige modalidad con tabs en la parte
+ *     superior del picker.
+ *   - El DjiFlightPicker (cuando entryMode === "import") se renderiza
+ *     DENTRO del step 1, después de elegir parcela. El auto-fill ocurre
+ *     acá, no en el form.
+ *   - El "Continuar al paso 2" reemplaza el auto-advance: el operator
+ *     decide cuándo avanzar, sobre todo en import (donde también
+ *     necesita elegir vuelo antes de avanzar).
+ *   - Stepper con 3 steps en vez de 4.
  *
  * Auth: el middleware ya gatea /admin/* y el handler del POST valida
  * role admin|supervisor. Esta página no requiere role especial.
@@ -71,19 +79,18 @@ interface NewFumigationPageClientProps {
   recentParcels: ParcelPickerRow[];
 }
 
-type Phase = "mode" | "pick" | "form" | "confirm";
+type Phase = "que" | "como" | "confirm";
 type EntryMode = "import" | "manual";
 
 /**
- * Sprint S11+ Fase 2.5 — el wizard ahora arranca en step 0 (mode) donde
- * el operator elige entre "Importar vuelo DJI" o "Registro manual". El
- * modo persiste en `entryMode` y se usa en step 2 (form) para decidir
- * si mostrar el DjiFlightPicker arriba del form.
+ * Fase 4 — 3 steps conceptuales:
+ *   1. que     → ¿Qué se fumigó?  (parcela + opcionalmente vuelo DJI)
+ *   2. como    → ¿Con qué se fumigó? (dron, producto, dosis, etc.)
+ *   3. confirm → Confirmar (resumen read-only)
  */
 const STEPS = [
-  { id: "mode" as const, label: "Modalidad", description: "¿Importar o manual?" },
-  { id: "pick" as const, label: "Parcela", description: "¿Dónde se realizó?" },
-  { id: "form" as const, label: "Detalles", description: "¿Qué, cuándo y con qué?" },
+  { id: "que" as const, label: "¿Qué se fumigó?", description: "Parcela y vuelo" },
+  { id: "como" as const, label: "¿Con qué se fumigó?", description: "Dron, producto y detalles" },
   { id: "confirm" as const, label: "Confirmar", description: "Revisar y registrar" }
 ];
 
@@ -91,23 +98,25 @@ export function NewFumigationPageClient({
   initialParcelId,
   recentParcels
 }: NewFumigationPageClientProps) {
-  const [phase, setPhase] = useState<Phase>(
-    initialParcelId ? "form" : "mode"
-  );
   /**
-   * Sprint S11+ Fase 2.5 — modalidad de entrada. `import` = el operator
-   * quiere auto-llenar desde un vuelo DJI; `manual` = registro manual.
-   * Se setea en step 0 (cards) y se lee en step 2 (form) para decidir
-   * si mostrar el DjiFlightPicker. `null` antes de elegir modalidad.
+   * Fase 4 — si el URL trae `?parcel=N`, el operator ya sabe qué
+   * parcela. Saltamos al step 2 ("¿Con qué se fumigó?") y pre-llenamos
+   * `entryMode` a "manual" (no se puede auto-importar sin pasar por
+   * el picker de vuelos).
    */
-  const [entryMode, setEntryMode] = useState<EntryMode | null>(
-    initialParcelId ? "manual" : null
+  const [phase, setPhase] = useState<Phase>(
+    initialParcelId ? "como" : "que"
   );
   /**
-   * Sprint S11+ Fase 2.5 — vuelo DJI seleccionado por el operator
-   * (solo cuando entryMode === "import"). En MVP, lo guardamos para
-   * mostrar un hint en el form; el auto-fill completo del form
-   * queda para un PR siguiente (requiere lifting de form state).
+   * Fase 4 — modalidad de entrada. Default "manual" (mas comun para
+   * el operator fumigador: registra fumigaciones que no tienen vuelo
+   * DJI asociado). El operator puede cambiar a "import" via los tabs
+   * en el step 1.
+   */
+  const [entryMode, setEntryMode] = useState<EntryMode>("manual");
+  /**
+   * Vuelo DJI seleccionado (solo cuando entryMode === "import").
+   * Fase 4: el flight picker esta en el step 1, NO en el step 2.
    */
   const [pickedFlight, setPickedFlight] = useState<DjiFlight | null>(null);
   const [chosenParcel, setChosenParcel] = useState<ParcelPickerRow | null>(
@@ -119,20 +128,16 @@ export function NewFumigationPageClient({
     { type: "Polygon"; coordinates: number[][][] } | null
   >(null);
   /**
-   * Sprint S11+ Fase 1.3 — snapshot del FormState en el momento en que
-   * el operador hace click en "Revisar y confirmar" (step 2). El step 3
-   * (Confirm) lee de acá para mostrar el resumen. El POST real se hace
-   * al click del "Confirmar y registrar" del step 3, vía formRef.
+   * Snapshot del FormState en el momento en que el operator hace click
+   * en "Revisar y confirmar" (step 2). El step 3 (Confirm) lee de aca
+   * para mostrar el resumen. El POST real se hace al click del
+   * "Confirmar y registrar" del step 3, via formRef.
    */
   const [pendingFormData, setPendingFormData] = useState<FormState | null>(null);
   /**
-   * Sprint S11+ / zod PR #3 — error de validacion del FormState
-   * (zod formStateSchema) al hacer click en "Revisar y confirmar".
-   * Si no es null, mostramos un banner arriba del form y NO avanzamos
-   * al step 3. El operator tiene que corregir el campo y volver a
-   * intentar. Esto cierra el gap entre el auto-fill del DjiFlightPicker
-   * y el POST — antes, el form podia llegar al step 3 con datos
-   * invalidos y fallar en el server round-trip.
+   * Error de validacion del FormState (zod formStateSchema) al hacer
+   * click en "Revisar y confirmar". Si no es null, mostramos un
+   * banner arriba del form y NO avanzamos al step 3.
    */
   const [formValidationError, setFormValidationError] = useState<string | null>(null);
   const formRef = useRef<RegisterFumigationFormHandle | null>(null);
@@ -168,137 +173,114 @@ export function NewFumigationPageClient({
   }, [chosenParcel?.id]);
 
   /**
-   * Sprint S11+ Fase 2.5 — handler del step 0 (mode). Setea el
-   * entryMode y avanza al step 1 (pick).
+   * Fase 4 — handler del step 1: el operator eligio parcela y (si
+   * import) vuelo. Avanza al step 2 ("como"). El form se monta y
+   * el ref queda listo para que el step 3 pueda capturar la
+   * snapshot y disparar el submit.
    */
-  function chooseMode(mode: EntryMode) {
-    setEntryMode(mode);
-    setPhase("pick");
+  function goToComo() {
+    setPhase("como");
   }
 
-  function chooseParcel(p: ParcelPickerRow) {
-    setChosenParcel(p);
+  function resetParcel() {
+    // Sprint 2026-09-08 (Fase 4): desde el step 2 (como) el operator
+    // puede volver a step 1 (que) via "Cambiar" en ParcelSummaryCard.
+    // Limpiamos parcel + flight para que re-elegir.
+    setChosenParcel(null);
     setParcelGeom(null);
     setPendingFormData(null);
-    setPhase("form");
+    setPickedFlight(null);
+    setPhase("que");
+  }
+
+  function setMode(mode: EntryMode) {
+    setEntryMode(mode);
+    if (mode === "manual") {
+      // Si cambia a manual despues de haber pickeado un flight, lo limpiamos.
+      setPickedFlight(null);
+    }
   }
 
   /**
-   * Sprint S11+ Fase 2.5 — handler del DjiFlightPicker (step 2 en
-   * modo "import"). Auto-llena el form con los datos del vuelo:
-   *   - fumigation_date: YYYY-MM-DD del start_at
-   *   - duration_minutes: duration_seconds / 60
-   *   - area_fumigated_m2: area_m2 (m²)
-   *   - drone_code_used: derivado del drone_nickname via DRONE_MODELS
-   *     (MVP: hardcoded "1" para "AFM T40 1" porque el picker tiene
-   *     un set fijo de modelos — ver lib/data-constants.ts)
-   *   - notes: "Importado de vuelo DJI #X del YYYY-MM-DD"
+   * Fase 4 — handler del DjiFlightPicker (step 1, modo "import").
+   * Auto-llena el form via setFormData (mismo patron que V2). El
+   * form esta en el step 2 (aun no montado cuando se pickea un
+   * flight), asi que el primer setFormData puede no tener efecto
+   * visual hasta que se avance. Para preservar el auto-fill, lo
+   * guardamos en un queue que se aplica cuando el form se monta.
    *
-   * El product_used, dose_l_per_ha, etc. NO se sobreescriben — el
-   * operator los llena a mano. La fumigación importada se
-   * pre-completa con metadata operativa; el catálogo de productos
-   * sigue siendo decisión humana.
+   * Implementacion: usamos `pendingFlightData` para que cuando el
+   * form se monte (step 2), un effect lo empuje. Tambien intentamos
+   * setFormData inmediatamente por si el form ya esta montado
+   * (e.g. si el operator vuelve del step 2 a step 1 y pickea otro
+   * flight).
    */
+  const [pendingFlightData, setPendingFlightData] = useState<Partial<FormState> | null>(null);
   function handlePickFlight(flight: DjiFlight) {
     setPickedFlight(flight);
-    // Auto-fill del form via ref. Hacemos un patch parcial — los
-    // campos que el vuelo no provee quedan intactos.
     const dateStr = flight.start_at.slice(0, 10);
     const durationMin = String(Math.round(flight.duration_seconds / 60));
-    // MVP: mapeamos el drone_nickname a drone_code_used buscando
-    // en DRONE_MODELS. Si no matchea, queda "0" (sin asignar).
     const droneCode = (() => {
       const match = DRONE_MODELS.find((m) => m.name === flight.drone_nickname);
       return match ? String(match.id) : "0";
     })();
-    formRef.current?.setFormData({
+    const patch: Partial<FormState> = {
       fumigation_date: dateStr,
       duration_minutes: durationMin,
       area_fumigated_m2: flight.area_m2 ?? "",
       drone_code_used: droneCode,
       notes: `Importado de vuelo DJI #${flight.flight_id} del ${dateStr}`
-    });
-  }
-
-  function reset() {
-    // Sprint S11+ Fase 2.5 — "Atrás" desde el form (step 2) va al
-    // step 1 (pick), NO al step 0 (mode). El operator eligió una
-    // modalidad y debería poder cambiar de parcela sin re-elegir la
-    // modalidad. Para volver al step 0 desde el principio, el
-    // operator puede recargar la página o usar el stepper si está
-    // implementado como clickeable (sprint futuro).
-    setChosenParcel(null);
-    setParcelGeom(null);
-    setPendingFormData(null);
-    setPickedFlight(null);
-    setPhase("pick");
-  }
-
-  function resetToMode() {
-    // Full reset al step 0 (mode). Usado solo por el reset de página
-    // (no expuesto en UI por ahora).
-    setChosenParcel(null);
-    setParcelGeom(null);
-    setPendingFormData(null);
-    setPickedFlight(null);
-    setEntryMode(null);
-    setPhase("mode");
+    };
+    setPendingFlightData(patch);
+    // Si el form ya esta montado (operator re-pickea desde el step 2
+    // hacia atras), el ref funciona directamente.
+    formRef.current?.setFormData(patch);
   }
 
   /**
-   * Sprint S11+ Fase 1.3 — handler del "Revisar y confirmar" del step 2.
-   * Captura la snapshot del form (vía el handle imperativo) y avanza
-   * al step 3 (Confirm). El form NO hace POST — el parent controla.
-   *
-   * Sprint S11+ / zod PR #3 — valida con `formStateSchema` antes de
-   * avanzar. Si hay issues, muestra un banner arriba del form y NO
-   * avanza al step 3. Esto previene que el operator llegue al resumen
-   * con data invalida (e.g. el DjiFlightPicker introdujo un valor
-   * problematico via auto-fill, o el operator borro un required sin
-   * darse cuenta).
+   * Fase 4 — cuando el form se monta (transicion a "como"), aplicamos
+   * el pendingFlightData si hay uno. Asi el auto-fill del vuelo DJI
+   * llega al form aunque el form se monte DESPUES del pick.
+   */
+  useEffect(() => {
+    if (phase === "como" && pendingFlightData && formRef.current) {
+      formRef.current.setFormData(pendingFlightData);
+    }
+  }, [phase, pendingFlightData]);
+
+  /**
+   * Handler del "Revisar y confirmar" del step 2. Captura la snapshot
+   * del form (via el handle imperativo) y avanza al step 3 (Confirm).
+   * Valida con formStateSchema antes de avanzar.
    */
   function handleRequestReview(data: FormState) {
     const result = formStateSchema.safeParse(data);
     if (!result.success) {
-      // Mostrar el primer issue en el banner. El operador puede ver
-      // el resto abriendo la consola del form si quiere detalle, pero
-      // lo importante es el campo exacto (path[0]).
       const first = result.error.issues[0];
-      // zod `path` is `(string | number)[]`, pero TS lo tipea como
-      // `PropertyKey[]` que incluye `symbol`. Forzamos a string para
-      // el mensaje (TS2731: implicit symbol→string conversion falla).
       const field = String(first.path[0] ?? "form");
       const msg = first.message;
       setFormValidationError(`${field}: ${msg}`);
-      return; // no avanzar al step 3
+      return;
     }
     setFormValidationError(null);
     setPendingFormData(data);
     setPhase("confirm");
   }
 
-  /**
-   * Sprint S11+ / zod PR #3 — limpiar el error de validacion cuando
-   * el operator edita cualquier campo del form. Asi el banner
-   * desaparece apenas corrigen, sin esperar al "Revisar y confirmar"
-   * de nuevo.
-   */
   function clearFormValidationError() {
     if (formValidationError) setFormValidationError(null);
   }
 
   /**
-   * Sprint S11+ Fase 1.3 — handler del "Confirmar y registrar" del
-   * step 3. Dispara el submit del form (vía el handle imperativo),
-   * que hace el POST real. El form maneja su propio estado de loading
-   * y success/error (banners + router.refresh).
+   * Handler del "Confirmar y registrar" del step 3. Dispara el
+   * submit del form (via el handle imperativo), que hace el POST real.
    */
   async function handleConfirm() {
     await formRef.current?.triggerSubmit();
   }
 
-  function backToForm() {
-    setPhase("form");
+  function backToComo() {
+    setPhase("como");
   }
 
   return (
@@ -306,29 +288,24 @@ export function NewFumigationPageClient({
       <Stepper
         currentStep={phase}
         onJump={(target) => {
-          // QA-11 fix: el operator puede saltar a cualquier step
-          // anterior via click en el stepper. Saltar hacia atras
-          // implica perder el state de los steps futuros — eso
-          // es esperable (se muestra el boton "Revisar y confirmar"
-          // de nuevo cuando re-avance).
           setPhase(target);
-          // Si vuelve a pick/form/confirm, los states (parcela,
-          // formData, etc) ya quedaron seteados en su viaje
-          // forward. Si el operator quiere resetear de verdad,
-          // puede usar los botones "Atras" / "Volver" de cada
-          // step para limpiar.
         }}
       />
 
-      {phase === "mode" ? (
-        // Sprint S11+ Fase 2.5 — step 0: el operator elige modalidad.
-        <ModeStep onChoose={chooseMode} />
-      ) : phase === "pick" ? (
-        <ParcelPicker
+      {phase === "que" ? (
+        <QueStep
+          entryMode={entryMode}
+          onModeChange={setMode}
           recentParcels={recentParcels}
-          onChoose={chooseParcel}
-          onNewParcel={async (geom) => {
-            setPhase("form");
+          chosenParcel={chosenParcel}
+          onChooseParcel={(p) => {
+            setChosenParcel(p);
+            setParcelGeom(null);
+            setPendingFormData(null);
+            setPickedFlight(null);
+            setPendingFlightData(null);
+          }}
+          onNewParcel={(geom) => {
             const p: ParcelPickerRow = {
               id: 0,
               land_name: "Nueva parcela (dibujada)",
@@ -341,50 +318,13 @@ export function NewFumigationPageClient({
             setChosenParcel(p);
             setParcelGeom(geom);
           }}
-          onBack={() => setPhase("mode")}
+          pickedFlight={pickedFlight}
+          onPickFlight={handlePickFlight}
+          onContinue={goToComo}
         />
-      ) : phase === "form" && chosenParcel ? (
-        // Step 2 — Detalles. El form se renderiza con `onRequestReview`
-        // y `ref` para que el wizard pueda capturar la snapshot y
-        // disparar el submit programáticamente desde el step 3.
-        // El form NO persiste al click — eso pasa en handleConfirm.
-        // Sprint S11+ Fase 2.5: si entryMode === "import", se muestra
-        // el DjiFlightPicker ARRIBA del form. Al pickear un vuelo, se
-        // guarda en `pickedFlight` (placeholder para auto-fill futuro).
+      ) : phase === "como" && chosenParcel ? (
         <>
-          <ParcelSummaryCard parcel={chosenParcel} onChange={reset} />
-          {entryMode === "import" ? (
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <Plane className="size-4 text-primary" aria-hidden />
-                  Importar vuelo DJI
-                </CardTitle>
-                <CardDescription>
-                  Elegí un vuelo DJI de la lista. Los datos del vuelo
-                  (fecha, duración, área) se van a usar para registrar la
-                  fumigación.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <DjiFlightPicker
-                  parcelaId={chosenParcel.id}
-                  onPick={handlePickFlight}
-                />
-                {pickedFlight ? (
-                  <p
-                    data-testid="picked-flight-hint"
-                    className="mt-3 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-xs text-primary"
-                  >
-                    Auto-llenado con datos del vuelo DJI #
-                    {pickedFlight.flight_id} del{" "}
-                    {pickedFlight.start_at.slice(0, 10)}. Revisá los campos
-                    antes de avanzar.
-                  </p>
-                ) : null}
-              </CardContent>
-            </Card>
-          ) : null}
+          <ParcelSummaryCard parcel={chosenParcel} onChange={resetParcel} />
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
             <div className="lg:col-span-3">
               <Card>
@@ -399,12 +339,6 @@ export function NewFumigationPageClient({
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  {/*
-                    Sprint S11+ / zod PR #3 — banner de error de
-                    validacion. Aparece si `handleRequestReview`
-                    encontro issues con `formStateSchema`. El operator
-                    corrige y vuelve a "Revisar y confirmar".
-                  */}
                   {formValidationError ? (
                     <div
                       role="alert"
@@ -448,9 +382,9 @@ export function NewFumigationPageClient({
             ) : null}
           </div>
           <div className="flex items-center justify-between border-t border-border pt-4">
-            <Button variant="ghost" onClick={reset}>
+            <Button variant="ghost" onClick={resetParcel}>
               <ChevronLeft className="size-4" aria-hidden />
-              Atrás
+              Cambiar parcela
             </Button>
             <p className="text-xs text-muted-foreground">
               Paso 2 de {STEPS.length}. Revisá los datos y avanzá al paso 3.
@@ -458,18 +392,15 @@ export function NewFumigationPageClient({
           </div>
         </>
       ) : phase === "confirm" && chosenParcel && pendingFormData ? (
-        // Sprint S11+ Fase 1.3 — step 3 (Confirm). El form ya NO está
-        // montado — el operator ve un resumen read-only. El botón
-        // "Confirmar y registrar" dispara el POST vía formRef.
         <>
-          <ParcelSummaryCard parcel={chosenParcel} onChange={reset} />
+          <ParcelSummaryCard parcel={chosenParcel} onChange={resetParcel} />
           <ConfirmStep
             formData={pendingFormData}
-            onBack={backToForm}
+            onBack={backToComo}
             onConfirm={handleConfirm}
           />
           <div className="flex items-center justify-between border-t border-border pt-4">
-            <Button variant="ghost" onClick={backToForm}>
+            <Button variant="ghost" onClick={backToComo}>
               <ChevronLeft className="size-4" aria-hidden />
               Atrás
             </Button>
@@ -484,73 +415,296 @@ export function NewFumigationPageClient({
 }
 
 // ============================================================
-// ModeStep — step 0 del wizard (Fase 2.5)
+// QueStep — step 1 del wizard V3 (Fase 4)
 // ============================================================
 //
-// Dos cards grandes: "Importar vuelo DJI" y "Registro manual".
-// El operator elige UNA y avanza al step 1 (elegir parcela).
-//
-// Patrón visual consistente con ParcelPicker y la ParcelSummaryCard
-// (cards con icon + título + descripción + botón de acción).
+// Combina la eleccion de modalidad (Importar/Manual) con el ParcelPicker
+// y, en modo "import", el DjiFlightPicker. El "Continuar al paso 2"
+// esta en la parte inferior, gated segun:
+//   - Parcela elegida (siempre requerido)
+//   - Vuelo elegido (solo si entryMode === "import")
 
-function ModeStep({ onChoose }: { onChoose: (mode: "import" | "manual") => void }) {
+interface QueStepProps {
+  entryMode: EntryMode;
+  onModeChange: (mode: EntryMode) => void;
+  recentParcels: ParcelPickerRow[];
+  chosenParcel: ParcelPickerRow | null;
+  onChooseParcel: (p: ParcelPickerRow) => void;
+  onNewParcel: (geom: { type: "Polygon"; coordinates: number[][][] }) => void;
+  pickedFlight: DjiFlight | null;
+  onPickFlight: (f: DjiFlight) => void;
+  onContinue: () => void;
+}
+
+function QueStep({
+  entryMode,
+  onModeChange,
+  recentParcels,
+  chosenParcel,
+  onChooseParcel,
+  onNewParcel,
+  pickedFlight,
+  onPickFlight,
+  onContinue
+}: QueStepProps) {
+  const [query, setQuery] = useState("");
+  const [drawerGeom, setDrawerGeom] = useState<{
+    type: "Polygon";
+    coordinates: number[][][];
+  } | null>(null);
+  const [showDrawer, setShowDrawer] = useState(false);
+
+  const results = useMemo(() => {
+    if (query.trim().length < 1) return [];
+    const q = query.toLowerCase();
+    return recentParcels
+      .filter((p) => {
+        const haystack = [
+          String(p.id),
+          p.land_name ?? "",
+          p.external_id,
+          p.client_name ?? "",
+          p.farm_name ?? "",
+          p.municipality ?? ""
+        ]
+          .join(" ")
+          .toLowerCase();
+        return haystack.includes(q);
+      })
+      .slice(0, 10);
+  }, [query, recentParcels]);
+
+  const canContinue =
+    chosenParcel !== null &&
+    (entryMode === "manual" || pickedFlight !== null);
+
   return (
-    <div
-      className="grid grid-cols-1 gap-4 md:grid-cols-2"
-      data-testid="mode-step"
-    >
+    <div className="flex flex-col gap-4" data-testid="que-step">
+      {/* Tabs: Importar vuelo / Manual */}
+      <div
+        role="tablist"
+        aria-label="Modalidad de registro"
+        className="inline-flex w-full rounded-md border border-border bg-muted/30 p-1 sm:w-auto"
+      >
+        <button
+          type="button"
+          role="tab"
+          aria-selected={entryMode === "import"}
+          data-testid="tab-import"
+          onClick={() => onModeChange("import")}
+          className={`flex flex-1 items-center justify-center gap-2 rounded-sm px-3 py-2 text-sm font-medium transition-colors sm:flex-none ${
+            entryMode === "import"
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <Plane className="size-4" aria-hidden />
+          Importar vuelo DJI
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={entryMode === "manual"}
+          data-testid="tab-manual"
+          onClick={() => onModeChange("manual")}
+          className={`flex flex-1 items-center justify-center gap-2 rounded-sm px-3 py-2 text-sm font-medium transition-colors sm:flex-none ${
+            entryMode === "manual"
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <Edit3 className="size-4" aria-hidden />
+          Registro manual
+        </button>
+      </div>
+
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-base">
-            <Plane className="size-4 text-primary" aria-hidden />
-            Importar vuelo DJI
+            <Sprout className="size-4 text-primary" aria-hidden />
+            ¿A qué parcela le vas a registrar la fumigación?
           </CardTitle>
           <CardDescription>
-            Usá los datos de un vuelo registrado por DJI (fecha, duración,
-            área, dron, piloto). El sistema busca los vuelos de la parcela
-            elegida en los últimos 30 días.
+            Buscá por nombre, ID externo, cliente, hacienda o municipio.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Button
-            type="button"
-            onClick={() => onChoose("import")}
-            className="w-full"
-          >
-            <Plane className="size-4" aria-hidden />
-            Importar vuelo
-          </Button>
+          <div className="relative mb-3">
+            <Search
+              className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+              aria-hidden
+            />
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Buscar por nombre, ID, cliente, hacienda, municipio…"
+              aria-label="Buscar parcela existente"
+              className="pl-8"
+              autoFocus
+            />
+          </div>
+
+          {chosenParcel ? (
+            <div
+              className="mb-3 flex items-center gap-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm"
+              data-testid="chosen-parcel-hint"
+            >
+              <Sprout className="size-4 shrink-0 text-primary" aria-hidden />
+              <span className="flex-1 truncate">
+                <strong>{chosenParcel.land_name ?? "(sin nombre)"}</strong>
+                {chosenParcel.client_name || chosenParcel.farm_name
+                  ? ` — ${[chosenParcel.client_name, chosenParcel.farm_name]
+                      .filter(Boolean)
+                      .join(" · ")}`
+                  : ""}
+              </span>
+            </div>
+          ) : null}
+
+          {!chosenParcel && results.length > 0 ? (
+            <ul className="overflow-hidden rounded-md border border-border">
+              {results.map((p) => (
+                <li
+                  key={p.id}
+                  className="border-b border-border/60 last:border-0"
+                >
+                  <button
+                    type="button"
+                    onClick={() => onChooseParcel(p)}
+                    className="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left text-sm hover:bg-muted focus:bg-muted focus:outline-none"
+                  >
+                    <div className="flex w-full items-center gap-2">
+                      <span className="font-mono text-[10px] text-muted-foreground">
+                        #{p.id}
+                      </span>
+                      <span className="font-semibold">
+                        {p.land_name ?? "(sin nombre)"}
+                      </span>
+                      {p.source === "manual" || p.source === "imported" ? (
+                        <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-medium text-primary">
+                          {p.source}
+                        </span>
+                      ) : null}
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">
+                      {[p.client_name, p.farm_name, p.municipality]
+                        .filter(Boolean)
+                        .join(" · ") || p.external_id}
+                    </p>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : !chosenParcel && query.trim().length > 0 ? (
+            <p className="rounded-md border border-dashed border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+              Sin coincidencias para “{query}”. Si la parcela es nueva,
+              usá el botón de abajo.
+            </p>
+          ) : !chosenParcel ? (
+            <p className="text-xs text-muted-foreground">
+              Tipeá para buscar entre las {recentParcels.length} parcelas
+              registradas.
+            </p>
+          ) : null}
         </CardContent>
       </Card>
+
+      {/* Botón prominente: crear nueva parcela (no <details> colapsado) */}
       <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Edit3 className="size-4 text-primary" aria-hidden />
-            Registro manual
-          </CardTitle>
-          <CardDescription>
-            Registrá una fumigación que no tiene información de vuelo DJI
-            (manual, re-tratamiento, fuera de rango). Llenas el form a mano.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => onChoose("manual")}
-            className="w-full"
-          >
-            <Edit3 className="size-4" aria-hidden />
-            Registro manual
-          </Button>
+        <CardContent className="flex flex-col gap-3 pt-6">
+          <div className="flex flex-col gap-1">
+            <p className="text-sm font-medium">¿No encontrás la parcela?</p>
+            <p className="text-xs text-muted-foreground">
+              Dibujá el límite en el mapa y creala con el alta manual.
+            </p>
+          </div>
+          {!showDrawer ? (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setShowDrawer(true)}
+              className="self-start"
+            >
+              <Plus className="size-4" aria-hidden />
+              Crear nueva parcela
+            </Button>
+          ) : (
+            <div className="flex flex-col gap-3">
+              <ParcelDrawer onPolygonChange={setDrawerGeom} />
+              {drawerGeom ? (
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[11px] text-muted-foreground">
+                    Polígono listo ({drawerGeom.coordinates[0].length - 1}{" "}
+                    vértices). La parcela se crea en el alta manual.
+                  </p>
+                  <Button
+                    size="sm"
+                    variant="default"
+                    onClick={() => onNewParcel(drawerGeom)}
+                    disabled
+                  >
+                    Continuar
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+          )}
         </CardContent>
       </Card>
+
+      {/* Flight picker (solo en modo import) — despues de elegir parcela */}
+      {entryMode === "import" && chosenParcel ? (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Plane className="size-4 text-primary" aria-hidden />
+              Importar vuelo DJI
+            </CardTitle>
+            <CardDescription>
+              Elegí un vuelo DJI de la lista. Los datos del vuelo (fecha,
+              duración, área) se van a usar para registrar la fumigación.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <DjiFlightPicker
+              parcelaId={chosenParcel.id}
+              onPick={onPickFlight}
+            />
+            {pickedFlight ? (
+              <p
+                data-testid="picked-flight-hint"
+                className="mt-3 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-xs text-primary"
+              >
+                Auto-llenado con datos del vuelo DJI #
+                {pickedFlight.flight_id} del{" "}
+                {pickedFlight.start_at.slice(0, 10)}. Revisá los campos antes
+                de avanzar.
+              </p>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {/* Continuar al paso 2 */}
+      <div className="flex items-center justify-between border-t border-border pt-4">
+        <p className="text-xs text-muted-foreground">
+          Paso 1 de {STEPS.length}. Elegí la parcela{entryMode === "import" ? " y el vuelo DJI" : ""}.
+        </p>
+        <Button
+          onClick={onContinue}
+          disabled={!canContinue}
+          data-testid="continue-to-como"
+        >
+          Continuar al paso 2
+          <ChevronRight className="size-4" aria-hidden />
+        </Button>
+      </div>
     </div>
   );
 }
 
 // ============================================================
-// ConfirmStep — step 3 del wizard (Fase 1.3)
+// ConfirmStep — step 3 del wizard (Fase 1.3, sin cambios en V3)
 // ============================================================
 //
 // Muestra un resumen read-only de la fumigación a registrar:
@@ -560,10 +714,6 @@ function ModeStep({ onChoose }: { onChoose: (mode: "import" | "manual") => void 
 // El operator puede:
 //   - Volver a step 2 (botón "Atrás") para editar
 //   - Confirmar (botón "Confirmar y registrar") para ejecutar el POST
-//
-// La data del form se pasa como `formData` (snapshot tomada en el step
-// 2 vía `onRequestReview`). El POST real lo dispara el parent vía
-// `onConfirm` → `formRef.current?.triggerSubmit()`.
 
 interface ConfirmStepProps {
   formData: FormState;
@@ -705,15 +855,6 @@ function Stepper({ currentStep, onJump }: { currentStep: Phase; onJump: (step: P
       {STEPS.map((step, idx) => {
         const isActive = step.id === currentStep;
         const isComplete = idx < currentIdx;
-        // QA-11 fix (2026-09-06): el operator reporto que no podia
-        // volver a la parte 1 del formulario (modalidad). El stepper
-        // era solo decorativo — no cliqueable. Hicimos que los
-        // steps COMPLETADOS (anteriores al current) sean botones
-        // cliqueables que navegan al step correspondiente via
-        // onJump. Steps futuros (idx > currentIdx) siguen siendo
-        // no-cliqueables (no se puede saltar hacia adelante sin
-        // completar el actual). El step activo tampoco es cliqueable
-        // (es donde estas parado).
         const isClickable = isComplete;
         const Wrapper = isClickable ? "button" : "div";
         return (
@@ -758,190 +899,6 @@ function Stepper({ currentStep, onJump }: { currentStep: Phase; onJump: (step: P
         );
       })}
     </nav>
-  );
-}
-
-// ============================================================
-// ParcelPicker — autocomplete live + botón "Crear nueva" prominente
-// ============================================================
-
-function ParcelPicker({
-  recentParcels,
-  onChoose,
-  onNewParcel,
-  onBack
-}: {
-  recentParcels: ParcelPickerRow[];
-  onChoose: (p: ParcelPickerRow) => void;
-  onNewParcel: (geom: { type: "Polygon"; coordinates: number[][][] }) => void;
-  // QA-11 fix: callback para volver al step 0 (mode) y re-elegir
-  // modalidad. Sin esto, el operator quedaba atrapado en step 1
-  // una vez que eligio parcela — la unica forma de cambiar
-  // modalidad era recargar la pagina.
-  onBack?: () => void;
-}) {
-  const [query, setQuery] = useState("");
-  const [drawerGeom, setDrawerGeom] = useState<{
-    type: "Polygon";
-    coordinates: number[][][];
-  } | null>(null);
-  const [showDrawer, setShowDrawer] = useState(false);
-
-  const results = useMemo(() => {
-    if (query.trim().length < 1) return [];
-    const q = query.toLowerCase();
-    return recentParcels
-      .filter((p) => {
-        const haystack = [
-          String(p.id),
-          p.land_name ?? "",
-          p.external_id,
-          p.client_name ?? "",
-          p.farm_name ?? "",
-          p.municipality ?? ""
-        ]
-          .join(" ")
-          .toLowerCase();
-        return haystack.includes(q);
-      })
-      .slice(0, 10);
-  }, [query, recentParcels]);
-
-  return (
-    <div className="flex flex-col gap-4">
-      {onBack ? (
-        // QA-11 fix: el operator puede volver al step 0 (mode) para
-        // re-elegir modalidad sin recargar la pagina.
-        <div className="flex items-center justify-between">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onBack}
-            data-testid="back-to-mode"
-            aria-label="Volver a elegir modalidad"
-          >
-            <ChevronLeft className="size-3.5" aria-hidden />
-            Volver a modalidad
-          </Button>
-        </div>
-      ) : null}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Sprout className="size-4 text-primary" aria-hidden />
-            ¿A qué parcela le vas a registrar la fumigación?
-          </CardTitle>
-          <CardDescription>
-            Buscá por nombre, ID externo, cliente, hacienda o municipio.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="relative mb-3">
-            <Search
-              className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-              aria-hidden
-            />
-            <Input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Buscar por nombre, ID, cliente, hacienda, municipio…"
-              aria-label="Buscar parcela existente"
-              className="pl-8"
-              autoFocus
-            />
-          </div>
-
-          {results.length > 0 ? (
-            <ul className="overflow-hidden rounded-md border border-border">
-              {results.map((p) => (
-                <li
-                  key={p.id}
-                  className="border-b border-border/60 last:border-0"
-                >
-                  <button
-                    type="button"
-                    onClick={() => onChoose(p)}
-                    className="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left text-sm hover:bg-muted focus:bg-muted focus:outline-none"
-                  >
-                    <div className="flex w-full items-center gap-2">
-                      <span className="font-mono text-[10px] text-muted-foreground">
-                        #{p.id}
-                      </span>
-                      <span className="font-semibold">
-                        {p.land_name ?? "(sin nombre)"}
-                      </span>
-                      {p.source === "manual" || p.source === "imported" ? (
-                        <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-medium text-primary">
-                          {p.source}
-                        </span>
-                      ) : null}
-                    </div>
-                    <p className="text-[11px] text-muted-foreground">
-                      {[p.client_name, p.farm_name, p.municipality]
-                        .filter(Boolean)
-                        .join(" · ") || p.external_id}
-                    </p>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          ) : query.trim().length > 0 ? (
-            <p className="rounded-md border border-dashed border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-              Sin coincidencias para “{query}”. Si la parcela es nueva,
-              usá el botón de abajo.
-            </p>
-          ) : (
-            <p className="text-xs text-muted-foreground">
-              Tipeá para buscar entre las {recentParcels.length} parcelas
-              registradas.
-            </p>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Botón prominente: crear nueva parcela (no <details> colapsado) */}
-      <Card>
-        <CardContent className="flex flex-col gap-3 pt-6">
-          <div className="flex flex-col gap-1">
-            <p className="text-sm font-medium">¿No encontrás la parcela?</p>
-            <p className="text-xs text-muted-foreground">
-              Dibujá el límite en el mapa y creala con el alta manual.
-            </p>
-          </div>
-          {!showDrawer ? (
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setShowDrawer(true)}
-              className="self-start"
-            >
-              <Plus className="size-4" aria-hidden />
-              Crear nueva parcela
-            </Button>
-          ) : (
-            <div className="flex flex-col gap-3">
-              <ParcelDrawer onPolygonChange={setDrawerGeom} />
-              {drawerGeom ? (
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-[11px] text-muted-foreground">
-                    Polígono listo ({drawerGeom.coordinates[0].length - 1}{" "}
-                    vértices). La parcela se crea en el alta manual.
-                  </p>
-                  <Button
-                    size="sm"
-                    variant="default"
-                    onClick={() => onNewParcel(drawerGeom)}
-                    disabled
-                  >
-                    Continuar
-                  </Button>
-                </div>
-              ) : null}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-    </div>
   );
 }
 
