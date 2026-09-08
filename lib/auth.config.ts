@@ -137,24 +137,16 @@ export const authConfig: NextAuthConfig = {
      *     el middleware redirige a /login (comportamiento UI standard).
      *   - Otros paths: requieren sesion. Si no, redirect a /login.
      *
-     * S10.5.2 (2026-09-04) — agregado `console.log` para diagnosticar
-     * por qué un dev nuevo reportó que /geovisor era accesible sin
-     * sesion. El proxy SÍ es detectado por Next.js 16 (el build no
-     * se queja), pero el comportamiento real no coincide. Necesitamos
-     * visibility de qué `auth` recibe el callback y qué `pathname`.
+     * Bug 2 fix (2026-09-08): el agujero de seguridad reportado por
+     * un dev nuevo ("/geovisor accesible sin login") era el wrapper
+     * `auth((req) => NextResponse.next())` en proxy.ts que bypaseaba
+     * este callback. El log temporal de S10.5.2 se removió — el fix
+     * definitivo está en proxy.ts: `export default auth` (sin wrappear).
+     * Ver `docs/BUG-2-AUTH-DIAGNOSTIC.md`.
      */
     async authorized({ auth, request }) {
       const { pathname } = request.nextUrl;
       const isLoggedIn = !!auth?.user;
-      // S10.5.2 — visibility temporal para diagnosticar el agujero
-      // de seguridad reportado. Remover despues de confirmar el fix.
-      console.log("[auth.authorized]", {
-        pathname,
-        isLoggedIn,
-        hasAuth: !!auth,
-        hasUser: !!auth?.user,
-        userEmail: auth?.user?.email ?? null
-      });
 
       const PUBLIC = [
         "/login",
