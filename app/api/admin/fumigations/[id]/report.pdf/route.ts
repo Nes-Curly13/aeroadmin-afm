@@ -11,7 +11,7 @@
  * Auth: admin o supervisor.
  *
  * NO incluye imagen satelital (reuso de infra de parcel report sería
- * scope creep). El operador ve el mapa en /fumigacion/[id]. Si en el
+ * scope creep). El operador ve el mapa en /fumigaciones/[id]. Si en el
  * futuro se quiere, se agrega reusando `render-map-screenshot.ts`.
  */
 import { NextResponse } from "next/server";

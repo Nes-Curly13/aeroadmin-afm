@@ -4,6 +4,7 @@ import { Suspense } from "react"
 import { HealthPanel } from "@/components/dashboard/health-panel"
 import { KpiCard } from "@/components/dashboard/kpi-card"
 import { type MonthlyBar, MonthlyChart } from "@/components/dashboard/monthly-chart"
+import { QuickActions } from "@/components/dashboard/quick-actions"
 import { RecentActivity } from "@/components/dashboard/recent-activity"
 import { PageHeader } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
@@ -171,8 +172,16 @@ async function DashboardContent() {
       {/* Fase 6 (2026-09-08): HealthPanel queda como tarjeta técnica
           secundaria (ver AGENTS.md § Dashboard). El operador no
           necesita ver el estado del pipeline DJI en el día a día;
-          el admin sí lo necesita para monitoreo. */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          el admin sí lo necesita para monitoreo.
+
+          Fase 8 (2026-09-08): QuickActions se agrega entre los KPIs y
+          el MonthlyChart según la spec del RC (4 KPIs + recientes +
+          acciones rápidas + pipeline DJI). El layout es
+          `lg:grid-cols-2` — quick actions a la izquierda (lo más
+          usado), pipeline DJI a la derecha (monitoreo técnico). En
+          mobile apilan vertical. */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <QuickActions />
         <HealthPanel health={health} batches={batches} />
       </div>
 

@@ -12,7 +12,7 @@
  * (/fumigaciones/nueva), que es single-parcela por diseño.
  *
  * Usado por:
- *   - /fumigacion/[id] (ficha de fumigación individual) — usa `parcels`
+ *   - /fumigaciones/[id] (ficha de fumigación individual) — usa `parcels`
  *   - /fumigaciones/nueva (form de alta con mapa de fondo satelital)
  *     — usa `parcelGeom` legacy (single parcela)
  *

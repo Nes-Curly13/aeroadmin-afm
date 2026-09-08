@@ -37,7 +37,12 @@ import { FUMIGATION_CATEGORIES, type FumigationCategoryOption } from "@/lib/data
 import { fmtDate, fmtDateTime, fmtDec, fmtHa, fmtInt, fmtLiters } from "@/lib/format";
 
 /**
- * /fumigacion/[id] — ficha de un evento individual de fumigación.
+ * /fumigaciones/[id] — ficha de un evento individual de fumigación.
+ *
+ * Renombrada en Fase 8 (2026-09-08) de `/fumigacion/[id]` a
+ * `/fumigaciones/[id]` para consistencia con el resto del recurso
+ * (que ya era plural: `/fumigaciones`, `/fumigaciones/nueva`). La
+ * ruta vieja tiene un redirect permanente en `next.config.ts`.
  *
  * Sprint 2026-08-05 — feature/nav-fumigaciones.
  * Sprint S9 (2026-08-30) — feature/standalone-fumigation-v2: la vista
@@ -288,7 +293,7 @@ export default async function FumigacionPage({ params }: PageProps) {
                 nativeButton={false}
                 render={
                   <Link
-                    href={`/fumigacion/${fumigation.id}/edit`}
+                    href={`/fumigaciones/${fumigation.id}/editar`}
                     aria-label={`Editar fumigación #${fumigation.id}`}
                   />
                 }

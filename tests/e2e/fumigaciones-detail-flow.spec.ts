@@ -6,9 +6,9 @@
 //   2. Filtro por categoría "Herbicida"
 //   3. Filtro por parcela específica (input number)
 //   4. Filtro por rango de fechas (from/to)
-//   5. Click en una fila navega al detail (/fumigacion/[id])
+//   5. Click en una fila navega al detail (/fumigaciones/[id])
 //   6. Detail: badges de categoría + fuente + acciones (PDF, CSV, Editar, Eliminar)
-//   7. "Editar fumigación" navega a /fumigacion/[id]/edit
+//   7. "Editar fumigación" navega a /fumigaciones/[id]/editar
 //   8. Edit: cambiar product_used + submit + vuelve al detail con el cambio
 //   9. "Volver a fumigaciones" preserva el contexto
 //  10. "Limpiar" filtros lleva a /fumigaciones sin searchParams
@@ -69,8 +69,8 @@ test.describe("Fumigaciones — flow completo (S5 polish)", () => {
     await page.goto("/fumigaciones");
     // Header del page
     await expect(page.getByRole("heading", { name: /Fumigaciones/i })).toBeVisible();
-    // La tabla tiene al menos 1 fila con un link a /fumigacion/[id]
-    const firstRowLink = page.locator('a[href^="/fumigacion/"]').first();
+    // La tabla tiene al menos 1 fila con un link a /fumigaciones/[id]
+    const firstRowLink = page.locator('a[href^="/fumigaciones/"]').first();
     await expect(firstRowLink).toBeVisible();
   });
 
@@ -112,14 +112,14 @@ test.describe("Fumigaciones — flow completo (S5 polish)", () => {
     await expect(page).toHaveURL(/from=2026-08-01.*to=2026-08-31|to=2026-08-31.*from=2026-08-01/);
   });
 
-  test.skip("click en una fila navega a /fumigacion/[id]", async ({ page }) => {
+  test.skip("click en una fila navega a /fumigaciones/[id]", async ({ page }) => {
     // Requiere: al menos 1 fumigación.
     await login(page);
     await page.goto("/fumigaciones");
-    // Click en el primer link a /fumigacion/[id]
-    await page.locator('a[href^="/fumigacion/"]').first().click();
+    // Click en el primer link a /fumigaciones/[id]
+    await page.locator('a[href^="/fumigaciones/"]').first().click();
     // Estamos en el detail
-    await expect(page).toHaveURL(/\/fumigacion\/\d+/);
+    await expect(page).toHaveURL(/\/fumigaciones\/\d+/);
   });
 
   test.skip("detail muestra badges de categoría, fuente, y acciones (PDF, CSV, Editar, Eliminar)", async ({ page }) => {
@@ -127,10 +127,10 @@ test.describe("Fumigaciones — flow completo (S5 polish)", () => {
     await login(page);
     await page.goto("/fumigaciones");
     // Capturar el id de la primera fila
-    const firstLink = page.locator('a[href^="/fumigacion/"]').first();
+    const firstLink = page.locator('a[href^="/fumigaciones/"]').first();
     const href = await firstLink.getAttribute("href");
     await firstLink.click();
-    await expect(page).toHaveURL(/\/fumigacion\/\d+/);
+    await expect(page).toHaveURL(/\/fumigaciones\/\d+/);
     // Verificar que está el botón "Editar fumigación"
     await expect(page.getByRole("link", { name: /Editar fumigaci[oó]n/i })).toBeVisible();
     // Verificar que está el form/botón "Eliminar"
@@ -145,11 +145,11 @@ test.describe("Fumigaciones — flow completo (S5 polish)", () => {
     // Requiere: al menos 1 fumigación con product_used.
     await login(page);
     await page.goto("/fumigaciones");
-    await page.locator('a[href^="/fumigacion/"]').first().click();
-    await expect(page).toHaveURL(/\/fumigacion\/\d+/);
+    await page.locator('a[href^="/fumigaciones/"]').first().click();
+    await expect(page).toHaveURL(/\/fumigaciones\/\d+/);
     // Click en "Editar fumigación"
     await page.getByRole("link", { name: /Editar fumigaci[oó]n/i }).click();
-    await expect(page).toHaveURL(/\/fumigacion\/\d+\/edit/);
+    await expect(page).toHaveURL(/\/fumigaciones\/\d+\/editar/);
     // Cambiar el campo product_used. El form usa @base-ui/react, los
     // inputs tienen name="product_used".
     const newProduct = `Glifosato 48% (editado ${Date.now()})`;
@@ -157,7 +157,7 @@ test.describe("Fumigaciones — flow completo (S5 polish)", () => {
     // Submit
     await page.click('button[type="submit"]:has-text("Guardar")');
     // Vuelve al detail
-    await expect(page).toHaveURL(/\/fumigacion\/\d+$/);
+    await expect(page).toHaveURL(/\/fumigaciones\/\d+$/);
     // El nuevo producto debe estar visible
     await expect(page.getByText(newProduct)).toBeVisible();
   });
@@ -166,7 +166,7 @@ test.describe("Fumigaciones — flow completo (S5 polish)", () => {
     // Requiere: fumigaciones en la BD.
     await login(page);
     await page.goto("/fumigaciones");
-    await page.locator('a[href^="/fumigacion/"]').first().click();
+    await page.locator('a[href^="/fumigaciones/"]').first().click();
     // Buscar el link "Volver a fumigaciones" en el detail
     const backLink = page.getByRole("link", { name: /Volver a fumigaciones/i });
     await backLink.click();

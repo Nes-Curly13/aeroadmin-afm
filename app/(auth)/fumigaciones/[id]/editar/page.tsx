@@ -10,7 +10,12 @@ import { getViewerRole } from "@/lib/auth/role";
 import { fmtDate } from "@/lib/format";
 
 /**
- * /fumigacion/[id]/edit — edición individual de una fumigación.
+ * /fumigaciones/[id]/editar — edición individual de una fumigación.
+ *
+ * Renombrada en Fase 8 (2026-09-08) de `/fumigacion/[id]/edit` a
+ * `/fumigaciones/[id]/editar` (también `edit` → `editar` para
+ * consistencia con el resto del sitio en español). La ruta vieja
+ * tiene un redirect permanente en `next.config.ts`.
  *
  * Sprint 2026-08-13 — feature/fumigacion-detail-v2 / sub-3.
  *
@@ -64,7 +69,7 @@ export default async function EditFumigacionPage({ params }: PageProps) {
         nativeButton={false}
         render={
           <Link
-            href={`/fumigacion/${fumigationId}`}
+            href={`/fumigaciones/${fumigationId}`}
             className="self-start"
             aria-label="Volver al detalle de la fumigación sin guardar cambios"
           />

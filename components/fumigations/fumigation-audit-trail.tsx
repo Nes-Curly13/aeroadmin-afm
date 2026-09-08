@@ -6,7 +6,7 @@
  * Sprint 2026-08-15 — feature/fumigation-audit-log / sub-3.
  *
  * Lee la lista de eventos de `fumigation_audit_log` (cargada server-side
- * en el detail page `/fumigacion/[id]`) y los renderiza como una línea
+ * en el detail page `/fumigaciones/[id]`) y los renderiza como una línea
  * de tiempo vertical con icono + color por action.
  *
  * Eventos soportados (4 actions, definidas en el CHECK de la tabla):
@@ -155,7 +155,7 @@ function formatValue(field: string, value: unknown): string {
  * SPACE) que `Intl.DateTimeFormat` mete entre la hora y `p. m.` en
  * ICU 73+ — Node y jsdom lo producen distinto, causando React
  * hydration mismatch #418 (el "1 Issue" rojo que se ve en
- * /fumigacion/[id]).
+ * /fumigaciones/[id]).
  */
 function formatRelative(iso: string): string {
   const date = new Date(iso);

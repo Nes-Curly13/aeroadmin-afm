@@ -1164,7 +1164,7 @@ export async function getAllFumigationSchedules(): Promise<Map<number, DjiFumiga
  * vive en `dji_fumigations.parcels[]`) a un shape mínimo para mostrar
  * en UI: id, land_name, field_type.
  *
- * Usado por `/fumigacion/[id]` para listar las "Otras suertes cubiertas"
+ * Usado por `/fumigaciones/[id]` para listar las "Otras suertes cubiertas"
  * con links a `/parcelas/[id]`. La fumigación guarda los `external_id`
  * (text[]) para mantener compat con el resto de la app (CSV reports,
  * URLs, etc.) que ya usan external_id como identificador público.
@@ -1209,7 +1209,7 @@ export async function getParcelsByExternalIds(
  *
  * Resuelve TODAS las suertes cubiertas por una fumigación (1 primaria +
  * N secundarias del array `parcels[]`) con su geometría `spray_geometry`
- * + área declarada. Usado por `/fumigacion/[id]` para renderizar el mapa
+ * + área declarada. Usado por `/fumigaciones/[id]` para renderizar el mapa
  * multi-parcela y calcular totales del "plan".
  *
  * Shape de retorno (un row por parcela, marcado `is_primary`):
@@ -1334,7 +1334,7 @@ export async function getFumigationEventsByParcel(
  *
  * Devuelve `null` si no existe o si está soft-deleted.
  *
- * Usado por la página /fumigacion/[id] para mostrar la ficha
+ * Usado por la página /fumigaciones/[id] para mostrar la ficha
  * completa de un evento con mapa, links al parcel, y a la lista
  * de fumigaciones.
  */
@@ -1514,7 +1514,7 @@ export async function getFumigationRawById(
 
 /**
  * Devuelve los dji_flights asociados a un evento de fumigación.
- * Usado por /fumigacion/[id] para mostrar la lista de vuelos con
+ * Usado por /fumigaciones/[id] para mostrar la lista de vuelos con
  * piloto, dron, duración y área.
  *
  * Si la fumigación no tiene `flight_ids` (caso típico: fumigación
@@ -1544,7 +1544,7 @@ export interface FumigationFlightRow {
    * `scripts/spatial-join-v2.js`. Null para flights que el spatial-join
    * no pudo asociar a ninguna finca dentro de 200m (orphan).
    *
-   * Usado por `/fumigacion/[id]` para mostrar la suerte que cubrió
+   * Usado por `/fumigaciones/[id]` para mostrar la suerte que cubrió
    * cada vuelo (columna "Suerte" en la tabla de vuelos asociados).
    */
   parcel_id: number | null;
@@ -2140,7 +2140,7 @@ export async function insertFumigationAuditEvent(event: {
 /**
  * Devuelve la historia de auditoría de una fumigación, ordenada de la
  * más reciente a la más vieja. Usado por la sección "Historial" del
- * detail page `/fumigacion/[id]`.
+ * detail page `/fumigaciones/[id]`.
  *
  * Devuelve `[]` si la fumigación no tiene eventos (caso normal para
  * fumigaciones históricas que se crearon antes de este sprint — el
@@ -2934,7 +2934,7 @@ export async function getScheduleHistory(
  *   - `fumigation_categories` (LEFT): para `category` (objeto hidratado
  *     con id, slug, label, color) o `null` si fumigación histórica sin
  *     clasificar (sprint 2026-08-13). Usado por /fumigaciones y
- *     /fumigacion/[id] para mostrar el badge de tipo.
+ *     /fumigaciones/[id] para mostrar el badge de tipo.
  */
 export async function getRecentFumigations(
   limit: number = 12,

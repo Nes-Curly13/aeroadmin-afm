@@ -13,7 +13,7 @@
 - 4 actions posibles: `created | edited | deleted | restored` (validados por CHECK de BD + código).
 - Cada endpoint mutador (POST / PATCH / DELETE / POST /restore) inserta
   un evento via `lib/fumigation-audit.ts` después de la op exitosa.
-- UI: panel "Historial" en `/fumigacion/[id]` con timeline vertical,
+- UI: panel "Historial" en `/fumigaciones/[id]` con timeline vertical,
   icono por action, diff expandible para edits.
 - 1504 tests verde, 0 violations de `arch:check`, build prod verde.
 
@@ -147,7 +147,7 @@ nice-to-have. Si el caller quiere insert estricto, llama
 | `DELETE /api/admin/fumigations/[id]`    | `recordFumigationDelete`              | `deleted`         | ya estaba soft-deleted (idempotent) |
 | `POST /api/admin/fumigations/[id]/restore` | `recordFumigationRestore`         | `restored`        | ya estaba activa (idempotent) |
 
-## UI (`/fumigacion/[id]`)
+## UI (`/fumigaciones/[id]`)
 
 El detail page agrega una nueva Card al final: **Historial**.
 

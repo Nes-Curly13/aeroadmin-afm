@@ -85,8 +85,8 @@ See `docs/API-INVENTORY.md` for full inventory with auth requirements.
 5. **Detalle de finca** → `/parcelas/[id]` (timeline + cadencia + intervalo)
 6. **Nueva fumigación** → `/fumigaciones/nueva` (wizard 4 steps)
 7. **Lista fumigaciones** → `/fumigaciones` (URL-driven filters + bulk ops)
-8. **Detalle fumigación** → `/fumigacion/[id]` (singular! vs plural list)
-9. **Editar fumigación** → `/fumigacion/[id]/edit`
+8. **Detalle fumigación** → `/fumigaciones/[id]`
+9. **Editar fumigación** → `/fumigaciones/[id]/editar`
 10. **Reportes** → `/reportes` (3 tabs + exports)
 11. **Data quality** → `/admin/calidad` (5 invariant patterns)
 12. **Admin GIS import** → `/admin/parcels/import` (wizard 3 steps)

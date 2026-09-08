@@ -142,7 +142,7 @@ Una fila por parcela con # fumigaciones, área total, litros,
 Detalle del feature completo (incluye decisiones de producto y
 deuda técnica) en `docs/features/reports/README.md`.
 
-### Audit log de fumigaciones (`/fumigacion/[id]` → sección "Historial")
+### Audit log de fumigaciones (`/fumigaciones/[id]` → sección "Historial")
 
 Cada fumigación muestra una línea de tiempo con quién la creó,
 qué se editó (diff campo por campo), cuándo se eliminó, y cuándo
@@ -255,7 +255,7 @@ detalles técnicos completos.
 - ✅ 4 actions: `created | edited | deleted | restored` (CHECK en BD + código)
 - ✅ Hook audit en POST/PATCH/DELETE/restore (fire-and-forget, no rompe response)
 - ✅ Helper `lib/fumigation-audit.ts` con snapshot/diff + `safeAuditInsert`
-- ✅ UI: panel "Historial" en `/fumigacion/[id]` con timeline + diff expandible
+- ✅ UI: panel "Historial" en `/fumigaciones/[id]` con timeline + diff expandible
 - ✅ 41 tests nuevos (11 repo + 16 API + 14 componente), 1504/1504 verde
 - ✅ `docs/audit/AUDIT_LOG.md` con shape de `changes`, queries útiles, rollback
 
