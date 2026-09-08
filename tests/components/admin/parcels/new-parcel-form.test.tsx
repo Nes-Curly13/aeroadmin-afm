@@ -14,7 +14,7 @@
 // interacción con el mapa (eso se cubre con e2e Playwright).
 
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 const mockPush = vi.fn();
@@ -83,6 +83,95 @@ describe("NewParcelForm — render", () => {
     expect(screen.getByLabelText("Tipo")).toBeInTheDocument();
     // El drawer mockeado está presente
     expect(screen.getByTestId("fake-drawer")).toBeInTheDocument();
+  });
+});
+
+describe("NewParcelForm — Fase 3 secciones", () => {
+  it("renderiza las 3 secciones con headers numerados", () => {
+    render(<NewParcelForm />);
+    // Cada SectionHeader tiene un numero del 1 al 3 dentro del
+    // circle del h4. Verificamos los 3 headings.
+    expect(
+      screen.getByRole("heading", { name: /1\s*Identificación/i })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: /2\s*Tenencia y ubicación/i })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: /3\s*Cultivo/i })
+    ).toBeInTheDocument();
+  });
+
+  it("cada sección es accesible como role=group con aria-labelledby", () => {
+    render(<NewParcelForm />);
+    // Los 3 grupos tienen role=group
+    const groups = screen.getAllByRole("group");
+    expect(groups.length).toBe(3);
+    // Cada grupo referencia un heading distinto por aria-labelledby
+    const labelledByIds = groups.map((g) => g.getAttribute("aria-labelledby"));
+    expect(labelledByIds).toEqual([
+      "parcel-section-id",
+      "parcel-section-tenure",
+      "parcel-section-crop"
+    ]);
+  });
+
+  it("Sección 1 (Identificación) contiene Nombre, Tipo, Suerte", () => {
+    render(<NewParcelForm />);
+    const group = screen.getByRole("group", { name: /1\s*Identificación/i });
+    expect(within(group).getByLabelText(/Nombre del lote/)).toBeInTheDocument();
+    expect(within(group).getByLabelText("Tipo")).toBeInTheDocument();
+    expect(within(group).getByLabelText(/Suerte/)).toBeInTheDocument();
+  });
+
+  it("Sección 2 (Tenencia) contiene Cliente, Hacienda, Municipio, Propietario, Contacto", () => {
+    render(<NewParcelForm />);
+    const group = screen.getByRole("group", { name: /2\s*Tenencia y ubicación/i });
+    expect(within(group).getByLabelText(/Cliente \/ Ingenio/)).toBeInTheDocument();
+    expect(within(group).getByLabelText(/^Hacienda/)).toBeInTheDocument();
+    expect(within(group).getByLabelText(/Municipio/)).toBeInTheDocument();
+    // "Propietario" aparece en 2 aria-labels (Nombre del propietario,
+    // Contacto del propietario) — usamos el unique aria-label completo
+    // del campo Propietario.
+    expect(within(group).getByLabelText("Nombre del propietario")).toBeInTheDocument();
+    expect(within(group).getByLabelText("Contacto del propietario")).toBeInTheDocument();
+  });
+
+  it("Sección 3 (Cultivo) contiene Variedad, Cultivo, Fecha, Notas", () => {
+    render(<NewParcelForm />);
+    const group = screen.getByRole("group", { name: /3\s*Cultivo/i });
+    expect(within(group).getByLabelText(/Variedad/)).toBeInTheDocument();
+    expect(within(group).getByLabelText(/Tipo de cultivo/)).toBeInTheDocument();
+    expect(within(group).getByLabelText(/Fecha de siembra/)).toBeInTheDocument();
+    expect(within(group).getByLabelText(/Notas del supervisor/)).toBeInTheDocument();
+  });
+
+  it("los 12 campos alfanuméricos están todos presentes (no se perdió ninguno en el refactor)", () => {
+    render(<NewParcelForm />);
+    // Usamos substring match (sin ^) porque los aria-labels son
+    // verbose ("Nombre del propietario", "Contacto del propietario",
+    // "Tipo de cultivo", "Notas del supervisor", etc.) y queremos
+    // matchear por la keyword visible al usuario.
+    const allFields = [
+      "Nombre del lote",
+      "Tipo",
+      "Suerte",
+      "Cliente / Ingenio",
+      "Hacienda",
+      "Municipio",
+      "Propietario",
+      "Contacto del propietario",
+      "Variedad",
+      "Tipo de cultivo",
+      "Fecha de siembra",
+      "Notas del supervisor"
+    ];
+    for (const label of allFields) {
+      expect(
+        screen.getByLabelText(label),
+        `field "${label}" should be in the document`
+      ).toBeInTheDocument();
+    }
   });
 });
 
