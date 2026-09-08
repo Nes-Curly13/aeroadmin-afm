@@ -1,18 +1,21 @@
 // tests/components/admin/fumigations/new-fumigation-page-client.test.tsx
 //
-// Tests del wizard V2 de nueva fumigación (S11+ / PLAN-FUMIGACIONES-V2).
+// Tests del wizard V3 de nueva fumigación (Fase 4, 2026-09-08).
 //
-// Cubre el refactor a wizard de 3 steps (Fase 1.1+1.2):
-//   1. Stepper visible siempre, marca step activo
-//   2. Step 1 (Pick) NO muestra el mapa
-//   3. Step 2 (Form) SÍ muestra el mapa, SÍ muestra el form
-//   4. Botón "Atrás" en step 2 vuelve a step 1
-//   5. Step 3 (Confirm) muestra resumen de los datos
-//   6. Botón "Crear nueva parcela" es PROMINENTE (no <details> colapsado)
+// Cubre el refactor de 4 steps (V2, S11+) a 3 steps (V3, Fase 4):
+//   1. Stepper con 3 steps (que, como, confirm)
+//   2. Step 1 (que) tiene tabs de modalidad (Importar/Manual)
+//   3. Step 1 (que) NO muestra el mapa
+//   4. Step 1 (que) tiene ParcelPicker + botón "Crear nueva parcela"
+//   5. Step 1 (que) tiene botón "Continuar al paso 2" (gated)
+//   6. Después de elegir parcela + click "Continuar" → step 2 (como)
+//   7. Step 2 (como) muestra form + mapa, NO muestra tabs ni DjiFlightPicker
+//   8. Step 2 (como): botón "Cambiar parcela" vuelve a step 1
+//   9. Step 3 (confirm) muestra resumen read-only
 //
 // Estrategia: mocks de FumigationMap, ParcelDrawer, RegisterFumigationForm
-// para mantener los tests enfocados en la estructura del wizard, no en
-// el contenido de cada subcomponente.
+// y DjiFlightPicker para mantener los tests enfocados en la estructura
+// del wizard, no en el contenido de cada subcomponente.
 
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
@@ -38,6 +41,10 @@ vi.mock("@/components/admin/parcels/parcel-drawer", () => ({
 
 vi.mock("@/components/parcels/register-fumigation-form", () => ({
   RegisterFumigationForm: () => <div data-testid="register-fumigation-form" />
+}));
+
+vi.mock("@/components/fumigations/dji-flight-picker", () => ({
+  DjiFlightPicker: () => <div data-testid="dji-flight-picker" />
 }));
 
 const mockFetch = vi.fn();
@@ -95,16 +102,11 @@ const recentParcels: ParcelPickerRow[] = [
 ];
 
 // ============================================================
-// Wizard de 3 steps
+// Wizard V3 — 3 steps (Fase 4)
 // ============================================================
 
-// Helper: navega del step 0 (mode) al step 1 (pick) eligiendo manual
-async function goToStep1(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(screen.getByRole("button", { name: /registro manual/i }));
-}
-
-describe("NewFumigationPageClient — wizard V2 (4 steps desde S11+ Fase 2.5)", () => {
-  it("1. Stepper visible desde el inicio con step 0 (Modalidad) activo", () => {
+describe("NewFumigationPageClient — wizard V3 (3 steps desde Fase 4)", () => {
+  it("1. Stepper visible desde el inicio con step 1 (que) activo", () => {
     render(
       <NewFumigationPageClient
         initialParcelId={null}
@@ -114,47 +116,89 @@ describe("NewFumigationPageClient — wizard V2 (4 steps desde S11+ Fase 2.5)", 
     // El stepper existe
     const stepper = screen.getByRole("navigation", { name: /pasos/i });
     expect(stepper).toBeInTheDocument();
-    // Step 0 (mode) está marcado como activo
-    const step0 = screen.getByTestId("step-mode");
-    expect(step0).toHaveAttribute("aria-current", "step");
+    // Step 1 (que) está marcado como activo
+    const step1 = screen.getByTestId("step-que");
+    expect(step1).toHaveAttribute("aria-current", "step");
     // Los otros steps no están activos
-    expect(screen.getByTestId("step-pick")).not.toHaveAttribute("aria-current", "step");
-    expect(screen.getByTestId("step-form")).not.toHaveAttribute("aria-current", "step");
+    expect(screen.getByTestId("step-como")).not.toHaveAttribute("aria-current", "step");
     expect(screen.getByTestId("step-confirm")).not.toHaveAttribute("aria-current", "step");
   });
 
-  it("2. Step 1: muestra el ParcelPicker, NO muestra el mapa", async () => {
-    const user = userEvent.setup();
+  it("2. Step 1 (que): muestra 2 tabs (Importar vuelo DJI / Registro manual)", () => {
     render(
       <NewFumigationPageClient
         initialParcelId={null}
         recentParcels={recentParcels}
       />
     );
-    await goToStep1(user);
-    // El picker está visible
+    const tabImport = screen.getByTestId("tab-import");
+    const tabManual = screen.getByTestId("tab-manual");
+    expect(tabImport).toBeInTheDocument();
+    expect(tabManual).toBeInTheDocument();
+    expect(tabImport).toHaveAttribute("aria-selected");
+    expect(tabManual).toHaveAttribute("aria-selected");
+  });
+
+  it("3. Step 1 (que): default tab es 'manual'", () => {
+    render(
+      <NewFumigationPageClient
+        initialParcelId={null}
+        recentParcels={recentParcels}
+      />
+    );
+    const tabImport = screen.getByTestId("tab-import");
+    const tabManual = screen.getByTestId("tab-manual");
+    expect(tabImport).toHaveAttribute("aria-selected", "false");
+    expect(tabManual).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("4. Step 1 (que): muestra el ParcelPicker, NO muestra el mapa", () => {
+    render(
+      <NewFumigationPageClient
+        initialParcelId={null}
+        recentParcels={recentParcels}
+      />
+    );
     expect(
       screen.getByText(/¿A qué parcela le vas a registrar/i)
     ).toBeInTheDocument();
-    // El mapa NO está visible (el contrato del fix: map-after-selection)
     expect(screen.queryByTestId("fumigation-map")).not.toBeInTheDocument();
   });
 
-  it("3. Step 1: 'Crear nueva parcela' es PROMINENTE (no <details> colapsado)", async () => {
-    const user = userEvent.setup();
+  it("5. Step 1 (que): 'Crear nueva parcela' es PROMINENTE (no <details> colapsado)", () => {
     render(
       <NewFumigationPageClient
         initialParcelId={null}
         recentParcels={recentParcels}
       />
     );
-    await goToStep1(user);
-    // El botón de crear nueva parcela debe ser un <button>, no un <summary>
     const createButton = screen.getByRole("button", { name: /crear.*nueva.*parcela/i });
     expect(createButton).toBeInTheDocument();
   });
 
-  it("4. Después de elegir parcela: avanza a step 2, mapa visible, form visible", async () => {
+  it("6. Step 1 (que): botón 'Continuar al paso 2' está disabled sin parcela", () => {
+    render(
+      <NewFumigationPageClient
+        initialParcelId={null}
+        recentParcels={recentParcels}
+      />
+    );
+    const continueButton = screen.getByTestId("continue-to-como");
+    expect(continueButton).toBeDisabled();
+  });
+
+  it("7. Step 1 (que): tab 'Importar vuelo' antes de elegir parcela NO muestra DjiFlightPicker", () => {
+    render(
+      <NewFumigationPageClient
+        initialParcelId={null}
+        recentParcels={recentParcels}
+      />
+    );
+    // El DjiFlightPicker NO debe estar visible (no hay parcela)
+    expect(screen.queryByTestId("dji-flight-picker")).not.toBeInTheDocument();
+  });
+
+  it("8. Después de elegir parcela: avanza a step 2 con click en 'Continuar al paso 2'", async () => {
     const user = userEvent.setup();
     render(
       <NewFumigationPageClient
@@ -162,7 +206,6 @@ describe("NewFumigationPageClient — wizard V2 (4 steps desde S11+ Fase 2.5)", 
         recentParcels={recentParcels}
       />
     );
-    await goToStep1(user);
     // Filtrar para mostrar el resultado
     const searchInput = screen.getByPlaceholderText(/buscar/i);
     await user.type(searchInput, "Lote");
@@ -170,18 +213,25 @@ describe("NewFumigationPageClient — wizard V2 (4 steps desde S11+ Fase 2.5)", 
     const result = await screen.findByText(/Lote 24/);
     await user.click(result);
 
-    // Step 2 ahora: mapa visible
+    // Continuar habilitado
+    const continueButton = screen.getByTestId("continue-to-como");
+    expect(continueButton).not.toBeDisabled();
+
+    // Click continuar → step 2
+    await user.click(continueButton);
+
+    // Step 2: mapa visible
     await waitFor(() => {
       expect(screen.getByTestId("fumigation-map")).toBeInTheDocument();
     });
     // Form visible
     expect(screen.getByTestId("register-fumigation-form")).toBeInTheDocument();
     // Step 2 marcado como activo
-    const step2 = screen.getByTestId("step-form");
+    const step2 = screen.getByTestId("step-como");
     expect(step2).toHaveAttribute("aria-current", "step");
   });
 
-  it("5. Step 2: botón 'Atrás' vuelve a step 1 (sin parcela elegida)", async () => {
+  it("9. Step 2 (como): NO muestra tabs ni DjiFlightPicker (esos viven en step 1)", async () => {
     const user = userEvent.setup();
     render(
       <NewFumigationPageClient
@@ -189,18 +239,42 @@ describe("NewFumigationPageClient — wizard V2 (4 steps desde S11+ Fase 2.5)", 
         recentParcels={recentParcels}
       />
     );
-    await goToStep1(user);
-    // Avanzar a step 2
     const searchInput = screen.getByPlaceholderText(/buscar/i);
     await user.type(searchInput, "Lote");
     const result = await screen.findByText(/Lote 24/);
     await user.click(result);
+    await user.click(screen.getByTestId("continue-to-como"));
     await waitFor(() => {
       expect(screen.getByTestId("fumigation-map")).toBeInTheDocument();
     });
-    // Click en "Atrás"
-    const backButton = screen.getByRole("button", { name: /atr[áa]s/i });
-    await user.click(backButton);
+    // Sin tabs en step 2
+    expect(screen.queryByTestId("tab-import")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("tab-manual")).not.toBeInTheDocument();
+    // Sin DjiFlightPicker en step 2
+    expect(screen.queryByTestId("dji-flight-picker")).not.toBeInTheDocument();
+  });
+
+  it("10. Step 2 (como): botón 'Cambiar parcela' vuelve a step 1", async () => {
+    const user = userEvent.setup();
+    render(
+      <NewFumigationPageClient
+        initialParcelId={null}
+        recentParcels={recentParcels}
+      />
+    );
+    const searchInput = screen.getByPlaceholderText(/buscar/i);
+    await user.type(searchInput, "Lote");
+    const result = await screen.findByText(/Lote 24/);
+    await user.click(result);
+    await user.click(screen.getByTestId("continue-to-como"));
+    await waitFor(() => {
+      expect(screen.getByTestId("fumigation-map")).toBeInTheDocument();
+    });
+    // El botón "Cambiar parcela" del footer (más específico) — el
+    // ParcelSummaryCard tiene un botón "Cambiar" corto. Buscamos el
+    // del footer por su texto completo.
+    const changeButton = screen.getByRole("button", { name: /cambiar parcela/i });
+    await user.click(changeButton);
     // Vuelve a step 1
     expect(
       screen.getByText(/¿A qué parcela le vas a registrar/i)
@@ -208,7 +282,7 @@ describe("NewFumigationPageClient — wizard V2 (4 steps desde S11+ Fase 2.5)", 
     expect(screen.queryByTestId("fumigation-map")).not.toBeInTheDocument();
   });
 
-  it("6. Header copy: NO menciona 'manual' en el título", () => {
+  it("11. Header copy: NO menciona 'manual' en el título (es genérico)", () => {
     render(
       <NewFumigationPageClient
         initialParcelId={null}
@@ -222,5 +296,35 @@ describe("NewFumigationPageClient — wizard V2 (4 steps desde S11+ Fase 2.5)", 
     if (headerTitle) {
       expect(headerTitle.textContent).not.toMatch(/manual/i);
     }
+  });
+
+  it("12. Initial phase: si URL trae ?parcel=N, arranca en step 2 (como)", async () => {
+    render(
+      <NewFumigationPageClient
+        initialParcelId={1}
+        recentParcels={recentParcels}
+      />
+    );
+    // Step 2 (como) marcado como activo
+    const step2 = screen.getByTestId("step-como");
+    expect(step2).toHaveAttribute("aria-current", "step");
+    // Form visible inmediatamente
+    expect(screen.getByTestId("register-fumigation-form")).toBeInTheDocument();
+    // Mapa se monta despues del fetch de la geometria
+    await waitFor(() => {
+      expect(screen.getByTestId("fumigation-map")).toBeInTheDocument();
+    });
+  });
+
+  it("13. Stepper tiene 3 steps (que, como, confirm)", () => {
+    render(
+      <NewFumigationPageClient
+        initialParcelId={null}
+        recentParcels={recentParcels}
+      />
+    );
+    expect(screen.getByTestId("step-que")).toBeInTheDocument();
+    expect(screen.getByTestId("step-como")).toBeInTheDocument();
+    expect(screen.getByTestId("step-confirm")).toBeInTheDocument();
   });
 });

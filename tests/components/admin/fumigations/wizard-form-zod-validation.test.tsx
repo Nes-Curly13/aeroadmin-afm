@@ -2,10 +2,11 @@
 //
 // Tests del wizard con zod validation del FormState.
 // Sprint S11+ / zod PR #3 — Quality Gauntlet #1.
+// Refactor V3 (Fase 4, 2026-09-08): wizard ahora tiene 3 steps.
 //
 // Cubre:
 //   - `handleRequestReview` valida con `formStateSchema` antes de avanzar
-//   - Form invalido → banner de error visible, fase queda en "form"
+//   - Form invalido → banner de error visible, fase queda en "como"
 //   - Form valido → avanza a step 3 (confirm)
 //   - Auto-fill del DjiFlightPicker con data invalida se rechaza
 //
@@ -35,6 +36,10 @@ vi.mock("@/components/admin/parcels/parcel-drawer", () => ({
   ParcelDrawer: () => <div data-testid="parcel-drawer" />
 }));
 
+vi.mock("@/components/fumigations/dji-flight-picker", () => ({
+  DjiFlightPicker: () => <div data-testid="dji-flight-picker" />
+}));
+
 // Mock parametrizado: el test puede setear el form data que devuelve
 // `onRequestReview`. Default = valido.
 let mockFormData: Record<string, unknown> | null = {
@@ -57,7 +62,10 @@ vi.mock("@/components/parcels/register-fumigation-form", async () => {
   const React = await import("react");
   return {
     RegisterFumigationForm: React.forwardRef(function MockForm(
-      _props: { parcelId: number },
+      props: {
+        parcelId: number;
+        onRequestReview?: (data: Record<string, unknown>) => void;
+      },
       ref: React.Ref<{
         getFormData: () => Record<string, unknown> | null;
         triggerSubmit: () => Promise<void>;
@@ -77,13 +85,14 @@ vi.mock("@/components/parcels/register-fumigation-form", async () => {
             type: "button",
             "data-testid": "mock-review-button",
             onClick: () => {
-              // Captura la data seteada por el test en este momento
               lastData.current = mockFormData
                 ? { ...mockFormData }
                 : null;
-              // El form llama a onRequestReview (no aca en el mock —
-              // el test lo hace via el button en NewFumigationPageClient
-              // si existe; este mock es el boton del form)
+              // El form real llama a props.onRequestReview con su state.
+              // El mock respeta esto para que el wizard reaccione.
+              if (props.onRequestReview && lastData.current) {
+                props.onRequestReview(lastData.current);
+              }
             }
           },
           "Revisar y confirmar"
@@ -157,91 +166,24 @@ const recentParcels: ParcelPickerRow[] = [
   }
 ];
 
+// Helper V3: navega del step 1 (que) al step 2 (como) en modo manual.
 async function goToStep2(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(screen.getByRole("button", { name: /registro manual/i }));
+  // Default tab es "manual" — no necesitamos clickearla
   const searchInput = screen.getByPlaceholderText(/buscar/i);
   await user.type(searchInput, "Lote");
   const result = await screen.findByText(/Lote 24/);
   await user.click(result);
+  await user.click(screen.getByTestId("continue-to-como"));
   await waitFor(() => {
-    expect(screen.getByTestId("fumigation-map")).toBeInTheDocument();
+    expect(screen.getByTestId("register-fumigation-form")).toBeInTheDocument();
   });
 }
-
-// Helper: clickea el boton "Revisar y confirmar" del mock form. El
-// NewFumigationPageClient no expone un boton que llame a
-// onRequestReview directamente — el form lo hace. Para nuestros
-// tests, necesitamos acceder al handle imperativo. Como el mock no
-// expone onRequestReview, simulamos lo que haria el form: clickear
-// el boton del mock + luego llamar el handler del parent.
-//
-// Truco: como el mock tiene un button que setea lastData, y el
-// NewFumigationPageClient accede al form via ref, necesitamos un
-// "puente". En la realidad, el form pasa `onRequestReview` al
-// NewFumigationPageClient y eso es lo que triggerea el handler.
-// Pero nuestro mock no respeta onRequestReview — solo setea lastData.
-//
-// Solucion: invocamos el handler directamente via el ref expuesto.
-// Eso requiere que el mock exponga un metodo que llame al onRequestReview.
-// Para mantener el mock simple, agregamos un boton "Avanzar" extra en
-// el wizard (via data-testid="wizard-advance") que simula el submit del
-// form. Esto se hace via findByTestId — pero el wizard no tiene tal
-// boton. Asi que la unica forma realista es: el boton del mock
-// debe llamar a `onRequestReview` (que el parent pasa como prop).
-//
-// Solucion alternativa: hacemos que el mock del form llame a
-// onRequestReview (pasado como prop) cuando se clickea el boton.
-// Asi el flow real queda simulado.
-
-vi.mock("@/components/parcels/register-fumigation-form", async () => {
-  const React = await import("react");
-  return {
-    RegisterFumigationForm: React.forwardRef(function MockForm(
-      props: {
-        parcelId: number;
-        onRequestReview?: (data: Record<string, unknown>) => void;
-      },
-      ref: React.Ref<{
-        getFormData: () => Record<string, unknown> | null;
-        triggerSubmit: () => Promise<void>;
-      }>
-    ) {
-      const lastData = React.useRef<Record<string, unknown> | null>(null);
-      React.useImperativeHandle(ref, () => ({
-        getFormData: () => lastData.current,
-        triggerSubmit: () => Promise.resolve()
-      }));
-      return React.createElement(
-        "div",
-        { "data-testid": "register-fumigation-form" },
-        React.createElement(
-          "button",
-          {
-            type: "button",
-            "data-testid": "mock-review-button",
-            onClick: () => {
-              lastData.current = mockFormData
-                ? { ...mockFormData }
-                : null;
-              // El form real llama a props.onRequestReview con su state.
-              // El mock respeta esto para que el wizard reaccione.
-              if (props.onRequestReview && lastData.current) {
-                props.onRequestReview(lastData.current);
-              }
-            }
-          },
-          "Revisar y confirmar"
-        )
-      );
-    })
-  };
-});
 
 // ============================================================
 // Tests
 // ============================================================
 
-describe("NewFumigationPageClient — zod validation del FormState (zod PR #3)", () => {
+describe("NewFumigationPageClient — zod validation del FormState (zod PR #3, V3 wizard)", () => {
   it("1. Form valido → avanza al step 3 (sin banner de error)", async () => {
     const user = userEvent.setup();
     render(
@@ -273,9 +215,9 @@ describe("NewFumigationPageClient — zod validation del FormState (zod PR #3)",
     const banner = screen.getByTestId("form-validation-error");
     expect(banner).toBeInTheDocument();
     expect(banner.textContent).toMatch(/vehicle_plate/);
-    // Seguimos en step 2 (form visible)
+    // Seguimos en step 2 (como) — form visible, step-como activo
     expect(screen.getByTestId("register-fumigation-form")).toBeInTheDocument();
-    expect(screen.getByTestId("step-form")).toHaveAttribute("aria-current", "step");
+    expect(screen.getByTestId("step-como")).toHaveAttribute("aria-current", "step");
     // step 3 NO es current
     expect(screen.getByTestId("step-confirm")).not.toHaveAttribute("aria-current", "step");
   });
@@ -308,7 +250,7 @@ describe("NewFumigationPageClient — zod validation del FormState (zod PR #3)",
     await goToStep2(user);
     await user.click(screen.getByTestId("mock-review-button"));
     expect(screen.getByTestId("form-validation-error")).toBeInTheDocument();
-    expect(screen.getByTestId("step-form")).toHaveAttribute("aria-current", "step");
+    expect(screen.getByTestId("step-como")).toHaveAttribute("aria-current", "step");
   });
 
   it("5. Form con fumigation_date formato invalido → banner", async () => {
@@ -369,7 +311,7 @@ describe("NewFumigationPageClient — zod validation del FormState (zod PR #3)",
     await user.click(screen.getByTestId("mock-review-button"));
     const banner = screen.getByTestId("form-validation-error");
     expect(banner.textContent).toMatch(/vehicle_plate/);
-    expect(screen.getByTestId("step-form")).toHaveAttribute("aria-current", "step");
+    expect(screen.getByTestId("step-como")).toHaveAttribute("aria-current", "step");
   });
 
   it("8. Auto-fill con drone_code_used no-numerico → bloqueado", async () => {

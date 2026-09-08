@@ -138,22 +138,17 @@ const recentParcels: ParcelPickerRow[] = [
   }
 ];
 
-// Helper: navega del step 0 (mode) al step 1 (pick) eligiendo manual
-async function goToStep1(user: ReturnType<typeof userEvent.setup>) {
-  // El step 0 tiene 2 cards. Default: "Registro manual" para mantener
-  // el comportamiento previo (sin DjiFlightPicker en el form).
-  await user.click(screen.getByRole("button", { name: /registro manual/i }));
-}
-
-// Helper: navega del step 1 al step 2 eligiendo parcela
+// Helper V3: navega del step 1 (que) al step 2 (como) en modo manual
+// (tab default). Elige la parcela "Lote 24" y avanza con
+// "Continuar al paso 2".
 async function goToStep2(user: ReturnType<typeof userEvent.setup>) {
-  await goToStep1(user);
   const searchInput = screen.getByPlaceholderText(/buscar/i);
   await user.type(searchInput, "Lote");
   const result = await screen.findByText(/Lote 24/);
   await user.click(result);
+  await user.click(screen.getByTestId("continue-to-como"));
   await waitFor(() => {
-    expect(screen.getByTestId("fumigation-map")).toBeInTheDocument();
+    expect(screen.getByTestId("register-fumigation-form")).toBeInTheDocument();
   });
 }
 
@@ -210,10 +205,15 @@ describe("NewFumigationPageClient — Confirm step (Fase 1.3)", () => {
     );
     await goToStep2(user);
     await user.click(screen.getByTestId("mock-review-button"));
-    // El step 3 muestra los labels de los campos clave
-    expect(screen.getByText(/Fecha/i)).toBeInTheDocument();
-    expect(screen.getByText(/Producto/i)).toBeInTheDocument();
-    expect(screen.getByText(/Dosis/i)).toBeInTheDocument();
+    // Step 3 activo
+    expect(screen.getByTestId("step-confirm")).toHaveAttribute("aria-current", "step");
+    // El step 3 muestra los labels de los campos clave. Usamos
+    // `selector: 'dt'` para que matchee SOLO los <dt> del summary
+    // (no matchea "Dron, producto y detalles" que es el description
+    // del stepper).
+    expect(screen.getByText("Fecha", { selector: "dt" })).toBeInTheDocument();
+    expect(screen.getByText("Producto", { selector: "dt" })).toBeInTheDocument();
+    expect(screen.getByText("Dosis", { selector: "dt" })).toBeInTheDocument();
   });
 
   it("10. Step 3 'Atrás' vuelve a step 2 (form de nuevo visible)", async () => {
@@ -233,7 +233,7 @@ describe("NewFumigationPageClient — Confirm step (Fase 1.3)", () => {
     await user.click(backButtons[0]);
     // Vuelve a step 2: form visible de nuevo
     expect(screen.getByTestId("register-fumigation-form")).toBeInTheDocument();
-    expect(screen.getByTestId("step-form")).toHaveAttribute("aria-current", "step");
+    expect(screen.getByTestId("step-como")).toHaveAttribute("aria-current", "step");
   });
 
   it("11. Step 3 'Confirmar' ejecuta el submit del form", async () => {
