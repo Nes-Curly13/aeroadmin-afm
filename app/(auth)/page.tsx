@@ -1,7 +1,6 @@
 import { Droplets, Map as MapIcon, Plane, Sprout } from "lucide-react"
 import Link from "next/link"
 import { Suspense } from "react"
-import { CompliancePanel } from "@/components/dashboard/compliance-panel"
 import { HealthPanel } from "@/components/dashboard/health-panel"
 import { KpiCard } from "@/components/dashboard/kpi-card"
 import { type MonthlyBar, MonthlyChart } from "@/components/dashboard/monthly-chart"
@@ -10,7 +9,6 @@ import { PageHeader } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton, SkeletonCard, SkeletonKpis } from "@/components/ui/loading"
-import type { CyclePhase } from "@/lib/crop-cycle"
 import {
   DRONE_MODELS,
   getFlights,
@@ -18,9 +16,7 @@ import {
   getFumigationsMonthly,
   getHealth,
   getImportBatches,
-  getParcelSummaries,
   getParcels,
-  getParcelsWithCycle,
   NOW,
 } from "@/lib/data"
 import { fmtDec, fmtInt } from "@/lib/format"
@@ -79,41 +75,36 @@ function DashboardSkeleton() {
 }
 
 async function DashboardContent() {
-  // Promise.all para paralelizar las 5 queries independientes. Cada una
+  // Promise.all para paralelizar las queries independientes. Cada una
   // tiene su propio cache (fetchParcelsNormalizedCached, etc) asi que
   // el segundo render es casi instant. La primera vez tarda ~200ms
   // por query contra Supabase.
+  //
+  // Fase 6 (2026-09-08): removido `getParcelSummaries` y
+  // `getParcelsWithCycle` — el CompliancePanel (4 estados de cadencia)
+  // se quitó del dashboard. La cadencia en sí sigue disponible en
+  // el inventario /parcelas y en la ficha de cada parcela (interval
+  // chart), pero el dashboard principal no muestra "vencido/crítico"
+  // porque la regla de negocio de qué cuenta como vencido todavía
+  // no está formalmente definida (ver
+  // docs/SECURITY-INCIDENT-2026-09-08.md y AGENTS.md § Cadencia).
   const [
     parcels,
-    summaries,
     fumigations,
     flights,
     health,
     batches,
-    parcelsWithCycle,
     monthly
   ] = await Promise.all([
     getParcels(),
-    getParcelSummaries(),
     getFumigations(),
     getFlights(),
     getHealth(),
     getImportBatches(),
-    // Sprint 2026-08-01 — "Fase de cultivo": el compliance panel muestra
-    // un chip de fase al lado del status dot. `getParcelsWithCycle()`
-    // mergea los cycle fields (planting_date, cycle_phase) a cada parcel
-    // con un try/catch resilente (degrada a null si la migration no
-    // se aplicó). Acá derivamos un Map<parcelId, cyclePhase> que es lo
-    // único que el panel necesita (no pasa el array entero).
-    getParcelsWithCycle(),
     // Serie mensual (12 meses) — Sprint H2 follow-up: viene de la
     // materialized view `mv_fumigations_monthly`. Cache 5min TTL.
     getFumigationsMonthly()
   ])
-
-  const cycleByParcelId = new Map<string, CyclePhase | null>(
-    parcelsWithCycle.map((p) => [p.id, p.cycle_phase])
-  )
 
   const inWindow = (iso: string, fromDays: number, toDays: number) => {
     const t = new Date(iso).getTime()
@@ -177,11 +168,11 @@ async function DashboardContent() {
         />
       </div>
 
+      {/* Fase 6 (2026-09-08): HealthPanel queda como tarjeta técnica
+          secundaria (ver AGENTS.md § Dashboard). El operador no
+          necesita ver el estado del pipeline DJI en el día a día;
+          el admin sí lo necesita para monitoreo. */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <CompliancePanel
-          summaries={summaries}
-          cycleByParcelId={cycleByParcelId}
-        />
         <HealthPanel health={health} batches={batches} />
       </div>
 
