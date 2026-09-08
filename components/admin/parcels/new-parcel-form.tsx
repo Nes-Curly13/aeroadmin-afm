@@ -18,6 +18,11 @@
  *   Cada sección tiene un header visual (uppercase + tracking)
  *   y separador entre secciones. La navegación por Tab sigue
  *   siendo secuencial y lineal (los fieldsets no son interactivos).
+ * Sprint Fase 3.2 (2026-09-08) — feature/parcela-form-catalog:
+ *   Cliente y Hacienda ahora son SELECTS contra el catálogo
+ *   (`/api/admin/clients` + `/api/admin/farms?clientId=X`), no
+ *   más texto libre. Esto conecta el alta manual con el modelo
+ *   Cliente → Finca → Parcela del data model V2.
  *
  * Layout general:
  *   - 2 columnas en desktop, 1 columna en mobile.
@@ -27,6 +32,7 @@
  * Estado:
  *   - `form` — los 12 campos alfanuméricos
  *   - `geometry` — el polígono GeoJSON (null hasta que el operador dibuja)
+ *   - `clients` / `farms` — catálogos fetched del backend
  *   - `error` / `success` — banners
  *   - `isPending` — durante el POST
  *
@@ -37,21 +43,14 @@
  * sea admin. El cliente NO envía nada de auth — la cookie va sola.
  *
  * Por qué "use client":
- *   - Necesita useState (form + geometry), useTransition (no bloquear
- *     la UI durante el POST), useRouter (redirect).
+ *   - Necesita useState (form + geometry), useEffect (fetch catalogos),
+ *     useRouter (redirect).
  *   - El ParcelDrawer también es client (MapLibre + terra-draw son
  *     client-only).
- *
- * TODO Fase 3.2 (siguiente PR, no incluido acá): reemplazar los
- * Inputs de texto libre `client_name` y `farm_name` por selects
- * contra el catálogo (`/api/admin/clients` + `/api/admin/farms`).
- * Hoy el form guarda solo strings; el catálogo existe pero no se
- * usa para alta manual. Para no expandir el scope de este PR
- * (cambia SQL + repo + tests del repo), se deja como follow-up.
  */
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FieldSelect } from "@/components/ui/field-select";
@@ -63,7 +62,26 @@ interface FormState {
   land_name: string;
   field_type: string;
   luck_name: string;
+  /**
+   * FK al catálogo `clients.id` (Sprint S11+ / Fase 3.2). Si está
+   * setead, el server guarda `client_id` Y deja `client_name` NULL
+   * (la fuente de verdad es el FK).
+   */
+  client_id: number | null;
+  /**
+   * Texto libre como fallback (cuando no hay match en el catálogo
+   * o el operador quiere registrar un cliente nuevo). Si `client_id`
+   * está setead, este campo se ignora en el submit.
+   */
   client_name: string;
+  /**
+   * FK al catálogo `farms.id`. Filtrado por `client_id` cuando
+   * está setead.
+   */
+  farm_id: number | null;
+  /**
+   * Texto libre fallback para finca.
+   */
   farm_name: string;
   municipality: string;
   variety: string;
@@ -80,12 +98,25 @@ interface FormState {
   fumigar_ahora: boolean;
 }
 
+interface CatalogClient {
+  id: number;
+  name: string;
+}
+
+interface CatalogFarm {
+  id: number;
+  client_id: number;
+  name: string;
+}
+
 function emptyForm(): FormState {
   return {
     land_name: "",
     field_type: "Farmland",
     luck_name: "",
+    client_id: null,
     client_name: "",
+    farm_id: null,
     farm_name: "",
     municipality: "",
     variety: "",
@@ -184,9 +215,73 @@ export function NewParcelForm() {
   // polígono dibujado en el mapa y se muestra como solo-lectura en el
   // form. Inicializa a 0 (sin polígono).
   const [areaHa, setAreaHa] = useState<number>(0);
+  // Sprint S11+ / Fase 3.2 — catálogos de clientes y fincas fetched
+  // del backend. Se cargan en useEffect al mount del componente.
+  const [clients, setClients] = useState<CatalogClient[]>([]);
+  const [farms, setFarms] = useState<CatalogFarm[]>([]);
+  const [clientsLoading, setClientsLoading] = useState(false);
+  const [farmsLoading, setFarmsLoading] = useState(false);
+
+  // Fetch clientes al mount. Limit 100 (cubre el Valle del Cauca
+  // completo — son ~30-50 clientes en producción).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setClientsLoading(true);
+      try {
+        const res = await fetch("/api/admin/clients?limit=100");
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as { clients: CatalogClient[] };
+        if (!cancelled) setClients(data.clients ?? []);
+      } catch {
+        // Silenciar — el select mostrará solo "Sin clientes" y el
+        // operador puede usar el fallback de texto libre.
+      } finally {
+        if (!cancelled) setClientsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Fetch fincas cuando cambia el cliente. Si el cliente es null,
+  // limpiamos la lista de fincas y reseteamos farm_id.
+  useEffect(() => {
+    if (form.client_id == null) {
+      setFarms([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setFarmsLoading(true);
+      try {
+        const res = await fetch(`/api/admin/farms?clientId=${form.client_id}&limit=100`);
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as { farms: CatalogFarm[] };
+        if (!cancelled) setFarms(data.farms ?? []);
+      } catch {
+        // Silenciar — el select mostrará solo "Sin fincas".
+      } finally {
+        if (!cancelled) setFarmsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [form.client_id]);
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
-    setForm((prev) => ({ ...prev, [key]: value }));
+    setForm((prev) => {
+      const next = { ...prev, [key]: value };
+      // Si cambia el cliente, resetear la finca (pertenece a otro
+      // cliente). Si cambia a null, también reseteamos.
+      if (key === "client_id" && value !== prev.client_id) {
+        next.farm_id = null;
+        next.farm_name = "";
+      }
+      return next;
+    });
   }
 
   function handlePolygonChange(geom: { type: "Polygon"; coordinates: number[][][] } | null) {
@@ -207,16 +302,31 @@ export function NewParcelForm() {
       return;
     }
 
-    // Trim de strings vacíos → null (server espera `string | null`).
+    // Body shape: trim de strings vacíos → null (server espera
+    // `string | null`). Para Cliente/Finca: si está setead el FK,
+    // se manda el FK y el denormalizado queda en null. Si NO está
+    // setead el FK, se manda el denormalizado (texto libre) si tiene
+    // contenido. Esto preserva el comportamiento de Fase 3.1 para
+    // operadores que aún no adoptan el catálogo.
     const body: Record<string, unknown> = {
       land_name: form.land_name.trim(),
       field_type: form.field_type,
       geometry
     };
+    if (form.client_id != null) {
+      body.client_id = form.client_id;
+    } else {
+      const v = form.client_name.trim();
+      if (v) body.client_name = v;
+    }
+    if (form.farm_id != null) {
+      body.farm_id = form.farm_id;
+    } else {
+      const v = form.farm_name.trim();
+      if (v) body.farm_name = v;
+    }
     for (const key of [
       "luck_name",
-      "client_name",
-      "farm_name",
       "municipality",
       "variety",
       "crop_type",
@@ -370,36 +480,106 @@ export function NewParcelForm() {
             title="Tenencia y ubicación"
             hint="cliente, hacienda y contacto"
           />
+          {/* Sprint S11+ / Fase 3.2 — Cliente es ahora un SELECT
+              contra el catálogo (`/api/admin/clients`). Si el catálogo
+              está vacío o el operador prefiere texto libre, hay un
+              fallback abajo. El patrón se repite para Hacienda. */}
           <div className="grid grid-cols-2 gap-3">
-            <label className="flex flex-col gap-1">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Cliente / Ingenio
-              </span>
-              <Input
-                type="text"
-                value={form.client_name}
-                onChange={(e) => update("client_name", e.target.value)}
-                placeholder="ej. Ingenio La Cabaña"
-                maxLength={200}
-                disabled={isPending}
-                aria-label="Cliente o ingenio"
-              />
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Hacienda
-              </span>
-              <Input
-                type="text"
-                value={form.farm_name}
-                onChange={(e) => update("farm_name", e.target.value)}
-                placeholder="ej. Hacienda El Edén"
-                maxLength={200}
-                disabled={isPending}
-                aria-label="Nombre de la hacienda"
-              />
-            </label>
+            <FieldSelect
+              label="Cliente / Ingenio"
+              value={form.client_id == null ? "" : String(form.client_id)}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (v === "") {
+                  update("client_id", null);
+                } else {
+                  const n = Number(v);
+                  update("client_id", Number.isInteger(n) && n > 0 ? n : null);
+                }
+              }}
+              disabled={isPending || clientsLoading}
+              aria-label="Cliente o ingenio"
+              data-testid="client-select"
+            >
+              <option value="">
+                {clientsLoading
+                  ? "Cargando clientes…"
+                  : clients.length === 0
+                    ? "Sin clientes en el catálogo"
+                    : "— Seleccionar cliente —"}
+              </option>
+              {clients.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </FieldSelect>
+            <FieldSelect
+              label="Hacienda"
+              value={form.farm_id == null ? "" : String(form.farm_id)}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (v === "") {
+                  update("farm_id", null);
+                } else {
+                  const n = Number(v);
+                  update("farm_id", Number.isInteger(n) && n > 0 ? n : null);
+                }
+              }}
+              disabled={
+                isPending ||
+                farmsLoading ||
+                form.client_id == null
+              }
+              aria-label="Nombre de la hacienda"
+              data-testid="farm-select"
+            >
+              <option value="">
+                {form.client_id == null
+                  ? "— Primero elegí un cliente —"
+                  : farmsLoading
+                    ? "Cargando fincas…"
+                    : farms.length === 0
+                      ? "Sin fincas para este cliente"
+                      : "— Seleccionar hacienda —"}
+              </option>
+              {farms.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.name}
+                </option>
+              ))}
+            </FieldSelect>
           </div>
+          {/* Sprint S11+ / Fase 3.2 — Fallback de texto libre para
+              Cliente/Finca. Si el operador no encuentra el cliente
+              en el catálogo, puede escribir el nombre acá. El server
+              lo va a guardar denormalizado (FK queda null). Esto
+              preserva el flow anterior y permite backfill manual
+              mientras se migra al catálogo. */}
+          {form.client_id == null ? (
+            <Input
+              type="text"
+              value={form.client_name}
+              onChange={(e) => update("client_name", e.target.value)}
+              placeholder="o escribí el nombre si no está en el catálogo"
+              maxLength={200}
+              disabled={isPending}
+              aria-label="Nombre del cliente (texto libre, fallback)"
+              data-testid="client-name-fallback"
+            />
+          ) : null}
+          {form.client_id != null && form.farm_id == null ? (
+            <Input
+              type="text"
+              value={form.farm_name}
+              onChange={(e) => update("farm_name", e.target.value)}
+              placeholder="o escribí la hacienda si no está en el catálogo"
+              maxLength={200}
+              disabled={isPending}
+              aria-label="Nombre de la hacienda (texto libre, fallback)"
+              data-testid="farm-name-fallback"
+            />
+          ) : null}
           <label className="flex flex-col gap-1">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               Municipio
