@@ -641,7 +641,7 @@ export function ParcelDrawer({
       coordinates: [closed]
     };
     const featureId = polygonFeature.id as string;
-    draw.deleteFeature(featureId);
+    draw.removeFeatures([featureId]);
     draw.addFeatures([
       {
         ...polygonFeature,
