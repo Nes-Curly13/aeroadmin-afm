@@ -260,7 +260,11 @@ describe("ParcelDrawer — empty state QA-12", () => {
     render(<ParcelDrawer onPolygonChange={() => {}} />);
     const empty = screen.getByTestId("drawer-empty-state");
     expect(empty).toBeInTheDocument();
-    expect(empty.textContent).toMatch(/Dibujá el límite de la parcela/);
+    // QA-13 (2026-09-08): el empty state paso de "dibujá el límite"
+    // a un panel con instrucciones numeradas (3 pasos).
+    expect(empty.textContent).toMatch(/C[oó]mo dibujar la parcela/);
+    expect(empty.textContent).toMatch(/click en cada v[eé]rtice/);
+    expect(empty.textContent).toMatch(/Cerrar/);
   });
 
   it("muestra el botón 'Comenzar dibujo' cuando mode inicial es 'edit' y no hay polígono", () => {
