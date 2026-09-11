@@ -191,7 +191,7 @@ export function expectedDaysUntilHarvest(
 
 /**
  * Etiqueta humana en español para una fase. Usado por chips de UI
- * (parcels-table, compliance-panel, detail page).
+ * (parcels-table, detail page).
  */
 export function phaseLabel(phase: CyclePhase | null | undefined): string {
   switch (phase) {

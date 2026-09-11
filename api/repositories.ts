@@ -276,7 +276,7 @@ async function getParcelsNormalizedUncached(page: number, limit: number, filter:
         [...params, limit, offset]
       );
       const countResult = await db.query<{ total: string }>(
-        `SELECT COUNT(*)::int AS total FROM dji_parcels ${whereSql}`,
+        `SELECT COUNT(*)::int AS total FROM dji_parcels p ${whereSql}`,
         params
       );
       const total = Number(countResult.rows[0]?.total ?? 0);
@@ -4465,10 +4465,10 @@ export async function backfillCyclesFromFumigations(
       const r = await db.query<{ inserted: string }>(
         `WITH ordered AS (
            SELECT
-             f.parcela_id,
-             f.applied_at::date AS fdate,
-             LAG(f.applied_at::date) OVER (
-               PARTITION BY f.parcela_id ORDER BY f.applied_at
+             f.parcel_id,
+             f.fumigation_date AS fdate,
+             LAG(f.fumigation_date) OVER (
+               PARTITION BY f.parcel_id ORDER BY f.fumigation_date
              ) AS prev_fdate
            FROM dji_fumigations f
            WHERE f.deleted_at IS NULL

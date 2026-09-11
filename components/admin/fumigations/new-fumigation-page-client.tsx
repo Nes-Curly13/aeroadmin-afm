@@ -641,7 +641,6 @@ function QueStep({
                     size="sm"
                     variant="default"
                     onClick={() => onNewParcel(drawerGeom)}
-                    disabled
                   >
                     Continuar
                   </Button>

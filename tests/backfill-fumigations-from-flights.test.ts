@@ -114,8 +114,10 @@ describe("backfill-fumigations-from-flights — backfillFumigationsFromFlights",
     await backfillFumigationsFromFlights(client);
 
     const insertSql = calls.find((c) => c.sql.trim().toUpperCase().startsWith("WITH"))!.sql;
-    // El aggregate agrupa f.id en un array
-    expect(insertSql).toMatch(/array_agg\(f\.id[^)]*\) AS flight_ids/);
+    // El aggregate agrupa f.flight_id (DJI external) en un array — los
+    // consumidores (trazabilidad + centroides) hacen JOIN por flight_id,
+    // no por el PK interno. Fix auditoría 2026-09-10.
+    expect(insertSql).toMatch(/array_agg\(f\.flight_id[^)]*\) AS flight_ids/);
     // El INSERT incluye flight_ids en la lista de columnas
     expect(insertSql).toMatch(/flight_ids/);
   });

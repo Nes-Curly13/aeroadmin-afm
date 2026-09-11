@@ -114,7 +114,7 @@ export async function backfillFumigationsFromFlights(
         -- de la hoja de vida. array_agg sin DISTINCT porque pueden
         -- repetirse si el mismo flight_id aparece en varias rows
         -- (defensa). ORDER BY para que el array sea determinístico.
-        array_agg(f.id ORDER BY f.id) AS flight_ids
+        array_agg(f.flight_id::int ORDER BY f.flight_id) AS flight_ids
       FROM dji_flights f
       WHERE f.parcel_id IS NOT NULL
         AND f.start_at IS NOT NULL
