@@ -41,7 +41,11 @@ export async function updateFumigationSchedule(
     WITH last_fum AS (
       SELECT parcel_id, MAX(fumigation_date) AS last_date
       FROM dji_fumigations
+      -- 2026-09-10 (issue #17): respetar soft-delete. Sin esto, una
+      -- fumigacion borrada fijaba last_fumigation_date y rompia
+      -- la cadencia.
       WHERE parcel_id IS NOT NULL
+        AND deleted_at IS NULL
       GROUP BY parcel_id
     )
     UPDATE dji_fumigation_schedule s

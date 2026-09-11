@@ -4015,7 +4015,10 @@ export async function setParcelClientFarm(input: {
             data_validity = COALESCE($3, data_validity),
             last_validated_at = CASE WHEN $3 IS NOT NULL THEN NOW() ELSE last_validated_at END,
             validated_by_email = CASE WHEN $3 IS NOT NULL THEN $4 ELSE validated_by_email END
+      -- 2026-09-10 (issue #19): respetar soft-delete. Sin esto, se podia
+      -- reasignar cliente/finca a una parcela borrada.
       WHERE id = $5
+        AND deleted_at IS NULL
     RETURNING id, client_id, farm_id`,
     [
       input.client_id,
@@ -4026,7 +4029,7 @@ export async function setParcelClientFarm(input: {
     ]
   );
   const row = r.rows[0];
-  if (!row) throw new Error(`setParcelClientFarm: parcel ${input.parcel_id} no existe`);
+  if (!row) throw new Error(`setParcelClientFarm: parcel ${input.parcel_id} no existe o está borrada`);
   return { parcel_id: input.parcel_id, client_id: row.client_id, farm_id: row.farm_id };
 }
 
@@ -4071,9 +4074,12 @@ export async function listUnassignedParcels(
   return withLocalFallback(
     async () => {
       // WHERE: client_id IS NULL OR farm_id IS NULL
+      // 2026-09-10 (issue #18): filtrar soft-deleted para ser consistente
+      // con countUnassignedParcels (que ya filtra). Sin esto, banner y
+      // lista muestran numeros distintos.
       // Filtro de búsqueda: LIKE en land_name y external_id
       const params: unknown[] = [];
-      let where = "WHERE (client_id IS NULL OR farm_id IS NULL)";
+      let where = "WHERE (client_id IS NULL OR farm_id IS NULL) AND deleted_at IS NULL";
       if (q.length > 0) {
         params.push(`%${q}%`);
         where += ` AND (land_name ILIKE $${params.length} OR external_id ILIKE $${params.length})`;
