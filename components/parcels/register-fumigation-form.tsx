@@ -718,7 +718,7 @@ export const RegisterFumigationForm = forwardRef<
 
       <details className="rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-xs">
         <summary className="cursor-pointer font-semibold text-muted-foreground">
-          Compliance (opcional pero recomendado para auditoría)
+          Cumplimiento (opcional pero recomendado para auditoría)
         </summary>
         <div className="mt-3 flex flex-col gap-3">
           <label className="flex flex-col gap-1">

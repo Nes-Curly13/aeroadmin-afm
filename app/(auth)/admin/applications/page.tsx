@@ -96,18 +96,18 @@ export default async function ApplicationsAdminPage() {
           <p className="text-2xl font-bold">{total}</p>
         </Card>
         <Card>
-          <p className="text-xs text-muted-foreground">Match OK (score &ge; 0.5)</p>
+          <p className="text-xs text-muted-foreground">Coincidencias (score &ge; 0.5)</p>
           <p className="text-2xl font-bold text-green-700">{matched}</p>
         </Card>
         <Card>
-          <p className="text-xs text-muted-foreground">Huerfanas (score &lt; 0.5)</p>
+          <p className="text-xs text-muted-foreground">Huérfanas (score &lt; 0.5)</p>
           <p className="text-2xl font-bold text-amber-700">{orphans}</p>
         </Card>
       </div>
 
       <Card>
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold">Ultimas 100 fumigaciones importadas</h2>
+          <h2 className="text-sm font-semibold">Últimas 100 fumigaciones importadas</h2>
           <Link href="/fumigaciones?source=import_excel" className="text-xs text-primary hover:underline">
             Ver todas en /fumigaciones
           </Link>
@@ -126,8 +126,8 @@ export default async function ApplicationsAdminPage() {
                   <th className="text-left p-2">Hacienda</th>
                   <th className="text-left p-2">Drone</th>
                   <th className="text-left p-2">Piloto</th>
-                  <th className="text-right p-2">Area</th>
-                  <th className="text-center p-2">Match</th>
+                  <th className="text-right p-2">Área</th>
+                  <th className="text-center p-2">Coincidencia</th>
                   <th className="text-left p-2">Origen</th>
                 </tr>
               </thead>
@@ -146,11 +146,11 @@ export default async function ApplicationsAdminPage() {
                         <Badge className="bg-green-100 text-green-800">exacto</Badge>
                       ) : a.match_method === "fuzzy" ? (
                         <Badge variant="outline" className="border-amber-500 text-amber-700">
-                          fuzzy
+                          aproximado
                         </Badge>
                       ) : (
                         <Badge variant="outline" className="text-muted-foreground">
-                          sin match
+                          sin coincidencia
                         </Badge>
                       )}
                     </td>

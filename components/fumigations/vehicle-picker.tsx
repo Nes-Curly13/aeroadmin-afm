@@ -478,7 +478,7 @@ export function VehiclePicker({
 
       <span className="text-[10px] text-muted-foreground">
         Placa del vehículo de transporte (camioneta, moto, etc). Si no
-        existe en el catálogo, podés crearla on-the-fly.
+        existe en el catálogo, podés crearla al instante.
       </span>
 
       {/* El padre necesita saber el plate sincrónicamente; exponemos

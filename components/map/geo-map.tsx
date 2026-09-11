@@ -444,7 +444,7 @@ export function GeoMap({
       const product = event.product || "Sin producto"
       const operator = event.operator || "Sin asignar"
       const matchInfo = event.n_matched_flights != null
-        ? `<div class="event-popup__row"><span class="event-popup__lbl">Flights asociados</span><span class="event-popup__val">${event.n_matched_flights}</span></div>`
+        ? `<div class="event-popup__row"><span class="event-popup__lbl">Vuelos asociados</span><span class="event-popup__val">${event.n_matched_flights}</span></div>`
         : ""
       const notesHtml = event.notes
         ? `<div class="event-popup__notes">${escapeHtml(event.notes)}</div>`

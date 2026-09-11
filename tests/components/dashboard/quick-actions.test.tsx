@@ -36,10 +36,10 @@ describe("QuickActions — Fase 8 dashboard", () => {
 
   it("cada link tiene descripción visible para discoverability sin hover", () => {
     render(<QuickActions />);
-    expect(screen.getByText(/Wizard 4 pasos/i)).toBeInTheDocument();
+    expect(screen.getByText(/Wizard 3 pasos/i)).toBeInTheDocument();
     expect(screen.getByText(/Mapa con parcelas y fumigaciones/i)).toBeInTheDocument();
     expect(screen.getByText(/Dibujar polígono sobre el mapa satelital/i)).toBeInTheDocument();
-    expect(screen.getByText(/Resumen operativo y por hacienda/i)).toBeInTheDocument();
+    expect(screen.getByText(/Reporte operativo y resumen por parcela/i)).toBeInTheDocument();
   });
 
   it("NO incluye más de 5 acciones (limite de ruido)", () => {

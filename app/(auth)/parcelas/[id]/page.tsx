@@ -365,7 +365,7 @@ export default async function ParcelaPage({ params }: { params: Promise<{ id: st
                       {activeCycle.data_validity === "needs_review" && (
                         <Badge variant="outline" className="border-amber-500/40 bg-amber-500/10 text-[10px] text-amber-700 dark:text-amber-300">
                           <AlertTriangle className="mr-1 size-2.5" aria-hidden />
-                          needs_review
+                          Requiere revisión
                         </Badge>
                       )}
                     </div>

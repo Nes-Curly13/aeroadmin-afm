@@ -597,7 +597,7 @@ export default async function FumigacionPage({ params }: PageProps) {
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2 text-base">
                 <ClipboardList className="size-4 text-chart-4" aria-hidden />
-                Compliance
+                Cumplimiento
               </CardTitle>
               <CardDescription>
                 Requerido por la auditoría ICA/Aerocivil.
@@ -731,7 +731,7 @@ export default async function FumigacionPage({ params }: PageProps) {
               <table className="w-full min-w-[760px] text-sm">
                 <thead className="border-b border-border bg-muted/40 text-[11px] uppercase tracking-wider text-muted-foreground">
                   <tr>
-                    <th className="px-3 py-2 text-left font-semibold">Flight ID</th>
+                    <th className="px-3 py-2 text-left font-semibold">ID de vuelo</th>
                     <th className="px-3 py-2 text-left font-semibold">Inicio</th>
                     {isPlan ? (
                       <th className="px-3 py-2 text-left font-semibold">Suerte</th>
@@ -853,11 +853,11 @@ export default async function FumigacionPage({ params }: PageProps) {
               />
               <DetailRow label="Fuente" value={SOURCE_LABEL[fumigation.source] ?? fumigation.source} />
               <DetailRow
-                label="Vuelos en flight_ids"
+                label="Vuelos asociados (flight_ids)"
                 value={String(fumigation.flight_ids?.length ?? 0)}
               />
               <DetailRow
-                label="Vuelos con match en dji_flights"
+                label="Vuelos con coincidencia en dji_flights"
                 value={String(flights.length)}
               />
             </dl>

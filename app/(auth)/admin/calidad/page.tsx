@@ -77,7 +77,7 @@ export default async function CalidadDatosPage() {
     <>
       <PageHeader
         title="Calidad de datos"
-        description="Warnings de calidad de datos detectados en el dataset. Útil para auditar parcelas con metadata incompleta, ciclos inconsistentes o fumigaciones huérfanas."
+        description="Alertas de calidad de datos detectadas en el dataset. Útil para auditar parcelas con metadata incompleta, ciclos inconsistentes o fumigaciones huérfanas."
       />
       <div className="flex flex-col gap-6 px-4 py-6 sm:px-6">
         {/* KPIs */}
@@ -86,7 +86,7 @@ export default async function CalidadDatosPage() {
             <CardContent className="flex items-start justify-between gap-2 p-4">
               <div>
                 <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
-                  Total warnings
+                  Total de alertas
                 </p>
                 <p className="mt-1 font-mono text-xl font-bold tabular-nums">
                   {fmtInt(warnings.length)}
@@ -112,7 +112,7 @@ export default async function CalidadDatosPage() {
             <CardContent className="flex items-start justify-between gap-2 p-4">
               <div>
                 <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
-                  Warnings
+                  Avisos
                 </p>
                 <p className="mt-1 font-mono text-xl font-bold tabular-nums text-amber-700 dark:text-amber-300">
                   {fmtInt(bySeverity.warning)}
@@ -125,7 +125,7 @@ export default async function CalidadDatosPage() {
             <CardContent className="flex items-start justify-between gap-2 p-4">
               <div>
                 <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
-                  Info
+                  Información
                 </p>
                 <p className="mt-1 font-mono text-xl font-bold tabular-nums">
                   {fmtInt(bySeverity.info)}
@@ -140,7 +140,7 @@ export default async function CalidadDatosPage() {
         {byParcela.size === 0 ? (
           <Card>
             <CardContent className="py-8 text-center text-sm text-muted-foreground">
-              Sin warnings — el dataset está limpio.
+              Sin alertas — el dataset está limpio.
             </CardContent>
           </Card>
         ) : (
@@ -173,7 +173,7 @@ export default async function CalidadDatosPage() {
                               : "border-primary/30 bg-primary/5"
                         }
                       >
-                        {ws.length} {ws.length === 1 ? "warning" : "warnings"}
+                        {ws.length} {ws.length === 1 ? "aviso" : "avisos"}
                       </Badge>
                     </div>
                   </CardHeader>

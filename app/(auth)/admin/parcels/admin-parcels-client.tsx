@@ -718,10 +718,10 @@ export function AdminParcelsClient({
                             )}
                             aria-label={`Vigencia de ${p.land_name ?? "Parcela " + p.id}`}
                           >
-                            <option value="fresh">fresh</option>
-                            <option value="needs_review">needs_review</option>
-                            <option value="stale">stale</option>
-                            <option value="unknown">unknown</option>
+                            <option value="fresh">Al día</option>
+                            <option value="needs_review">Revisar</option>
+                            <option value="stale">Vencido</option>
+                            <option value="unknown">Sin clasificar</option>
                           </select>
                           <ChevronDown className="pointer-events-none absolute right-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
                         </div>
@@ -778,6 +778,16 @@ export function AdminParcelsClient({
       <p className="font-mono text-[10px] text-muted-foreground">
         {`Página ${page} de ${totalPages || 1}`}
         {totalPages > 1 ? " · " : ""}
+        {page > 1 && (
+          <button
+            type="button"
+            onClick={() => go(page - 1)}
+            className="underline-offset-2 hover:underline"
+          >
+            ← anterior
+          </button>
+        )}
+        {page > 1 && page < totalPages ? " · " : ""}
         {page < totalPages && (
           <button
             type="button"

@@ -165,7 +165,7 @@ describe("RegisterFumigationForm — render", () => {
     // Antes de expandir, los inputs ICA no son visibles
     expect(screen.queryByLabelText(/Registro ICA/)).not.toBeVisible();
     // Expandir el details (summary es HTML nativo, click funciona)
-    await user.click(screen.getByText(/Compliance/));
+    await user.click(screen.getByText(/Cumplimiento/));
     expect(screen.getByLabelText(/Registro ICA/)).toBeInTheDocument();
     expect(screen.getByLabelText(/Licencia del piloto/)).toBeInTheDocument();
   });
@@ -263,7 +263,7 @@ describe("RegisterFumigationForm — submit OK", () => {
     await user.type(getInput(/Duración/), "45");
     await user.type(getTextarea(/Notas operativas/), "Re-tratamiento manual");
     // Expandir compliance y llenar
-    await user.click(screen.getByText(/Compliance/));
+    await user.click(screen.getByText(/Cumplimiento/));
     await user.type(getInput(/Registro ICA/), "ICA-1234-PN");
     await user.type(getInput(/Licencia del piloto/), "PCA-12345");
     fireEvent.submit(getForm());

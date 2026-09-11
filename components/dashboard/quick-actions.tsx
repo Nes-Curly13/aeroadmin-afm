@@ -40,7 +40,7 @@ const ACTIONS: QuickAction[] = [
   {
     href: "/fumigaciones/nueva",
     label: "Nueva fumigación",
-    description: "Wizard 4 pasos: importar vuelo o registrar manual.",
+    description: "Wizard 3 pasos: importar vuelo o registrar manual.",
     icon: Plus
   },
   {
@@ -58,7 +58,7 @@ const ACTIONS: QuickAction[] = [
   {
     href: "/reportes",
     label: "Ver reportes",
-    description: "Resumen operativo y por hacienda + exportes CSV/PDF.",
+    description: "Reporte operativo y resumen por parcela + exportes CSV/PDF.",
     icon: BarChart3
   }
 ];

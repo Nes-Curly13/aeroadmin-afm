@@ -187,7 +187,7 @@ function FlightCard({
         <div className="flex items-start justify-between gap-2">
           <div className="flex flex-col gap-0.5">
             <p className="font-mono text-[10px] text-muted-foreground">
-              {`DJI flight #${flight.flight_id}`}
+              {`Vuelo DJI #${flight.flight_id}`}
             </p>
             <p className="text-sm font-semibold">{startDate}</p>
           </div>
