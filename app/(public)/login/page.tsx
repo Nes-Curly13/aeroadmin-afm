@@ -2,9 +2,9 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Plane } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { AfmMark } from "@/components/brand/afm-mark";
 import { AuraBackground } from "@/components/aura-background";
 
 /**
@@ -125,8 +125,14 @@ export default function LoginPage() {
       <main className="flex min-h-svh items-center justify-center p-4">
         <Card className="w-full max-w-sm gap-0 py-6">
           <CardHeader className="items-center gap-3 px-6 pb-4">
-            <div className="grid size-12 place-items-center rounded-lg bg-primary/10 text-primary">
-              <Plane className="size-6" aria-hidden />
+            {/* Branding header — 2026-09-10:
+                Reemplazamos el icon generico <Plane /> (lucide) por el
+                monograma real de AFM. Es la primera impresion de marca
+                del usuario. El full logo requiere `unoptimized` por
+                el issue QA-01 → PR #68 (paths SVG con fills
+                hardcoded que el optimizer de Next.js no rasteriza). */}
+            <div className="flex h-[100px] w-[70px] items-center justify-center">
+              <AfmMark variant="full" size={70} priority />
             </div>
             <div className="flex flex-col items-center gap-1">
               <CardTitle className="text-lg">AeroAdmin AFM</CardTitle>

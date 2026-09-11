@@ -14,10 +14,22 @@
  *     no-standard para el optimizer. Mismo bug latente.
  *   - Fix 2026-09-08 — agregar `unoptimized` al nuevo <Image>. Patron
  *     identico al de S10.5.
+ *   - Refactor 2026-09-10 — el logo de marca se movio a
+ *     <components/brand/afm-mark.tsx>. La logica de `unoptimized` vive
+ *     ahi (NEEDS_UNOPTIMIZED: mark=false, full=true). El sidebar ahora
+ *     usa `<AfmMark variant="mark" />` (sin riesgo 400) y el login
+ *     usa `<AfmMark variant="full" />` (riesgo 400 → unoptimized ON).
  *
- * Este test es source-level porque renderizar el AppShell requiere
- * mockear Next/Image, NextAuth, NavLinks, etc — y lo unico que nos
- * importa es que el prop `unoptimized` este presente.
+ *   El anti-regression ahora se chequea en 2 lugares:
+ *     A) El sidebar NO usa el logo grande directamente (uso via AfmMark).
+ *     B) El login SI usa el logo grande (necesita unoptimized via AfmMark).
+ *     C) El componente AfmMark tiene un test dedicado (test #4 de
+ *        afm-mark.test.tsx) que valida `unoptimized` por variant.
+ *        Eso es el verdadero lock — si alguien lo rompe, ese test falla.
+ *
+ *   Este test source-level queda como segunda linea de defensa:
+ *     si alguien pone `<Image src="/afm-logo.svg" />` directo en algun
+ *     componente sin pasar por AfmMark, este test lo cacha.
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -26,49 +38,62 @@ import { describe, expect, it } from "vitest";
 
 const projectRoot = join(__dirname, "..");
 
-describe("app-shell.tsx — sidebar logo SVG unoptimized (anti-400)", () => {
-  it("<Image src='/afm-logo.svg'> tiene prop `unoptimized`", () => {
-    const appShellPath = join(projectRoot, "components", "app-shell.tsx");
-    if (!existsSync(appShellPath)) {
-      throw new Error(`No se encontro ${appShellPath}`);
-    }
-    const src = readFileSync(appShellPath, "utf-8");
+function readNoComments(relPath: string): string {
+  const fullPath = join(projectRoot, relPath);
+  if (!existsSync(fullPath)) {
+    throw new Error(`No se encontro ${fullPath}`);
+  }
+  return readFileSync(fullPath, "utf-8")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/.*$/gm, "");
+}
 
-    // Strip comments para evitar matches falsos en bloques de comentario.
-    const noComments = src
-      .replace(/\/\*[\s\S]*?\*\//g, "")
-      .replace(/^\s*\/\/.*$/gm, "");
-
-    // 1. La sidebar DEBE seguir usando /afm-logo.svg (QA-01). Si alguien
-    //    vuelve al mark chico sin agregar el width correcto, este test
-    //    falla con un mensaje claro.
+describe("brand integration — anti-SVG-400", () => {
+  it("app-shell usa <AfmMark /> (no <Image src='/afm-logo.svg' /> directo)", () => {
+    const appShell = readNoComments("components/app-shell.tsx");
+    // El sidebar no debe importar ni usar el logo grande directo. Va
+    // por el wrapper <AfmMark variant='mark' />.
     expect(
-      noComments.includes('src="/afm-logo.svg"'),
-      "app-shell.tsx deberia usar `/afm-logo.svg` (logo grande, QA-01)"
+      appShell.includes('src="/afm-logo.svg"'),
+      "app-shell.tsx no debe usar /afm-logo.svg directo. Usar <AfmMark />."
+    ).toBe(false);
+    expect(
+      appShell.includes("AfmMark"),
+      "app-shell.tsx debe usar el componente <AfmMark />."
     ).toBe(true);
+  });
 
-    // 2. El prop `unoptimized` DEBE estar presente en el <Image> del
-    //    logo. Sin el, el optimizer devuelve 400 para SVGs con paths
-    //    complejos o aspect ratio no-standard. Ver docs/S10-5-FINALIZACION.md
-    //    para el root cause original (w=120 fuera del allow-list).
+  it("login page usa <AfmMark variant='full' /> (logo grande, requiere unoptimized)", () => {
+    const login = readNoComments("app/(public)/login/page.tsx");
+    // El full logo solo se renderiza seguro si pasa por <AfmMark />,
+    // que internamente setea `unoptimized: true` (ver NEEDS_UNOPTIMIZED
+    // en components/brand/afm-mark.tsx + test #4 de afm-mark.test.tsx).
     expect(
-      /\bunoptimized\b/.test(noComments),
-      "app-shell.tsx deberia tener prop `unoptimized` en el <Image> del logo. " +
-        "Sin esto, el Image optimizer devuelve 400 para SVGs con paths " +
-        "complejos o aspect ratio no-standard. Ver docs/S10-5-FINALIZACION.md " +
-        "(PR #37) para el root cause original del SVG 400."
+      login.includes("AfmMark"),
+      "login/page.tsx debe usar el componente <AfmMark />."
     ).toBe(true);
-
-    // 3. El <Image> del logo y el `unoptimized` deben estar en la misma
-    //    region del archivo (mismo JSX block). Buscamos un patron
-    //    `<Image ... unoptimized ... />` o `<Image ... unoptimized>`.
-    const imageUnoptimizedPattern =
-      /<Image[\s\S]{0,500}?unoptimized[\s\S]{0,500}?>/;
     expect(
-      imageUnoptimizedPattern.test(noComments),
-      "El prop `unoptimized` debe estar en un <Image>. Si esta en otro " +
-        "componente, este test no detecta la regresion. Revisar que el " +
-        "<Image src='/afm-logo.svg'> en app-shell.tsx tenga el prop."
+      /variant=["']full["']/.test(login),
+      "login/page.tsx debe usar <AfmMark variant='full' /> para el " +
+        "monograma completo (57KB, requiere unoptimized=true)."
+    ).toBe(true);
+    // Anti-regression directa: nadie debe saltarse el wrapper y poner
+    // un <Image> con el logo grande directo sin unoptimized.
+    expect(
+      login.includes('src="/afm-logo.svg"'),
+      "login/page.tsx no debe usar /afm-logo.svg directo. Usar <AfmMark variant='full' />."
+    ).toBe(false);
+  });
+
+  it("AfmMark tiene la logica unoptimized para variant='full'", () => {
+    const brand = readNoComments("components/brand/afm-mark.tsx");
+    // El test verdadero del comportamiento esta en afm-mark.test.tsx
+    // (test #4: variant='full' propaga unoptimized=true). Aca solo
+    // aseguramos que la declaracion NEEDS_UNOPTIMIZED siga presente,
+    // como segunda linea de defensa.
+    expect(
+      brand.includes("NEEDS_UNOPTIMIZED") || brand.includes("unoptimized={"),
+      "components/brand/afm-mark.tsx debe declarar/loggear unoptimized por variant."
     ).toBe(true);
   });
 });

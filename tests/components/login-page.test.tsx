@@ -21,6 +21,20 @@ import { render, screen, waitFor, fireEvent, cleanup } from "@testing-library/re
 import { useRouter } from "next/navigation";
 import LoginPage from "@/app/(public)/login/page";
 
+// Mock next/image — jsdom no provee un base URL y next/image falla al
+// construir el src optimizado. LoginPage usa <AfmMark /> que envuelve
+// <Image>. Mock simple: <img> con data-src para que los tests puedan
+// inspeccionar que el logo se esta renderizando. Filtramos los boolean
+// props (priority, unoptimized) que React no acepta en <img>.
+vi.mock("next/image", () => ({
+  default: ({ src, alt, priority, unoptimized, ...rest }: {
+    src: string; alt: string; priority?: boolean; unoptimized?: boolean; [k: string]: unknown
+  }) => (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img data-testid="next-image" data-src={src} alt={alt} {...rest} />
+  ),
+}));
+
 // Mock next/navigation
 const mockPush = vi.fn();
 const mockRefresh = vi.fn();

@@ -1,10 +1,10 @@
-import Image from "next/image"
 import Link from "next/link"
 import { LogOut, UserCircle2 } from "lucide-react"
 import { fmtRelative } from "@/lib/format"
 import { logoutAction } from "@/app/(public)/login/actions"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { AfmMark } from "@/components/brand/afm-mark"
 import { auth } from "@/lib/auth"
 import type { AppRole } from "@/lib/auth/role"
 import type { DjiAgHealth } from "@/lib/types"
@@ -81,38 +81,17 @@ export async function AppShell({
             aria-label="Ir al panel principal"
             className="flex items-center gap-3"
           >
-            {/* QA-01 (2026-09-06): el operador reporto que el logo del
-                sidebar no era el que el habia entregado. La version
-                previa usaba `/afm-logo-mark.svg` (1.3KB, 120x40, mark
-                simplificado con currentColor). El usuario quiere ver
-                el logo ORIGINAL: `/afm-logo.svg` (57KB, 485x695,
-                archivo provisto en docs/afm_png.svg). Lo mostramos a
-                escala 64x92 (aspect 0.7 = 485/695) con el texto
-                "AFM Geovisor" + subtitulo a la derecha. El favicon del
-                browser tab sigue usando el mark (es un asset de 16x16,
-                el logo completo se veria terrible). */}
-            <div className="flex h-[92px] w-[64px] shrink-0 items-center justify-center">
-              {/* QA-01 + fix SVG 400 (2026-09-08): despues del cambio al
-                  logo grande en QA-01 (PR #60), el <Image> usa
-                  `/afm-logo.svg` (57KB, 485x695 paths complejos). El Image
-                  optimizer de Next.js devuelve 400 cuando el SVG no se
-                  puede rasterizar al tamano pedido (e.g. aspect ratio
-                  no standard del asset original, o paths con
-                  currentColor/fill complejos). El fix es `unoptimized`
-                  — servimos el SVG directo del /public. Mismo patron que
-                  el fix original de S10.5 (PR #37) para el mark chico.
-                  Cosmetico — el favicon del browser tab no usa Image,
-                  asi que el side-effect es solo en el sidebar. */}
-              <Image
-                src="/afm-logo.svg"
-                alt="Logo AFM"
-                width={64}
-                height={92}
-                className="h-full w-full"
-                priority
-                unoptimized
-              />
-            </div>
+            {/* Branding header — 2026-09-10:
+                Cambiamos del monograma vertical 64x92 (ocupaba 36% del
+                alto del sidebar y se veia apretado) al mark horizontal
+                compacto. El mark es el "AFM" + subtitulo "Fumigacion"
+                que ya usamos como favicon, pero a 28px de alto (84x28).
+                El wordmark al lado (titulo + subtitulo) sigue dando
+                contexto de que es el panel. El monograma completo
+                (/afm-logo.svg, 57KB) queda reservado para pantallas
+                de branding (login).
+                Ver <AfmMark /> en components/brand/afm-mark.tsx. */}
+            <AfmMark variant="mark" size={28} priority />
             <div className="flex flex-col leading-tight">
               <span className="text-sm font-extrabold tracking-tight">AFM Geovisor</span>
               <span className="text-[11px] text-sidebar-foreground/60">Fumigación de caña · Valle</span>
