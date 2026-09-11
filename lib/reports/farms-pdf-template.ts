@@ -26,6 +26,7 @@ import type {
   FarmsParcelAgg,
   FarmsReportData
 } from "./fetch-farms-report-data";
+import { getAfmMarkDataUrl } from "./brand-mark-data-url";
 
 /** Formato es-CO para números. */
 function fmtNum(value: number, decimals: number): string {
@@ -100,9 +101,11 @@ const STYLES = `
   .page { padding: 16mm 12mm; }
   h1 { font-size: 18px; margin: 0 0 4px 0; color: #0b5f2d; }
   h2 { font-size: 12px; margin: 14px 0 6px 0; color: #0b5f2d; text-transform: uppercase; letter-spacing: 0.06em; }
-  .header { border-bottom: 2px solid #0b5f2d; padding-bottom: 8px; margin-bottom: 12px; }
+  .header { border-bottom: 2px solid #0b5f2d; padding-bottom: 8px; margin-bottom: 12px; position: relative; }
+  .header h1 { padding-right: 100px; }
   .header .meta { font-size: 10px; color: #587064; }
   .header .meta .strong { color: #1c2a23; font-weight: 600; }
+  .brand-mark { position: absolute; top: 0; right: 0; width: 90px; height: 30px; object-fit: contain; }
   .summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px; }
   .summary .cell { background: #f7f9fb; border: 1px solid #d2ddd6; border-radius: 6px; padding: 8px 10px; }
   .summary .cell .label { font-size: 9px; color: #587064; text-transform: uppercase; letter-spacing: 0.05em; }
@@ -177,6 +180,7 @@ export function buildFarmsReportHtml(data: FarmsReportData): string {
 <body>
   <div class="page">
     <div class="header">
+      <img class="brand-mark" src="${getAfmMarkDataUrl()}" alt="AeroAdmin AFM" />
       <h1>${escapeHtml(data.operatorName)}</h1>
       <div class="meta">
         <span class="strong">${escapeHtml(title)}</span>

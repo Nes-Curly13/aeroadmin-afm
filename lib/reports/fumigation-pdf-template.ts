@@ -15,6 +15,7 @@
 //   - Tabla de vuelos asociados al final (si hay).
 
 import type { FumigationReportData } from "./fumigation-csv";
+import { getAfmMarkDataUrl } from "./brand-mark-data-url";
 
 function fmtNum(value: number | string | null, decimals: number): string {
   if (value === null) return "—";
@@ -92,6 +93,7 @@ export function buildFumigationPdfHtml(data: FumigationReportData): string {
   th { background: #f5f5f5; font-weight: 600; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: #555; }
   td.num { text-align: right; font-variant-numeric: tabular-nums; }
   .header { display: flex; align-items: baseline; justify-content: space-between; border-bottom: 2px solid #1a1a1a; padding-bottom: 12px; }
+  .header .title-block img.brand-mark { display: block; height: 22px; width: auto; margin-bottom: 6px; }
   .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: white; }
   .kv { display: grid; grid-template-columns: 160px 1fr; gap: 4px 12px; }
   .kv dt { color: #777; font-size: 10px; }
@@ -103,7 +105,8 @@ export function buildFumigationPdfHtml(data: FumigationReportData): string {
 </head>
 <body>
   <div class="header">
-    <div>
+    <div class="title-block">
+      <img class="brand-mark" src="${getAfmMarkDataUrl()}" alt="AeroAdmin AFM" />
       <h1>Fumigación #${f.id}</h1>
       <div style="color:#555;font-size:11px;">
         ${escapeHtml(f.fumigation_date)} · ${escapeHtml(p?.land_name ?? `Parcela #${f.parcel_id}`)}
