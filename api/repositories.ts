@@ -4159,27 +4159,42 @@ export async function bulkSetParcelClientFarm(input: {
   const db = getDb();
   return withLocalFallback(
     async () => {
-      const results: BulkAssignResult[] = [];
-      // Hacemos N updates (no un solo UPDATE WHERE id = ANY(...) para
-      // poder reportar per-row success/error). En el futuro, si el
-      // volumen crece, se puede hacer un UPDATE con RETURNING y
-      // detectar los ids que NO volvieron (los que fallaron).
-      for (const parcelId of input.parcel_ids) {
-        try {
-          await setParcelClientFarm({
-            parcel_id: parcelId,
-            client_id: input.client_id,
-            farm_id: input.farm_id,
-            data_validity: input.data_validity,
-            validated_by_email: input.validated_by_email
-          });
-          results.push({ parcel_id: parcelId, success: true });
-        } catch (err) {
-          const message = err instanceof Error ? err.message : "error desconocido";
-          results.push({ parcel_id: parcelId, success: false, error: message });
+      // 2026-09-10 (issue #20): un solo UPDATE WHERE id = ANY(...) con
+      // RETURNING. Los ids que NO vuelven son los que fallaron
+      // (no existen, soft-deleted, etc). Reportamos per-row con un
+      // O(N) de JS, pero la query a la BD es 1 sola.
+      const r = await db.query<{ id: number }>(
+        `UPDATE dji_parcels
+            SET client_id = $1,
+                farm_id = $2,
+                data_validity = COALESCE($3, data_validity),
+                last_validated_at = CASE WHEN $3 IS NOT NULL THEN NOW() ELSE last_validated_at END,
+                validated_by_email = CASE WHEN $3 IS NOT NULL THEN $4 ELSE validated_by_email END
+          WHERE id = ANY($5::bigint[])
+            AND deleted_at IS NULL
+          RETURNING id`,
+        [
+          input.client_id,
+          input.farm_id,
+          input.data_validity ?? null,
+          input.validated_by_email,
+          input.parcel_ids
+        ]
+      );
+      const updatedIds = new Set(r.rows.map((row) => Number(row.id)));
+      // Mantenemos el orden del input para que el caller vea los
+      // resultados en el mismo orden que pidio. Los ids que no
+      // aparecen en updatedIds son los que fallaron.
+      return input.parcel_ids.map((id) => {
+        if (updatedIds.has(id)) {
+          return { parcel_id: id, success: true };
         }
-      }
-      return results;
+        return {
+          parcel_id: id,
+          success: false,
+          error: "parcel no existe o está borrada"
+        };
+      });
     },
     async () =>
       input.parcel_ids.map((id) => ({
