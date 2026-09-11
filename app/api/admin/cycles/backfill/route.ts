@@ -10,11 +10,12 @@
  * data_validity='needs_review'). El operador debe revisar cada uno
  * en el UI.
  *
- * Body: { gap_days?: number, default 120 }
+ * Body: { gap_days?: number, default 120, force?: boolean, default false }
  *
- * Idempotente? NO. Si se corre 2 veces, crea duplicados. El
- * operador debe correrlo UNA vez por environment y luego ir a
- * /admin/parcels a revisar los `needs_review`.
+ * Idempotente (issue #16, 2026-09-10): si ya hay ciclos
+ * dji_inferred, NO corre a menos que `force=true`. Asi un click
+ * accidental no duplica. El operador que quiera re-correr tiene que
+ * borrar manualmente los dji_inferred que no le sirvan.
  *
  * Authorization: solo role=admin.
  */
@@ -32,7 +33,7 @@ export async function POST(request: NextRequest) {
     return authErrorToResponse(err);
   }
 
-  let body: { gap_days?: number } = {};
+  let body: { gap_days?: number; force?: boolean } = {};
   try {
     const raw = await request.text();
     if (raw.length > 0) body = JSON.parse(raw);
@@ -48,8 +49,17 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const force = body.force === true;
+
   try {
-    const result = await backfillCyclesFromFumigations(gapDays);
+    const result = await backfillCyclesFromFumigations(gapDays, { force });
+    if (result.skipped_existing) {
+      return NextResponse.json({
+        ...result,
+        message: "Backfill ya ejecutado. La tabla cycles tiene registros dji_inferred. " +
+                 "Para re-correr, borrar manualmente los dji_inferred existentes y pasar force=true."
+      });
+    }
     return NextResponse.json({
       ...result,
       message: `Backfill completo. ${result.cycles_created} ciclos nuevos marcados como needs_review. Operator debe ir a /admin/parcels y revisar.`

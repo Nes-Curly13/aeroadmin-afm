@@ -4441,14 +4441,44 @@ export async function createCycleEvent(input: {
  * crea un ciclo virtual (data_validity='needs_review') cubriendo
  * el cluster de fumigaciones. El operador revisa y confirma.
  *
- * Returns: numero de ciclos creados (para report al operator).
+ * Idempotencia (issue #16, 2026-09-10):
+ *   El endpoint era NO idempotente. Re-correr duplicaba ciclos.
+ *   El check se hace por `source='dji_inferred'` — si ya hay
+ *   ciclos dji_inferred en la tabla, NO hacemos nada. Para forzar
+ *   un re-run (caso edge: fumigaciones nuevas agregadas despues del
+ *   primer backfill), pasar `force=true`.
+ *
+ * Returns: numero de ciclos creados (0 si ya existian y force=false).
  */
 export async function backfillCyclesFromFumigations(
-  gapDays: number = 120
-): Promise<{ cycles_created: number; parcels_processed: number }> {
+  gapDays: number = 120,
+  options: { force?: boolean } = {}
+): Promise<{
+  cycles_created: number;
+  parcels_processed: number;
+  skipped_existing: boolean;
+}> {
   const db = getDb();
+  const force = options.force ?? false;
   return withLocalFallback(
     async () => {
+      // Idempotency guard: si ya hay ciclos dji_inferred, abortar
+      // salvo que `force=true`. El operador puede borrar manualmente
+      // los que quiera re-generar y volver a correr.
+      if (!force) {
+        const existing = await db.query<{ n: string }>(
+          `SELECT COUNT(*)::text AS n FROM cycles WHERE source = 'dji_inferred'`
+        );
+        const n = Number(existing.rows[0]?.n ?? 0);
+        if (n > 0) {
+          return {
+            cycles_created: 0,
+            parcels_processed: 0,
+            skipped_existing: true
+          };
+        }
+      }
+
       // 1) Encontrar gaps entre fumigaciones por parcela.
       //    Usamos una CTE con LAG para calcular la diferencia de
       //    dias entre fumigaciones consecutivas.
@@ -4457,15 +4487,13 @@ export async function backfillCyclesFromFumigations(
       //    fumigacion del cluster, end_date = null (ciclo abierto,
       //    el operador decidira cuando cerrarlo).
       //
-      // Por simplicidad en este primer cut, NO creamos cycle_events
-      // para las fumigaciones existentes — eso se hace en un
-      // siguiente paso (cada fumigacion se linkea al ciclo via
-      // dji_fumigations.cycle_id y se crea un event tipo
-      // 'application' en el mismo paso).
+      // El alias `AS parcela_id` es necesario porque la columna
+      // origen es `dji_fumigations.parcel_id` (singular) pero el
+      // resto del CTE + la tabla `cycles` usan `parcela_id` (con a).
       const r = await db.query<{ inserted: string }>(
         `WITH ordered AS (
            SELECT
-             f.parcel_id,
+             f.parcel_id AS parcela_id,
              f.fumigation_date AS fdate,
              LAG(f.fumigation_date) OVER (
                PARTITION BY f.parcel_id ORDER BY f.fumigation_date
@@ -4499,8 +4527,12 @@ export async function backfillCyclesFromFumigations(
         [gapDays]
       );
       const cyclesCreated = r.rows.length;
-      return { cycles_created: cyclesCreated, parcels_processed: 0 };
+      return {
+        cycles_created: cyclesCreated,
+        parcels_processed: 0,
+        skipped_existing: false
+      };
     },
-    async () => ({ cycles_created: 0, parcels_processed: 0 })
+    async () => ({ cycles_created: 0, parcels_processed: 0, skipped_existing: false })
   );
 }

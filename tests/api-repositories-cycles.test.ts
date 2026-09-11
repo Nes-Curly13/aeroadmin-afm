@@ -315,19 +315,22 @@ describe("closeCycle", () => {
 
 describe("backfillCyclesFromFumigations", () => {
   it("crea N ciclos basado en gaps > 120 dias entre fumigaciones", async () => {
-    // El backfill corre 1 query grande. Mockeamos que devuelve 3 rows
-    // (3 nuevos ciclos insertados).
+    // El backfill hace 2 queries: (1) idempotency guard que cuenta
+    // dji_inferred existentes, (2) el INSERT masivo. Mockeamos ambos.
     const db = buildDbMock({
+      "SELECT COUNT(*)": () => ({ rows: [{ n: "0" }] }),
       "INSERT INTO cycles": () => ({ rows: [{ inserted: 1 }, { inserted: 1 }, { inserted: 1 }] })
     });
     vi.mocked(getDb).mockReturnValue(db as never);
 
     const result = await backfillCyclesFromFumigations(120);
     expect(result.cycles_created).toBe(3);
+    expect(result.skipped_existing).toBe(false);
   });
 
   it("respeta el parametro gap_days custom", async () => {
     const db = buildDbMock({
+      "SELECT COUNT(*)": () => ({ rows: [{ n: "0" }] }),
       "INSERT INTO cycles": () => ({ rows: [{ inserted: 1 }] })
     });
     vi.mocked(getDb).mockReturnValue(db as never);
@@ -338,11 +341,34 @@ describe("backfillCyclesFromFumigations", () => {
 
   it("devuelve 0 si no hay fumigaciones suficientes para crear ciclos", async () => {
     const db = buildDbMock({
+      "SELECT COUNT(*)": () => ({ rows: [{ n: "0" }] }),
       "INSERT INTO cycles": () => ({ rows: [] })
     });
     vi.mocked(getDb).mockReturnValue(db as never);
 
     const result = await backfillCyclesFromFumigations(120);
     expect(result.cycles_created).toBe(0);
+  });
+
+  it("idempotente: si ya hay dji_inferred, NO corre a menos que force=true (issue #16)", async () => {
+    // El guard retorna >0 → abort antes del INSERT.
+    const insertSpy = vi.fn(() => ({ rows: [{ inserted: 1 }] }));
+    const db = buildDbMock({
+      "SELECT COUNT(*)": () => ({ rows: [{ n: "483" }] }),
+      "INSERT INTO cycles": insertSpy
+    });
+    vi.mocked(getDb).mockReturnValue(db as never);
+
+    // Sin force → skip
+    const result1 = await backfillCyclesFromFumigations(120);
+    expect(result1.cycles_created).toBe(0);
+    expect(result1.skipped_existing).toBe(true);
+    expect(insertSpy).not.toHaveBeenCalled();
+
+    // Con force=true → corre igual (re-ejecuta el INSERT)
+    const result2 = await backfillCyclesFromFumigations(120, { force: true });
+    expect(result2.cycles_created).toBe(1);
+    expect(result2.skipped_existing).toBe(false);
+    expect(insertSpy).toHaveBeenCalledTimes(1);
   });
 });
