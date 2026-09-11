@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/role";
+import { auth } from "@/lib/auth";
 import { importApplications as importFn } from "../../../../../scripts/import-applications-from-excel.js";
 
 interface ImportOptionsInput {
@@ -16,10 +17,15 @@ interface ImportOptionsInput {
  *
  * Ejecuta el import del Excel del operador fumigador. Solo accesible
  * para role=admin.
+ *
+ * Seguridad (auditoría 2026-09-10):
+ *   - `xlsxPath` es requerido y debe apuntar a un .xlsx/.xls (previene
+ *     lectura arbitraria de archivos del server, ej. /etc/passwd).
+ *   - `actorEmail` se deriva de la sesión (NO del body) para evitar
+ *     suplantación de autoría en el audit log.
+ *   - Se eliminó el path hardcodeado con PII del dev.
  */
 export const dynamic = "force-dynamic";
-
-const DEFAULT_XLSX_PATH = "C:\\Users\\agFab\\Downloads\\Aplicaciones.xlsx";
 
 export async function POST(req: NextRequest) {
   try {
@@ -29,6 +35,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: (err as Error).message }, { status });
   }
 
+  const session = await auth();
+  const actorEmail = session?.user?.email?.trim() || null;
+
   let body: ImportOptionsInput = {};
   try {
     body = await req.json();
@@ -36,13 +45,27 @@ export async function POST(req: NextRequest) {
     // body vacio OK
   }
 
+  const xlsxPath = typeof body.xlsxPath === "string" ? body.xlsxPath.trim() : "";
+  if (!xlsxPath) {
+    return NextResponse.json(
+      { ok: false, error: "xlsxPath es requerido (ruta del archivo .xlsx en el server)" },
+      { status: 400 }
+    );
+  }
+  if (!/\.xlsx?$/i.test(xlsxPath)) {
+    return NextResponse.json(
+      { ok: false, error: "xlsxPath debe apuntar a un archivo .xlsx o .xls" },
+      { status: 400 }
+    );
+  }
+
   const opts = {
-    xlsxPath: body.xlsxPath ?? DEFAULT_XLSX_PATH,
+    xlsxPath,
     dryRun: body.dryRun ?? false,
     areaUnit: body.areaUnit ?? null,
     minScore: body.minScore ?? 0.5,
     limit: body.limit ?? null,
-    actorEmail: body.actorEmail ?? "admin@aeroadmin.local"
+    actorEmail: actorEmail ?? "admin@aeroadmin.local"
   };
 
   try {

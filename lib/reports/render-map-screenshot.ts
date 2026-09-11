@@ -48,7 +48,12 @@ export async function renderParcelMapToPng(
   const context = await browser.newContext({ viewport });
   try {
     const page = await context.newPage();
-    const url = `${baseUrl.replace(/\/+$/, "")}/api/internal/print-map/${parcelId}`;
+    // Gate interno: si el server define INTERNAL_MAP_TOKEN, lo mandamos
+    // como query param para que el endpoint /api/internal/print-map/[id]
+    // lo valide (defensa en profundidad contra exfiltración de geometrías).
+    const token = process.env.INTERNAL_MAP_TOKEN;
+    const tokenQs = token ? `?token=${encodeURIComponent(token)}` : "";
+    const url = `${baseUrl.replace(/\/+$/, "")}/api/internal/print-map/${parcelId}${tokenQs}`;
     await page.goto(url, { waitUntil: "load", timeout: timeoutMs });
     // Esperar a que el mapa esté listo (window.__mapReady = true). El
     // HTML del print-map dispara esto cuando MapLibre completó de

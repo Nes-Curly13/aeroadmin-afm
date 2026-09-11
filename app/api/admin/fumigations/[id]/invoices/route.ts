@@ -82,7 +82,7 @@ export async function POST(
 ) {
   // 1) Auth
   try {
-    await requireRole(["admin", "supervisor"]);
+    await requireRole("admin");
   } catch (err) {
     const e = err as { code?: string; message?: string };
     if (e.code === "UNAUTHENTICATED") {

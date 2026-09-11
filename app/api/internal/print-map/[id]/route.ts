@@ -60,7 +60,22 @@ interface ParcelGeomRow {
   bbox: unknown;
 }
 
-export async function GET(_req: Request, ctx: RouteContext) {
+export async function GET(req: Request, ctx: RouteContext) {
+  // Gate por token interno (defensa en profundidad, auditoría 2026-09-10).
+  // El endpoint era público y enumerable (ids secuenciales → exfiltración
+  // de geometrías de las ~1200 parcelas sin login). Ahora, si el server
+  // define `INTERNAL_MAP_TOKEN`, la request debe traer `?token=<token>`
+  // (el renderer server-side `lib/reports/render-map-screenshot.ts` lo
+  // agrega automáticamente). Si el env var no está definido (dev local),
+  // se mantiene abierto para no romper el flujo de reportes.
+  const expected = process.env.INTERNAL_MAP_TOKEN;
+  if (expected) {
+    const provided = new URL(req.url).searchParams.get("token") ?? "";
+    if (!timingSafeEqual(provided, expected)) {
+      return new NextResponse("unauthorized", { status: 401 });
+    }
+  }
+
   const { id: idRaw } = await ctx.params;
   const id = Number(idRaw);
   if (!Number.isFinite(id) || id <= 0) {
@@ -219,4 +234,14 @@ function escapeHtml(s: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+/** Comparación en tiempo constante para el token interno. */
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let mismatch = 0;
+  for (let i = 0; i < a.length; i++) {
+    mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return mismatch === 0;
 }
