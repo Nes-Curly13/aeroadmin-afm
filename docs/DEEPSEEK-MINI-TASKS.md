@@ -33,18 +33,18 @@ Commits: `tipo(scope): descripción` en presente.
 
 | ID | Tarea | Sev | Lane (archivo compartido) | Estado |
 |---|---|---|---|---|
-| MT-01 | #33 `trustHost` condicional | BAJO | `lib/auth.config.ts` | ⬜ |
-| MT-02 | #27 rol fresco en endpoints destructivos | MEDIO | `lib/auth/role.ts` + 2 routes | ⬜ |
-| MT-03 | #54 documentar invariante `dji_flights` sin `deleted_at` | BAJO | `docs/DATA-MODEL.md` | ⬜ |
-| MT-04 | #55 índice para el scan del dashboard | BAJO | `db/migrations/*` (nuevo) | ⬜ |
-| MT-05 | #23 quitar proyección redundante en farms report | BAJO | `api/repositories.ts` | ⬜ |
-| MT-06 | #37 import GIS: inglés→español + colores | BAJO | `components/admin/parcels/import-gis-wizard.tsx` | ⬜ |
-| MT-07 | Resolver TODOs de `map-filter-types.ts` | BAJO | `lib/map-filter-types.ts` | ⬜ |
-| MT-08 | #36 restos: identifiers internos en `new-parcel-form` | BAJO | `components/admin/parcels/new-parcel-form.tsx` | ⬜ |
-| MT-09 | #60 limpiar scratch del root | BAJO | raíz (gitignored) | ⬜ |
-| MT-10 | Tests de `lib/map-filter-types.ts` | BAJO | `tests/lib-map-filter-types.test.ts` (nuevo) | ⬜ |
-| MT-11 | Sincronizar `README.md` con el estado actual | BAJO | `README.md` | ⬜ |
-| MT-12 | Cobertura de `api/queries.ts` | BAJO | `tests/api-queries.test.ts` (nuevo) | ⬜ |
+| MT-01 | #33 `trustHost` condicional | BAJO | `lib/auth.config.ts` | ✅ hecho (`086112c`) |
+| MT-02 | #27 rol fresco en endpoints destructivos | MEDIO | `lib/auth/role.ts` + 2 routes | ✅ hecho (`ef93b41`) |
+| MT-03 | #54 documentar invariante `dji_flights` sin `deleted_at` | BAJO | `docs/DATA-MODEL.md` | ✅ hecho (`31df9f9`) |
+| MT-04 | #55 índice para el scan del dashboard | BAJO | `db/migrations/*` (nuevo) | ✅ hecho (`54b34b6`) |
+| MT-05 | #23 quitar proyección redundante en farms report | BAJO | `api/repositories.ts` | 🚫 descartado (§3 mini-tasks) |
+| MT-06 | #37 import GIS: inglés→español + colores | BAJO | `components/admin/parcels/import-gis-wizard.tsx` | ✅ hecho (`4a08925`) |
+| MT-07 | Resolver TODOs de `map-filter-types.ts` | BAJO | `lib/map-filter-types.ts` | ✅ hecho (`b9ebc82`) |
+| MT-08 | #36 restos: identifiers internos en `new-parcel-form` | BAJO | `components/admin/parcels/new-parcel-form.tsx` | ✅ hecho (`b9ebc82` + `53ab9ce` atribución) |
+| MT-09 | #60 limpiar scratch del root | BAJO | raíz (gitignored) | ⬜ abierto |
+| MT-10 | Tests de `lib/map-filter-types.ts` | BAJO | `tests/lib-map-filter-types.test.ts` (nuevo) | ✅ hecho (`b9ebc82`) |
+| MT-11 | Sincronizar `README.md` con el estado actual | BAJO | `README.md` | ✅ hecho (consolidado en `b9ebc82`) |
+| MT-12 | Cobertura de `api/queries.ts` | BAJO | `tests/api-queries.test.ts` (nuevo) | ✅ hecho (`2a0e12f`) |
 | MT-13 | #40 branding unificado | BAJO | varios (**REQUIERE DECISIÓN**) | ⛔ bloqueada |
 | MT-14 | #32 shape de error 400 consistente | MEDIO | varios handlers (**ÉPICO**, no mini) | ⛔ épico |
 | MT-15 | #50 `product_used` vs `product_id` | MEDIO | `api/repositories.ts` (**ÉPICO** chico) | ⛔ épico |

@@ -42,9 +42,9 @@ re-aplicar todo). Sin protocolo, multiagente pierde trabajo. Reglas:
 
 ## 1. Estado actual
 
-- **Fecha**: 2026-09-10
-- **master**: ver `git log --oneline -1` (avanza con cada fase; ver §8).
-- **Gates**: `tsc` 0 errores · `arch:check` 0 errores · tests **2182/2182** ✅
+- **Fecha**: 2026-09-13
+- **master**: `ef93b41` (avanzó con Fase 6 #33/#27 + MT-04/06/07/08/10/12).
+- **Gates**: `tsc` 0 errores · `arch:check` 0 errores · tests **2214/2214** ✅
 - **Producto**: Release Candidate (Fases 0-8 del roadmap cerradas).
 
 ---
@@ -87,7 +87,7 @@ re-aplicar todo). Sin protocolo, multiagente pierde trabajo. Reglas:
 | #48 | Endpoint real `/api/health` |
 | #51 | Drift de docs: `notes` es TEXT, `vehicle_plate` es columna, `flight_ids` externo |
 | #56 | Captura de logs con `AsyncLocalStorage` (`lib/log-capture.ts`) reemplaza el monkey-patch de `console.log` |
-| #36 | (parcial) identificadores internos de BD fuera del UI |
+| #36 | (parcial) identificadores internos de BD fuera del UI | ✅ Fase 6 (`53ab9ce` MT-08) |
 
 > Los nuevos endpoints/archivos: `app/api/health/route.ts`, `lib/env.ts`,
 > `lib/log-capture.ts`, `instrumentation.ts`, `components/error-state.tsx`,
@@ -106,10 +106,23 @@ re-aplicar todo). Sin protocolo, multiagente pierde trabajo. Reglas:
 | #29 | `app/api/data-quality/invariants/route.ts`: reescrito `computeInvariants` con WHERE explícitas (sin `String.replace` frágil). **Bug extra encontrado**: usaba `f.parcela_id` (columna inexistente en `dji_fumigations`; es `parcel_id`) → las invariantes 2-5 lanzaban y el `catch` las tragaba en silencio. Corregido + test de regresión (`tests/api-data-quality-invariants.test.ts`). También se sanitizó el error 500. |
 | #59 | Eliminado `tests/e2e/geovisor-ui-changes.spec.ts` (obsoleto post QA-01/02, superseded por `geovisor-and-parcels.spec.ts` + `geovisor-renders-parcels.spec.ts`). |
 
-### 2.6 Fase 5 (sesión DeepSeek #5) — mitigación #49
-| # | Fix |
+### 2.6 Fase 6 (sesión 2026-09-13) — auth/contratos + MT batch
+| Commit | Issue(s) | Descripción |
+|---|---|---|
+| `54b34b6` | #55 | Índices parciales en `dji_flights(area_m2)` y `(duration_seconds)` (MT-04) |
+| `4a08925` | #37 | import GIS i18n + colores (MT-06) |
+| `b9ebc82` | cobertura | TODOs de `lib/map-filter-types.ts` + tests directos + README sync (MT-07/10/11 consolidados) |
+| `2a0e12f` | cobertura | Tests de `api/queries.ts` (MT-12) — 19 asserts sobre SELECTs/joins |
+| `53ab9ce` | #36 | Atribución MT-08 — cambios reales absorbidos en `b9ebc82` |
+| `086112c` | #33 | `trustHost` condicional (MT-01) — VERCEL/dev override, sin proxy default |
+| `ef93b41` | #27 | `requireFreshRole` para endpoints destructivos (MT-02) — JWT + BD re-validada |
+
+Total Fase 6: 7 commits, +32 tests (2182 → 2214 verde), tsc/arch 0 errores.
+
+### 2.7 Mini-tasks pendientes
+| # | Estado |
 |---|---|
-| #49 | Migration `20260910000002_sync_parcel_client_farm_names.sql`: one-time sync del nombre denormalizado (`dji_parcels.client_name`/`farm_name`) desde el FK (`clients.name`/`farms.name`) donde difiere. Cierra el drift existente sin cambiar el schema. La decisión de fondo (vista vs trigger vs eliminar denormalizado) sigue pendiente de diseño (§3). |
+| MT-09 | ⬜ limpieza de scratch del root (`gh-pr-body-*`, `git-commit-msg-*`, `dev-server-bg.log`) — pendiente de coordinar con otras sesiones |
 
 ---
 
@@ -128,17 +141,17 @@ re-aplicar todo). Sin protocolo, multiagente pierde trabajo. Reglas:
 | — | **Flake** `register-fumigation-form` (mockFetch 2×, pasa aislado) | MEDIO | ✅ Fase 3 |
 | #23 | `getFarmsReportFumigations` proyecta columnas duplicadas (`land_name` x2) | BAJO | 🚫 descartado (ambas columnas están en el tipo; no es bug) |
 | #24 | Docblock huérfano en `lib/backfill/refresh-fumigations.ts` | BAJO | ✅ Fase 3 |
-| #27 | `getCurrentUserRole()` (BD-fresh) no lo usa ningún endpoint → rol stale hasta 12h | MEDIO | ⬜ abierto |
+| #27 | `getCurrentUserRole()` (BD-fresh) no lo usa ningún endpoint → rol stale hasta 12h | MEDIO | ✅ Fase 6 (`requireFreshRole` aplicado a 2 endpoints destructivos) |
 | #29 | `computeInvariants` construye SQL con `String.replace()` frágil | MEDIO | ✅ Fase 4 (+ bug `f.parcela_id`) |
 | #31 | `authorize()` loguea el error crudo de `pg` | BAJO | ✅ Fase 3 |
 | #32 | Shape de error 400 inconsistente (zod `{error,issues}` vs `{error}`) | BAJO | ⬜ abierto |
-| #33 | `trustHost: true` incondicional en `auth.config.ts` | BAJO | ⬜ abierto |
+| #33 | `trustHost: true` incondicional en `auth.config.ts` | BAJO | ✅ Fase 6 (`086112c`) |
 | #40 | Branding: conviven "AFM Geovisor" (sidebar) y "AeroAdmin AFM" (login) | BAJO | ⬜ decisión de producto |
 | #49 | Cliente/Finca: doble fuente de verdad (`client_name` texto vs FK). Sync app-level en `updateParcelMetadata` + **migration de sync one-time (Fase 5)**. Falta la decisión de modelo (vista calculada / trigger / eliminar denormalizado) | ALTO | 🟡 mitigado, diseño pendiente |
 | #50 | `product_used` (texto) vs `product_id` (FK): mismo patrón dual | MEDIO | 🟡 Fase 4 (mismo diseño que #49) |
 | #52 | `flight_ids[]`/`parcels[]` sin integridad referencial → evaluar tabla de unión `fumigation_flights` | MEDIO | 🟡 Fase 4 (requiere migración + backfill) |
-| #54 | `dji_flights` sin `deleted_at` (intencional) — documentar invariante | BAJO | ⬜ abierto |
-| #55 | Posible índice para el scan del dashboard (`area_m2`/`duration_seconds`); **revisar diagnóstico** (el cuello real es el `OR`, no la fecha) | BAJO | ⬜ abierto |
+| #54 | `dji_flights` sin `deleted_at` (intencional) — documentar invariante | BAJO | ✅ Fase 6 (`31df9f9` MT-03) |
+| #55 | Posible índice para el scan del dashboard (`area_m2`/`duration_seconds`); **revisar diagnóstico** (el cuello real es el `OR`, no la fecha) | BAJO | ✅ Fase 6 (`54b34b6` MT-04) |
 | #57 | Sin rate-limit/lockout en login | MEDIO | ✅ Fase 3 |
 | #58 | Paginación server-side real de `/fumigaciones` | BAJO | ⬜ abierto |
 | #59 | Cleanup e2e `tests/e2e/geovisor-ui-changes.spec.ts` (pre-QA-01/02) | BAJO | ✅ Fase 4 |
@@ -221,6 +234,10 @@ re-aplicar todo). Sin protocolo, multiagente pierde trabajo. Reglas:
   silencio); e2e obsoleto eliminado. Suite 2182/2182.
 - **2026-09-10** — Fase 5 (DeepSeek #5): migration de sync one-time de
   `client_name`/`farm_name` desde el FK (#49).
+- **2026-09-13** — Fase 6: 7 commits de la corrida multi-agente (8 agentes en
+  paralelo). `trustHost` condicional (#33), `requireFreshRole` (#27), índices
+  de dashboard (#55), i18n import GIS (#37), tests/cobertura de
+  `map-filter-types` + `api/queries`. Suite 2214/2214 verde. Ver §2.6.
 
 > **Mantené este doc vivo**: si terminás un ítem, actualizá §1/§3 en el mismo
 > commit. Si encontrás un agujero nuevo, agregalo a §3 y avisá.
