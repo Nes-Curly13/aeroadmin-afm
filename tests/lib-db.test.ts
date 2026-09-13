@@ -90,11 +90,22 @@ describe("getDb() — config del Pool (regresión del bug UTF-8)", () => {
     );
   });
 
-  it("habilita SSL cuando DATABASE_SSL='true'", () => {
+  it("habilita SSL con verify por default (issue #26: rejectUnauthorized=true)", () => {
     process.env.DATABASE_SSL = "true";
     getDb();
     const options = PoolMock.mock.calls[0]?.[0] as Record<string, unknown>;
+    // 2026-09-10 (issue #26): secure default. Supabase usa certs de
+    // Let's Encrypt (public CA), asi que verificarlos no rompe nada.
+    expect(options.ssl).toEqual({ rejectUnauthorized: true });
+  });
+
+  it("permite DATABASE_SSL_INSECURE=true para dev local con self-signed", () => {
+    process.env.DATABASE_SSL = "true";
+    process.env.DATABASE_SSL_INSECURE = "true";
+    getDb();
+    const options = PoolMock.mock.calls[0]?.[0] as Record<string, unknown>;
     expect(options.ssl).toEqual({ rejectUnauthorized: false });
+    delete process.env.DATABASE_SSL_INSECURE;
   });
 });
 

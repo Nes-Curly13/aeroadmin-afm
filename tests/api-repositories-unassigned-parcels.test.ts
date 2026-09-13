@@ -150,11 +150,9 @@ describe("bulkSetParcelClientFarm", () => {
     expect(mockQuery).not.toHaveBeenCalled();
   });
 
-  it("3 parcelas todas exitosas → 3 results con success=true", async () => {
-    // 3 calls a setParcelClientFarm → 3 successful query results
-    mockQueryResolveOnce([{ id: 1, client_id: 5, farm_id: 10 }]);
-    mockQueryResolveOnce([{ id: 2, client_id: 5, farm_id: 10 }]);
-    mockQueryResolveOnce([{ id: 3, client_id: 5, farm_id: 10 }]);
+  it("3 parcelas todas exitosas → 3 results con success=true (issue #20: 1 query bulk)", async () => {
+    // 1 sola query UPDATE ... RETURNING id (3 ids vuelven)
+    mockQueryResolveOnce([{ id: 1 }, { id: 2 }, { id: 3 }]);
     const result = await bulkSetParcelClientFarm({
       parcel_ids: [1, 2, 3],
       client_id: 5,
@@ -163,12 +161,13 @@ describe("bulkSetParcelClientFarm", () => {
     });
     expect(result).toHaveLength(3);
     expect(result.every((r) => r.success)).toBe(true);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
   });
 
-  it("partial failure: 1 falla, 2 ok → 3 results con success mixto", async () => {
-    mockQueryResolveOnce([{ id: 1, client_id: 5, farm_id: 10 }]);
-    mockQueryRejectOnce(new Error("parcel 2 no existe"));
-    mockQueryResolveOnce([{ id: 3, client_id: 5, farm_id: 10 }]);
+  it("partial failure: 1 falla, 2 ok → 3 results con success mixto (issue #20)", async () => {
+    // Solo vuelven 2 ids (los 2 que el UPDATE encontro no soft-deleted).
+    // El id 2 (entre input [1,2,3]) NO esta en updatedIds → fail.
+    mockQueryResolveOnce([{ id: 1 }, { id: 3 }]);
     const result = await bulkSetParcelClientFarm({
       parcel_ids: [1, 2, 3],
       client_id: 5,
@@ -178,7 +177,9 @@ describe("bulkSetParcelClientFarm", () => {
     expect(result).toHaveLength(3);
     expect(result[0].success).toBe(true);
     expect(result[1].success).toBe(false);
-    expect(result[1].error).toContain("parcel 2 no existe");
+    // 2026-09-10 (issue #20): ya no distinguimos "no existe" de "soft-deleted".
+    // Ambos casos dan el mismo mensaje porque el UPDATE filtra deleted_at IS NULL.
+    expect(result[1].error).toContain("parcel no existe o está borrada");
     expect(result[2].success).toBe(true);
   });
 });

@@ -110,10 +110,39 @@ function loadLocalSummaryRecords(): DjiDailySummaryRecord[] {
   return raw.map((item, index) => parseSummaryRecord(item, index)).sort((a, b) => b.record_date.localeCompare(a.record_date));
 }
 
+/**
+ * Ejecuta `queryFn`; si falla, devuelve el fallback local.
+ *
+ * Auditoría 2026-09-10 (#41): el fallback original tragaba **todos** los
+ * errores de BD y devolvía data vacía — eso enmascaró bugs de schema
+ * (columna inexistente, alias roto) que en producción parecían "no hay
+ * datos". Ahora el comportamiento es:
+ *   - Si NO hay DB configurada (`DATABASE_URL`/`DATABASE_URL_DIRECT`) →
+ *     fallback local (dev/build sin Postgres, usa JSON de djiag_exports).
+ *   - Si hay DB y `NODE_ENV=production` → loguea y **rethrow** para que
+ *     el error boundary lo muestre en lugar de mentir con data vacía.
+ *   - `DATABASE_STRICT` override explícito: "true" fuerza strict en
+ *     cualquier entorno, "false" lo desactiva (útil para debug).
+ *   - Dev/test (no producción) mantienen el fallback para conservar la
+ *     ergonomía de desarrollo y los tests.
+ */
 async function withLocalFallback<T>(queryFn: () => Promise<T>, fallbackFn: () => Promise<T>) {
   try {
     return await queryFn();
-  } catch {
+  } catch (err) {
+    const hasDb = Boolean(process.env.DATABASE_URL || process.env.DATABASE_URL_DIRECT);
+    const strictOverride = process.env.DATABASE_STRICT;
+    const strict =
+      strictOverride !== undefined
+        ? strictOverride === "true"
+        : process.env.NODE_ENV === "production" && hasDb;
+    if (strict) {
+      console.error(
+        "[repositories] query falló con DB configurada — rethrow (strict):",
+        err instanceof Error ? err.message : err
+      );
+      throw err;
+    }
     return fallbackFn();
   }
 }
@@ -1562,7 +1591,7 @@ export async function getFumigationRawById(
  * Usado por /fumigaciones/[id] para mostrar la lista de vuelos con
  * piloto, dron, duración y área.
  *
- * Si la fumigación no tiene `flight_ids` (caso típico: fumigación
+ * Si la fumigación no tiene 'flight_ids' (caso típico: fumigación
  * manual sin asociar) o si el array está vacío, devuelve [].
  *
  * @param flightIds array de IDs de dji_flights (bigint[] en BD, number[] en JS)
@@ -1640,7 +1669,7 @@ export async function getFumigationFlights(
  *
  * Reglas:
  *   - Solo acepta los campos editables. NO se puede cambiar
- *     `parcel_id`, `source`, `recorded_by`, `flight_ids`, `recorded_at`:
+ *     `parcel_id`, `source`, `recorded_by`, 'flight_ids', `recorded_at`:
  *     esos son provenance inmutable (el parcel donde se aplicó, de dónde
  *     vino el dato, quién lo creó originalmente, los flights que la
  *     originaron). Si el operador fumigador necesita "mover" una
@@ -2340,7 +2369,7 @@ export async function getRecentParcelsForPicker(
  * M7 — Inputs del timeline de fumigaciones de una parcela, listos para
  * pasarse a `buildFumigationTimeline()` (lib/fumigation-timeline.ts).
  *
- * Hace un JOIN con `dji_flights` para resolver el `drone_nickname` y
+ * Hace un JOIN con 'dji_flights' para resolver el `drone_nickname` y
  * `pilot_name` DOMINANTE del día — no de cada sortie individual. Misma
  * estrategia que ya usa `lib/djiag-spatial-aggregator.ts` para el mapa
  * de Task History: el join es por `(parcel_id, fecha Bogota-local)`.
@@ -2642,11 +2671,11 @@ export async function getFlightPoints(limit = 300): Promise<FlightPointRecord[]>
  */
 
 /**
- * Sprint S8 (Bloque B — 2026-08-29): métricas agregadas de `dji_flights`
+ * Sprint S8 (Bloque B — 2026-08-29): métricas agregadas de 'dji_flights'
  * en un rango de fechas, sin filtro de parcela. Es la fuente de verdad
  * para los KPIs de VUELOS y VOLUMEN del geovisor (antes derivaba de
  * los eventos `dji_fumigations` y daba 0 para fumigaciones importadas
- * de DJI sin `flight_ids` linkeados — bug que reportaba "0 VUELOS"
+ * de DJI sin 'flight_ids' linkeados — bug que reportaba "0 VUELOS"
  * con 610 aplicaciones en el panel).
  *
  * NO usa la cache de `fetchFlightPointsCached` porque:
@@ -2657,7 +2686,7 @@ export async function getFlightPoints(limit = 300): Promise<FlightPointRecord[]>
  * `count(*)`, `sum(spray_usage_ml / 1000)` (volumen en L),
  * `sum(area_m2 / 10000)` (área en ha). `start_at` es TIMESTAMPTZ —
  * comparamos con `$1::timestamptz` para que el cast sea explicito.
- * NOTA: `dji_flights` NO tiene `deleted_at` (es `dji_fumigations` y
+ * NOTA: 'dji_flights' NO tiene `deleted_at` (es `dji_fumigations` y
  * `dji_parcels` los que tienen soft-delete). Si se agrega en el
  * futuro, aniadir el `AND deleted_at IS NULL` aca.
  *
@@ -2974,7 +3003,7 @@ export async function getScheduleHistory(
  * usar esta función.
  *
  * Joins activos:
- *   - `dji_flights` (LEFT): para `lng`/`lat` centroide + `n_matched_flights`
+ *   - 'dji_flights' (LEFT): para `lng`/`lat` centroide + `n_matched_flights`
  *     (s8.8, 2026-07-31). Usado por el geovisor para plotear el evento.
  *   - `fumigation_categories` (LEFT): para `category` (objeto hidratado
  *     con id, slug, label, color) o `null` si fumigación histórica sin
@@ -3042,15 +3071,17 @@ export async function getRecentFumigations(
             f.application_type_id,
             -- Sprint S9 (2026-08-29) — product_id FK al catálogo products.
             f.product_id,
-            count(fl.id)::int AS n_matched_flights,
-            CASE
-              WHEN count(fl.id) = 0 THEN NULL
-              ELSE ST_Y(ST_Centroid(ST_Collect(fl.point)))::numeric
-            END AS lat,
-            CASE
-              WHEN count(fl.id) = 0 THEN NULL
-              ELSE ST_X(ST_Centroid(ST_Collect(fl.point)))::numeric
-            END AS lng,
+            -- 2026-09-10 (issue #15): leer centroide de la MV
+            -- mv_fumigation_flight_centroids en vez de calcular
+            -- on-the-fly con ST_Collect + ST_Centroid. Antes era
+            -- O(N flights) agregado por fumigacion con LEFT JOIN
+            -- + ANY(f.flight_ids) (non-sargable, no usaba el index
+            -- sobre flight_id). Ahora O(1) lookup por fumigation_id.
+            -- La MV tiene UNIQUE INDEX por fumigation_id (ver migration
+            -- 20260824000002_mv_fumigation_flight_centroids.sql).
+            mv.lat AS lat,
+            mv.lng AS lng,
+            mv.n_matched_flights::int AS n_matched_flights,
             -- Catálogo de categoría hidratado (LEFT JOIN; null si fumigación
             -- histórica no clasificada). row_to_json para anidar.
             CASE WHEN f.category_id IS NULL THEN NULL
@@ -3059,7 +3090,8 @@ export async function getRecentFumigations(
             CASE WHEN f.application_type_id IS NULL THEN NULL
               ELSE row_to_json(at) END AS application_type
            FROM dji_fumigations f
-           LEFT JOIN dji_flights fl ON fl.flight_id = ANY(f.flight_ids)
+           LEFT JOIN mv_fumigation_flight_centroids mv
+             ON mv.fumigation_id = f.id
            LEFT JOIN fumigation_categories cat
              ON cat.id = f.category_id AND cat.is_active = TRUE
            LEFT JOIN application_types at
@@ -3069,7 +3101,6 @@ export async function getRecentFumigations(
             AND ($2::date IS NULL OR f.fumigation_date >= $2)
             AND ($3::date IS NULL OR f.fumigation_date <= $3)
             AND ($4::bigint IS NULL OR f.parcel_id = $4)
-          GROUP BY f.id, cat.id, at.id
           ORDER BY f.fumigation_date DESC, f.recorded_at DESC
           LIMIT $1`,
         [
@@ -3203,7 +3234,7 @@ export interface FarmsReportFumigationsFilters {
 }
 
 /** Row cruda de `dji_fumigations` con JOIN a `dji_parcels` + subqueries
- *  de `dji_flights` para drone_nickname / pilot_name. La shape es la
+ *  de 'dji_flights' para drone_nickname / pilot_name. La shape es la
  *  mínima que necesita `lib/reports/fetch-farms-report-data.ts` para
  *  armar `FarmsReportData` — la agregación por parcela sigue siendo
  *  responsabilidad del caller (el dataset es chico). */
@@ -3231,7 +3262,7 @@ export interface FarmsReportFumigationRow {
  *
  * Las subqueries de `drone_nickname` y `pilot_name` son el patrón
  * existente en `getFumigationTimelineForParcel` (subquery correlacionada
- * a `dji_flights` por `parcel_id` + fecha Bogota). Se repiten acá para
+ * a 'dji_flights' por `parcel_id` + fecha Bogota). Se repiten acá para
  * mantener la query en un solo round-trip (sin N+1).
  */
 export async function getFarmsReportFumigations(
