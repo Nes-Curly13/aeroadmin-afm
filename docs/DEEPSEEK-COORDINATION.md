@@ -115,6 +115,10 @@ re-aplicar todo). Sin protocolo, multiagente pierde trabajo. Reglas:
 
 ## 3. PENDIENTE (backlog abierto)
 
+> **Mini-tasks paralelizables para agentes (MiniMax)**: ver
+> `docs/DEEPSEEK-MINI-TASKS.md` — tareas chicas, con scope de archivos
+> disjunto, listas para correr en paralelo.
+>
 > Estados: `⬜ abierto` · `🟡 en progreso (<agente>)` · `✅ hecho (<commit>)` ·
 > `🚫 descartado (motivo)`.
 > Antes de tomar un ítem, agregá tu nombre y la fecha.
