@@ -106,6 +106,11 @@ re-aplicar todo). Sin protocolo, multiagente pierde trabajo. Reglas:
 | #29 | `app/api/data-quality/invariants/route.ts`: reescrito `computeInvariants` con WHERE explícitas (sin `String.replace` frágil). **Bug extra encontrado**: usaba `f.parcela_id` (columna inexistente en `dji_fumigations`; es `parcel_id`) → las invariantes 2-5 lanzaban y el `catch` las tragaba en silencio. Corregido + test de regresión (`tests/api-data-quality-invariants.test.ts`). También se sanitizó el error 500. |
 | #59 | Eliminado `tests/e2e/geovisor-ui-changes.spec.ts` (obsoleto post QA-01/02, superseded por `geovisor-and-parcels.spec.ts` + `geovisor-renders-parcels.spec.ts`). |
 
+### 2.6 Fase 5 (sesión DeepSeek #5) — mitigación #49
+| # | Fix |
+|---|---|
+| #49 | Migration `20260910000002_sync_parcel_client_farm_names.sql`: one-time sync del nombre denormalizado (`dji_parcels.client_name`/`farm_name`) desde el FK (`clients.name`/`farms.name`) donde difiere. Cierra el drift existente sin cambiar el schema. La decisión de fondo (vista vs trigger vs eliminar denormalizado) sigue pendiente de diseño (§3). |
+
 ---
 
 ## 3. PENDIENTE (backlog abierto)
@@ -125,7 +130,7 @@ re-aplicar todo). Sin protocolo, multiagente pierde trabajo. Reglas:
 | #32 | Shape de error 400 inconsistente (zod `{error,issues}` vs `{error}`) | BAJO | ⬜ abierto |
 | #33 | `trustHost: true` incondicional en `auth.config.ts` | BAJO | ⬜ abierto |
 | #40 | Branding: conviven "AFM Geovisor" (sidebar) y "AeroAdmin AFM" (login) | BAJO | ⬜ decisión de producto |
-| #49 | Cliente/Finca: doble fuente de verdad (`client_name` texto vs FK). Sync app-level existe en `updateParcelMetadata`; falta cerrar el drift (vista calculada / eliminar denormalizado) | ALTO | 🟡 Fase 4 (diseño) |
+| #49 | Cliente/Finca: doble fuente de verdad (`client_name` texto vs FK). Sync app-level en `updateParcelMetadata` + **migration de sync one-time (Fase 5)**. Falta la decisión de modelo (vista calculada / trigger / eliminar denormalizado) | ALTO | 🟡 mitigado, diseño pendiente |
 | #50 | `product_used` (texto) vs `product_id` (FK): mismo patrón dual | MEDIO | 🟡 Fase 4 (mismo diseño que #49) |
 | #52 | `flight_ids[]`/`parcels[]` sin integridad referencial → evaluar tabla de unión `fumigation_flights` | MEDIO | 🟡 Fase 4 (requiere migración + backfill) |
 | #54 | `dji_flights` sin `deleted_at` (intencional) — documentar invariante | BAJO | ⬜ abierto |
@@ -187,9 +192,10 @@ re-aplicar todo). Sin protocolo, multiagente pierde trabajo. Reglas:
   flake del form, #57, #31, #24.
 - **Fase 4 — Correctitud de datos + cleanup** ✅ (sesión #4): #29
   (reescritura de `computeInvariants` + bug `f.parcela_id`), #59 (e2e obsoleto).
-- **Fase 5 — Modelo de datos (REQUIERE DISEÑO)**: #49 (vista calculada /
-  eliminar denormalizado), #50 (mismo patrón), #52 (tabla de unión
-  `fumigation_flights` + backfill). **Acordar approach antes de codear.**
+- **Fase 5 — Modelo de datos (DISEÑO PENDIENTE)**: #49 (mitigado con
+  sync one-time; falta decidir vista vs trigger vs eliminar denormalizado),
+  #50 (mismo patrón), #52 (tabla de unión `fumigation_flights` + backfill).
+  **Acordar approach antes de tocar schema.**
 - **Fase 6 — Contratos/auth**: #27, #32, #33.
 - **Fase 7 — UI/perf restante**: #40, #55, #58, #60.
 
@@ -209,6 +215,8 @@ re-aplicar todo). Sin protocolo, multiagente pierde trabajo. Reglas:
 - **2026-09-10** — Fase 4 (DeepSeek #4): `computeInvariants` reescrito y
   corregido el typo `f.parcela_id` (las invariantes 2-5 estaban rotas en
   silencio); e2e obsoleto eliminado. Suite 2182/2182.
+- **2026-09-10** — Fase 5 (DeepSeek #5): migration de sync one-time de
+  `client_name`/`farm_name` desde el FK (#49).
 
 > **Mantené este doc vivo**: si terminás un ítem, actualizá §1/§3 en el mismo
 > commit. Si encontrás un agujero nuevo, agregalo a §3 y avisá.
