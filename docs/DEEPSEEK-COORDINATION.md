@@ -43,7 +43,7 @@ re-aplicar todo). Sin protocolo, multiagente pierde trabajo. Reglas:
 ## 1. Estado actual
 
 - **Fecha**: 2026-09-10
-- **master**: `5138aa8`
+- **master**: `6ecaf59`
 - **Gates**: `tsc` 0 errores · `arch:check` 0 errores · tests **2179/2179** ✅
   (el flake de `register-fumigation-form` quedó resuelto en Fase 3).
 - **Producto**: Release Candidate (Fases 0-8 del roadmap cerradas).
@@ -94,7 +94,7 @@ re-aplicar todo). Sin protocolo, multiagente pierde trabajo. Reglas:
 > `lib/log-capture.ts`, `instrumentation.ts`, `components/error-state.tsx`,
 > `app/error.tsx`, `app/(auth)/error.tsx`, `scripts/copy-maplibre-assets.js`.
 
-### 2.4 Fase 3 (sesión DeepSeek #3) — commit `5138aa8`
+### 2.4 Fase 3 (sesión DeepSeek #3) — commit `6ecaf59`
 | # | Fix |
 |---|---|
 | Flake | `register-fumigation-form`: mock de fetch **URL-aware** + contar solo las llamadas del submit (`submitCalls()`), en vez de `toHaveBeenCalledTimes(1)`; + guard anti doble-submit (`submittingRef`) en el form |
@@ -179,7 +179,7 @@ re-aplicar todo). Sin protocolo, multiagente pierde trabajo. Reglas:
 
 ## 7. Fases
 
-- **Fase 3 — Correctitud y seguridad** ✅ `5138aa8`:
+- **Fase 3 — Correctitud y seguridad** ✅ `6ecaf59`:
   flake del form, #57, #31, #24.
 - **Fase 4 — Modelo de datos (requiere diseño)**: #49 (vista calculada /
   eliminar denormalizado), #50 (mismo patrón), #52 (tabla de unión
