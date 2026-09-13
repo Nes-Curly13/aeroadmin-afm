@@ -4,6 +4,12 @@
 > **Meta**: cerrar los 4 objetivos del documento de trabajo hoy.
 > **Regla**: puedo asumir decisiones (documentadas abajo). Cada workstream
 > cierra con commit + verificación.
+>
+> **ESTADO (actualizado 2026-09-13)**:
+> - ✅ **Track A** (OE1/OE2): hecho — link Cliente/Finca + panel de planificación + regla ratificada (`2cd15bf`).
+> - ✅ **Track C1**: hecho — `docs/OBJETIVOS-TRAZABILIDAD.md`.
+> - ⏳ **Track B** (OE4): pendiente — ejecutar T-CAP-01 con agentes (briefing en `docs/DEEPSEEK-TASK-CAPACITACION-OPERADOR.md` §7).
+> - ⏳ **Track D**: push + cierre de docs tras Track B.
 
 ---
 
