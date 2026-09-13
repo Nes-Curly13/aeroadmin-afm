@@ -44,9 +44,8 @@ re-aplicar todo). Sin protocolo, multiagente pierde trabajo. Reglas:
 
 - **Fecha**: 2026-09-13
 - **master**: ver `git log --oneline -1`.
-- **Gates**: `tsc` 0 errores · `arch:check` 0 errores · tests **2218/2218** ✅
-  (verificado por el coordinador, Fase 7).
-- **Producto**: Release Candidate (Fases 0-8 del roadmap cerradas).
+- **Gates**: `tsc` 0 errores · `arch:check` 0 errores · tests **2221/2221** ✅
+- **Producto**: Release Candidate. **OE1/OE2 cerrados; OE4 pendiente (manual).**
 
 ---
 
@@ -149,6 +148,17 @@ Total Fase 6: 7 commits, +32 tests (2182 → 2214 verde), tsc/arch 0 errores.
 | #52 A+ | Script read-only `scripts/check-flight-ids-integrity.js` (`npm run check:flight-integrity`) que detecta `flight_ids` huérfanos/nulls; exit 2 si hay. |
 
 > Decisión + opciones descartadas (B/C/D) en `docs/DEEPSEEK-PROPOSAL-MODELO-DATOS.md`.
+
+### 2.10 Fase 9 (DeepSeek) — cierre de objetivos (OE1/OE2)
+| # | Fix |
+|---|---|
+| OE1 | Migration `20260913000002_link_parcels_clients_farms.sql`: link de `dji_parcels.client_id/farm_id` por nombre (aplicada en prod: 7 con cliente, 2 con finca, drift 0). |
+| OE2 | `components/dashboard/planning-panel.tsx` (vencidas / por vencer) en el dashboard + regla de cadencia ratificada en `docs/FUMIGATION_CADENCE.md`. |
+| OE3 | Flujo campo→sistema ya implementado; documentado en `docs/ARCHITECTURE.md` + referenciado en `docs/OBJETIVOS-TRAZABILIDAD.md`. |
+| OE4 | ⏳ Manual del operador (T-CAP-01) — asignar a agentes. |
+| — | `docs/OBJETIVOS-TRAZABILIDAD.md` (mapa objetivo↔evidencia para sustentación). |
+
+> Plan + decisiones asumidas: `docs/DEEPSEEK-PLAN-CIERRE.md`.
 
 ---
 
