@@ -43,9 +43,8 @@ re-aplicar todo). Sin protocolo, multiagente pierde trabajo. Reglas:
 ## 1. Estado actual
 
 - **Fecha**: 2026-09-10
-- **master**: `6ecaf59`
-- **Gates**: `tsc` 0 errores · `arch:check` 0 errores · tests **2179/2179** ✅
-  (el flake de `register-fumigation-form` quedó resuelto en Fase 3).
+- **master**: ver `git log --oneline -1` (avanza con cada fase; ver §8).
+- **Gates**: `tsc` 0 errores · `arch:check` 0 errores · tests **2182/2182** ✅
 - **Producto**: Release Candidate (Fases 0-8 del roadmap cerradas).
 
 ---
@@ -94,13 +93,18 @@ re-aplicar todo). Sin protocolo, multiagente pierde trabajo. Reglas:
 > `lib/log-capture.ts`, `instrumentation.ts`, `components/error-state.tsx`,
 > `app/error.tsx`, `app/(auth)/error.tsx`, `scripts/copy-maplibre-assets.js`.
 
-### 2.4 Fase 3 (sesión DeepSeek #3) — commit `6ecaf59`
-| # | Fix |
+### 2.4 Fase 3 (sesión DeepSeek #3) — commit `6ecaf59`| # | Fix |
 |---|---|
 | Flake | `register-fumigation-form`: mock de fetch **URL-aware** + contar solo las llamadas del submit (`submitCalls()`), en vez de `toHaveBeenCalledTimes(1)`; + guard anti doble-submit (`submittingRef`) en el form |
 | #57 | Rate-limit de login (`lib/login-throttle.ts`: 8 intentos / 15 min por email, per-instance) integrado en `authorize()` |
 | #31 | `authorize()` ya no loguea el error crudo de `pg` (solo el mensaje); email enmascarado |
 | #24 | `lib/backfill/refresh-fumigations.ts`: docblock huérfano eliminado + doc de transacción corregida (la maneja el caller) |
+
+### 2.5 Fase 4 (sesión DeepSeek #4)
+| # | Fix |
+|---|---|
+| #29 | `app/api/data-quality/invariants/route.ts`: reescrito `computeInvariants` con WHERE explícitas (sin `String.replace` frágil). **Bug extra encontrado**: usaba `f.parcela_id` (columna inexistente en `dji_fumigations`; es `parcel_id`) → las invariantes 2-5 lanzaban y el `catch` las tragaba en silencio. Corregido + test de regresión (`tests/api-data-quality-invariants.test.ts`). También se sanitizó el error 500. |
+| #59 | Eliminado `tests/e2e/geovisor-ui-changes.spec.ts` (obsoleto post QA-01/02, superseded por `geovisor-and-parcels.spec.ts` + `geovisor-renders-parcels.spec.ts`). |
 
 ---
 
@@ -116,7 +120,7 @@ re-aplicar todo). Sin protocolo, multiagente pierde trabajo. Reglas:
 | #23 | `getFarmsReportFumigations` proyecta columnas duplicadas (`land_name` x2) | BAJO | 🚫 descartado (ambas columnas están en el tipo; no es bug) |
 | #24 | Docblock huérfano en `lib/backfill/refresh-fumigations.ts` | BAJO | ✅ Fase 3 |
 | #27 | `getCurrentUserRole()` (BD-fresh) no lo usa ningún endpoint → rol stale hasta 12h | MEDIO | ⬜ abierto |
-| #29 | `computeInvariants` construye SQL con `String.replace()` frágil | MEDIO | ⬜ abierto |
+| #29 | `computeInvariants` construye SQL con `String.replace()` frágil | MEDIO | ✅ Fase 4 (+ bug `f.parcela_id`) |
 | #31 | `authorize()` loguea el error crudo de `pg` | BAJO | ✅ Fase 3 |
 | #32 | Shape de error 400 inconsistente (zod `{error,issues}` vs `{error}`) | BAJO | ⬜ abierto |
 | #33 | `trustHost: true` incondicional en `auth.config.ts` | BAJO | ⬜ abierto |
@@ -128,7 +132,7 @@ re-aplicar todo). Sin protocolo, multiagente pierde trabajo. Reglas:
 | #55 | Posible índice para el scan del dashboard (`area_m2`/`duration_seconds`); **revisar diagnóstico** (el cuello real es el `OR`, no la fecha) | BAJO | ⬜ abierto |
 | #57 | Sin rate-limit/lockout en login | MEDIO | ✅ Fase 3 |
 | #58 | Paginación server-side real de `/fumigaciones` | BAJO | ⬜ abierto |
-| #59 | Cleanup e2e `tests/e2e/geovisor-ui-changes.spec.ts` (pre-QA-01/02) | BAJO | ⬜ abierto |
+| #59 | Cleanup e2e `tests/e2e/geovisor-ui-changes.spec.ts` (pre-QA-01/02) | BAJO | ✅ Fase 4 |
 | #60 | Limpiar scratch sin trackear del root (`gh-pr-body-*`, `git-commit-msg-*`) | BAJO | ⬜ abierto |
 
 > **Nota**: los números `#N` provienen de la auditoría original (ver §8).
@@ -181,11 +185,13 @@ re-aplicar todo). Sin protocolo, multiagente pierde trabajo. Reglas:
 
 - **Fase 3 — Correctitud y seguridad** ✅ `6ecaf59`:
   flake del form, #57, #31, #24.
-- **Fase 4 — Modelo de datos (requiere diseño)**: #49 (vista calculada /
+- **Fase 4 — Correctitud de datos + cleanup** ✅ (sesión #4): #29
+  (reescritura de `computeInvariants` + bug `f.parcela_id`), #59 (e2e obsoleto).
+- **Fase 5 — Modelo de datos (REQUIERE DISEÑO)**: #49 (vista calculada /
   eliminar denormalizado), #50 (mismo patrón), #52 (tabla de unión
   `fumigation_flights` + backfill). **Acordar approach antes de codear.**
-- **Fase 5 — Contratos**: #27, #29, #32, #33.
-- **Fase 6 — UI/perf restante**: #40, #55, #58, #59, #60.
+- **Fase 6 — Contratos/auth**: #27, #32, #33.
+- **Fase 7 — UI/perf restante**: #40, #55, #58, #60.
 
 > Cada fase se cierra con: gates verdes + commit(s) + update de §1 y §3.
 
@@ -200,6 +206,9 @@ re-aplicar todo). Sin protocolo, multiagente pierde trabajo. Reglas:
 - **2026-09-10** — Fase 3 (DeepSeek #3): flake del form resuelto, rate-limit
   de login (#57), sanitización del log de auth (#31), docblock de
   `refresh-fumigations` (#24). Suite 2179/2179.
+- **2026-09-10** — Fase 4 (DeepSeek #4): `computeInvariants` reescrito y
+  corregido el typo `f.parcela_id` (las invariantes 2-5 estaban rotas en
+  silencio); e2e obsoleto eliminado. Suite 2182/2182.
 
 > **Mantené este doc vivo**: si terminás un ítem, actualizá §1/§3 en el mismo
 > commit. Si encontrás un agujero nuevo, agregalo a §3 y avisá.

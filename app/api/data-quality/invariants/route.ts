@@ -8,17 +8,22 @@
  * problema potencial que el operador debe revisar:
  *   - Parcela sin cliente/finca asignado
  *   - Parcela con fumigaciones pero sin ciclo activo
- *   - Parcela con ciclo pero sin eventos de aplicacion
- *   - Fumigaciones con cycle_id apuntando a ciclo cerrado
- *   - data_validity='stale' o 'unknown' en ciclos
- *   - Ciclos con end_date anterior a start_date (imposible por CHECK)
- *   - Crop type no encontrado en phase_rules
+ *   - Fumigación con cycle_id apuntando a un ciclo cerrado
+ *   - Ciclo sin phase_rule para su crop_type
+ *   - Ciclo activo con data_validity stale/unknown
  *
  * Authorization: solo role=admin (la UI del parcel detail lo expone
  * al fumigador en read-only, pero el endpoint es admin-only).
  *
  * Respuesta:
  *   200 + { warnings: DataQualityWarning[] }
+ *
+ * Auditoría 2026-09-10 (#29): se reescribió `computeInvariants` para
+ * construir cada WHERE explícitamente en vez de `String.replace` sobre
+ * un `whereClause` compartido (frágil) y se corrigió el typo
+ * `f.parcela_id` → `f.parcel_id` (la columna de `dji_fumigations` es
+ * `parcel_id`). Ese typo hacía que las invariantes 2-5 lanzaran y el
+ * `catch` las tragara en silencio → solo se reportaban las 1.
  */
 
 import { NextResponse, type NextRequest } from "next/server";
@@ -68,31 +73,35 @@ export async function GET(request: NextRequest) {
     const warnings = await computeInvariants(parcelaId);
     return NextResponse.json({ warnings });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "error desconocido";
-    return NextResponse.json(
-      { error: "error interno", detail: message },
-      { status: 500 }
+    // #28: no filtrar el mensaje crudo de `pg` al cliente.
+    console.error(
+      "[data-quality] computeInvariants failed:",
+      err instanceof Error ? err.message : err
     );
+    return NextResponse.json({ error: "error interno" }, { status: 500 });
   }
 }
 
+/**
+ * Corre las invariantes. `parcelaId` null = todas las parcelas.
+ * Cada query filtra por el parámetro opcional con el patrón
+ * `($1::bigint IS NULL OR col = $1)` (sargable y sin string-building).
+ */
 async function computeInvariants(
   parcelaId: number | null
 ): Promise<DataQualityWarning[]> {
   const db = getDb();
   const warnings: DataQualityWarning[] = [];
-  const params: unknown[] = [];
-  let whereClause = "WHERE p.deleted_at IS NULL";
-  if (parcelaId !== null) {
-    params.push(parcelaId);
-    whereClause += ` AND p.id = $${params.length}`;
-  }
+  const p = [parcelaId];
 
   try {
-    // 1) Parcelas sin cliente o sin finca
+    // 1) Parcelas sin cliente / sin finca
     const noClient = await db.query<{ id: number }>(
-      `SELECT id FROM dji_parcels p ${whereClause} AND p.client_id IS NULL`,
-      params
+      `SELECT id FROM dji_parcels p
+        WHERE p.deleted_at IS NULL
+          AND ($1::bigint IS NULL OR p.id = $1)
+          AND p.client_id IS NULL`,
+      p
     );
     for (const r of noClient.rows) {
       warnings.push({
@@ -102,9 +111,13 @@ async function computeInvariants(
         parcela_id: r.id
       });
     }
+
     const noFarm = await db.query<{ id: number }>(
-      `SELECT id FROM dji_parcels p ${whereClause} AND p.farm_id IS NULL`,
-      params
+      `SELECT id FROM dji_parcels p
+        WHERE p.deleted_at IS NULL
+          AND ($1::bigint IS NULL OR p.id = $1)
+          AND p.farm_id IS NULL`,
+      p
     );
     for (const r of noFarm.rows) {
       warnings.push({
@@ -119,14 +132,16 @@ async function computeInvariants(
     const noCycle = await db.query<{ id: number; n: string }>(
       `SELECT p.id, count(f.id) AS n
          FROM dji_parcels p
-         JOIN dji_fumigations f ON f.parcela_id = p.id AND f.deleted_at IS NULL
-         ${whereClause.replace("p.deleted_at IS NULL", "p.deleted_at IS NULL AND f.deleted_at IS NULL")}
+         JOIN dji_fumigations f ON f.parcel_id = p.id
+        WHERE p.deleted_at IS NULL
+          AND f.deleted_at IS NULL
+          AND ($1::bigint IS NULL OR p.id = $1)
           AND NOT EXISTS (
             SELECT 1 FROM cycles c WHERE c.parcela_id = p.id AND c.end_date IS NULL
           )
         GROUP BY p.id
        HAVING count(f.id) > 0`,
-      params
+      p
     );
     for (const r of noCycle.rows) {
       warnings.push({
@@ -138,13 +153,18 @@ async function computeInvariants(
     }
 
     // 3) Fumigaciones con cycle_id apuntando a un ciclo cerrado
-    const closedCycle = await db.query<{ fumigation_id: number; cycle_id: number; parcela_id: number }>(
-      `SELECT f.id AS fumigation_id, c.id AS cycle_id, f.parcela_id
+    const closedCycle = await db.query<{
+      fumigation_id: number;
+      cycle_id: number;
+      parcel_id: number;
+    }>(
+      `SELECT f.id AS fumigation_id, c.id AS cycle_id, f.parcel_id
          FROM dji_fumigations f
          JOIN cycles c ON c.id = f.cycle_id AND c.end_date IS NOT NULL
-         ${whereClause.replace("p.deleted_at IS NULL", "f.deleted_at IS NULL")}
-       LIMIT 100`,
-      params
+        WHERE f.deleted_at IS NULL
+          AND ($1::bigint IS NULL OR f.parcel_id = $1)
+        LIMIT 100`,
+      p
     );
     for (const r of closedCycle.rows) {
       warnings.push({
@@ -153,22 +173,27 @@ async function computeInvariants(
         message: "Fumigación apunta a un ciclo ya cerrado",
         fumigation_id: r.fumigation_id,
         cycle_id: r.cycle_id,
-        parcela_id: r.parcela_id
+        parcela_id: r.parcel_id
       });
     }
 
-    // 4) Ciclos sin phase_rule para su crop_type (current_phase devuelve NULL)
-    const noPhase = await db.query<{ cycle_id: number; parcela_id: number; crop_type: string }>(
+    // 4) Ciclos sin phase_rule para su crop_type
+    const noPhase = await db.query<{
+      cycle_id: number;
+      parcela_id: number;
+      crop_type: string;
+    }>(
       `SELECT c.id AS cycle_id, c.parcela_id, c.crop_type
          FROM cycles c
          JOIN dji_parcels p ON p.id = c.parcela_id
-         ${whereClause}
+        WHERE p.deleted_at IS NULL
+          AND ($1::bigint IS NULL OR p.id = $1)
           AND c.end_date IS NULL
           AND c.crop_type IS NOT NULL
           AND NOT EXISTS (
             SELECT 1 FROM phase_rules pr WHERE pr.crop_type = c.crop_type
           )`,
-      params
+      p
     );
     for (const r of noPhase.rows) {
       warnings.push({
@@ -180,15 +205,20 @@ async function computeInvariants(
       });
     }
 
-    // 5) Parcelas con data_validity='stale' o 'unknown' en sus ciclos activos
-    const stale = await db.query<{ cycle_id: number; parcela_id: number; data_validity: string }>(
+    // 5) Ciclos activos con data_validity stale/unknown
+    const stale = await db.query<{
+      cycle_id: number;
+      parcela_id: number;
+      data_validity: string;
+    }>(
       `SELECT c.id AS cycle_id, c.parcela_id, c.data_validity
          FROM cycles c
          JOIN dji_parcels p ON p.id = c.parcela_id
-         ${whereClause}
+        WHERE p.deleted_at IS NULL
+          AND ($1::bigint IS NULL OR p.id = $1)
           AND c.end_date IS NULL
           AND c.data_validity IN ('stale', 'unknown')`,
-      params
+      p
     );
     for (const r of stale.rows) {
       warnings.push({
@@ -199,9 +229,13 @@ async function computeInvariants(
         parcela_id: r.parcela_id
       });
     }
-  } catch {
-    // DB no disponible — devolvemos lista vacía. El caller puede
-    // mostrar "calidad de datos no disponible".
+  } catch (err) {
+    // DB no disponible o error de schema: degradamos a lista parcial
+    // pero lo logueamos (antes se tragaba en silencio — #29).
+    console.error(
+      "[data-quality] query de invariantes falló:",
+      err instanceof Error ? err.message : err
+    );
   }
 
   return warnings;
