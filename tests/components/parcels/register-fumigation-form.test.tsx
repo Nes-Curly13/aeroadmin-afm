@@ -110,6 +110,43 @@ async function fillRequiredFields(
   await user.type(getInput(/Dosis/), dose);
 }
 
+/**
+ * Llamadas a `fetch` que son el submit del form (create/edit fumigación).
+ * El ProductPicker también hace fetch de autocomplete a
+ * `/api/admin/products` (debounced); esas NO cuentan como submit. Contar
+ * solo estas evita el flake donde el debounce del picker inflaba el total.
+ */
+function submitCalls() {
+  return mockFetch.mock.calls.filter(([input]) => {
+    const url = typeof input === "string" ? input : (input as Request).url;
+    return url.includes("/api/admin/fumigations");
+  });
+}
+
+/**
+ * Mock de fetch URL-aware: responde el autocomplete de productos y deja
+ * el submit del form **pendiente** hasta que el test llame al resolver.
+ * Reemplaza el `mockImplementationOnce` del POST, que era frágil: si el
+ * debounce del ProductPicker disparaba primero, consumía el once-mock.
+ */
+function mockPendingSubmit() {
+  let resolve!: (r: Response) => void;
+  const pending = new Promise<Response>((r) => {
+    resolve = r;
+  });
+  mockFetch.mockImplementation(async (input: RequestInfo | URL) => {
+    const url = typeof input === "string" ? input : (input as Request).url;
+    if (url.includes("/api/admin/products")) {
+      return { ok: true, status: 200, json: async () => ({ products: [] }) } as Response;
+    }
+    if (url.includes("/api/admin/fumigations")) {
+      return pending;
+    }
+    return undefined as unknown as Response;
+  });
+  return (response: Response) => resolve(response);
+}
+
 // ============================================================
 // Render
 // ============================================================
@@ -417,12 +454,7 @@ describe("RegisterFumigationForm — submit error", () => {
 describe("RegisterFumigationForm — loading state", () => {
   it("inputs están disabled mientras el POST está pendiente", async () => {
     const user = userEvent.setup();
-    let resolveFetch!: (v: Response) => void;
-    mockFetch.mockReturnValueOnce(
-      new Promise<Response>((resolve) => {
-        resolveFetch = resolve;
-      })
-    );
+    const resolveSubmit = mockPendingSubmit();
 
     render(<RegisterFumigationForm parcelId={1} />);
     await fillRequiredFields(user, "G", "2.5");
@@ -436,7 +468,7 @@ describe("RegisterFumigationForm — loading state", () => {
     expect(getInput(/Fecha/)).toBeDisabled();
 
     // Resolver el fetch
-    resolveFetch({
+    resolveSubmit({
       ok: true,
       status: 201,
       json: async () => ({ fumigation: { id: 1 } })
@@ -541,13 +573,7 @@ describe("RegisterFumigationForm — product_id (S9)", () => {
 describe("RegisterFumigationForm — application_type (S7 PR-A)", () => {
   it("POST incluye application_type_id cuando se selecciona en create", async () => {
     const user = userEvent.setup();
-    let resolveFetch: (r: Response) => void = () => {};
-    mockFetch.mockImplementationOnce(
-      () =>
-        new Promise<Response>((resolve) => {
-          resolveFetch = resolve;
-        })
-    );
+    const resolveSubmit = mockPendingSubmit();
     render(<RegisterFumigationForm parcelId={1} />);
     await fillRequiredFields(user);
     // Seleccionar "Pre emergente" (id 1).
@@ -556,14 +582,14 @@ describe("RegisterFumigationForm — application_type (S7 PR-A)", () => {
 
     fireEvent.submit(screen.getByRole("button", { name: /Registrar fumigación/ }).closest("form")!);
 
-    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
-    const body = JSON.parse((mockFetch.mock.calls[0][1] as RequestInit).body as string);
+    await waitFor(() => expect(submitCalls()).toHaveLength(1));
+    const body = JSON.parse((submitCalls()[0][1] as RequestInit).body as string);
     expect(body.application_type_id).toBe(1);
     // El dropdown de tipo de fumigación (categoría) sigue siendo opcional.
     // Si no se selecciona, NO se envía category_id.
     expect(body.category_id).toBeUndefined();
 
-    resolveFetch({
+    resolveSubmit({
       ok: true,
       status: 201,
       json: async () => ({ fumigation: { id: 1 } })
@@ -572,23 +598,17 @@ describe("RegisterFumigationForm — application_type (S7 PR-A)", () => {
 
   it("POST NO incluye application_type_id si queda en 'Sin clasificar'", async () => {
     const user = userEvent.setup();
-    let resolveFetch: (r: Response) => void = () => {};
-    mockFetch.mockImplementationOnce(
-      () =>
-        new Promise<Response>((resolve) => {
-          resolveFetch = resolve;
-        })
-    );
+    const resolveSubmit = mockPendingSubmit();
     render(<RegisterFumigationForm parcelId={1} />);
     await fillRequiredFields(user);
 
     fireEvent.submit(screen.getByRole("button", { name: /Registrar fumigación/ }).closest("form")!);
 
-    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
-    const body = JSON.parse((mockFetch.mock.calls[0][1] as RequestInit).body as string);
+    await waitFor(() => expect(submitCalls()).toHaveLength(1));
+    const body = JSON.parse((submitCalls()[0][1] as RequestInit).body as string);
     expect(body.application_type_id).toBeUndefined();
 
-    resolveFetch({
+    resolveSubmit({
       ok: true,
       status: 201,
       json: async () => ({ fumigation: { id: 1 } })
@@ -597,13 +617,7 @@ describe("RegisterFumigationForm — application_type (S7 PR-A)", () => {
 
   it("PATCH incluye application_type_id solo si cambió desde el initial", async () => {
     const user = userEvent.setup();
-    let resolveFetch: (r: Response) => void = () => {};
-    mockFetch.mockImplementationOnce(
-      () =>
-        new Promise<Response>((resolve) => {
-          resolveFetch = resolve;
-        })
-    );
+    const resolveSubmit = mockPendingSubmit();
     const initial = {
       id: 42,
       parcel_id: 1,
@@ -624,13 +638,13 @@ describe("RegisterFumigationForm — application_type (S7 PR-A)", () => {
 
     fireEvent.submit(screen.getByRole("button", { name: /Guardar cambios/ }).closest("form")!);
 
-    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
-    const body = JSON.parse((mockFetch.mock.calls[0][1] as RequestInit).body as string);
+    await waitFor(() => expect(submitCalls()).toHaveLength(1));
+    const body = JSON.parse((submitCalls()[0][1] as RequestInit).body as string);
     expect(body.application_type_id).toBe(2);
     // No mandamos parcel_id ni otros campos inmutables.
     expect(body.parcel_id).toBeUndefined();
 
-    resolveFetch({
+    resolveSubmit({
       ok: true,
       status: 200,
       json: async () => ({ fumigation: { id: 42 } })
@@ -639,13 +653,7 @@ describe("RegisterFumigationForm — application_type (S7 PR-A)", () => {
 
   it("PATCH NO incluye application_type_id si no cambió", async () => {
     const user = userEvent.setup();
-    let resolveFetch: (r: Response) => void = () => {};
-    mockFetch.mockImplementationOnce(
-      () =>
-        new Promise<Response>((resolve) => {
-          resolveFetch = resolve;
-        })
-    );
+    const resolveSubmit = mockPendingSubmit();
     const initial = {
       id: 42,
       parcel_id: 1,
@@ -664,11 +672,11 @@ describe("RegisterFumigationForm — application_type (S7 PR-A)", () => {
 
     fireEvent.submit(screen.getByRole("button", { name: /Guardar cambios/ }).closest("form")!);
 
-    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
-    const body = JSON.parse((mockFetch.mock.calls[0][1] as RequestInit).body as string);
+    await waitFor(() => expect(submitCalls()).toHaveLength(1));
+    const body = JSON.parse((submitCalls()[0][1] as RequestInit).body as string);
     expect(body.application_type_id).toBeUndefined();
 
-    resolveFetch({
+    resolveSubmit({
       ok: true,
       status: 200,
       json: async () => ({ fumigation: { id: 42 } })

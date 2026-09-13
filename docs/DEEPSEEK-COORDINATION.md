@@ -43,9 +43,9 @@ re-aplicar todo). Sin protocolo, multiagente pierde trabajo. Reglas:
 ## 1. Estado actual
 
 - **Fecha**: 2026-09-10
-- **master**: `690af0f`
-- **Gates**: `tsc` 0 errores · `arch:check` 0 errores · tests **2171/2172**
-  (1 flake conocido: `register-fumigation-form` — ver §3).
+- **master**: `5138aa8`
+- **Gates**: `tsc` 0 errores · `arch:check` 0 errores · tests **2179/2179** ✅
+  (el flake de `register-fumigation-form` quedó resuelto en Fase 3).
 - **Producto**: Release Candidate (Fases 0-8 del roadmap cerradas).
 
 ---
@@ -94,6 +94,14 @@ re-aplicar todo). Sin protocolo, multiagente pierde trabajo. Reglas:
 > `lib/log-capture.ts`, `instrumentation.ts`, `components/error-state.tsx`,
 > `app/error.tsx`, `app/(auth)/error.tsx`, `scripts/copy-maplibre-assets.js`.
 
+### 2.4 Fase 3 (sesión DeepSeek #3) — commit `5138aa8`
+| # | Fix |
+|---|---|
+| Flake | `register-fumigation-form`: mock de fetch **URL-aware** + contar solo las llamadas del submit (`submitCalls()`), en vez de `toHaveBeenCalledTimes(1)`; + guard anti doble-submit (`submittingRef`) en el form |
+| #57 | Rate-limit de login (`lib/login-throttle.ts`: 8 intentos / 15 min por email, per-instance) integrado en `authorize()` |
+| #31 | `authorize()` ya no loguea el error crudo de `pg` (solo el mensaje); email enmascarado |
+| #24 | `lib/backfill/refresh-fumigations.ts`: docblock huérfano eliminado + doc de transacción corregida (la maneja el caller) |
+
 ---
 
 ## 3. PENDIENTE (backlog abierto)
@@ -104,21 +112,21 @@ re-aplicar todo). Sin protocolo, multiagente pierde trabajo. Reglas:
 
 | # | Tema | Sev | Estado |
 |---|---|---|---|
-| — | **Flake** `register-fumigation-form` (mockFetch 2×, pasa aislado) | MEDIO | ⬜ abierto |
-| #23 | `getFarmsReportFumigations` proyecta columnas duplicadas (`land_name` x2) | BAJO | ⬜ abierto |
-| #24 | Docblock huérfano en `lib/backfill/refresh-fumigations.ts` | BAJO | ⬜ abierto |
+| — | **Flake** `register-fumigation-form` (mockFetch 2×, pasa aislado) | MEDIO | ✅ Fase 3 |
+| #23 | `getFarmsReportFumigations` proyecta columnas duplicadas (`land_name` x2) | BAJO | 🚫 descartado (ambas columnas están en el tipo; no es bug) |
+| #24 | Docblock huérfano en `lib/backfill/refresh-fumigations.ts` | BAJO | ✅ Fase 3 |
 | #27 | `getCurrentUserRole()` (BD-fresh) no lo usa ningún endpoint → rol stale hasta 12h | MEDIO | ⬜ abierto |
 | #29 | `computeInvariants` construye SQL con `String.replace()` frágil | MEDIO | ⬜ abierto |
-| #31 | `authorize()` loguea el error crudo de `pg` | BAJO | ⬜ abierto |
+| #31 | `authorize()` loguea el error crudo de `pg` | BAJO | ✅ Fase 3 |
 | #32 | Shape de error 400 inconsistente (zod `{error,issues}` vs `{error}`) | BAJO | ⬜ abierto |
 | #33 | `trustHost: true` incondicional en `auth.config.ts` | BAJO | ⬜ abierto |
 | #40 | Branding: conviven "AFM Geovisor" (sidebar) y "AeroAdmin AFM" (login) | BAJO | ⬜ decisión de producto |
-| #49 | Cliente/Finca: doble fuente de verdad (`client_name` texto vs FK). Sync app-level existe en `updateParcelMetadata`; falta cerrar el drift (vista calculada / eliminar denormalizado) | ALTO | 🟡 parcial |
-| #50 | `product_used` (texto) vs `product_id` (FK): mismo patrón dual | MEDIO | ⬜ abierto |
-| #52 | `flight_ids[]`/`parcels[]` sin integridad referencial → evaluar tabla de unión `fumigation_flights` | MEDIO | ⬜ abierto |
+| #49 | Cliente/Finca: doble fuente de verdad (`client_name` texto vs FK). Sync app-level existe en `updateParcelMetadata`; falta cerrar el drift (vista calculada / eliminar denormalizado) | ALTO | 🟡 Fase 4 (diseño) |
+| #50 | `product_used` (texto) vs `product_id` (FK): mismo patrón dual | MEDIO | 🟡 Fase 4 (mismo diseño que #49) |
+| #52 | `flight_ids[]`/`parcels[]` sin integridad referencial → evaluar tabla de unión `fumigation_flights` | MEDIO | 🟡 Fase 4 (requiere migración + backfill) |
 | #54 | `dji_flights` sin `deleted_at` (intencional) — documentar invariante | BAJO | ⬜ abierto |
 | #55 | Posible índice para el scan del dashboard (`area_m2`/`duration_seconds`); **revisar diagnóstico** (el cuello real es el `OR`, no la fecha) | BAJO | ⬜ abierto |
-| #57 | Sin rate-limit/lockout en login | MEDIO | ⬜ abierto |
+| #57 | Sin rate-limit/lockout en login | MEDIO | ✅ Fase 3 |
 | #58 | Paginación server-side real de `/fumigaciones` | BAJO | ⬜ abierto |
 | #59 | Cleanup e2e `tests/e2e/geovisor-ui-changes.spec.ts` (pre-QA-01/02) | BAJO | ⬜ abierto |
 | #60 | Limpiar scratch sin trackear del root (`gh-pr-body-*`, `git-commit-msg-*`) | BAJO | ⬜ abierto |
@@ -169,11 +177,15 @@ re-aplicar todo). Sin protocolo, multiagente pierde trabajo. Reglas:
 
 ---
 
-## 7. Fases propuestas (para el próximo agente)
+## 7. Fases
 
-- **Fase 3 — Correctitud de datos**: flake del form, #50, cierre de #49, #52, #57.
-- **Fase 4 — Contratos y seguridad**: #27, #29, #31, #32, #33.
-- **Fase 5 — UI/perf restante**: #40, #55, #58, #59, #60, #23, #24.
+- **Fase 3 — Correctitud y seguridad** ✅ `5138aa8`:
+  flake del form, #57, #31, #24.
+- **Fase 4 — Modelo de datos (requiere diseño)**: #49 (vista calculada /
+  eliminar denormalizado), #50 (mismo patrón), #52 (tabla de unión
+  `fumigation_flights` + backfill). **Acordar approach antes de codear.**
+- **Fase 5 — Contratos**: #27, #29, #32, #33.
+- **Fase 6 — UI/perf restante**: #40, #55, #58, #59, #60.
 
 > Cada fase se cierra con: gates verdes + commit(s) + update de §1 y §3.
 
@@ -185,6 +197,9 @@ re-aplicar todo). Sin protocolo, multiagente pierde trabajo. Reglas:
   (UI/UX, seguridad/auth, schema BD, lógica). Reemplaza a
   `PLAN-ISSUES-2026-09-10.md` (renombrado). Se agrega §0 (protocolo
   multiagente) tras el incidente de `git reset --hard` entre dos agentes.
+- **2026-09-10** — Fase 3 (DeepSeek #3): flake del form resuelto, rate-limit
+  de login (#57), sanitización del log de auth (#31), docblock de
+  `refresh-fumigations` (#24). Suite 2179/2179.
 
 > **Mantené este doc vivo**: si terminás un ítem, actualizá §1/§3 en el mismo
 > commit. Si encontrás un agujero nuevo, agregalo a §3 y avisá.

@@ -252,6 +252,12 @@ export const RegisterFumigationForm = forwardRef<
   const formRef = useRef(form);
   formRef.current = form;
 
+  // Guard anti doble-submit: si el operador (o un evento duplicado)
+  // dispara el submit dos veces antes de que `isPending` se refleje en
+  // el DOM, evitamos el segundo POST/PATCH. El botón ya se deshabilita
+  // con `isPending`, pero el re-render de React no es sincrónico.
+  const submittingRef = useRef(false);
+
   // Validación de props en dev (no rompemos en prod — solo log).
   if (mode === "edit" && !initialFumigation) {
     // En prod esto se renderiza como un form vacío que va a fallar
@@ -320,6 +326,8 @@ export const RegisterFumigationForm = forwardRef<
   }
 
   async function doSubmit() {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setError(null);
     setSuccess(null);
     setIsPending(true);
@@ -498,6 +506,7 @@ export const RegisterFumigationForm = forwardRef<
     } catch (err) {
       setError(err instanceof Error ? err.message : "error de red");
     } finally {
+      submittingRef.current = false;
       setIsPending(false);
     }
   }

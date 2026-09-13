@@ -38,6 +38,17 @@ import bcrypt from "bcryptjs";
 
 import { getDb } from "@/lib/db";
 import { authConfig } from "@/lib/auth.config";
+import {
+  isLoginBlocked,
+  recordLoginFailure,
+  resetLoginAttempts
+} from "@/lib/login-throttle";
+
+/** Enmascara un email para logs (evita PII completa en consola). */
+function maskEmail(email: string): string {
+  const [user, domain] = email.split("@");
+  return `${user.slice(0, 2)}***@${domain ?? "?"}`;
+}
 // F8 fix (2026-08-11): el import de runtime `requireRoleCanonical`
 // rompia el ciclo. `lib/auth/role.ts` importa `auth` de `@/lib/auth`
 // (necesita el helper NextAuth en runtime para leer la sesion), y
@@ -110,6 +121,13 @@ const fullAuthConfig: NextAuthConfig = {
         const password = extract(rawPassword);
         if (!email || !password) return null;
 
+        // #57: throttle de intentos. Si el email está bloqueado, no
+        // consultamos la BD ni corremos bcrypt.
+        if (isLoginBlocked(email)) {
+          console.warn(`[auth] login bloqueado por rate-limit: ${maskEmail(email)}`);
+          return null;
+        }
+
         let user: {
           id: number;
           email: string;
@@ -142,13 +160,25 @@ const fullAuthConfig: NextAuthConfig = {
           // (seed nunca corrió contra la DB de Vercel), (c) password hash
           // desincronizado. Ahora el error real va al server log; el cliente
           // sigue recibiendo `null` (no se filtra info al browser).
-          console.error("[auth] authorize() DB query failed:", err);
+          // #31: loguear solo el mensaje, no el objeto de error crudo de
+          // `pg` (puede arrastrar query/schema al log).
+          console.error(
+            "[auth] authorize() DB query failed:",
+            err instanceof Error ? err.message : "unknown"
+          );
           return null;
         }
-        if (!user || !user.is_active) return null;
+        if (!user || !user.is_active) {
+          recordLoginFailure(email);
+          return null;
+        }
 
         const ok = await bcrypt.compare(password, user.password_hash);
-        if (!ok) return null;
+        if (!ok) {
+          recordLoginFailure(email);
+          return null;
+        }
+        resetLoginAttempts(email);
 
         // Update last_login_at (fire-and-forget; si falla, no bloquea el login).
         try {

@@ -42,20 +42,16 @@ export interface RefreshStats {
 }
 
 /**
- * Refresca fumigaciones y schedule en una transacción. Retorna
- * stats.
+ * Refresca fumigaciones y schedule. Retorna stats.
  *
  * Estrategia:
- *   1. BEGIN tx
- *   2. backfillFumigationsFromFlights (re-agrupa flights → fumigations)
- *   3. updateFumigationSchedule (re-calcula last_fumigation_date +
+ *   1. backfillFumigationsFromFlights (re-agrupa flights → fumigaciones)
+ *   2. updateFumigationSchedule (re-calcula last_fumigation_date +
  *      next_due_date)
- *   4. COMMIT
  *
- * Si cualquier paso falla → ROLLBACK y la excepción propaga.
- *
- * `deps` permite inyectar los pasos para tests. En producción se
- * usan los defaults (las funciones reales).
+ * **La transacción la maneja el CALLER** (abre el cliente del pool,
+ * BEGIN/COMMIT/ROLLBACK). Esta función solo orquesta los pasos; no abre
+ * ni cierra transacción. `deps` permite inyectar los pasos para tests.
  */
 export async function refreshFumigations(
   client?: QueryRunner,
@@ -75,12 +71,3 @@ export async function refreshFumigations(
     durationMs: Date.now() - startedAt
   };
 }
-
-/**
- * Wrapper de alto nivel que abre un cliente del pool, hace
- * BEGIN/COMMIT/ROLLBACK, y delega a `refreshFumigations`.
- *
- * Pensado para el endpoint admin (route handler). NO se usa desde
- * el script CLI (que llama al endpoint HTTP en vez de tocar la BD
- * directo).
- */
