@@ -89,13 +89,16 @@ export interface MapFilterState {
 export interface MapParcelView {
   id: number;
   name: string;
-  /** TODO: DjiParcelRecord no tiene `farm_name`. */
+  /** `null` hasta que se hidrate desde `clients.name` via join.
+   *  V0 los exponia planos; nuestro modelo los deriva por FK. */
   farm_name: string | null;
-  /** TODO: DjiParcelRecord no tiene `client_name`. */
+  /** `null` hasta que se hidrate desde `clients.name` via join. */
   client_name: string | null;
-  /** TODO: DjiParcelRecord no tiene `municipality`. */
+  /** `null`: DjiParcelRecord no tiene `municipality`. El filtro por
+   *  municipio queda inactivo hasta que se agregue la columna. */
   municipality: string | null;
-  /** TODO: DjiParcelRecord no tiene `variety`; mapeamos a `crop_type` si existe. */
+  /** `null` por defecto; el caller puede mapear a `crop_type` si la
+   *  parcela lo tiene cargado (cana/cafe/etc). */
   variety: string | null;
   area_ha: number | null;
   /** Modelo de dron (código numérico, no ID). */

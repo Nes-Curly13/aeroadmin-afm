@@ -564,7 +564,7 @@ export function NewParcelForm() {
               placeholder="o escribí el nombre si no está en el catálogo"
               maxLength={200}
               disabled={isPending}
-              aria-label="Nombre del cliente (texto libre, fallback)"
+              aria-label="Nombre del cliente (texto libre, opcional)"
               data-testid="client-name-fallback"
             />
           ) : null}
@@ -576,7 +576,7 @@ export function NewParcelForm() {
               placeholder="o escribí la hacienda si no está en el catálogo"
               maxLength={200}
               disabled={isPending}
-              aria-label="Nombre de la hacienda (texto libre, fallback)"
+              aria-label="Nombre de la hacienda (texto libre, opcional)"
               data-testid="farm-name-fallback"
             />
           ) : null}

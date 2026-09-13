@@ -5,7 +5,7 @@
 
 Captura datos de DJI SmartFarm (vía Playwright headless), los persiste en PostGIS, y los expone vía Next.js con un panel admin para que el operador fumigador registre fumigaciones manuales, vea cadencia esperada vs observada, y exporte reportes ICA/Aerocivil.
 
-**Stack**: Next.js 16.2.4 + React 19 + TypeScript 5.9 + MapLibre GL 4.7.1 + NextAuth v5 (beta.31) + PostGIS 3.4 + Supabase + Tailwind v4 + Vitest 3.2.4 + Playwright 1.61.1 + zod 4.5.4.
+**Stack**: Node 22.14.0 + Next.js 16.2.4 + React 19.2.5 + TypeScript 5.9.3 + Postgres 16 + PostGIS 3.4 + Supabase + MapLibre GL JS 4.7.1 (no 6.x — peer dep de `terra-draw-maplibre-gl-adapter`) + NextAuth v5 (beta.31) + Tailwind v4 + Vitest 3.2.4 + Playwright 1.61.1 + zod 4.5.4.
 
 ---
 
@@ -228,6 +228,12 @@ NextAuth v5 (beta.31) con Credentials provider contra `app_users.password_hash` 
 - **Tests**: 1,840+ verde
 - **Migrations**: 40 SQL files
 - **Coverage**: 45% lines / 65% branches (gate)
+
+---
+
+## 🤖 Estado actual y coordinación multi-agente
+
+Este repo tiene un sistema de coordinación multi-agente activo. Ver [`docs/DEEPSEEK-COORDINATION.md`](docs/DEEPSEEK-COORDINATION.md) para el estado actual y [`docs/DEEPSEEK-MINI-TASKS.md`](docs/DEEPSEEK-MINI-TASKS.md) para las mini-tareas disponibles.
 
 ---
 
