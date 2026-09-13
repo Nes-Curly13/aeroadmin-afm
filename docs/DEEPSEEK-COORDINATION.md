@@ -43,8 +43,9 @@ re-aplicar todo). Sin protocolo, multiagente pierde trabajo. Reglas:
 ## 1. Estado actual
 
 - **Fecha**: 2026-09-13
-- **master**: `ef93b41` (avanzó con Fase 6 #33/#27 + MT-04/06/07/08/10/12).
+- **master**: `ff21b65` (Tanda 1 multi-agente + MT-02).
 - **Gates**: `tsc` 0 errores · `arch:check` 0 errores · tests **2214/2214** ✅
+  (verificado por el coordinador sobre `ff21b65`).
 - **Producto**: Release Candidate (Fases 0-8 del roadmap cerradas).
 
 ---
@@ -120,9 +121,17 @@ re-aplicar todo). Sin protocolo, multiagente pierde trabajo. Reglas:
 Total Fase 6: 7 commits, +32 tests (2182 → 2214 verde), tsc/arch 0 errores.
 
 ### 2.7 Mini-tasks pendientes
-| # | Estado |
+| ID | Estado |
 |---|---|
-| MT-09 | ⬜ limpieza de scratch del root (`gh-pr-body-*`, `git-commit-msg-*`, `dev-server-bg.log`) — pendiente de coordinar con otras sesiones |
+| MT-09 | ⬜ Tanda 2 — limpieza de scratch del root (`gh-pr-body-*`, `git-commit-msg-*`, `dev-server-bg.log`); local, coordinar con otras sesiones |
+| NT-01 | ⬜ Tanda 3 — extraer `timingSafeEqual` a `lib/timing-safe.ts` |
+| NT-02 | ⬜ Tanda 3 — `loading.tsx` para las 5 rutas de `(auth)` |
+| NT-03 | ⬜ Tanda 3 — `error.tsx` para `(public)` |
+| NT-04 | ⬜ Tanda 3 — a11y en `fumigation-audit-trail.tsx` |
+| NT-05 | ⬜ Tanda 3 — colores→tokens (piloto `data-quality-banner`) |
+
+> Detalle de NT-01..NT-05 en `docs/DEEPSEEK-MINI-TASKS.md` §2.
+> **Tanda 3**: lanes disjuntas → paralelizable entera.
 
 ---
 

@@ -49,8 +49,19 @@ Commits: `tipo(scope): descripción` en presente.
 | MT-14 | #32 shape de error 400 consistente | MEDIO | varios handlers (**ÉPICO**, no mini) | ⛔ épico |
 | MT-15 | #50 `product_used` vs `product_id` | MEDIO | `api/repositories.ts` (**ÉPICO** chico) | ⛔ épico |
 | MT-16 | #52 tabla `fumigation_flights` | MEDIO | schema (**ÉPICO**) | ⛔ épico |
+| NT-01 | Extraer `timingSafeEqual` a `lib/timing-safe.ts` (dedup) | BAJO | `lib/timing-safe.ts` + 2 routes | ⬜ Tanda 3 |
+| NT-02 | `loading.tsx` para las 5 rutas de `(auth)` | BAJO | `app/(auth)/*/loading.tsx` (nuevos) | ⬜ Tanda 3 |
+| NT-03 | `error.tsx` para `(public)` (login) | BAJO | `app/(public)/error.tsx` (nuevo) | ⬜ Tanda 3 |
+| NT-04 | a11y: `aria-label` en icon-only de audit trail | BAJO | `components/fumigations/fumigation-audit-trail.tsx` | ⬜ Tanda 3 |
+| NT-05 | Colores→tokens (piloto) | BAJO | `components/data-quality/data-quality-banner.tsx` | ⬜ Tanda 3 |
 
 `⛔` = no es mini; requiere decisión/diseño (ver §3).
+
+### Tandas
+
+- **Tanda 1** ✅ (cerrada): MT-01, MT-02, MT-03, MT-04, MT-06, MT-07, MT-08, MT-10, MT-11, MT-12.
+- **Tanda 2** (pendiente): MT-09 (scratch root, local — 1 agente).
+- **Tanda 3** (pendiente): NT-01, NT-02, NT-03, NT-04, NT-05 (todas de lane disjunta → paralelizables).
 
 ---
 
@@ -179,6 +190,54 @@ Commits: `tipo(scope): descripción` en presente.
   esperados (id, land_name, crop_type, FK cliente/finca, `deleted_at IS NULL`,
   LEFT JOIN de cadencia). No ejecuta BD.
 - **Verificación**: `npx vitest run tests/api-queries.test.ts`.
+
+### NT-01 — extraer `timingSafeEqual` a `lib/timing-safe.ts`
+- **Lane**: `lib/timing-safe.ts` (nuevo) + `app/api/admin/djiag-health/route.ts` + `app/api/internal/print-map/[id]/route.ts` + `tests/lib-timing-safe.test.ts` (nuevo)
+- **Contexto**: la función `timingSafeEqual` está **duplicada** en
+  `djiag-health/route.ts` y `print-map/[id]/route.ts`.
+- **Cambio**: crear `lib/timing-safe.ts` con `export function timingSafeEqual(a,b)`.
+  Importarla en ambos routes y borrar las copias locales. Test: longitudes
+  distintas → false; iguales → true; distinto contenido mismo largo → false.
+- **Aceptación**: sin cambio de comportamiento; `npx tsc --noEmit`.
+- **Verificación**: `npx vitest run tests/lib-timing-safe.test.ts tests/api-admin-djiag-health.test.ts`.
+
+### NT-02 — `loading.tsx` para las rutas de `(auth)`
+- **Lane**: `app/(auth)/admin/loading.tsx`, `app/(auth)/fumigaciones/loading.tsx`, `app/(auth)/geovisor/loading.tsx`, `app/(auth)/parcelas/loading.tsx`, `app/(auth)/reportes/loading.tsx` (todos nuevos)
+- **Contexto**: solo existe `app/loading.tsx` (root). Las páginas son
+  `force-dynamic` y con queries lentas; un loading por segmento muestra el
+  spinner dentro del layout (sidebar visible) en vez de reemplazar todo.
+- **Cambio**: cada archivo default-exporta `<PageSpinner message="Cargando…" />`
+  (ver `components/ui/loading` y `app/loading.tsx`).
+- **Aceptación**: navegación muestra spinner dentro del shell.
+- **Verificación**: `npx tsc --noEmit` (no hay tests de loading).
+
+### NT-03 — `error.tsx` para el grupo `(public)`
+- **Lane**: `app/(public)/error.tsx` (nuevo)
+- **Contexto**: `app/error.tsx` (root) y `app/(auth)/error.tsx` existen, pero
+  `(public)` (login) no tiene boundary propio.
+- **Cambio**: client component que usa `<ErrorState onRetry={reset} ... />`
+  (ver `components/error-state.tsx`). Sin AuraBackground para mantenerlo simple.
+- **Aceptación**: un error en `/login` muestra el fallback branded mínimo.
+- **Verificación**: `npx tsc --noEmit`.
+
+### NT-04 — a11y en `fumigation-audit-trail.tsx`
+- **Lane**: `components/fumigations/fumigation-audit-trail.tsx`
+- **Contexto**: tiene botones/iconos; verificar accesibilidad.
+- **Cambio**: agregar `aria-label` a botones sin texto visible e `aria-hidden`
+  a iconos decorativos (ver convenciones en `docs/TDD.md` §3). No cambiar lógica.
+- **Aceptación**: sin warning de a11y evidente; sin cambio visual.
+- **Verificación**: `npx vitest run tests/components/fumigations/fumigation-audit-trail.test.tsx` (si existe).
+
+### NT-05 — colores→tokens (piloto en data-quality-banner)
+- **Lane**: `components/data-quality/data-quality-banner.tsx`
+- **Contexto**: quedan colores hardcodeados (#39) que rompen consistencia.
+- **Mapeo acordado**: success/green → `chart-1`; warning/amber → `chart-4`;
+  danger/red → `destructive`. Patrón: `text-chart-X`, `bg-chart-X/10`,
+  `border-chart-X/40`.
+- **Cambio**: reemplazar el/los color(es) hardcodeado(s) por tokens según el mapeo.
+- **Aceptación**: test de `data-quality-banner` sigue verde.
+- **Verificación**: `npx vitest run tests/components/data-quality/data-quality-banner.test.tsx`.
+- **Nota**: es un piloto; si queda bien, se replica al resto (nuevas tasks).
 
 ---
 
