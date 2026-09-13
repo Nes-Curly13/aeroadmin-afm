@@ -64,6 +64,8 @@ Vuelo individual de dron. **El evento atómico** del sistema.
 | `pilot_name` | TEXT NULL | |
 | `external_id` | TEXT UNIQUE | |
 
+> Sin soft-delete por diseño: cuando se joinea con `dji_parcels` o `dji_fumigations` (que SÍ tienen `deleted_at`), filtrar el `deleted_at` de esas tablas, no de `dji_flights`.
+
 ### `dji_fumigations` (~17k filas, soft-delete aware)
 **Una fumigación = N vuelos agrupados** (DJI reporta agrupado por día + parcela) **o 1 fumigación manual** del operador.
 
@@ -217,6 +219,7 @@ dji_vehicles (lookup)
 
 ## 7. Reglas de negocio invariantes (en BD)
 
+- INVARIANT: `dji_flights` no tiene `deleted_at`. Los JOINs deben filtrar el `deleted_at` de las tablas con soft-delete (parcels, fumigations). Razón: los vuelos son inmutables y se borran por CASCADE en `dji_parcels`; no necesitan su propio flag.
 - `app_users.email` UNIQUE
 - `app_users.role` CHECK IN ('admin', 'supervisor')
 - `dji_parcels.source` CHECK IN ('dji', 'manual', 'imported')

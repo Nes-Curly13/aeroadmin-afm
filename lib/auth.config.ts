@@ -56,7 +56,10 @@ export const authConfig: NextAuthConfig = {
     strategy: "jwt",
     maxAge: 60 * 60 * 12
   },
-  trustHost: true,
+  trustHost:
+    process.env.AUTH_TRUST_HOST === "true" ||
+    Boolean(process.env.VERCEL) ||
+    process.env.NODE_ENV !== "production",
   pages: {
     signIn: "/login",
     error: "/login"
