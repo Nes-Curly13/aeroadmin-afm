@@ -906,7 +906,18 @@ export async function createManualParcelsBulk(
     await client.query("BEGIN");
     for (const input of inputs) {
       const externalId = `imported-${crypto.randomUUID()}`;
-      const result = await client.query<{ id: number }>(
+      // Issue #21 (perf 2026-09-10): usamos `RETURNING *` y evitamos el
+      // SELECT posterior. Antes hacíamos `RETURNING id` + `SELECT *` por
+      // fila (2N round-trips); ahora 1 round-trip por fila (N). El shape
+      // devuelto difiere ligeramente del SELECT via `djiParcelsQuery`:
+      //   - columnas geometry (`spray_geom`, `reference_point`) salen en
+      //     formato raw (hex EWKB) en vez de GeoJSON con `ST_AsGeoJSON`.
+      //   - los LEFT JOIN (`last_fumigation_date`, `days_since_last_fumigation`,
+      //     `recommended_cadence_days`) no aplican — para una parcela
+      //     recién creada son null de todas formas, asi que el caller
+      //     (route handler `POST /api/admin/parcels/import/commit`) solo
+      //     usa el `id` y navega al detail, que SI usa `djiParcelsQuery`.
+      const result = await client.query<DjiParcelRecord>(
         `
           INSERT INTO dji_parcels (
             batch_id, external_id, source,
@@ -925,7 +936,7 @@ export async function createManualParcelsBulk(
             ST_Multi(ST_GeomFromGeoJSON($16::text)),
             ST_Centroid(ST_Multi(ST_GeomFromGeoJSON($16::text)))
           )
-          RETURNING id
+          RETURNING *
         `,
         [
           externalId,
@@ -949,14 +960,8 @@ export async function createManualParcelsBulk(
           JSON.stringify(input.geometry)
         ]
       );
-      const newId = Number(result.rows[0]?.id);
-      if (!newId) throw new Error("INSERT no devolvió id");
-      const fullRow = await client.query<DjiParcelRecord>(
-        `SELECT * FROM dji_parcels WHERE id = $1`,
-        [newId]
-      );
-      const row = fullRow.rows[0];
-      if (!row) throw new Error(`No se pudo leer la parcela recién creada #${newId}`);
+      const row = result.rows[0];
+      if (!row || !row.id) throw new Error("INSERT no devolvió row");
       created.push(row);
     }
     await client.query("COMMIT");
@@ -2580,8 +2585,26 @@ export async function createFumigationEvent(event: {
         // Sprint Fase 2 / S2 (2026-08-23): usamos `effectiveCadence(sched)`
         // en vez de `sched?.recommended_cadence_days ?? 14` (regla
         // centralizada — un solo lugar para evolucionar el default).
-        const sched = await getFumigationSchedule(event.parcel_id);
-        const cadence = effectiveCadence(sched);
+        //
+        // Issue #22 (perf 2026-09-10): antes llamábamos a
+        // `getFumigationSchedule(parcelId)` que usa `getDb().query()`
+        // — una SEGUNDA conexión del pool. Con `max: 5` eso dobla la
+        // presión sobre el pool por cada create, y abre una ventana
+        // de inconsistencia (otra tx podría commitear un cambio en el
+        // schedule entre nuestro read y nuestro UPDATE). Acá inlineamos
+        // el SELECT sobre el MISMO `client` de la transacción: 1 sola
+        // conexión, snapshot consistente con el UPDATE que viene abajo.
+        // Solo necesitamos `recommended_cadence_days` (el resto de los
+        // campos del schedule — `last_fumigation_date`, `next_due_date`,
+        // `is_active`, `notes`, `crop_type` — los vamos a sobrescribir o
+        // ignorar).
+        const schedRow = await client.query<{ recommended_cadence_days: number | null }>(
+          `SELECT recommended_cadence_days FROM dji_fumigation_schedule WHERE parcel_id = $1`,
+          [event.parcel_id]
+        );
+        const cadence = effectiveCadence({
+          recommended_cadence_days: schedRow.rows[0]?.recommended_cadence_days ?? null
+        });
         const next = computeNextDueDate(event.fumigation_date, cadence);
         await client.query(
           `

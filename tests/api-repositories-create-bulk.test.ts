@@ -7,6 +7,9 @@
  *   - Validación previa: si una feature falla, NO se abre la tx
  *   - Rollback: si el INSERT #2 falla, #1 también se revierte
  *   - Array vacío: devuelve []
+ *   - Issue #21 (perf 2026-09-10): usa `INSERT ... RETURNING *` y NO hace
+ *     el SELECT posterior. Total de queries para N parcelas = N + 2
+ *     (BEGIN + N INSERTs + COMMIT), NO 2N + 2 como antes.
  *
  * Mockeamos el pool de pg (getDb.connect) para no tocar la BD.
  */
@@ -62,17 +65,24 @@ function makeClient(opts: { failOnNthInsert?: number } = {}) {
           if (opts.failOnNthInsert && insertCount === opts.failOnNthInsert) {
             throw new Error(`INSERT #${insertCount} failed`);
           }
-          return { rows: [{ id: 100 + insertCount }] };
-        }
-        // SELECT after INSERT — return the full row
-        if (sqlUpper.startsWith("SELECT")) {
+          // Issue #21: `INSERT ... RETURNING *` devuelve la fila completa.
+          // Antes el mock devolvía solo `{ id }` y luego había un SELECT
+          // separado. Después del cambio el INSERT trae la fila entera
+          // (incluyendo el `id`, `source='imported'`, y el resto de los
+          // campos que el caller espera del shape `DjiParcelRecord`).
           return {
             rows: [
               {
                 id: 100 + insertCount,
                 source: "imported",
                 land_name: "imported-test",
-                external_id: "imported-uuid"
+                external_id: "imported-uuid",
+                field_type: "Farmland",
+                is_orchard: false,
+                spray_geometry: null,
+                reference_point: null,
+                client_id: null,
+                farm_id: null
               }
             ]
           };
@@ -173,5 +183,56 @@ describe("createManualParcelsBulk", () => {
       (c) => typeof c[0] === "string" && c[0].toUpperCase().includes("'IMPORTED'")
     );
     expect(insertCall).toBeDefined();
+  });
+
+  // Issue #21: con `RETURNING *` ya no hace falta el SELECT posterior.
+  // Para N parcelas el total de queries es N + 2 (BEGIN + N INSERTs + COMMIT),
+  // no 2N + 2 como antes (BEGIN + N INSERTs + N SELECTs + COMMIT).
+  it("issue #21: N parcelas → exactamente N + 2 queries (no 2N + 2)", async () => {
+    const N = 4;
+    const { client, calls } = makeClient();
+    mockConnect.mockResolvedValueOnce(client);
+    await createManualParcelsBulk(
+      Array.from({ length: N }, (_, i) => ({
+        land_name: `Lote ${i + 1}`,
+        field_type: "Farmland" as const,
+        geometry: validGeom
+      }))
+    );
+    const insertCalls = calls.filter((c) => c.sql.startsWith("INSERT"));
+    const selectCalls = calls.filter((c) => c.sql.startsWith("SELECT"));
+    expect(insertCalls).toHaveLength(N);
+    // Ningún SELECT post-INSERT: el row viene directo del RETURNING *.
+    expect(selectCalls).toHaveLength(0);
+    // Total: BEGIN + N INSERTs + COMMIT = N + 2.
+    expect(calls).toHaveLength(N + 2);
+    expect(calls[0].sql).toBe("BEGIN");
+    expect(calls[1].sql.startsWith("INSERT")).toBe(true);
+    expect(calls[N + 1].sql).toBe("COMMIT");
+  });
+
+  it("issue #21: el row retornado al caller viene del INSERT (no de un SELECT)", async () => {
+    const { client, calls } = makeClient();
+    mockConnect.mockResolvedValueOnce(client);
+    const result = await createManualParcelsBulk([
+      { land_name: "Lote A", field_type: "Farmland", geometry: validGeom }
+    ]);
+    // El primer (y único) row debe tener el id del INSERT #1 (100 + 1 = 101),
+    // y los demás campos que el mock rellenó para simular RETURNING *.
+    expect(result[0]?.id).toBe(101);
+    expect(result[0]?.source).toBe("imported");
+    // El INSERT trae `RETURNING *` (no `RETURNING id`); verificamos en el
+    // SQL completo (no solo la primera linea) que contenga el wildcard —
+    // eso confirma que no seguimos con el patrón viejo.
+    const insertCall = client.query.mock.calls.find(
+      (c) => typeof c[0] === "string" && c[0].toUpperCase().includes("INSERT")
+    );
+    const insertSql = insertCall?.[0];
+    expect(typeof insertSql).toBe("string");
+    expect((insertSql as string).toUpperCase()).toContain("RETURNING *");
+    expect((insertSql as string).toUpperCase()).not.toContain("RETURNING ID");
+    // El primer item del array `calls` (la primera linea del INSERT)
+    // empieza con "INSERT" — sanity check de que el tracking funciona.
+    expect(calls.some((c) => c.sql.startsWith("INSERT"))).toBe(true);
   });
 });
