@@ -25,6 +25,32 @@
 
 ---
 
+## Regla operativa ratificada (2026-09-13 — cierre OE2)
+
+Estados por parcela, calculados desde `last_fumigation_date + cadencia
+efectiva` (`effectiveCadence` = base ajustada por fase/estación/cultivo):
+
+| Estado | Condición (`days = next_due - hoy`) | Etiqueta UI |
+|---|---|---|
+| `no_history` | sin última fumigación | "Sin historial" |
+| `ok` | `days > 7` | "En fecha" |
+| `due_soon` | `0 <= days <= 7` | "Vence pronto" |
+| `overdue` | `days < 0` (≥1 día de atraso) | "Vencida" |
+
+- **Implementación**: `getFumigationStatus` (`lib/fumigation-cadence.ts`) y
+  `computeSeverity` (`lib/overdue-parcels.ts`); cadencia base en
+  `CADENCE_DEFAULTS` (caña 14 d, frutales 10 d) con override por
+  `dji_fumigation_schedule.recommended_cadence_days`.
+- **Umbral "vence pronto" = 7 días** (default; reevaluar si la operación
+  del cliente cambia). Nota: es una **regla operativa**, no una
+  recomendación agronómica — la agronomía vive en la sección de plagas.
+- **Vista**: `components/dashboard/planning-panel.tsx` en el dashboard
+  (vencidas / por vencer) + columna "Próxima" en `/parcelas`.
+- **Datos**: `dji_fumigation_schedule.last_fumigation_date`/`next_due_date`
+  se recalculan con `npm run refresh:fumigations` (semanal).
+
+---
+
 ## Plagas y enfermedades principales
 
 ### Caña de azúcar (Saccharum officinarum) — Valle del Cauca

@@ -4,12 +4,14 @@ import { Suspense } from "react"
 import { HealthPanel } from "@/components/dashboard/health-panel"
 import { KpiCard } from "@/components/dashboard/kpi-card"
 import { type MonthlyBar, MonthlyChart } from "@/components/dashboard/monthly-chart"
+import { PlanningPanel } from "@/components/dashboard/planning-panel"
 import { QuickActions } from "@/components/dashboard/quick-actions"
 import { RecentActivity } from "@/components/dashboard/recent-activity"
 import { PageHeader } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton, SkeletonCard, SkeletonKpis } from "@/components/ui/loading"
+import { fetchOverdueParcelsCached } from "@/lib/cache"
 import {
   DRONE_MODELS,
   getFlights,
@@ -83,19 +85,20 @@ async function DashboardContent() {
   //
   // Fase 6 (2026-09-08): removido `getParcelSummaries` y
   // `getParcelsWithCycle` — el CompliancePanel (4 estados de cadencia)
-  // se quitó del dashboard. La cadencia en sí sigue disponible en
-  // el inventario /parcelas y en la ficha de cada parcela (interval
-  // chart), pero el dashboard principal no muestra "vencido/crítico"
-  // porque la regla de negocio de qué cuenta como vencido todavía
-  // no está formalmente definida (ver
-  // docs/SECURITY-INCIDENT-2026-09-08.md y AGENTS.md § Cadencia).
+  // se quitó del dashboard.
+  //
+  // Cierre 2026-09-13 (OE2): la regla de cadencia quedó ratificada
+  // (en fecha >7d / vence pronto 0-7d / vencida <0d, ver
+  // lib/fumigation-cadence.ts) e introducimos el PlanningPanel con
+  // `fetchOverdueParcelsCached` para que el operador planifique la semana.
   const [
     parcels,
     fumigations,
     flights,
     health,
     batches,
-    monthly
+    monthly,
+    overdue
   ] = await Promise.all([
     getParcels(),
     getFumigations(),
@@ -104,7 +107,9 @@ async function DashboardContent() {
     getImportBatches(),
     // Serie mensual (12 meses) — Sprint H2 follow-up: viene de la
     // materialized view `mv_fumigations_monthly`. Cache 5min TTL.
-    getFumigationsMonthly()
+    getFumigationsMonthly(),
+    // OE2: parcelas vencidas o por vencer (próximos 14 días). Cache 1min.
+    fetchOverdueParcelsCached({ maxDaysAhead: 14, limit: 50 })
   ])
 
   const inWindow = (iso: string, fromDays: number, toDays: number) => {
@@ -168,6 +173,9 @@ async function DashboardContent() {
           delta={delta(ha30, haPrev)}
         />
       </div>
+
+      {/* OE2 (2026-09-13): panel de planificación — vencidas / por vencer. */}
+      <PlanningPanel items={overdue} />
 
       {/* Fase 6 (2026-09-08): HealthPanel queda como tarjeta técnica
           secundaria (ver AGENTS.md § Dashboard). El operador no
