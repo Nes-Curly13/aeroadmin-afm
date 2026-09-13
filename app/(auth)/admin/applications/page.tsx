@@ -97,10 +97,14 @@ export default async function ApplicationsAdminPage() {
         </Card>
         <Card>
           <p className="text-xs text-muted-foreground">Coincidencias (score &ge; 0.5)</p>
-          <p className="text-2xl font-bold text-green-700">{matched}</p>
+          {/* Issue #39 (Fase E, 2026-09-12): text-green-700 → text-emerald-700
+              (token semántico de success). */}
+          <p className="text-2xl font-bold text-emerald-700">{matched}</p>
         </Card>
         <Card>
           <p className="text-xs text-muted-foreground">Huérfanas (score &lt; 0.5)</p>
+          {/* Issue #39 (Fase E, 2026-09-12): text-amber-700 ya estaba alineado
+              con el token de warning. Sin cambios necesarios. */}
           <p className="text-2xl font-bold text-amber-700">{orphans}</p>
         </Card>
       </div>
@@ -124,7 +128,7 @@ export default async function ApplicationsAdminPage() {
                 <tr className="border-b">
                   <th className="text-left p-2">Fecha</th>
                   <th className="text-left p-2">Hacienda</th>
-                  <th className="text-left p-2">Drone</th>
+                  <th className="text-left p-2">Dron</th>
                   <th className="text-left p-2">Piloto</th>
                   <th className="text-right p-2">Área</th>
                   <th className="text-center p-2">Coincidencia</th>
@@ -143,7 +147,11 @@ export default async function ApplicationsAdminPage() {
                     </td>
                     <td className="p-2 text-center">
                       {a.match_method === "exact" ? (
-                        <Badge className="bg-green-100 text-green-800">exacto</Badge>
+                        // Issue #39 (Fase E, 2026-09-12): reemplazado
+                        // bg-green-100/text-green-800 por el token
+                        // semántico de success (bg-emerald-700/15
+                        // text-emerald-700).
+                        <Badge className="bg-emerald-700/15 text-emerald-700">exacto</Badge>
                       ) : a.match_method === "fuzzy" ? (
                         <Badge variant="outline" className="border-amber-500 text-amber-700">
                           aproximado

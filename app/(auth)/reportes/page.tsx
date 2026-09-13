@@ -44,6 +44,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrowLeft, FileText, Info, Calendar } from "lucide-react";
 import Link from "next/link";
 import { fmtInt } from "@/lib/format";
+import { getViewerRole } from "@/lib/auth/role";
 
 /** Helper con 2 decimales. */
 function fmtDec2(value: number | null | undefined): string {
@@ -87,16 +88,33 @@ export default async function ReportesPage({ searchParams }: ReportsPageProps) {
   };
 
   // Cargamos la data y la lista de haciendas en paralelo.
-  const [data, farmOptions] = await Promise.all([
+  const [data, farmOptions, role] = await Promise.all([
     fetchFarmsReportData({ from, to, farmName: farm || null }),
-    getDistinctFarmsWithCounts()
+    getDistinctFarmsWithCounts(),
+    // Issue #35 (Fase E, 2026-09-12): botones PDF/CSV apuntan a
+    // /api/admin/* — supervisor recibe 403. Gateamos: solo admin
+    // los ve. Los hrefs en ReportsForm siguen siendo strings (la
+    // firma del componente no permite undefined), pero los
+    // vaciamos para supervisor así no disparan el endpoint admin.
+    // TODO #35-siguiente-sprint: convertir pdfHref/csvHref a
+    // opcionales en ReportsForm para ocultar los botones en vez
+    // de dejarlos visible-con-href-vacio.
+    getViewerRole()
   ]);
+  const isAdmin = role === "admin";
 
   // URLs para los botones de download (preservan los filtros).
   const queryString = new URLSearchParams({ from, to });
   if (farm) queryString.set("farm", farm);
-  const pdfHref = `/api/admin/reports/farms/report.pdf?${queryString.toString()}`;
-  const csvHref = `/api/admin/reports/farms/report.csv?${queryString.toString()}`;
+  // Supervisor: vacío para no disparar /api/admin/* (403). El botón
+  // sigue visible dentro de ReportsForm pero el href no-op. Gate
+  // visual completo requiere cambio a ReportsForm (out of scope).
+  const pdfHref = isAdmin
+    ? `/api/admin/reports/farms/report.pdf?${queryString.toString()}`
+    : "";
+  const csvHref = isAdmin
+    ? `/api/admin/reports/farms/report.csv?${queryString.toString()}`
+    : "";
 
   // URLs para los presets de rango rápido. Preservan el filtro
   // `farm` si está activo (ej. "últimos 7d en El Limar").

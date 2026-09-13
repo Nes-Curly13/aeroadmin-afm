@@ -78,7 +78,8 @@ export const dynamic = "force-dynamic";
 const SOURCE_LABEL: Record<string, string> = {
   manual: "Manual",
   djiscraper: "DJI",
-  import: "Import"
+  // Issue #37 (Fase E, 2026-09-12): "Import" → "Importado" (español).
+  import: "Importado"
 };
 
 const SOURCE_STYLE: Record<string, string> = {
@@ -213,11 +214,15 @@ export default async function FumigacionPage({ params }: PageProps) {
 
   return (
     <div className="flex flex-col gap-4 p-4 md:p-6">
-      {/* Banner de modo lectura (sprint 2026-08-13 polish v1). */}
+      {/* Banner de modo lectura (sprint 2026-08-13 polish v1).
+          Issue #39 (Fase E, 2026-09-12): reemplazado bg-amber-500/5
+          por el token semántico de warning (bg-amber-700/15). Border
+          y dark variant conservados para coherencia con el resto
+          del codebase. */}
       {readOnlyReason ? (
         <p
           role="status"
-          className="flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-300"
+          className="flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-700/15 px-3 py-2 text-xs text-amber-700 dark:text-amber-300"
         >
           <svg
             aria-hidden="true"
@@ -614,8 +619,11 @@ export default async function FumigacionPage({ params }: PageProps) {
                   value={fumigation.pilot_license ?? "—"}
                 />
                 {(!fumigation.product_registered_ica || !fumigation.pilot_license) ? (
-                  <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
-                    Esta fumigación no tiene todos los datos de compliance. Para auditoría,
+                  // Issue #39 (Fase E, 2026-09-12): reemplazado el
+                  // borde/amber-300 por amber-500/40 y bg/text por
+                  // el token de warning (bg-amber-700/15 text-amber-700).
+                  <p className="rounded-md border border-amber-500/40 bg-amber-700/15 px-3 py-2 text-[11px] text-amber-700">
+                    Esta fumigación no tiene todos los datos de cumplimiento. Para auditoría,
                     editar la fumigación y completar ICA + licencia.
                   </p>
                 ) : null}
@@ -724,7 +732,7 @@ export default async function FumigacionPage({ params }: PageProps) {
             <p className="px-2 py-4 text-sm text-muted-foreground">
               {fumigation.source === "manual"
                 ? "Fumigación manual — sin vuelos asociados. Es normal."
-                : "No hay vuelos asociados en dji_flights. Revisar el importador."}
+                : "No hay vuelos asociados para esta fumigación. Revisar el importador."}
             </p>
           ) : (
             <div className="overflow-x-auto">
@@ -857,7 +865,7 @@ export default async function FumigacionPage({ params }: PageProps) {
                 value={String(fumigation.flight_ids?.length ?? 0)}
               />
               <DetailRow
-                label="Vuelos con coincidencia en dji_flights"
+                label="Vuelos vinculados"
                 value={String(flights.length)}
               />
             </dl>

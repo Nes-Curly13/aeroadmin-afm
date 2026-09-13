@@ -24,14 +24,22 @@ import {
 import { getActiveCycleForParcel, listEventsForCycle, listCyclesForParcel } from "@/api/repositories"
 import { phaseChipClass, phaseLabel } from "@/lib/crop-cycle"
 import { fmtDate, fmtDateTime, fmtDec, fmtHa, fmtInt, fmtLiters, fmtRelative } from "@/lib/format"
+import { getViewerRole } from "@/lib/auth/role"
 import { cn } from "@/lib/utils"
 
 export const dynamic = "force-dynamic"
 
 export default async function ParcelaPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const summary = await getParcelSummary(id)
+  // Sprint S11+ (2026-09-12) — Issue #35 (Fase E): botones PDF/CSV/Editar
+  // metadata apuntan a /api/admin/* y devuelven 403 para supervisor.
+  // Gateamos por rol: solo admin los ve. Supervisor es read-only.
+  const [summary, role] = await Promise.all([
+    getParcelSummary(id),
+    getViewerRole()
+  ])
   if (!summary) notFound()
+  const isAdmin = role === "admin"
 
   const { parcel, schedule } = summary
   // El id del parcel puede llegar como string ("abc") desde la URL;
@@ -108,7 +116,7 @@ export default async function ParcelaPage({ params }: { params: Promise<{ id: st
     },
     { label: "Ventana horaria", value: `${schedule.window_start_hour}:00 – ${schedule.window_end_hour}:00` },
     { label: "Centroide", value: `${parcel.centroid_lat.toFixed(5)}, ${parcel.centroid_lng.toFixed(5)}` },
-    { label: "dji_land_id", value: parcel.dji_land_id },
+    { label: "ID DJI", value: parcel.dji_land_id },
     { label: "Alta en sistema", value: fmtDate(parcel.created_at) },
   ]
   // Sprint 2026-08-04 — fix UX: para parcelas con source='manual' el
@@ -122,7 +130,7 @@ export default async function ParcelaPage({ params }: { params: Promise<{ id: st
   // adaptParcel) lo popula desde p.source, que viene de
   // djiParcelsQuery. Ver migration
   // 20260804081000_add_manual_parcels_support.sql para el schema.
-  .filter((f) => !(f.label === "dji_land_id" && parcel.source === "manual"))
+  .filter((f) => !(f.label === "ID DJI" && parcel.source === "manual"))
 
   return (
     <>
@@ -193,7 +201,7 @@ export default async function ParcelaPage({ params }: { params: Promise<{ id: st
                 title={
                   cycle.cycle_phase
                     ? `Fase del cultivo: ${phaseLabel(cycle.cycle_phase)}`
-                    : "Fase desconocida (faltan planting_date / cycle_phase en dji_parcels)"
+                    : "Fase desconocida (faltan datos de siembra y fase de la parcela)"
                 }
               >
                 <Sprout className="size-3" aria-hidden />
@@ -236,54 +244,59 @@ export default async function ParcelaPage({ params }: { params: Promise<{ id: st
               row + Guardar). Desde acá el operador llega a la lista y
               puede usar el filtro "missing_X" para encontrar las
               parcelas con metadata incompleta. */}
-          <div className="flex items-center gap-2">
-            {/* feature/reports-level-1 (2026-08-08) — descarga de reportes.
-                PDFs y CSVs usan `<a download>` (no Next Link) para que el
-                browser gatille la descarga sin navegación. El server
-                pone `Content-Disposition: attachment` con filename
-                `reporte-{nombre}-parcela-{id}-{fecha}.{pdf|csv}`. */}
-            <Button
-              size="sm"
-              variant="outline"
-              nativeButton={false}
-              render={
-                <a
-                  href={`/api/admin/parcels/${parcelIdNum}/report.pdf`}
-                  download
-                  aria-label="Descargar reporte PDF de esta parcela"
-                >
-                  <FileText className="size-3.5" aria-hidden />
-                  PDF
-                </a>
-              }
-            />
-            <Button
-              size="sm"
-              variant="outline"
-              nativeButton={false}
-              render={
-                <a
-                  href={`/api/admin/parcels/${parcelIdNum}/report.csv`}
-                  download
-                  aria-label="Descargar reporte CSV de esta parcela"
-                >
-                  <FileSpreadsheet className="size-3.5" aria-hidden />
-                  CSV
-                </a>
-              }
-            />
-            <Button
-              size="sm"
-              variant="outline"
-              nativeButton={false}
-              render={
-                <Link href="/admin/parcels" aria-label="Ir al panel admin para editar metadata">
-                  <Pencil className="size-3.5" aria-hidden />
-                  Editar metadata
-                </Link>
-              }
-            />
-          </div>
+          {/* Issue #35 (Fase E, 2026-09-12): los 3 botones de abajo
+              apuntan a /api/admin/* y devuelven 403 para supervisor.
+              Solo admin los ve. */}
+          {isAdmin && (
+            <div className="flex items-center gap-2">
+              {/* feature/reports-level-1 (2026-08-08) — descarga de reportes.
+                  PDFs y CSVs usan `<a download>` (no Next Link) para que el
+                  browser gatille la descarga sin navegación. El server
+                  pone `Content-Disposition: attachment` con filename
+                  `reporte-{nombre}-parcela-{id}-{fecha}.{pdf|csv}`. */}
+              <Button
+                size="sm"
+                variant="outline"
+                nativeButton={false}
+                render={
+                  <a
+                    href={`/api/admin/parcels/${parcelIdNum}/report.pdf`}
+                    download
+                    aria-label="Descargar reporte PDF de esta parcela"
+                  >
+                    <FileText className="size-3.5" aria-hidden />
+                    PDF
+                  </a>
+                }
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                nativeButton={false}
+                render={
+                  <a
+                    href={`/api/admin/parcels/${parcelIdNum}/report.csv`}
+                    download
+                    aria-label="Descargar reporte CSV de esta parcela"
+                  >
+                    <FileSpreadsheet className="size-3.5" aria-hidden />
+                    CSV
+                  </a>
+                }
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                nativeButton={false}
+                render={
+                  <Link href="/admin/parcels" aria-label="Ir al panel admin para editar metadata">
+                    <Pencil className="size-3.5" aria-hidden />
+                    Editar metadata
+                  </Link>
+                }
+              />
+            </div>
+          )}
           {/* feature/reports-level-1 — callout que avisa al operador que
               puede exportar la data. Sin esto el feature existe pero es
               invisible para el que no sepa que el botón descarga un reporte. */}
@@ -406,7 +419,7 @@ export default async function ParcelaPage({ params }: { params: Promise<{ id: st
                     {allCycles.length > 1 && (
                       <p className="mt-1 border-t border-border pt-2 text-[11px] text-muted-foreground">
                         Esta parcela tiene {allCycles.length} ciclos en total. El actual
-                        es el de más arriba. Ver histórico en /admin/parcels (próximo sprint).
+                        es el de más arriba.
                       </p>
                     )}
                   </div>
@@ -449,7 +462,7 @@ export default async function ParcelaPage({ params }: { params: Promise<{ id: st
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base">Ficha técnica</CardTitle>
-                <CardDescription>Atributos planos de dji_parcels y su cadencia esperada.</CardDescription>
+                <CardDescription>Atributos de la parcela y su cadencia esperada.</CardDescription>
               </CardHeader>
               <CardContent>
                 <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
@@ -559,7 +572,7 @@ export default async function ParcelaPage({ params }: { params: Promise<{ id: st
                   <CalendarClock className="size-4 text-primary" aria-hidden />
                   Cambios de cadencia
                 </CardTitle>
-                <CardDescription>dji_fumigation_schedule_history — auditoría por triggers.</CardDescription>
+                <CardDescription>Historial de cambios de cadencia de la parcela.</CardDescription>
               </CardHeader>
               <CardContent>
                 {history.length === 0 ? (
