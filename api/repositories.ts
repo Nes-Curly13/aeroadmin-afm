@@ -2602,9 +2602,15 @@ export async function createFumigationEvent(event: {
           `SELECT recommended_cadence_days FROM dji_fumigation_schedule WHERE parcel_id = $1`,
           [event.parcel_id]
         );
-        const cadence = effectiveCadence({
-          recommended_cadence_days: schedRow.rows[0]?.recommended_cadence_days ?? null
-        });
+        // `effectiveCadence` espera un `DjiFumigationSchedule` completo
+        // (con campos como `parcel_id`, `crop_type`, etc.). Acá solo leemos
+        // `recommended_cadence_days`, así que envolvemos el valor en un
+        // objeto mínimo con el cast necesario. La función valida
+        // `typeof === "number"` antes de usar el campo — el cast es seguro.
+        const rawCadence = schedRow.rows[0]?.recommended_cadence_days ?? null;
+        const cadence = effectiveCadence(
+          rawCadence !== null ? ({ recommended_cadence_days: rawCadence } as unknown as DjiFumigationSchedule) : null
+        );
         const next = computeNextDueDate(event.fumigation_date, cadence);
         await client.query(
           `
