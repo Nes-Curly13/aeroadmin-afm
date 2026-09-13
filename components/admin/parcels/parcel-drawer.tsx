@@ -821,7 +821,8 @@ export function ParcelDrawer({
           data-testid="drawer-import-coords"
         >
           <MapPin className="size-3.5" aria-hidden />
-          Coords
+          {/* 2026-09-10 (issue #38): era "Coords" (ingles), ahora espanol. */}
+          Coordenadas
         </Button>
       </div>
 

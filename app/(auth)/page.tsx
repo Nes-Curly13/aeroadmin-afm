@@ -185,15 +185,12 @@ async function DashboardContent() {
         <HealthPanel health={health} batches={batches} />
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Volumen fumigado por mes</CardTitle>
-          <CardDescription>Últimos 12 meses · Hectáreas tratadas (barras) y eventos (línea).</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <MonthlyChart data={monthly} />
-        </CardContent>
-      </Card>
+      {/* 2026-09-10 (issue #34): MonthlyChart ya trae su propio Card
+          (CardHeader + CardTitle + CardDescription + CardContent).
+          El wrapper externo duplicaba el Card y el titulo.
+          Antes: Card > CardHeader > "Volumen fumigado por mes" + CardContent > Card > "Hectareas tratadas por mes".
+          Ahora: solo <MonthlyChart data={monthly} />, un solo Card. */}
+      <MonthlyChart data={monthly} />
 
       <RecentActivity
         fumigations={fumigations}
