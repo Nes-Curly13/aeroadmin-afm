@@ -142,6 +142,14 @@ Total Fase 6: 7 commits, +32 tests (2182 → 2214 verde), tsc/arch 0 errores.
 
 > Detalle en `docs/DEEPSEEK-MINI-TASKS.md`.
 
+### 2.9 Fase 8 (DeepSeek) — épicos de modelo (#49/#52, opción A+)
+| # | Fix |
+|---|---|
+| #49 A+ | Invariants `parcela_cliente_nombre_desincronizado` / `parcela_finca_nombre_desincronizado` en `/api/data-quality/invariants` (drift visible en `/admin/calidad`). |
+| #52 A+ | Script read-only `scripts/check-flight-ids-integrity.js` (`npm run check:flight-integrity`) que detecta `flight_ids` huérfanos/nulls; exit 2 si hay. |
+
+> Decisión + opciones descartadas (B/C/D) en `docs/DEEPSEEK-PROPOSAL-MODELO-DATOS.md`.
+
 ---
 
 ## 3. PENDIENTE (backlog abierto)
@@ -168,9 +176,9 @@ Total Fase 6: 7 commits, +32 tests (2182 → 2214 verde), tsc/arch 0 errores.
 | #32 | Shape de error 400 inconsistente (zod `{error,issues}` vs `{error}`) | BAJO | ✅ Fase 7 (`errorResponseSchema` cubre `issues` opcional + contrato documentado) |
 | #33 | `trustHost: true` incondicional en `auth.config.ts` | BAJO | ✅ Fase 6 (`086112c`) |
 | #40 | Branding: conviven "AFM Geovisor" (sidebar) y "AeroAdmin AFM" (login) | BAJO | ✅ Fase 7 — brand canónico **"AFM Geovisor"** |
-| #49 | Cliente/Finca: doble fuente de verdad (`client_name` texto vs FK). Sync app-level en `updateParcelMetadata` + **migration de sync one-time (Fase 5)**. Falta la decisión de modelo (vista calculada / trigger / eliminar denormalizado) | ALTO | 🟡 mitigado, diseño pendiente |
+| #49 | Cliente/Finca: doble fuente de verdad (`client_name` texto vs FK). Sync app-level en `updateParcelMetadata` + migration one-time (Fase 5) + **invariant guard (Fase 8)** | ALTO | ✅ A+ implementado (decisión: doc `DEEPSEEK-PROPOSAL-MODELO-DATOS.md`) |
 | #50 | `product_used` (texto) vs `product_id` (FK): mismo patrón dual | MEDIO | ✅ Fase 7 (migration de sync one-time desde `products.name`) |
-| #52 | `flight_ids[]`/`parcels[]` sin integridad referencial → evaluar tabla de unión `fumigation_flights` | MEDIO | 🟡 Fase 4 (requiere migración + backfill) |
+| #52 | `flight_ids[]`/`parcels[]` sin integridad referencial → evaluar tabla de unión `fumigation_flights` | MEDIO | ✅ A+ implementado (`npm run check:flight-integrity` read-only; join table queda como escalada documentada) |
 | #54 | `dji_flights` sin `deleted_at` (intencional) — documentar invariante | BAJO | ✅ Fase 6 (`31df9f9` MT-03) |
 | #55 | Posible índice para el scan del dashboard (`area_m2`/`duration_seconds`); **revisar diagnóstico** (el cuello real es el `OR`, no la fecha) | BAJO | ✅ Fase 6 (`54b34b6` MT-04) |
 | #57 | Sin rate-limit/lockout en login | MEDIO | ✅ Fase 3 |
@@ -261,6 +269,9 @@ Total Fase 6: 7 commits, +32 tests (2182 → 2214 verde), tsc/arch 0 errores.
   contrato de error (#32), sync `product_used` (#50), `timing-safe`, loading
   boundaries, `(public)` error boundary, scratch cleanup (MT-09/NT-01..03).
   NT-04/05 descartadas con rationale. Suite 2218/2218.
+- **2026-09-13** — Fase 8 (DeepSeek): épicos de modelo cerrados con opción A+
+  (#49 invariant guard; #52 monitor de huérfanos). Decisión en
+  `DEEPSEEK-PROPOSAL-MODELO-DATOS.md`.
 - **2026-09-13** — Fase 6: 7 commits de la corrida multi-agente (8 agentes en
   paralelo). `trustHost` condicional (#33), `requireFreshRole` (#27), índices
   de dashboard (#55), i18n import GIS (#37), tests/cobertura de

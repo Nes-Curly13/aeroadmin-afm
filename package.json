@@ -28,6 +28,7 @@
     "cleanup:test-data": "node scripts/cleanup-test-data.js",
     "cleanup:test-data:apply": "node scripts/cleanup-test-data.js --apply",
     "health:watchdog": "node scripts/health-watchdog.js",
+    "check:flight-integrity": "node scripts/check-flight-ids-integrity.js",
     "capture:djiag:fumigations": "node scripts/capture-fumigations-fixture.js",
     "print:djiag:aggr-by-day": "node scripts/print-aggr-by-day.js",
     "print:djiag:flight-records": "node scripts/print-flight-records.js",

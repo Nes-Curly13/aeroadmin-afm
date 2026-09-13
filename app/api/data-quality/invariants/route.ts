@@ -36,6 +36,8 @@ export type WarningSeverity = "info" | "warning" | "error";
 export type WarningCode =
   | "parcela_no_cliente"
   | "parcela_no_finca"
+  | "parcela_cliente_nombre_desincronizado"
+  | "parcela_finca_nombre_desincronizado"
   | "parcela_sin_ciclo_activo"
   | "fumigacion_sin_ciclo"
   | "fumigacion_ciclo_cerrado"
@@ -124,6 +126,54 @@ async function computeInvariants(
         code: "parcela_no_finca",
         severity: "warning",
         message: "Parcela sin finca asignada",
+        parcela_id: r.id
+      });
+    }
+
+    // 1b) #49 A+ — nombre denormalizado desincronizado con el FK.
+    //     Solo aplica a parcelas CON FK (las sin FK usan free-text a
+    //     propósito). Detecta drift que el sync app-level no cubrió
+    //     (ej. UPDATE directo por SQL/import).
+    const clientDesync = await db.query<{
+      id: number;
+      client_name: string | null;
+      catalog_name: string;
+    }>(
+      `SELECT p.id, p.client_name, c.name AS catalog_name
+         FROM dji_parcels p
+         JOIN clients c ON c.id = p.client_id
+        WHERE p.deleted_at IS NULL
+          AND ($1::bigint IS NULL OR p.id = $1)
+          AND p.client_name IS DISTINCT FROM c.name`,
+      p
+    );
+    for (const r of clientDesync.rows) {
+      warnings.push({
+        code: "parcela_cliente_nombre_desincronizado",
+        severity: "warning",
+        message: `client_name ('${r.client_name ?? "null"}') no coincide con el catálogo ('${r.catalog_name}')`,
+        parcela_id: r.id
+      });
+    }
+
+    const farmDesync = await db.query<{
+      id: number;
+      farm_name: string | null;
+      catalog_name: string;
+    }>(
+      `SELECT p.id, p.farm_name, f.name AS catalog_name
+         FROM dji_parcels p
+         JOIN farms f ON f.id = p.farm_id
+        WHERE p.deleted_at IS NULL
+          AND ($1::bigint IS NULL OR p.id = $1)
+          AND p.farm_name IS DISTINCT FROM f.name`,
+      p
+    );
+    for (const r of farmDesync.rows) {
+      warnings.push({
+        code: "parcela_finca_nombre_desincronizado",
+        severity: "warning",
+        message: `farm_name ('${r.farm_name ?? "null"}') no coincide con el catálogo ('${r.catalog_name}')`,
         parcela_id: r.id
       });
     }

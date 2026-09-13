@@ -36,6 +36,8 @@ export type WarningSeverity = "info" | "warning" | "error";
 export type WarningCode =
   | "parcela_no_cliente"
   | "parcela_no_finca"
+  | "parcela_cliente_nombre_desincronizado"
+  | "parcela_finca_nombre_desincronizado"
   | "parcela_sin_ciclo_activo"
   | "fumigacion_sin_ciclo"
   | "fumigacion_ciclo_cerrado"

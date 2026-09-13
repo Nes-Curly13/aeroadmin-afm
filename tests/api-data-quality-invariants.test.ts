@@ -37,10 +37,14 @@ describe("GET /api/data-quality/invariants", () => {
     expect(sqls.some((s) => s.includes("f.parcela_id"))).toBe(false);
   });
 
-  it("devuelve warnings de las 5 invariantes (no las traga)", async () => {
+  it("devuelve warnings de las invariantes (no las traga)", async () => {
     mockQuery.mockImplementation(async (sql: string) => {
       if (sql.includes("client_id IS NULL")) return { rows: [{ id: 1 }] };
       if (sql.includes("farm_id IS NULL")) return { rows: [] };
+      if (sql.includes("JOIN clients c"))
+        return { rows: [{ id: 7, client_name: "Viejo", catalog_name: "Nuevo" }] };
+      if (sql.includes("JOIN farms f"))
+        return { rows: [{ id: 8, farm_name: "Vieja", catalog_name: "Nueva" }] };
       if (sql.includes("count(f.id) AS n")) return { rows: [{ id: 2, n: "4" }] };
       if (sql.includes("AS fumigation_id"))
         return { rows: [{ fumigation_id: 9, cycle_id: 5, parcel_id: 2 }] };
@@ -55,6 +59,8 @@ describe("GET /api/data-quality/invariants", () => {
     const body = (await res.json()) as { warnings: Array<{ code: string }> };
     const codes = body.warnings.map((w) => w.code);
     expect(codes).toContain("parcela_no_cliente");
+    expect(codes).toContain("parcela_cliente_nombre_desincronizado");
+    expect(codes).toContain("parcela_finca_nombre_desincronizado");
     expect(codes).toContain("parcela_sin_ciclo_activo");
     expect(codes).toContain("fumigacion_ciclo_cerrado");
     expect(codes).toContain("ciclo_sin_phase_rule");

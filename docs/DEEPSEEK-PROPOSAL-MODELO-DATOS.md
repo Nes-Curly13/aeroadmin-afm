@@ -181,6 +181,11 @@ escalación** definido.
 
 | Épico | Opción elegida | Fecha | Notas |
 |---|---|---|---|
-| #49 | _pendiente_ | | |
-| #52 | _pendiente_ | | |
-| `vw_parcels` | _pendiente_ (adoptar / drop / mantener) | | |
+| #49 | **A+** (status quo + invariant guard) | 2026-09-13 | Implementado: checks `parcela_cliente_nombre_desincronizado` / `parcela_finca_nombre_desincronizado` en `/api/data-quality/invariants` |
+| #52 | **A+** (status quo + monitor de huérfanos) | 2026-09-13 | Implementado: `scripts/check-flight-ids-integrity.js` (`npm run check:flight-integrity`, read-only) |
+| `vw_parcels` | **mantener** (reservada para un futuro camino C) | 2026-09-13 | No se usa hoy; documentada como tal |
+
+> **Contexto de la decisión**: el producto tiene ~10k vuelos / ~1.2k parcelas y
+> 1 operador. A+ cubre el riesgo real (drift/integridad silenciosos) con ~1 día
+> y riesgo mínimo. Las opciones B/C/D quedan documentadas para escalar si
+> aparece un caso concreto.
