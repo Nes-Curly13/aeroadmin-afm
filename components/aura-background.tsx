@@ -10,7 +10,7 @@
  *
  * Reglas críticas (ver `app/globals.css`):
  *   1. `body` debe tener un fondo claro para que el multiply tenga con qué
- *      componer. En AeroAdmin eso ya está seteado globalmente
+ *      componer. En AFM Geovisor eso ya está seteado globalmente
  *      (`@layer base body { @apply bg-background … }`).
  *   2. El container tiene `position: relative; overflow: hidden;
  *      min-height: 100vh` y las capas son `position: absolute; inset: 0`.

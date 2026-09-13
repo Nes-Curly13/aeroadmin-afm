@@ -17,6 +17,12 @@
 //   Ahora: el helper detecta si el error viene de `pg` y lo reemplaza
 //   por un mensaje generico. El full error se loguea server-side para
 //   que el dev pueda verlo en los logs de Vercel / del server.
+//
+// Contrato de respuesta de error (#32):
+//   - Shape minimo y universal: `{ error: string }`.
+//   - Los handlers que validan con zod agregan `issues` opcional
+//     (`[{ path, message }]`, ver `formatZodIssues` en `lib/api-schemas.ts`).
+//   - `errorResponseSchema` (lib/api-schemas.ts) cubre ambos shapes.
 
 /** Subset de `pg` error fields que usamos para detectar errores de BD. */
 interface PgErrorLike {

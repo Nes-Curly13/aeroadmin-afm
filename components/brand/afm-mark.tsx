@@ -1,7 +1,7 @@
 import Image from "next/image";
 
 /**
- * <AfmMark /> — wrapper unificado del branding de AeroAdmin AFM.
+ * <AfmMark /> — wrapper unificado del branding de AFM Geovisor.
  *
  * Por que existe:
  *   La app tiene 2 SVG de marca:
@@ -70,8 +70,8 @@ const NEEDS_UNOPTIMIZED: Record<AfmMarkVariant, boolean> = {
 };
 
 const DEFAULT_ALT: Record<AfmMarkVariant, string> = {
-  mark: "AFM — AeroAdmin Fumigación",
-  full: "Logo AeroAdmin AFM",
+  mark: "AFM Geovisor",
+  full: "Logo AFM Geovisor",
 };
 
 const DEFAULT_SIZE: Record<AfmMarkVariant, number> = {

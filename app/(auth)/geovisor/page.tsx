@@ -5,7 +5,7 @@ import { PageSpinner } from "@/components/ui/loading"
 import { getGeovisorPayload } from "@/lib/data"
 
 export const metadata: Metadata = {
-  title: "Geovisor | AFM",
+  title: "AFM Geovisor",
   // QA-02 (2026-09-06): simplificación del propósito del geovisor.
   // La utilidad principal es "consultar el histórico de fumigaciones
   // realizadas sobre las parcelas" — sin cadencia ni estado.

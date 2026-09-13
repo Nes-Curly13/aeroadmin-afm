@@ -41,7 +41,7 @@ Commits: `tipo(scope): descripción` en presente.
 | MT-06 | #37 import GIS: inglés→español + colores | BAJO | `components/admin/parcels/import-gis-wizard.tsx` | ✅ hecho (`4a08925`) |
 | MT-07 | Resolver TODOs de `map-filter-types.ts` | BAJO | `lib/map-filter-types.ts` | ✅ hecho (`b9ebc82`) |
 | MT-08 | #36 restos: identifiers internos en `new-parcel-form` | BAJO | `components/admin/parcels/new-parcel-form.tsx` | ✅ hecho (`b9ebc82` + `53ab9ce` atribución) |
-| MT-09 | #60 limpiar scratch del root | BAJO | raíz (gitignored) | ⬜ abierto |
+| MT-09 | #60 limpiar scratch del root | BAJO | raíz (gitignored) | ✅ hecho (DeepSeek, 62 archivos) |
 | MT-10 | Tests de `lib/map-filter-types.ts` | BAJO | `tests/lib-map-filter-types.test.ts` (nuevo) | ✅ hecho (`b9ebc82`) |
 | MT-11 | Sincronizar `README.md` con el estado actual | BAJO | `README.md` | ✅ hecho (consolidado en `b9ebc82`) |
 | MT-12 | Cobertura de `api/queries.ts` | BAJO | `tests/api-queries.test.ts` (nuevo) | ✅ hecho (`2a0e12f`) |
@@ -49,19 +49,22 @@ Commits: `tipo(scope): descripción` en presente.
 | MT-14 | #32 shape de error 400 consistente | MEDIO | varios handlers (**ÉPICO**, no mini) | ⛔ épico |
 | MT-15 | #50 `product_used` vs `product_id` | MEDIO | `api/repositories.ts` (**ÉPICO** chico) | ⛔ épico |
 | MT-16 | #52 tabla `fumigation_flights` | MEDIO | schema (**ÉPICO**) | ⛔ épico |
-| NT-01 | Extraer `timingSafeEqual` a `lib/timing-safe.ts` (dedup) | BAJO | `lib/timing-safe.ts` + 2 routes | ⬜ Tanda 3 |
-| NT-02 | `loading.tsx` para las 5 rutas de `(auth)` | BAJO | `app/(auth)/*/loading.tsx` (nuevos) | ⬜ Tanda 3 |
-| NT-03 | `error.tsx` para `(public)` (login) | BAJO | `app/(public)/error.tsx` (nuevo) | ⬜ Tanda 3 |
-| NT-04 | a11y: `aria-label` en icon-only de audit trail | BAJO | `components/fumigations/fumigation-audit-trail.tsx` | ⬜ Tanda 3 |
-| NT-05 | Colores→tokens (piloto) | BAJO | `components/data-quality/data-quality-banner.tsx` | ⬜ Tanda 3 |
+| NT-01 | Extraer `timingSafeEqual` a `lib/timing-safe.ts` (dedup) | BAJO | `lib/timing-safe.ts` + 2 routes | ✅ hecho (DeepSeek) |
+| NT-02 | `loading.tsx` para las 5 rutas de `(auth)` | BAJO | `app/(auth)/*/loading.tsx` (nuevos) | ✅ hecho (DeepSeek) |
+| NT-03 | `error.tsx` para `(public)` (login) | BAJO | `app/(public)/error.tsx` (nuevo) | ✅ hecho (DeepSeek) |
+| NT-04 | a11y: `aria-label` en icon-only de audit trail | BAJO | `components/fumigations/fumigation-audit-trail.tsx` | 🚫 descartado (ya accesible: aria-label/expanded/region) |
+| NT-05 | Colores→tokens (piloto) | BAJO | `components/data-quality/data-quality-banner.tsx` | 🚫 descartado (`chart-4` es amarillo claro, sin contraste para texto; app light-only) |
 
 `⛔` = no es mini; requiere decisión/diseño (ver §3).
 
 ### Tandas
 
 - **Tanda 1** ✅ (cerrada): MT-01, MT-02, MT-03, MT-04, MT-06, MT-07, MT-08, MT-10, MT-11, MT-12.
-- **Tanda 2** (pendiente): MT-09 (scratch root, local — 1 agente).
-- **Tanda 3** (pendiente): NT-01, NT-02, NT-03, NT-04, NT-05 (todas de lane disjunta → paralelizables).
+- **Tanda 2** ✅ (cerrada): MT-09 (scratch root).
+- **Tanda 3** ✅ (cerrada por DeepSeek): NT-01, NT-02, NT-03. NT-04/NT-05 descartadas con rationale.
+
+> **Backlog mini agotado.** Lo que queda son épicos con decisión (§3) o
+> cambios de feature (#58). El brand canónico quedó definido: **AFM Geovisor**.
 
 ---
 

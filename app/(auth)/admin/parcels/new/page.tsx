@@ -25,7 +25,7 @@ import { PageHeader } from "@/components/page-header";
  */
 
 export const metadata = {
-  title: "Alta manual de parcela | AFM",
+  title: "Alta manual de parcela | AFM Geovisor",
   description:
     "Crear una parcela nueva (no escrapeda de DJI) con su polígono dibujado en el mapa."
 };

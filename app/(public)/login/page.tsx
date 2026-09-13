@@ -135,7 +135,7 @@ export default function LoginPage() {
               <AfmMark variant="full" size={70} priority />
             </div>
             <div className="flex flex-col items-center gap-1">
-              <CardTitle className="text-lg">AeroAdmin AFM</CardTitle>
+              <CardTitle className="text-lg">AFM Geovisor</CardTitle>
               <CardDescription>Panel admin — Iniciar sesion</CardDescription>
             </div>
           </CardHeader>

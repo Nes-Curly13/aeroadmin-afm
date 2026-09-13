@@ -30,7 +30,7 @@ import { getRecentParcelsForPicker } from "@/api/repositories";
  */
 
 export const metadata = {
-  title: "Nueva fumigación | AFM",
+  title: "Nueva fumigación | AFM Geovisor",
   description:
     "Registra una fumigación manual con mapa satelital y form con espacio."
 };

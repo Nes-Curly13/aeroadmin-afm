@@ -42,6 +42,7 @@ import { join } from "node:path";
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/role";
 import { getDb } from "@/lib/db";
+import { timingSafeEqual } from "@/lib/timing-safe";
 import {
   deriveResponse,
   readHealthFile,
@@ -54,21 +55,6 @@ import {
 // a la DB (o filesystem) — el panel admin y el watchdog quieren
 // el state actual, no algo de hace 5min.
 export const dynamic = "force-dynamic";
-
-/**
- * Compara dos strings en tiempo constante. Evita el timing attack
- * clásico donde un attacker mide el tiempo de respuesta para adivinar
- * el token byte a byte. Para strings cortas (<64 chars) el overhead
- * es despreciable.
- */
-function timingSafeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let mismatch = 0;
-  for (let i = 0; i < a.length; i++) {
-    mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  }
-  return mismatch === 0;
-}
 
 /**
  * Verifica si la request trae un `Authorization: Bearer <HEALTH_TOKEN>`

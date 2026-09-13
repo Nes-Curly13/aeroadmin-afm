@@ -43,9 +43,9 @@ re-aplicar todo). Sin protocolo, multiagente pierde trabajo. Reglas:
 ## 1. Estado actual
 
 - **Fecha**: 2026-09-13
-- **master**: `ff21b65` (Tanda 1 multi-agente + MT-02).
-- **Gates**: `tsc` 0 errores · `arch:check` 0 errores · tests **2214/2214** ✅
-  (verificado por el coordinador sobre `ff21b65`).
+- **master**: ver `git log --oneline -1`.
+- **Gates**: `tsc` 0 errores · `arch:check` 0 errores · tests **2218/2218** ✅
+  (verificado por el coordinador, Fase 7).
 - **Producto**: Release Candidate (Fases 0-8 del roadmap cerradas).
 
 ---
@@ -120,18 +120,27 @@ re-aplicar todo). Sin protocolo, multiagente pierde trabajo. Reglas:
 
 Total Fase 6: 7 commits, +32 tests (2182 → 2214 verde), tsc/arch 0 errores.
 
-### 2.7 Mini-tasks pendientes
+### 2.7 Mini-tasks (Tandas 1-3) — cerradas
 | ID | Estado |
 |---|---|
-| MT-09 | ⬜ Tanda 2 — limpieza de scratch del root (`gh-pr-body-*`, `git-commit-msg-*`, `dev-server-bg.log`); local, coordinar con otras sesiones |
-| NT-01 | ⬜ Tanda 3 — extraer `timingSafeEqual` a `lib/timing-safe.ts` |
-| NT-02 | ⬜ Tanda 3 — `loading.tsx` para las 5 rutas de `(auth)` |
-| NT-03 | ⬜ Tanda 3 — `error.tsx` para `(public)` |
-| NT-04 | ⬜ Tanda 3 — a11y en `fumigation-audit-trail.tsx` |
-| NT-05 | ⬜ Tanda 3 — colores→tokens (piloto `data-quality-banner`) |
+| MT-01..MT-12 | ✅ Tanda 1 (ver `DEEPSEEK-MINI-TASKS.md` §1) |
+| MT-09 | ✅ Tanda 2 — scratch del root limpiado (62 archivos) |
+| NT-01 | ✅ `timingSafeEqual` extraído a `lib/timing-safe.ts` (+test) |
+| NT-02 | ✅ `loading.tsx` para las 5 rutas de `(auth)` |
+| NT-03 | ✅ `error.tsx` para `(public)` |
+| NT-04 | 🚫 descartado (el audit trail ya es accesible) |
+| NT-05 | 🚫 descartado (`chart-4` no da contraste para texto; app light-only) |
 
-> Detalle de NT-01..NT-05 en `docs/DEEPSEEK-MINI-TASKS.md` §2.
-> **Tanda 3**: lanes disjuntas → paralelizable entera.
+### 2.8 Fase 7 (DeepSeek, cierre) — brand + épicos
+| # | Fix |
+|---|---|
+| #40 | Brand canónico **"AFM Geovisor"**: login, `AfmMark` alts, metadata de páginas. |
+| #32 | Contrato de error documentado + `errorResponseSchema` cubre `issues` opcional. |
+| #50 | Migration `20260913000001_sync_fumigation_product_used.sql` (sync one-time desde `products.name`). |
+| #60 | Scratch del root limpiado (62 archivos) — MT-09. |
+| #58 | 🚫 diferido (enhancement; los filtros server-side ya acotan). |
+
+> Detalle en `docs/DEEPSEEK-MINI-TASKS.md`.
 
 ---
 
@@ -153,18 +162,18 @@ Total Fase 6: 7 commits, +32 tests (2182 → 2214 verde), tsc/arch 0 errores.
 | #27 | `getCurrentUserRole()` (BD-fresh) no lo usa ningún endpoint → rol stale hasta 12h | MEDIO | ✅ Fase 6 (`requireFreshRole` aplicado a 2 endpoints destructivos) |
 | #29 | `computeInvariants` construye SQL con `String.replace()` frágil | MEDIO | ✅ Fase 4 (+ bug `f.parcela_id`) |
 | #31 | `authorize()` loguea el error crudo de `pg` | BAJO | ✅ Fase 3 |
-| #32 | Shape de error 400 inconsistente (zod `{error,issues}` vs `{error}`) | BAJO | ⬜ abierto |
+| #32 | Shape de error 400 inconsistente (zod `{error,issues}` vs `{error}`) | BAJO | ✅ Fase 7 (`errorResponseSchema` cubre `issues` opcional + contrato documentado) |
 | #33 | `trustHost: true` incondicional en `auth.config.ts` | BAJO | ✅ Fase 6 (`086112c`) |
-| #40 | Branding: conviven "AFM Geovisor" (sidebar) y "AeroAdmin AFM" (login) | BAJO | ⬜ decisión de producto |
+| #40 | Branding: conviven "AFM Geovisor" (sidebar) y "AeroAdmin AFM" (login) | BAJO | ✅ Fase 7 — brand canónico **"AFM Geovisor"** |
 | #49 | Cliente/Finca: doble fuente de verdad (`client_name` texto vs FK). Sync app-level en `updateParcelMetadata` + **migration de sync one-time (Fase 5)**. Falta la decisión de modelo (vista calculada / trigger / eliminar denormalizado) | ALTO | 🟡 mitigado, diseño pendiente |
-| #50 | `product_used` (texto) vs `product_id` (FK): mismo patrón dual | MEDIO | 🟡 Fase 4 (mismo diseño que #49) |
+| #50 | `product_used` (texto) vs `product_id` (FK): mismo patrón dual | MEDIO | ✅ Fase 7 (migration de sync one-time desde `products.name`) |
 | #52 | `flight_ids[]`/`parcels[]` sin integridad referencial → evaluar tabla de unión `fumigation_flights` | MEDIO | 🟡 Fase 4 (requiere migración + backfill) |
 | #54 | `dji_flights` sin `deleted_at` (intencional) — documentar invariante | BAJO | ✅ Fase 6 (`31df9f9` MT-03) |
 | #55 | Posible índice para el scan del dashboard (`area_m2`/`duration_seconds`); **revisar diagnóstico** (el cuello real es el `OR`, no la fecha) | BAJO | ✅ Fase 6 (`54b34b6` MT-04) |
 | #57 | Sin rate-limit/lockout en login | MEDIO | ✅ Fase 3 |
-| #58 | Paginación server-side real de `/fumigaciones` | BAJO | ⬜ abierto |
+| #58 | Paginación server-side real de `/fumigaciones` | BAJO | 🚫 diferido (los filtros server-side de Fase 5 ya acotan; el cap actual es suficiente para el Valle) |
 | #59 | Cleanup e2e `tests/e2e/geovisor-ui-changes.spec.ts` (pre-QA-01/02) | BAJO | ✅ Fase 4 |
-| #60 | Limpiar scratch sin trackear del root (`gh-pr-body-*`, `git-commit-msg-*`) | BAJO | ⬜ abierto |
+| #60 | Limpiar scratch sin trackear del root (`gh-pr-body-*`, `git-commit-msg-*`) | BAJO | ✅ Fase 7 (62 archivos) |
 
 > **Nota**: los números `#N` provienen de la auditoría original (ver §8).
 > El detalle de cada hallazgo está resumido en la columna "Tema"; para el
@@ -243,6 +252,12 @@ Total Fase 6: 7 commits, +32 tests (2182 → 2214 verde), tsc/arch 0 errores.
   silencio); e2e obsoleto eliminado. Suite 2182/2182.
 - **2026-09-10** — Fase 5 (DeepSeek #5): migration de sync one-time de
   `client_name`/`farm_name` desde el FK (#49).
+- **2026-09-13** — Tanda 1 multi-agente (MiniMax) verificada: MT-01..MT-12
+  (10 cerradas, MT-05 descartada). Suite 2214/2214.
+- **2026-09-13** — Fase 7 (DeepSeek): brand canónico "AFM Geovisor" (#40),
+  contrato de error (#32), sync `product_used` (#50), `timing-safe`, loading
+  boundaries, `(public)` error boundary, scratch cleanup (MT-09/NT-01..03).
+  NT-04/05 descartadas con rationale. Suite 2218/2218.
 - **2026-09-13** — Fase 6: 7 commits de la corrida multi-agente (8 agentes en
   paralelo). `trustHost` condicional (#33), `requireFreshRole` (#27), índices
   de dashboard (#55), i18n import GIS (#37), tests/cobertura de

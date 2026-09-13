@@ -19,7 +19,7 @@ import { ImportGisWizard } from "@/components/admin/parcels/import-gis-wizard";
  */
 
 export const metadata = {
-  title: "Importar parcelas desde GIS | AFM",
+  title: "Importar parcelas desde GIS | AFM Geovisor",
   description:
     "Carga un archivo KML, ZIP (shapefile) o GeoPackage y crea N parcelas en una sola operación."
 };

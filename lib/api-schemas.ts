@@ -35,7 +35,20 @@ import { z } from "zod";
 // ============================================================
 
 export const errorResponseSchema = z.object({
-  error: z.string()
+  error: z.string(),
+  /**
+   * #32: los handlers con validación zod agregan `issues` (machine-readable,
+   * ver `formatZodIssues`); los handlers manuales devuelven solo `{ error }`.
+   * Este schema cubre ambos: `issues` es opcional.
+   */
+  issues: z
+    .array(
+      z.object({
+        path: z.array(z.union([z.string(), z.number()])),
+        message: z.string()
+      })
+    )
+    .optional()
 });
 export type ErrorResponse = z.infer<typeof errorResponseSchema>;
 
