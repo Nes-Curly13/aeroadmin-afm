@@ -240,13 +240,13 @@ export function ImportGisWizard() {
       ) : null}
 
       {phase === "done" ? (
-        <div className="flex flex-col gap-3 rounded-md border border-green-300 bg-green-50 p-4">
-          <div className="flex items-center gap-2 text-sm font-semibold text-green-900">
+        <div className="flex flex-col gap-3 rounded-md border border-chart-1/40 bg-chart-1/10 p-4">
+          <div className="flex items-center gap-2 text-sm font-semibold text-chart-1">
             <CheckCircle2 className="size-5" aria-hidden />
             {createdIds.length} parcela{createdIds.length === 1 ? "" : "s"} creada
             {createdIds.length === 1 ? "" : "s"} exitosamente
           </div>
-          <ul className="grid grid-cols-2 gap-1 text-xs text-green-800 sm:grid-cols-4">
+          <ul className="grid grid-cols-2 gap-1 text-xs text-chart-1/80 sm:grid-cols-4">
             {createdIds.map((c) => (
               <li key={c.id} className="font-mono">
                 #{c.id} — {c.land_name}
@@ -308,7 +308,7 @@ const UploadCard = forwardRef<HTMLInputElement, UploadCardProps>(function Upload
           <div>
             <p className="text-sm font-semibold">Subí un archivo GIS</p>
             <p className="text-xs text-muted-foreground">
-              KML · ZIP (shapefile) · GPKG — hasta 100 MB
+              KML · ZIP (archivo SIG) · GPKG — hasta 100 MB
             </p>
           </div>
           <Button
@@ -357,18 +357,18 @@ function PreviewTable({
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold">
-          Preview — {fileName}{" "}
+          Vista previa — {fileName}{" "}
           <span className="ml-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
             {preview.format}
           </span>
         </h3>
         <p className="text-xs text-muted-foreground">
-          Editá los nombres si querés. Click &quot;Crear N parcelas&quot; abajo para confirmar.
+          Editá los nombres si querés. Tocá «Crear N parcelas» abajo para confirmar.
         </p>
       </div>
 
       {preview.warnings.length > 0 ? (
-        <ul className="flex flex-col gap-1 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
+        <ul className="flex flex-col gap-1 rounded-md border border-chart-2/40 bg-chart-2/10 p-3 text-xs text-chart-2">
           {preview.warnings.map((w, i) => (
             <li key={i} className="flex items-start gap-1.5">
               <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
