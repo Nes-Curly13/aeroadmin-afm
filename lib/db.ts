@@ -46,11 +46,33 @@ function createPool() {
     throw new Error("DATABASE_URL is not configured.");
   }
 
+  // 2026-09-10 (issue #26): TLS a la BD con `rejectUnauthorized: true`
+  // por default. Supabase usa certs de Let's Encrypt (public CA),
+  // asi que verificarlos no rompe nada en prod.
+  //
+  // El unico caso donde se justifica `rejectUnauthorized: false` es
+  // dev local contra Postgres en Docker con self-signed cert. Para eso,
+  // `DATABASE_SSL_INSECURE=true` lo permite explicitamente (logged
+  // para que sea visible en operaciones).
+  const sslInsecure = process.env.DATABASE_SSL_INSECURE === "true";
+  let sslConfig: { rejectUnauthorized: boolean } | undefined;
+  if (useSsl) {
+    sslConfig = { rejectUnauthorized: !sslInsecure };
+    if (sslInsecure) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        "[db] DATABASE_SSL_INSECURE=true: TLS certificate verification DISABLED. " +
+          "Solo usar en dev local contra Postgres con self-signed cert. " +
+          "MITM posible en este modo."
+      );
+    }
+  }
+
   return new Pool({
     connectionString,
     max: 5,
     idleTimeoutMillis: 30_000,
-    ssl: useSsl ? { rejectUnauthorized: false } : undefined,
+    ssl: sslConfig,
     // (2026-08-04) Forzar client_encoding='UTF8' en el handshake inicial.
     // Sin esto, el driver `pg` puede leer strings como Latin-1 / WIN1252
     // y los caracteres con tilde se rompen al volver por JSON:

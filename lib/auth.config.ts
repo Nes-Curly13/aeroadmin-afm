@@ -148,21 +148,36 @@ export const authConfig: NextAuthConfig = {
       const { pathname } = request.nextUrl;
       const isLoggedIn = !!auth?.user;
 
+      // Rutas que NO requieren sesion (NextAuth handler, login page).
+      // Cualquier /api/* que NO este aca debe estar gateado por
+      // requireAuth/requireRole en su handler.
       const PUBLIC = [
         "/login",
-        "/api/auth", // NextAuth handler
-        "/api/health"
+        "/api/auth" // NextAuth handler (signin, signout, callback, session)
       ];
       if (PUBLIC.some((p) => pathname === p || pathname.startsWith(p + "/"))) {
         return true;
       }
 
-      // Los API routes hacen su propia auth (requireAuth/requireRole
-      // en el handler). Dejamos pasar al handler para que pueda
-      // implementar bypasses (e.g. Bearer token para el CLI del
-      // pipeline DJI). Si no hay sesion, el handler devuelve 401.
-      if (pathname.startsWith("/api/")) {
+      // /api/internal/* son endpoints token-gated (ej. print-map con
+      // INTERNAL_MAP_TOKEN). El handler valida el token; authorized
+      // deja pasar para que el handler pueda devolver su propio 401
+      // con un mensaje claro.
+      if (pathname.startsWith("/api/internal/")) {
         return true;
+      }
+
+      // 2026-09-10 (issue #25): deny-by-default para /api/*. Antes
+      // pasabamos TODOS los handlers y la seguridad dependia 100% de
+      // que cada handler llamara requireRole. Si un dev nuevo
+      // agregaba un handler y se olvidaba del requireRole, el
+      // endpoint quedaba publico silenciosamente. Ahora, authorized
+      // exige sesion; si el handler quiere exponer algo sin sesion,
+      // tiene que hacer su propia auth y devolver un NextResponse
+      // manualmente (NextAuth no bypasea el authorized, asi que el
+      // redirect a /login aplica).
+      if (pathname.startsWith("/api/")) {
+        return isLoggedIn;
       }
 
       if (!isLoggedIn) return false;

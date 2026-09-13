@@ -32,6 +32,7 @@ import { requireRole } from "@/lib/auth/role";
 import { searchFarms, createFarm } from "@/api/repositories";
 import { createFarmBodySchema, formatZodIssues } from "@/lib/api-schemas";
 import type { CreateFarmBody } from "@/lib/api-schemas";
+import { clientSafeErrorMessage } from "@/lib/api-error";
 
 export async function GET(request: NextRequest) {
   try {
@@ -54,11 +55,16 @@ export async function GET(request: NextRequest) {
     });
     return NextResponse.json({ farms });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "error desconocido";
-    return NextResponse.json(
-      { error: "error interno", detail: message },
-      { status: 500 }
+    // 2026-09-10 (issue #28): NO filtrar `err.message` al cliente. pg
+    // errors pueden leakear nombres de constraints/tables. El
+    // helper loguea el error completo server-side y devuelve un
+    // mensaje generico al cliente.
+    const message = clientSafeErrorMessage(
+      err,
+      "error interno al procesar la operacion",
+      "POST /api/admin/farms"
     );
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
@@ -107,11 +113,13 @@ export async function POST(request: NextRequest) {
         { status: 409 }
       );
     }
-    const message = err instanceof Error ? err.message : "error desconocido";
-    return NextResponse.json(
-      { error: "error interno", detail: message },
-      { status: 500 }
+    // 2026-09-10 (issue #28): sanitizar el resto de errores de pg.
+    const message = clientSafeErrorMessage(
+      err,
+      "error interno al crear la farm",
+      "POST /api/admin/farms"
     );
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
