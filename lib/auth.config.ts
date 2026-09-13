@@ -56,7 +56,15 @@ export const authConfig: NextAuthConfig = {
     strategy: "jwt",
     maxAge: 60 * 60 * 12
   },
-  trustHost: true,
+  // 2026-09-13 (MT-01, #33): trustHost condicional. true incondicional
+  // habilita host-header injection si se despliega fuera de un proxy
+  // de confianza. En Vercel es necesario (`VERCEL` env). Self-host en
+  // prod sin proxy: setear `AUTH_TRUST_HOST=true`. Dev (NODE_ENV!=production):
+  // tambien true para no romper localhost.
+  trustHost:
+    process.env.AUTH_TRUST_HOST === "true" ||
+    Boolean(process.env.VERCEL) ||
+    process.env.NODE_ENV !== "production",
   pages: {
     signIn: "/login",
     error: "/login"
