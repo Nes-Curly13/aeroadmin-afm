@@ -34,6 +34,26 @@ const { Client } = require("pg");
 
 const REFRESH_LOG_PREFIX = "[refresh-fumigations]";
 
+/**
+ * Carga `.env.local` si existe (para poder correr el script localmente).
+ * En GitHub Actions las env vars ya vienen seteadas por secrets, así que
+ * esto es un no-op (no pisa lo que ya está).
+ */
+function loadLocalEnv() {
+  const fs = require("fs");
+  const path = require("path");
+  const envPath = path.join(process.cwd(), ".env.local");
+  if (!fs.existsSync(envPath)) return;
+  for (const line of fs.readFileSync(envPath, "utf8").split(/\r?\n/)) {
+    const t = line.trim();
+    if (!t || t.startsWith("#")) continue;
+    const i = t.indexOf("=");
+    if (i < 0) continue;
+    const k = t.slice(0, i).trim();
+    if (k && process.env[k] === undefined) process.env[k] = t.slice(i + 1).trim();
+  }
+}
+
 function log(level, msg) {
   const ts = new Date().toISOString();
   console.log(`${ts} ${REFRESH_LOG_PREFIX} ${level} ${msg}`);
@@ -103,7 +123,7 @@ async function refreshScheduleCadence(client) {
       COUNT(*) FILTER (WHERE last_fumigation_date IS NOT NULL)::int AS with_last,
       COUNT(*) FILTER (WHERE next_due_date IS NOT NULL)::int AS with_next
     FROM dji_fumigation_schedule
-    WHERE deleted_at IS NULL AND is_active = TRUE
+    WHERE is_active = TRUE
   `);
   log(
     "info",
@@ -135,7 +155,6 @@ async function refreshScheduleCadence(client) {
            updated_at = NOW()
       FROM latest_fum lf
      WHERE s.parcel_id = lf.parcel_id
-       AND s.deleted_at IS NULL
        AND s.is_active = TRUE
        AND (s.last_fumigation_date IS DISTINCT FROM lf.last_fumigation_date)
   `);
@@ -148,8 +167,7 @@ async function refreshScheduleCadence(client) {
              ELSE s.last_fumigation_date + (s.recommended_cadence_days || ' days')::interval
            END,
            updated_at = NOW()
-     WHERE s.deleted_at IS NULL
-       AND s.is_active = TRUE
+     WHERE s.is_active = TRUE
        AND s.last_fumigation_date IS NOT NULL
        AND s.recommended_cadence_days IS NOT NULL
        AND s.recommended_cadence_days > 0
@@ -160,7 +178,7 @@ async function refreshScheduleCadence(client) {
       COUNT(*) FILTER (WHERE last_fumigation_date IS NOT NULL)::int AS with_last,
       COUNT(*) FILTER (WHERE next_due_date IS NOT NULL)::int AS with_next
     FROM dji_fumigation_schedule
-    WHERE deleted_at IS NULL AND is_active = TRUE
+    WHERE is_active = TRUE
   `);
   log(
     "info",
@@ -171,6 +189,7 @@ async function refreshScheduleCadence(client) {
 
 async function main() {
   log("info", "iniciando refresh semanal de fumigaciones");
+  loadLocalEnv();
   const dbUrl = pickDatabaseUrl();
   const ssl =
     (process.env.DATABASE_SSL || "true").toLowerCase() === "true";
