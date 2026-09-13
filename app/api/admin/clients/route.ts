@@ -36,6 +36,7 @@ import { requireRole } from "@/lib/auth/role";
 import { searchClients, createClient } from "@/api/repositories";
 import { createClientBodySchema, formatZodIssues } from "@/lib/api-schemas";
 import type { CreateClientBody } from "@/lib/api-schemas";
+import { clientSafeErrorMessage } from "@/lib/api-error";
 
 export async function GET(request: NextRequest) {
   // Gate: solo admin puede listar clientes
@@ -54,11 +55,13 @@ export async function GET(request: NextRequest) {
     const clients = await searchClients(q, limit);
     return NextResponse.json({ clients });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "error desconocido";
-    return NextResponse.json(
-      { error: "error interno", detail: message },
-      { status: 500 }
+    // 2026-09-10 (issue #28): NO filtrar `err.message` al cliente.
+    const message = clientSafeErrorMessage(
+      err,
+      "error al listar clientes",
+      "GET /api/admin/clients"
     );
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
@@ -107,11 +110,13 @@ export async function POST(request: NextRequest) {
         { status: 409 }
       );
     }
-    const message = err instanceof Error ? err.message : "error desconocido";
-    return NextResponse.json(
-      { error: "error interno", detail: message },
-      { status: 500 }
+    // 2026-09-10 (issue #28): sanitizar el resto de errores de pg.
+    const message = clientSafeErrorMessage(
+      err,
+      "error al crear el cliente",
+      "POST /api/admin/clients"
     );
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 

@@ -25,6 +25,7 @@ import { requireRole } from "@/lib/auth/role";
 import { slugFilename } from "@/lib/csv";
 import { buildFlightsReportCsv } from "@/lib/reports/flights-csv";
 import { fetchFlightsReportData } from "@/lib/reports/fetch-flights-report-data";
+import { clientSafeErrorMessage } from "@/lib/api-error";
 
 export const dynamic = "force-dynamic";
 
@@ -103,9 +104,12 @@ export async function GET(req: Request) {
       includeDefaultTeam
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "error al cargar datos";
-    // eslint-disable-next-line no-console
-    console.error(`[report.flights.csv] fetchFlightsReportData failed:`, err);
+    // 2026-09-10 (issue #28): NO filtrar `err.message` al cliente.
+    const message = clientSafeErrorMessage(
+      err,
+      "error al cargar datos de vuelos",
+      "GET /api/admin/reports/flights/export.csv"
+    );
     return NextResponse.json({ error: message }, { status: 500 });
   }
 

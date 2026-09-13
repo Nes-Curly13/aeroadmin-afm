@@ -23,6 +23,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireRole } from "@/lib/auth/role";
 import { backfillCyclesFromFumigations } from "@/api/repositories";
+import { clientSafeErrorMessage } from "@/lib/api-error";
 
 export const dynamic = "force-dynamic";
 
@@ -65,11 +66,13 @@ export async function POST(request: NextRequest) {
       message: `Backfill completo. ${result.cycles_created} ciclos nuevos marcados como needs_review. Operator debe ir a /admin/parcels y revisar.`
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "error desconocido";
-    return NextResponse.json(
-      { error: "error interno", detail: message },
-      { status: 500 }
+    // 2026-09-10 (issue #28): NO filtrar `err.message` al cliente.
+    const message = clientSafeErrorMessage(
+      err,
+      "error al ejecutar el backfill",
+      "POST /api/admin/cycles/backfill"
     );
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 

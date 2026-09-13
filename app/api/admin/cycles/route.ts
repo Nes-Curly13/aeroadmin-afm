@@ -25,6 +25,7 @@ import {
   createCycle,
   backfillCyclesFromFumigations
 } from "@/api/repositories";
+import { clientSafeErrorMessage } from "@/lib/api-error";
 
 export const dynamic = "force-dynamic";
 
@@ -49,11 +50,13 @@ export async function GET(request: NextRequest) {
     const cycles = await listCyclesForParcel(parcelaId);
     return NextResponse.json({ cycles });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "error desconocido";
-    return NextResponse.json(
-      { error: "error interno", detail: message },
-      { status: 500 }
+    // 2026-09-10 (issue #28): NO filtrar `err.message` al cliente.
+    const message = clientSafeErrorMessage(
+      err,
+      "error al listar ciclos",
+      "GET /api/admin/cycles"
     );
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
@@ -132,11 +135,13 @@ export async function POST(request: NextRequest) {
         );
       }
     }
-    const message = err instanceof Error ? err.message : "error desconocido";
-    return NextResponse.json(
-      { error: "error interno", detail: message },
-      { status: 500 }
+    // 2026-09-10 (issue #28): sanitizar el resto de errores de pg.
+    const message = clientSafeErrorMessage(
+      err,
+      "error al crear el ciclo",
+      "POST /api/admin/cycles"
     );
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 

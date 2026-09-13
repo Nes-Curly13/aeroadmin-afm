@@ -20,6 +20,7 @@ import {
   findDjiVehicleByPlate,
   searchDjiVehicles
 } from "@/api/repositories";
+import { clientSafeErrorMessage } from "@/lib/api-error";
 
 export const dynamic = "force-dynamic";
 
@@ -53,7 +54,12 @@ export async function GET(req: Request) {
     const vehicles = await searchDjiVehicles(search, limit);
     return NextResponse.json({ vehicles });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "error desconocido";
+    // 2026-09-10 (issue #28): NO filtrar `err.message` al cliente.
+    const message = clientSafeErrorMessage(
+      err,
+      "error al listar vehículos",
+      "GET /api/admin/dji-vehicles"
+    );
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
@@ -144,7 +150,12 @@ export async function POST(req: Request) {
     });
     return NextResponse.json({ vehicle: created }, { status: 201 });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "error desconocido";
+    // 2026-09-10 (issue #28): NO filtrar `err.message` al cliente.
+    const message = clientSafeErrorMessage(
+      err,
+      "error al crear el vehículo",
+      "POST /api/admin/dji-vehicles"
+    );
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

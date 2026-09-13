@@ -26,6 +26,7 @@ import { fetchFarmsReportData } from "@/lib/reports/fetch-farms-report-data";
 import { buildFarmsReportHtml } from "@/lib/reports/farms-pdf-template";
 import { renderHtmlToPdf } from "@/lib/reports/render-pdf";
 import { slugFilename } from "@/lib/csv";
+import { clientSafeErrorMessage } from "@/lib/api-error";
 
 export const dynamic = "force-dynamic";
 
@@ -80,9 +81,12 @@ export async function GET(req: Request) {
   try {
     data = await fetchFarmsReportData({ from, to, farmName });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "error al cargar datos";
-    // eslint-disable-next-line no-console
-    console.error(`[report.farms.pdf] fetchFarmsReportData failed:`, err);
+    // 2026-09-10 (issue #28): NO filtrar `err.message` al cliente.
+    const message = clientSafeErrorMessage(
+      err,
+      "error al cargar datos del reporte",
+      "GET /api/admin/reports/farms/report.pdf"
+    );
     return NextResponse.json({ error: message }, { status: 500 });
   }
 

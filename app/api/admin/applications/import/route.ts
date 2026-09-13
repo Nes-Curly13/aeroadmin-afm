@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/role";
 import { auth } from "@/lib/auth";
 import { importApplications as importFn } from "../../../../../scripts/import-applications-from-excel.js";
+import { clientSafeErrorMessage } from "@/lib/api-error";
 
 interface ImportOptionsInput {
   xlsxPath?: string;
@@ -82,7 +83,12 @@ export async function POST(req: NextRequest) {
     }
     return NextResponse.json({ ok: true, dryRun: opts.dryRun, logs });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    // 2026-09-10 (issue #28): NO filtrar `err.message` al cliente.
+    const message = clientSafeErrorMessage(
+      err,
+      "error al importar aplicaciones",
+      "POST /api/admin/applications/import"
+    );
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }

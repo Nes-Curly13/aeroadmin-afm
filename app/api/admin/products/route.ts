@@ -18,6 +18,7 @@ import {
   searchDjiProducts
 } from "@/api/repositories";
 import type { ProductCategory } from "@/lib/types";
+import { clientSafeErrorMessage } from "@/lib/api-error";
 
 export const dynamic = "force-dynamic";
 
@@ -53,7 +54,12 @@ export async function GET(req: Request) {
     const products = await searchDjiProducts(search, limit);
     return NextResponse.json({ products });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "error desconocido";
+    // 2026-09-10 (issue #28): NO filtrar `err.message` al cliente.
+    const message = clientSafeErrorMessage(
+      err,
+      "error al listar productos",
+      "GET /api/admin/products"
+    );
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
@@ -179,7 +185,12 @@ export async function POST(req: Request) {
     });
     return NextResponse.json({ product: created }, { status: 201 });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "error desconocido";
+    // 2026-09-10 (issue #28): NO filtrar `err.message` al cliente.
+    const message = clientSafeErrorMessage(
+      err,
+      "error al crear el producto",
+      "POST /api/admin/products"
+    );
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
