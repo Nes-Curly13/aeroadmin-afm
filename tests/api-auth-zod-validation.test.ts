@@ -27,7 +27,12 @@ vi.mock("@/lib/db", () => ({
 
 const mockRequireRole = vi.fn();
 vi.mock("@/lib/auth/role", () => ({
-  requireRole: (...args: unknown[]) => mockRequireRole(...args)
+  // MT-02 (#27): cycles/backfill y los demas endpoints gated usan
+  // requireFreshRole. En los tests delegamos al mismo mock para
+  // mantener el comportamiento de auth failure que ya cubrian los
+  // tests existentes.
+  requireRole: (...args: unknown[]) => mockRequireRole(...args),
+  requireFreshRole: (...args: unknown[]) => mockRequireRole(...args)
 }));
 
 // Importar handlers DESPUÉS de los mocks para que tomen los mocks

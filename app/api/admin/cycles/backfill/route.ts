@@ -21,7 +21,7 @@
  */
 
 import { NextResponse, type NextRequest } from "next/server";
-import { requireRole } from "@/lib/auth/role";
+import { requireFreshRole } from "@/lib/auth/role";
 import { backfillCyclesFromFumigations } from "@/api/repositories";
 import { clientSafeErrorMessage } from "@/lib/api-error";
 
@@ -29,7 +29,10 @@ export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
   try {
-    await requireRole("admin");
+    // MT-02 (#27): requireFreshRole valida JWT + BD re-validada para
+    // que un rol degradado en app_users (TTL JWT 12h) no mantenga
+    // acceso al backfill de ciclos productivos.
+    await requireFreshRole("admin");
   } catch (err) {
     return authErrorToResponse(err);
   }

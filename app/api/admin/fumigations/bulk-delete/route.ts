@@ -25,7 +25,7 @@
  */
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { requireRole } from "@/lib/auth/role";
+import { requireFreshRole } from "@/lib/auth/role";
 import {
   bulkSoftDeleteFumigations,
   insertFumigationAuditEvent
@@ -42,8 +42,11 @@ interface BulkDeleteBody {
 
 export async function POST(req: Request) {
   // 1) Auth: admin o supervisor.
+  //    MT-02 (#27): requireFreshRole re-valida contra BD para que un
+  //    rol degradado en app_users no mantenga permiso de soft-delete
+  //    masivo (TTL JWT 12h).
   try {
-    await requireRole(["admin", "supervisor"]);
+    await requireFreshRole(["admin", "supervisor"]);
   } catch (err) {
     const e = err as { code?: string; message?: string };
     if (e.code === "UNAUTHENTICATED") {

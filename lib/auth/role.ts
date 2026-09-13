@@ -187,3 +187,73 @@ export async function requireRole(
     throw err;
   }
 }
+
+/**
+ * Guard "doble check" para endpoints DESTRUCTIVOS donde un rol degradado
+ * en BD no debe seguir teniendo permisos hasta el refresh del JWT
+ * (TTL ~12h). Ver issue #27.
+ *
+ * Diferencia con `requireRole`:
+ *   - `requireRole`: solo JWT. Un rol degradado en BD sigue autorizado
+ *     hasta que el JWT venza o el usuario se re-logee.
+ *   - `requireFreshRole`: JWT + BD re-validada. Si difieren → 403
+ *     inmediato, sin esperar al TTL.
+ *
+ * Flujo:
+ *   1) `requireRole(required)` — fast fail para no-admins (sin BD hit).
+ *   2) `getCurrentUserRole()` — SELECT por email en app_users.
+ *      - Si la BD devuelve un rol que NO matchea required → FORBIDDEN
+ *        "rol degradado en BD". El usuario debe renovar sesion o el
+ *        operador debe revertir el cambio de rol.
+ *      - Si la BD falla o el email no existe en app_users
+ *        (fresh === null) → cae al rol del JWT + log warning a stderr.
+ *        Razon: si la BD esta caida, preferimos denegar el servicio
+ *        operativo a bloquear acciones que el usuario ya autorizo al
+ *        loguearse. requireRole ya paso → no estamos authorizing un
+ *        anonimo. El endpoint sigue siendo destructivo pero el
+ *        fail-open aqui es aceptable.
+ *
+ * Trade-off explicito (MT-02): la consulta extra es 1 SELECT PK por
+ * email, <2ms con el indice de email de app_users. Sin cache por el
+ * mismo argumento que `getCurrentUserRole` (cache complica la
+ * invalidacion y el costo del SELECT no lo justifica).
+ *
+ * Aplicado en MT-02 (#27):
+ *   - POST /api/admin/cycles/backfill (cambia ciclos productivos)
+ *   - POST /api/admin/fumigations/bulk-delete (soft-delete masivo)
+ */
+export async function requireFreshRole(
+  required: AppRole | readonly AppRole[]
+): Promise<void> {
+  // 1) JWT check — fast fail para no-admins, sin BD hit.
+  await requireRole(required);
+
+  // 2) Re-validar contra BD (truth fresh).
+  const fresh = await getCurrentUserRole();
+
+  if (fresh && !hasRole(fresh, required)) {
+    // BD dice "rol degradado" → JWT stale → 403.
+    // El operador fumigador puede haber sido bajado de admin a
+    // supervisor por un incidente; no debe poder seguir borrando
+    // fumigaciones o re-corriendo backfills con su JWT viejo.
+    const err = new Error("rol degradado en BD") as Error & {
+      code?: string;
+      status?: number;
+    };
+    err.code = "FORBIDDEN";
+    err.status = 403;
+    throw err;
+  }
+
+  // 3) BD devolvio null (BD caida O email sin fila en app_users).
+  //    requireRole ya valido JWT → caller autenticado.
+  //    Fallback al JWT + warning. Fail-open aceptable para no
+  //    romper operacion durante incidentes de BD.
+  if (fresh === null) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      "[requireFreshRole] BD no devolvio rol, fallback al JWT. " +
+        "Posible BD caida o sesion sin fila en app_users."
+    );
+  }
+}

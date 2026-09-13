@@ -21,7 +21,11 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 // Mocks
 const mockRequireRole = vi.fn();
 vi.mock("@/lib/auth/role", () => ({
-  requireRole: (...args: unknown[]) => mockRequireRole(...args)
+  // MT-02 (#27): bulk-delete usa requireFreshRole; en los tests
+  // delegamos al mismo mock para mantener el comportamiento de
+  // auth failure que ya cubrian los tests existentes.
+  requireRole: (...args: unknown[]) => mockRequireRole(...args),
+  requireFreshRole: (...args: unknown[]) => mockRequireRole(...args)
 }));
 
 const mockAuth = vi.fn();
