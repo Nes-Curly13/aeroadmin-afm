@@ -50,6 +50,11 @@ docs/v0-2026-07-28/
 # Output de un script, no se commitea.
 public/polygon-preview.html
 
+# Auditoría 2026-09-10 (#46): assets de MapLibre copiados desde
+# node_modules por `scripts/copy-maplibre-assets.js` (predev/prebuild)
+# para servir el mapa del PDF same-origin. Artefacto derivado.
+public/maplibre/
+
 # s8.8 (2026-07-31): scripts de diagnostico one-shot (no operacionales).
 # Se conservan en el repo local para referencia pero no se commitean.
 scripts/align-docker-*.js

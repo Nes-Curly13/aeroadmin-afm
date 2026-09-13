@@ -47,6 +47,14 @@ export const config = {
    * Matcher: todo excepto assets estaticos y Next.js internals.
    * Dejamos `/login` y `/api/auth/*` pasar — el `authorized` callback
    * se encarga de aceptar/rechazar.
+   *
+   * Auditoría 2026-09-10 (#47): agregamos las extensiones de assets
+   * (`svg/png/.../woff`) al exclude. Antes, un asset de `/public` como
+   * `/afm-logo.svg` (o el favicon) pasaba por `authorized`; sin sesión
+   * (ej. en la pantalla de login) se redirigía a `/login` y el asset
+   * fallaba. Los assets de `/public` no son sensibles, no necesitan gate.
    */
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|public|api/auth).*)"]
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|api/auth|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|map|woff2?|ttf|otf|txt|xml|webmanifest)$).*)"
+  ]
 };

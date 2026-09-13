@@ -120,7 +120,7 @@ export async function GET(req: Request, ctx: RouteContext) {
 <head>
   <meta charset="utf-8" />
   <title>Mapa — ${escapeHtml(landName)}</title>
-  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
+  <link rel="stylesheet" href="/maplibre/maplibre-gl.css" />
   <style>
     html, body { margin: 0; padding: 0; width: 800px; height: 600px; overflow: hidden; background: #1c2a23; }
     #map { position: absolute; inset: 0; }
@@ -129,7 +129,7 @@ export async function GET(req: Request, ctx: RouteContext) {
 </head>
 <body>
   <div id="map"></div>
-  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <script src="/maplibre/maplibre-gl.js"></script>
   <script>
     (async function () {
       const map = new maplibregl.Map({

@@ -20,7 +20,7 @@ export function HealthPanel({ health, batches }: { health: DjiAgHealth; batches:
           <Activity className="size-4 text-primary" aria-hidden />
           Salud del pipeline DJI AG
         </CardTitle>
-        <CardDescription>djiag_health + últimos lotes de dji_import_batches</CardDescription>
+        <CardDescription>Estado del scraper y últimos lotes importados</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <div className="flex items-center gap-3 rounded-md border border-border bg-muted/50 p-3">

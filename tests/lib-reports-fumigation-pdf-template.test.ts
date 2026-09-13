@@ -397,7 +397,7 @@ describe("buildFumigationPdfHtml", () => {
           fumigation: makeFumigation({ source: "djiscraper" })
         })
       );
-      expect(html).toMatch(/No hay vuelos asociados en dji_flights/);
+      expect(html).toMatch(/No hay vuelos asociados para esta fumigación/);
     });
 
     it("muestra '—' en celdas de la tabla cuando pilot_name / drone_nickname son null", () => {

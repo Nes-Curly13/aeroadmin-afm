@@ -3,6 +3,7 @@ import { requireRole } from "@/lib/auth/role";
 import { auth } from "@/lib/auth";
 import { importApplications as importFn } from "../../../../../scripts/import-applications-from-excel.js";
 import { clientSafeErrorMessage } from "@/lib/api-error";
+import { withLogCapture } from "@/lib/log-capture";
 
 interface ImportOptionsInput {
   xlsxPath?: string;
@@ -70,17 +71,11 @@ export async function POST(req: NextRequest) {
   };
 
   try {
-    // Capturar stdout del script para devolver al cliente
-    const originalLog = console.log;
-    const logs: string[] = [];
-    console.log = (...args: unknown[]) => {
-      logs.push(args.map(a => String(a)).join(" "));
-    };
-    try {
-      await importFn(opts as Parameters<typeof importFn>[0]);
-    } finally {
-      console.log = originalLog;
-    }
+    // Captura de logs scoped por request (AsyncLocalStorage) en vez de
+    // monkey-patch global de console.log — ver auditoría #56.
+    const { logs } = await withLogCapture(() =>
+      importFn(opts as Parameters<typeof importFn>[0])
+    );
     return NextResponse.json({ ok: true, dryRun: opts.dryRun, logs });
   } catch (err) {
     // 2026-09-10 (issue #28): NO filtrar `err.message` al cliente.

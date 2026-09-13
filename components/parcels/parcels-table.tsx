@@ -276,7 +276,7 @@ export function ParcelsTable({
                           title={
                             r.cyclePhase
                               ? `Fase del cultivo: ${phaseLabel(r.cyclePhase)}`
-                              : "Fase desconocida (faltan planting_date / cycle_phase en dji_parcels)"
+                              : "Fase desconocida (faltan datos de siembra y fase de la parcela)"
                           }
                         >
                           {`Fase: ${phaseLabel(r.cyclePhase)}`}
@@ -297,7 +297,7 @@ export function ParcelsTable({
           </table>
         </div>
       </div>
-      <p className="font-mono text-[11px] text-muted-foreground">{`${filtered.length} de ${rows.length} parcelas · dji_parcels ⋈ dji_fumigation_schedule ⋈ dji_fumigations`}</p>
+      <p className="font-mono text-[11px] text-muted-foreground">{`${filtered.length} de ${rows.length} parcelas`}</p>
     </section>
   )
 }

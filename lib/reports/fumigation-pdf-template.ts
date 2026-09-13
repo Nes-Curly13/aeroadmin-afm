@@ -143,7 +143,7 @@ export function buildFumigationPdfHtml(data: FumigationReportData): string {
   <h2>${data.flights.length > 0 ? `Vuelos asociados (${data.flights.length})` : "Vuelos asociados"}</h2>
   ${
     data.flights.length === 0
-      ? `<p class="empty">${f.source === "manual" ? "Fumigación manual — sin vuelos asociados (es normal)." : "No hay vuelos asociados en dji_flights."}</p>`
+      ? `<p class="empty">${f.source === "manual" ? "Fumigación manual — sin vuelos asociados (es normal)." : "No hay vuelos asociados para esta fumigación."}</p>`
       : `<table>
           <thead>
             <tr>

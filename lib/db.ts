@@ -72,6 +72,14 @@ function createPool() {
     connectionString,
     max: 5,
     idleTimeoutMillis: 30_000,
+    // Auditoría 2026-09-10 (#44): sin timeouts, una query colgada bloquea
+    // un slot del pool (max 5) y, en Vercel, la función corre hasta el
+    // límite de la plataforma. `connectionTimeoutMillis` evita esperar
+    // una conexión indefinidamente; `statement_timeout` corta queries
+    // lentas en el server; `query_timeout` corta en el cliente.
+    connectionTimeoutMillis: 10_000,
+    statement_timeout: 15_000,
+    query_timeout: 15_000,
     ssl: sslConfig,
     // (2026-08-04) Forzar client_encoding='UTF8' en el handshake inicial.
     // Sin esto, el driver `pg` puede leer strings como Latin-1 / WIN1252

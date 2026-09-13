@@ -34,11 +34,11 @@ describe("next.config — redirects del Fase 8 (fumigación URL consistency)", (
     expect(r?.permanent).toBe(true);
   });
 
-  it("preserva el redirect legacy /history → /task-history (no regresión)", async () => {
+  it("redirige el legacy /history → /fumigaciones (la ruta /task-history ya no existe)", async () => {
     const redirects = await getRedirects();
     const r = redirects.find((x) => x.source === "/history");
     expect(r).toBeDefined();
-    expect(r?.destination).toBe("/task-history");
+    expect(r?.destination).toBe("/fumigaciones");
     expect(r?.permanent).toBe(true);
   });
 });

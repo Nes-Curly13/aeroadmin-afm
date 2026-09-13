@@ -104,11 +104,16 @@ const nextConfig: NextConfig = {
     contentDispositionType: "attachment",
     contentSecurityPolicy: "default-src 'self'; script-src 'none'; sandbox;"
   },
-  // Q1 (2026-07-19, audit §4.2): el sidebar item "HISTORIAL" apunta a
-  // /task-history (Figma B) pero /history (legacy) seguía accesible
+  // Q1 (2026-07-19, audit §4.2): el sidebar item "HISTORIAL" apuntaba a
+  // /task-history (Figma B) mientras /history (legacy) seguía accesible
   // → doble entry point confuso. Redirect permanente para que cualquier
-  // URL externa (bookmarks, links viejos, scrapers) aterrice en la
-  // vista canónica sin perder SEO del histórico.
+  // URL externa (bookmarks, links viejos, scrapers) aterrice en una vista
+  // canónica sin perder SEO del histórico.
+  //
+  // Auditoría 2026-09-10 (#45): el redirect original apuntaba a
+  // `/task-history`, una ruta que YA NO EXISTE (se removió en el refactor
+  // V2; el histórico de fumigaciones vive en `/fumigaciones`). Ese redirect
+  // caía en 404. Ahora apunta a `/fumigaciones`.
   //
   // Fase 8 (2026-09-08): unificación de URL del detail de fumigación.
   // Antes: `/fumigacion/[id]` (singular, inconsistente con el recurso
@@ -121,7 +126,7 @@ const nextConfig: NextConfig = {
     return [
       {
         source: "/history",
-        destination: "/task-history",
+        destination: "/fumigaciones",
         permanent: true
       },
       {

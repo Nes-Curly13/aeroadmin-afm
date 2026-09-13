@@ -290,25 +290,22 @@ export interface DjiFumigationEvent {
    */
   invoices?: FumigationInvoice[] | null;
   /**
-   * Sprint G2 — array de dji_flights.id que originaron esta fumigación
-   * del import. NULL o undefined para fumigaciones manuales o
-   * pre-Sprint-G2. Lo popula `scripts/backfill-fumigations-from-
-   * flights.js` (commit `eb7924b`). Usado por la sección de
-   * Trazabilidad del UI.
+   * Sprint G2 — array de `dji_flights.flight_id` (ID externo de DJI, no
+   * el PK interno) que originaron esta fumigación del import. NULL o
+   * undefined para fumigaciones manuales o pre-Sprint-G2. Lo popula
+   * `lib/backfill/fumigations-from-flights.ts`. Usado por la sección de
+   * Trazabilidad del UI y para calcular el centroide (JOIN por flight_id).
    */
   flight_ids?: number[] | null;
   /**
    * Sprint S7 / Fase 1 (PR-B) — placa del vehículo usado en esta
-   * fumigación, persistida en `dji_fumigations.notes->>vehicle_plate`
-   * (jsonb). Es un campo DERIVADO (no vive en una columna propia) —
-   * la fumigación NO tiene FK directa a `dji_vehicles` porque el
-   * vehicle es per-flight en el modelo de datos. Workaround temporal:
-   * la placa queda accesible en `notes` para el form de fumigación
-   * sin tocar el modelo.
-   *
-   * El Picker (`VehiclePicker`) sugiere desde `dji_vehicles` y crea
-   * on-the-fly si la placa no existe. El PATCH/POST lo guarda con
-   * `jsonb_set(notes, '{vehicle_plate}', $1)`.
+   * fumigación, persistida en la columna propia
+   * `dji_fumigations.vehicle_plate VARCHAR(12)` (migration
+   * `20260824000001_add_fumigation_vehicle_plate.sql`). La fumigación NO
+   * tiene FK directa a `dji_vehicles` a propósito: la placa es
+   * referencial (puede haber fumigaciones con placas fuera del catálogo
+   * o dadas de baja). El `VehiclePicker` sugiere desde `dji_vehicles` y
+   * crea al instante si no existe.
    */
   vehicle_plate?: string | null;
   /**
