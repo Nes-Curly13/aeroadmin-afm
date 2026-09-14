@@ -25,10 +25,10 @@ export interface ReportsFormProps {
   };
   /** Lista de haciendas distintas (para el dropdown). */
   farmOptions: FarmsOption[];
-  /** URL para el botón PDF (preserva los filtros en query string). */
-  pdfHref: string;
-  /** URL para el botón CSV. */
-  csvHref: string;
+  /** URL para el botón PDF (preserva los filtros en query string). null = sin permiso (botón disabled con tooltip). */
+  pdfHref: string | null;
+  /** URL para el botón CSV. null = sin permiso. */
+  csvHref: string | null;
   /**
    * Sprint S9.2 (2026-08-29) — feature/s9-2-reports-date-range.
    * URLs precomputadas por la página para cada preset de rango
@@ -171,12 +171,22 @@ export function ReportsForm({
 
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-xs text-muted-foreground">Descargar:</span>
+        {/* UI-P0-4: cuando el href es null (supervisor), el botón se
+            renderiza disabled con tooltip explicativo en vez de un
+            <a href=""> que recargaba la página sin descargar nada. */}
         <Button
           size="sm"
           variant="outline"
+          disabled={pdfHref === null}
           nativeButton={false}
           render={
-            <a href={pdfHref} download aria-label="Descargar reporte PDF">
+            <a
+              href={pdfHref ?? "#"}
+              download={pdfHref !== null}
+              aria-label="Descargar reporte PDF"
+              aria-disabled={pdfHref === null}
+              title={pdfHref === null ? "Solo disponible para administradores" : undefined}
+            >
               <FileText className="size-3.5" aria-hidden />
               PDF
             </a>
@@ -185,9 +195,16 @@ export function ReportsForm({
         <Button
           size="sm"
           variant="outline"
+          disabled={csvHref === null}
           nativeButton={false}
           render={
-            <a href={csvHref} download aria-label="Descargar reporte CSV">
+            <a
+              href={csvHref ?? "#"}
+              download={csvHref !== null}
+              aria-label="Descargar reporte CSV"
+              aria-disabled={csvHref === null}
+              title={csvHref === null ? "Solo disponible para administradores" : undefined}
+            >
               <FileSpreadsheet className="size-3.5" aria-hidden />
               CSV
             </a>

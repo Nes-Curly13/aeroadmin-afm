@@ -106,15 +106,15 @@ export default async function ReportesPage({ searchParams }: ReportsPageProps) {
   // URLs para los botones de download (preservan los filtros).
   const queryString = new URLSearchParams({ from, to });
   if (farm) queryString.set("farm", farm);
-  // Supervisor: vacío para no disparar /api/admin/* (403). El botón
-  // sigue visible dentro de ReportsForm pero el href no-op. Gate
-  // visual completo requiere cambio a ReportsForm (out of scope).
+  // UI-P0-4: el supervisor antes recibia href="" -> <a href=""> recargaba
+  // la pagina sin descargar nada. Cambiamos a null para que el Form lo
+  // renderice disabled con tooltip "Solo disponible para administradores".
   const pdfHref = isAdmin
     ? `/api/admin/reports/farms/report.pdf?${queryString.toString()}`
-    : "";
+    : null;
   const csvHref = isAdmin
     ? `/api/admin/reports/farms/report.csv?${queryString.toString()}`
-    : "";
+    : null;
 
   // URLs para los presets de rango rápido. Preservan el filtro
   // `farm` si está activo (ej. "últimos 7d en El Limar").
