@@ -35,6 +35,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  AlertTriangle,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -345,7 +346,9 @@ export function NewFumigationPageClient({
                       data-testid="form-validation-error"
                       className="mb-4 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
                     >
-                      <span aria-hidden>⚠️</span>
+                      {/* UI-09: reemplazar emoji ⚠️ por AlertTriangle de lucide
+                          (consistente con el resto del design system). */}
+                      <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
                       <div>
                         <strong>Revisá el formulario antes de continuar:</strong>{" "}
                         {formValidationError}
@@ -772,7 +775,18 @@ function ConfirmStep({ formData, onBack, onConfirm }: ConfirmStepProps) {
               }
             />
             <SummaryRow label="Dosis" value={dose ? `${dose} L/ha` : "—"} />
-            <SummaryRow label="Área fumigada" value={area ? `${area} m²` : "—"} />
+            {/* UI-09: mostrar el area en hectareas (consistente con el
+                resto de la UI que usa ha). area viene en m²; conversion
+                inline (area / 10000). Si area es null/undefined/0,
+                fallback "—". */}
+            <SummaryRow
+              label="Área fumigada"
+              value={
+                area && Number(area) > 0
+                  ? `${(Number(area) / 10000).toFixed(2)} ha`
+                  : "—"
+              }
+            />
             <SummaryRow
               label="Duración"
               value={duration ? `${duration} min` : "—"}
