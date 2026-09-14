@@ -1,7 +1,6 @@
 import { Droplets, Map as MapIcon, Plane, Sprout } from "lucide-react"
 import Link from "next/link"
 import { Suspense } from "react"
-import { HealthPanel } from "@/components/dashboard/health-panel"
 import { KpiCard } from "@/components/dashboard/kpi-card"
 import { type MonthlyBar, MonthlyChart } from "@/components/dashboard/monthly-chart"
 import { PlanningPanel } from "@/components/dashboard/planning-panel"
@@ -17,8 +16,6 @@ import {
   getFlights,
   getFumigations,
   getFumigationsMonthly,
-  getHealth,
-  getImportBatches,
   getParcels,
   NOW,
 } from "@/lib/data"
@@ -95,16 +92,12 @@ async function DashboardContent() {
     parcels,
     fumigations,
     flights,
-    health,
-    batches,
     monthly,
     overdue
   ] = await Promise.all([
     getParcels(),
     getFumigations(),
     getFlights(),
-    getHealth(),
-    getImportBatches(),
     // Serie mensual (12 meses) — Sprint H2 follow-up: viene de la
     // materialized view `mv_fumigations_monthly`. Cache 5min TTL.
     getFumigationsMonthly(),
@@ -177,21 +170,10 @@ async function DashboardContent() {
       {/* OE2 (2026-09-13): panel de planificación fitosanitaria por fase. */}
       <PlanningPanel items={overdue} />
 
-      {/* Fase 6 (2026-09-08): HealthPanel queda como tarjeta técnica
-          secundaria (ver AGENTS.md § Dashboard). El operador no
-          necesita ver el estado del pipeline DJI en el día a día;
-          el admin sí lo necesita para monitoreo.
-
-          Fase 8 (2026-09-08): QuickActions se agrega entre los KPIs y
-          el MonthlyChart según la spec del RC (4 KPIs + recientes +
-          acciones rápidas + pipeline DJI). El layout es
-          `lg:grid-cols-2` — quick actions a la izquierda (lo más
-          usado), pipeline DJI a la derecha (monitoreo técnico). En
-          mobile apilan vertical. */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <QuickActions />
-        <HealthPanel health={health} batches={batches} />
-      </div>
+      {/* Acciones rápidas (full width). El HealthPanel (técnico, monitoreo
+          del scraper DJI) se movió a /admin/pipeline — el operador no lo
+          necesita en el día a día (ver DASH-05 en docs/DEEPSEEK-PLAN-DASHBOARD.md). */}
+      <QuickActions />
 
       {/* 2026-09-10 (issue #34): MonthlyChart ya trae su propio Card
           (CardHeader + CardTitle + CardDescription + CardContent).

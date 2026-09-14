@@ -7,6 +7,7 @@ import type { DjiAgHealth, DjiImportBatch } from "@/lib/types"
 const STATUS_UI = {
   ok: { icon: CircleCheck, label: "OK", className: "text-primary" },
   partial: { icon: CircleAlert, label: "Parcial", className: "text-chart-4" },
+  stale: { icon: CircleAlert, label: "Desactualizado", className: "text-chart-4" },
   error: { icon: CircleX, label: "Error", className: "text-destructive" },
   // UI-P0-1: estado neutro para `unknown` o cualquier valor inesperado
   // (defensa contra crashes si el backend agrega un status nuevo sin

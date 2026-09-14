@@ -41,7 +41,7 @@ import {
   getParcelsCycleData,
   getFlightAggregatesByDateRange
 } from "@/api/repositories";
-import { readHealthFile, deriveResponse, type PipelineHealth } from "@/lib/djiag-health";
+import { readHealthFile, readHealthFromDb, deriveResponse, type PipelineHealth } from "@/lib/djiag-health";
 import { getBogotaDateString, toDateString } from "@/lib/format";
 import { CACHE_TAGS, CACHE_TTL } from "@/lib/cache";
 
@@ -414,7 +414,21 @@ const HEALTH_FILE_PATH = "./djiag_exports/_health.json";
 
 const _loadHealthCached = unstable_cache(
   async (): Promise<DjiAgHealth> => {
-    const healthRaw = await readHealthFile(HEALTH_FILE_PATH);
+    // 2026-09-14 (fix): el health lee PRIMERO la tabla `djiag_health` (la
+    // fuente real en producción/Vercel) y cae al archivo `_health.json`
+    // (dev local) si la DB no responde. Antes leía SOLO el archivo, que en
+    // Vercel no existe (filesystem efímero) → `deriveResponse(null)` daba
+    // status "unknown" y el panel mostraba "Error" FALSO + valores
+    // placeholder (`last_run_at = ahora`, `next_run = mañana`, etc.).
+    let healthRaw: PipelineHealth | null = null;
+    try {
+      healthRaw = await readHealthFromDb(getDb());
+    } catch {
+      healthRaw = null;
+    }
+    if (!healthRaw) {
+      healthRaw = await readHealthFile(HEALTH_FILE_PATH);
+    }
     const healthResponse = deriveResponse(healthRaw);
     return {
       last_run_at: healthResponse.lastRunAt ?? new Date().toISOString(),
@@ -490,7 +504,11 @@ interface Dataset {
 function mapHealthStatus(s: "ok" | "partial" | "stale" | "unknown" | "failed"): DjiAgHealth["status"] {
   if (s === "ok") return "ok";
   if (s === "partial") return "partial";
-  return "error";
+  // "stale" = la última sync exitosa es vieja (>24h). Es distinto de un
+  // fallo: se muestra como "Desactualizado", no como "Error".
+  if (s === "stale") return "stale";
+  if (s === "failed") return "error";
+  return "unknown";
 }
 
 /** Composer no-cached que une las piezas (cada una ya cacheada en

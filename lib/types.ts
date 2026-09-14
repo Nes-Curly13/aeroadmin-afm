@@ -831,7 +831,7 @@ export interface DjiImportBatch {
 export interface DjiAgHealth {
   last_run_at: string;
   next_run_at: string;
-  status: "ok" | "partial" | "error";
+  status: "ok" | "partial" | "stale" | "error" | "unknown";
   duration_ms: number;
   parcels_synced: number;
   flights_synced: number;

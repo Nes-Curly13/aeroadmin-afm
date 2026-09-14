@@ -1,5 +1,6 @@
 import Link from "next/link";
 import {
+  Activity,
   CalendarClock,
   Database,
   FileSpreadsheet,
@@ -76,6 +77,12 @@ const ADMIN_LINKS: AdminLink[] = [
     title: "Reglas fitosanitarias",
     description: "Aplicaciones recomendadas por fase del cultivo. Ajustá ventanas y cadencias; la planificación se recalcula automáticamente.",
     icon: CalendarClock
+  },
+  {
+    href: "/admin/pipeline",
+    title: "Salud del pipeline DJI",
+    description: "Estado del scraper DJI AG y últimos lotes importados. Monitoreo técnico.",
+    icon: Activity
   }
 ];
 
