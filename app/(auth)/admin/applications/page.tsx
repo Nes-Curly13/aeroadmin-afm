@@ -112,7 +112,7 @@ export default async function ApplicationsAdminPage() {
       <Card>
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold">Últimas 100 fumigaciones importadas</h2>
-          <Link href="/fumigaciones?source=import_excel" className="text-xs text-primary hover:underline">
+          <Link href="/fumigaciones?source=import" className="text-xs text-primary hover:underline">
             Ver todas en /fumigaciones
           </Link>
         </div>
