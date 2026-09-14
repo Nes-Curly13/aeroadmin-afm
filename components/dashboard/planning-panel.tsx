@@ -2,45 +2,61 @@ import Link from "next/link";
 import { AlertTriangle, CalendarClock, Clock } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { fmtDate } from "@/lib/format";
-import { severityLabel, type OverdueSeverity } from "@/lib/overdue-parcels";
-import type { OverdueParcel } from "@/lib/types";
+import { applicationStatusChipClass, applicationStatusLabel } from "@/lib/phase-applications";
+import type { PhasePlanningItem } from "@/lib/phase-applications";
 
 /**
- * PlanningPanel — vista de planificación del dashboard (OE2).
+ * PlanningPanel — planificación fitosanitaria por FASE (OE2, MVP 2026-09-13).
  *
- * Fase 6 (2026-09-08) había removido el `CompliancePanel` porque la regla
- * de negocio de "vencido" no estaba ratificada. Se ratifica acá: la regla
- * vive en `lib/fumigation-cadence.ts` / `lib/overdue-parcels.ts`
- * (en fecha > 7 d · vence pronto 0-7 d · vencida < 0 d · sin historial),
- * y este panel la hace visible al operador para que planifique la semana.
+ * Reemplaza el panel por cadencia fija (14 d). Muestra las parcelas con
+ * ciclo activo que tienen aplicaciones **pendientes o vencidas** según la
+ * fase del cultivo (`phase_application_rules`).
  *
  * Server component presentacional: recibe `items` por props (el page los
- * trae de `fetchOverdueParcelsCached`). No importa `api/**` ni `lib/db`.
+ * trae de `getPhasePlanningOverview`). No importa `lib/db`.
  */
 export interface PlanningPanelProps {
-  items: OverdueParcel[];
-  /** Cuántos items mostrar antes del "ver todas". Default 8. */
+  items: PhasePlanningItem[];
   limit?: number;
 }
 
-const SEVERITY_ICON: Record<OverdueSeverity, typeof AlertTriangle> = {
-  overdue: AlertTriangle,
-  due_soon: Clock,
-  ok: Clock,
-  no_history: Clock
+const PHASE_LABEL: Record<string, string> = {
+  establecimiento: "Establecimiento",
+  vegetativa: "Crecimiento",
+  madurante: "Maduración",
+  cosecha: "Cosecha"
 };
 
-const SEVERITY_BADGE: Record<OverdueSeverity, string> = {
-  overdue: "border-destructive/40 bg-destructive/5 text-destructive",
-  due_soon: "border-amber-500/40 bg-amber-500/5 text-amber-700 dark:text-amber-300",
-  ok: "border-chart-1/40 bg-chart-1/5 text-chart-1",
-  no_history: "border-input bg-background text-muted-foreground"
+const CATEGORY_LABEL: Record<string, string> = {
+  herbicida: "Herbicida",
+  insecticida: "Insecticida",
+  fungicida: "Fungicida",
+  fertilizante: "Fertilizante",
+  acaricida: "Acaricida",
+  nematicida: "Nematicida",
+  otro: "Otro"
 };
+
+const TYPE_LABEL: Record<string, string> = {
+  pre_emergente: "Pre-emergente",
+  post_emergente: "Post-emergente",
+  bioestimulante: "Bioestimulante",
+  madurante: "Madurante"
+};
+
+function appLabel(item: PhasePlanningItem): string {
+  const next = item.nextApplication;
+  if (!next) return "—";
+  const cat = CATEGORY_LABEL[next.category_slug] ?? next.category_slug;
+  const type = next.application_type_slug
+    ? TYPE_LABEL[next.application_type_slug] ?? next.application_type_slug
+    : null;
+  return type ? `${cat} · ${type}` : cat;
+}
 
 export function PlanningPanel({ items, limit = 8 }: PlanningPanelProps) {
-  const overdue = items.filter((i) => i.severity === "overdue");
-  const dueSoon = items.filter((i) => i.severity === "due_soon");
+  const totalOverdue = items.reduce((a, i) => a + i.overdue, 0);
+  const totalPending = items.reduce((a, i) => a + i.pending, 0);
   const shown = items.slice(0, limit);
 
   return (
@@ -48,59 +64,66 @@ export function PlanningPanel({ items, limit = 8 }: PlanningPanelProps) {
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2 text-base">
           <CalendarClock className="size-4 text-primary" aria-hidden />
-          Planificación de fumigación
+          Planificación fitosanitaria
         </CardTitle>
         <CardDescription>
-          Parcelas vencidas o por vencer según su cadencia. Regla: en fecha (&gt;7 días),
-          vence pronto (0-7 días), vencida (atraso).
+          Parcelas con aplicaciones pendientes o vencidas según la fase del cultivo.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         {items.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            Sin parcelas pendientes. Todo al día.
+            Sin aplicaciones pendientes. Todo al día.
           </p>
         ) : (
           <>
             <div className="flex flex-wrap items-center gap-2 text-xs">
-              <Badge variant="outline" className={SEVERITY_BADGE.overdue}>
-                {overdue.length} vencida{overdue.length === 1 ? "" : "s"}
+              <Badge variant="outline" className={applicationStatusChipClass("vencida")}>
+                {totalOverdue} vencida{totalOverdue === 1 ? "" : "s"}
               </Badge>
-              <Badge variant="outline" className={SEVERITY_BADGE.due_soon}>
-                {dueSoon.length} por vencer
+              <Badge variant="outline" className={applicationStatusChipClass("pendiente")}>
+                {totalPending} pendiente{totalPending === 1 ? "" : "s"}
               </Badge>
+              <span className="text-muted-foreground">
+                en {items.length} parcela{items.length === 1 ? "" : "s"}
+              </span>
             </div>
             <ul className="flex flex-col divide-y divide-border/40">
               {shown.map((p) => {
-                const Icon = SEVERITY_ICON[p.severity];
+                const Icon = p.overdue > 0 ? AlertTriangle : Clock;
+                const status = p.overdue > 0 ? "vencida" : "pendiente";
                 return (
                   <li key={p.parcel_id} className="flex items-center justify-between gap-3 py-2">
                     <div className="flex min-w-0 items-center gap-2">
                       <Icon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-                      <Link
-                        href={`/parcelas/${p.parcel_id}`}
-                        className="truncate text-sm font-medium hover:text-primary"
-                      >
-                        {p.land_name ?? `Parcela #${p.parcel_id}`}
-                      </Link>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                      {p.next_due_date ? (
-                        <span className="font-mono text-[11px] text-muted-foreground">
-                          {fmtDate(p.next_due_date)}
+                      <div className="min-w-0">
+                        <Link
+                          href={`/parcelas/${p.parcel_id}`}
+                          className="block truncate text-sm font-medium hover:text-primary"
+                        >
+                          {p.land_name ?? `Parcela #${p.parcel_id}`}
+                        </Link>
+                        <span
+                          data-testid="planning-item-meta"
+                          className="text-[11px] text-muted-foreground"
+                        >
+                          {PHASE_LABEL[p.phase] ?? p.phase} · {p.age_days} d · {appLabel(p)}
                         </span>
-                      ) : null}
-                      <Badge variant="outline" className={`text-[10px] ${SEVERITY_BADGE[p.severity]}`}>
-                        {severityLabel(p.severity)}
-                      </Badge>
+                      </div>
                     </div>
+                    <Badge
+                      variant="outline"
+                      className={`shrink-0 text-[10px] ${applicationStatusChipClass(status)}`}
+                    >
+                      {applicationStatusLabel(status)}
+                    </Badge>
                   </li>
                 );
               })}
             </ul>
             {items.length > shown.length ? (
               <Link href="/parcelas" className="text-xs font-medium text-primary hover:underline">
-                Ver las {items.length} parcelas pendientes →
+                Ver las {items.length} parcelas →
               </Link>
             ) : null}
           </>

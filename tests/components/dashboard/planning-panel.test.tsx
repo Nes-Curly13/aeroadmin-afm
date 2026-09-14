@@ -1,62 +1,67 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { PlanningPanel } from "@/components/dashboard/planning-panel";
-import type { OverdueParcel } from "@/lib/types";
+import type { PhasePlanningItem } from "@/lib/phase-applications";
 
-// next/link necesita el router mock en jsdom
 vi.mock("next/link", () => ({
   default: ({ children, href }: { children: React.ReactNode; href: string }) => (
     <a href={href}>{children}</a>
   )
 }));
 
-function parcel(over: Partial<OverdueParcel>): OverdueParcel {
+function item(over: Partial<PhasePlanningItem> = {}): PhasePlanningItem {
   return {
     parcel_id: 1,
     land_name: "Lote 1",
-    external_id: "ext-1",
-    field_type: "Farmland",
-    is_orchard: false,
-    drone_model_name: null,
-    crop_type: "Caña de azúcar",
-    recommended_cadence_days: 14,
-    last_fumigation_date: "2026-08-01",
-    next_due_date: "2026-08-15",
-    days_until_next_due: 0,
-    severity: "due_soon",
-    area_fumigable_m2: 10000,
-    waypoint_count: null,
-    area_fumigable_ha: 1,
+    crop_type: "cana",
+    start_date: "2026-01-01",
+    age_days: 50,
+    phase: "establecimiento",
+    pending: 1,
+    overdue: 0,
+    nextApplication: {
+      category_slug: "herbicida",
+      application_type_slug: "pre_emergente",
+      status: "pendiente",
+      window_end: "2026-01-21"
+    },
     ...over
   };
 }
 
-describe("PlanningPanel (OE2)", () => {
-  it("muestra estado vacío cuando no hay pendientes", () => {
+describe("PlanningPanel (fenológico)", () => {
+  it("muestra estado vacío", () => {
     render(<PlanningPanel items={[]} />);
     expect(screen.getByTestId("planning-panel")).toBeInTheDocument();
-    expect(screen.getByText(/Sin parcelas pendientes/i)).toBeInTheDocument();
+    expect(screen.getByText(/Sin aplicaciones pendientes/i)).toBeInTheDocument();
   });
 
-  it("lista parcelas con su severidad y cuenta vencidas / por vencer", () => {
-    const items = [
-      parcel({ parcel_id: 1, land_name: "Vencida A", severity: "overdue", days_until_next_due: -3 }),
-      parcel({ parcel_id: 2, land_name: "PorVencer B", severity: "due_soon", days_until_next_due: 2 })
-    ];
-    render(<PlanningPanel items={items} />);
+  it("lista parcelas con fase, aplicación y estado", () => {
+    render(
+      <PlanningPanel
+        items={[
+          item({ parcel_id: 1, land_name: "Vencida A", overdue: 2, pending: 0 }),
+          item({ parcel_id: 2, land_name: "Pendiente B", overdue: 0, pending: 1 })
+        ]}
+      />
+    );
     expect(screen.getByText("Vencida A")).toBeInTheDocument();
-    expect(screen.getByText("PorVencer B")).toBeInTheDocument();
-    expect(screen.getByText("1 vencida")).toBeInTheDocument();
-    expect(screen.getByText("1 por vencer")).toBeInTheDocument();
+    expect(screen.getByText("Pendiente B")).toBeInTheDocument();
+    expect(screen.getByText("2 vencidas")).toBeInTheDocument();
+    expect(screen.getByText("1 pendiente")).toBeInTheDocument();
+    const meta = screen.getAllByTestId("planning-item-meta")[0];
+    expect(meta.textContent).toContain("Establecimiento");
+    expect(meta.textContent).toContain("Herbicida");
+    expect(meta.textContent).toContain("Pre-emergente");
   });
 
-  it("respeta el límite y muestra el link 'ver todas'", () => {
+  it("respeta el límite", () => {
     const items = Array.from({ length: 12 }, (_, i) =>
-      parcel({ parcel_id: i + 1, land_name: `P${i + 1}` })
+      item({ parcel_id: i + 1, land_name: `P${i + 1}` })
     );
     render(<PlanningPanel items={items} limit={8} />);
     expect(screen.getByText("P8")).toBeInTheDocument();
     expect(screen.queryByText("P9")).not.toBeInTheDocument();
-    expect(screen.getByText(/Ver las 12 parcelas pendientes/i)).toBeInTheDocument();
+    expect(screen.getByText(/Ver las 12 parcelas/)).toBeInTheDocument();
   });
 });

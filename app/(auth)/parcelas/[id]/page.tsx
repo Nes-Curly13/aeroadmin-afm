@@ -21,8 +21,10 @@ import {
   getParcelSummary,
   getScheduleHistory,
 } from "@/lib/data"
-import { getActiveCycleForParcel, listEventsForCycle, listCyclesForParcel } from "@/api/repositories"
+import { getActiveCycleForParcel, getPhaseApplicationsForParcel, listEventsForCycle, listCyclesForParcel } from "@/api/repositories"
 import { phaseChipClass, phaseLabel } from "@/lib/crop-cycle"
+import { applicationStatusChipClass, applicationStatusLabel, applicationTypeLabel, categoryLabel, phaseDisplayLabel } from "@/lib/phase-applications"
+import { CycleActions } from "@/components/parcels/cycle-actions"
 import { fmtDate, fmtDateTime, fmtDec, fmtHa, fmtInt, fmtLiters, fmtRelative } from "@/lib/format"
 import { getViewerRole } from "@/lib/auth/role"
 import { cn } from "@/lib/utils"
@@ -52,13 +54,19 @@ export default async function ParcelaPage({ params }: { params: Promise<{ id: st
   // S11+ / Fase 4.5 — tambien fetch el ciclo activo desde la nueva tabla
   // `cycles` y su lista de eventos. Si la migration no se aplicó, los
   // helpers devuelven null/[] vacíos y la UI muestra estado "Sin ciclo".
-  const [fumigations, flights, history, cycle, activeCycle, allCycles] = await Promise.all([
+  const [fumigations, flights, history, cycle, activeCycle, allCycles, phaseApps] = await Promise.all([
     getFumigationsByParcel(id),
     getFlightsByParcel(id),
     getScheduleHistory(id),
     getCycleForParcel(id),
     getActiveCycleForParcel(parcelIdNum).catch(() => null),
-    listCyclesForParcel(parcelIdNum).catch(() => [])
+    listCyclesForParcel(parcelIdNum).catch(() => []),
+    getPhaseApplicationsForParcel(parcelIdNum).catch(() => ({
+      cycle: null,
+      phase: null,
+      ageDays: null,
+      requirements: []
+    }))
   ])
   // Eventos del ciclo activo (si existe).
   const cycleEvents = activeCycle
@@ -456,6 +464,67 @@ export default async function ParcelaPage({ params }: { params: Promise<{ id: st
                     )}
                   </div>
                 )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Sprout className="size-4 text-primary" aria-hidden />
+                  Manejo fitosanitario
+                </CardTitle>
+                <CardDescription>
+                  {phaseApps.cycle && phaseApps.phase
+                    ? `Fase actual: ${phaseDisplayLabel(phaseApps.phase)} · ${phaseApps.ageDays ?? 0} días de ciclo. Aplicaciones que requiere esta fase.`
+                    : "Sin ciclo activo: registrá una siembra o un corte para calcular la fase."}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-3">
+                {phaseApps.requirements.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    {phaseApps.cycle
+                      ? "Esta fase no tiene aplicaciones definidas."
+                      : "Sin aplicaciones para mostrar."}
+                  </p>
+                ) : (
+                  <ul className="flex flex-col gap-2">
+                    {phaseApps.requirements.map((r) => {
+                      const typeLabel = applicationTypeLabel(r.rule.application_type_slug)
+                      return (
+                        <li
+                          key={r.rule.id}
+                          className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2"
+                        >
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-foreground">
+                              {categoryLabel(r.rule.category_slug)}
+                              {typeLabel ? ` · ${typeLabel}` : ""}
+                            </p>
+                            <p className="text-[11px] text-muted-foreground">
+                              {r.windowStart && r.windowEnd
+                                ? `Ventana: ${fmtDate(r.windowStart)} – ${fmtDate(r.windowEnd)}`
+                                : "—"}
+                              {r.lastAppliedAt ? ` · Última: ${fmtDate(r.lastAppliedAt)}` : ""}
+                              {r.rule.cadence_days ? ` · Cada ${r.rule.cadence_days} d` : ""}
+                            </p>
+                          </div>
+                          <Badge
+                            variant="outline"
+                            className={cn("shrink-0 text-[10px]", applicationStatusChipClass(r.status))}
+                          >
+                            {applicationStatusLabel(r.status)}
+                          </Badge>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                )}
+                {isAdmin ? (
+                  <CycleActions
+                    parcelId={parcelIdNum}
+                    activeCycleId={activeCycle?.id ?? null}
+                  />
+                ) : null}
               </CardContent>
             </Card>
 

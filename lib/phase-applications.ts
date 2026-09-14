@@ -52,6 +52,24 @@ export interface ApplicationRequirement {
   lastAppliedAt: string | null;
 }
 
+/** Item del overview de planificación (parcela con pendientes/vencidas). */
+export interface PhasePlanningItem {
+  parcel_id: number;
+  land_name: string | null;
+  crop_type: string | null;
+  start_date: string;
+  age_days: number;
+  phase: string;
+  pending: number;
+  overdue: number;
+  nextApplication: {
+    category_slug: string;
+    application_type_slug: string | null;
+    status: ApplicationStatus;
+    window_end: string | null;
+  } | null;
+}
+
 const MS_PER_DAY = 86_400_000;
 
 /** Normaliza a Date UTC-medianoche desde string YYYY-MM-DD o Date. */
@@ -140,6 +158,45 @@ export function computeRequirement(
   }
 
   return { rule, status, windowStart, windowEnd, lastAppliedAt: null };
+}
+
+/** Etiqueta legible de la categoría (qué se aplica). */
+const CATEGORY_LABELS: Record<string, string> = {
+  herbicida: "Herbicida",
+  insecticida: "Insecticida",
+  fungicida: "Fungicida",
+  fertilizante: "Fertilizante",
+  acaricida: "Acaricida",
+  nematicida: "Nematicida",
+  otro: "Otro"
+};
+export function categoryLabel(slug: string): string {
+  return CATEGORY_LABELS[slug] ?? slug;
+}
+
+/** Etiqueta legible del tipo de uso (para qué). */
+const TYPE_LABELS: Record<string, string> = {
+  pre_emergente: "Pre-emergente",
+  post_emergente: "Post-emergente",
+  bioestimulante: "Bioestimulante",
+  madurante: "Madurante",
+  otro: "Otro"
+};
+export function applicationTypeLabel(slug: string | null): string | null {
+  if (!slug) return null;
+  return TYPE_LABELS[slug] ?? slug;
+}
+
+/** Etiqueta legible de la fase del ciclo. */
+const PHASE_LABELS: Record<string, string> = {
+  establecimiento: "Establecimiento",
+  vegetativa: "Crecimiento",
+  madurante: "Maduración",
+  cosecha: "Cosecha"
+};
+export function phaseDisplayLabel(phase: string | null | undefined): string {
+  if (!phase) return "—";
+  return PHASE_LABELS[phase] ?? phase;
 }
 
 /** Etiqueta humana en español del estado. */

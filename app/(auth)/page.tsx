@@ -11,7 +11,7 @@ import { PageHeader } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton, SkeletonCard, SkeletonKpis } from "@/components/ui/loading"
-import { fetchOverdueParcelsCached } from "@/lib/cache"
+import { getPhasePlanningOverview } from "@/api/repositories"
 import {
   DRONE_MODELS,
   getFlights,
@@ -108,8 +108,8 @@ async function DashboardContent() {
     // Serie mensual (12 meses) — Sprint H2 follow-up: viene de la
     // materialized view `mv_fumigations_monthly`. Cache 5min TTL.
     getFumigationsMonthly(),
-    // OE2: parcelas vencidas o por vencer (próximos 14 días). Cache 1min.
-    fetchOverdueParcelsCached({ maxDaysAhead: 14, limit: 50 })
+    // OE2: parcelas con aplicaciones pendientes/vencidas por fase (MVP fenológico).
+    getPhasePlanningOverview(100)
   ])
 
   const inWindow = (iso: string, fromDays: number, toDays: number) => {
@@ -174,7 +174,7 @@ async function DashboardContent() {
         />
       </div>
 
-      {/* OE2 (2026-09-13): panel de planificación — vencidas / por vencer. */}
+      {/* OE2 (2026-09-13): panel de planificación fitosanitaria por fase. */}
       <PlanningPanel items={overdue} />
 
       {/* Fase 6 (2026-09-08): HealthPanel queda como tarjeta técnica

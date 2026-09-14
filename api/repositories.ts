@@ -13,6 +13,15 @@ import {
   type FlightRow
 } from "@/lib/dji-flights-aggregate";
 import {
+  applicationsForPhase,
+  computeRequirement,
+  phaseForDays,
+  type ApplicationRequirement,
+  type ApplicationStatus,
+  type PhaseApplicationRule,
+  type PhasePlanningItem
+} from "@/lib/phase-applications";
+import {
   fetchAlertsCached,
   fetchDashboardMetricsCached,
   fetchFlightPointsCached,
@@ -4615,5 +4624,196 @@ export async function backfillCyclesFromFumigations(
       };
     },
     async () => ({ cycles_created: 0, parcels_processed: 0, skipped_existing: false })
+  );
+}
+
+// ============================================================
+// PHASE PLANNING — MVP fenológico (2026-09-13)
+// Ver docs/DEEPSEEK-PROPOSAL-CICLOS-FENOLOGIA.md
+// ============================================================
+
+/** Reglas de aplicación por fase (`phase_application_rules`). */
+export async function getPhaseApplicationRules(
+  cropType: string = "cana"
+): Promise<PhaseApplicationRule[]> {
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      const r = await db.query<PhaseApplicationRule>(
+        `SELECT id, crop_type, phase, category_slug, application_type_slug,
+                cadence_days, window_from_day, window_to_day, is_required, notes
+           FROM phase_application_rules
+          WHERE crop_type = $1
+          ORDER BY window_from_day ASC, id ASC`,
+        [cropType]
+      );
+      return r.rows;
+    },
+    async () => []
+  );
+}
+
+export interface ParcelPhaseApplications {
+  cycle: Cycle | null;
+  phase: string | null;
+  ageDays: number | null;
+  requirements: ApplicationRequirement[];
+}
+
+/** Fase actual de una parcela + aplicaciones requeridas y su estado. */
+export async function getPhaseApplicationsForParcel(
+  parcelId: number
+): Promise<ParcelPhaseApplications> {
+  const db = getDb();
+  const today = getBogotaDateString();
+  return withLocalFallback(
+    async () => {
+      const cyc = await db.query<Cycle & { age_days: number }>(
+        `SELECT id, parcela_id, crop_type, variety, start_date, end_date,
+                source, data_validity, last_validated_at, validated_by_email,
+                notes, created_at, updated_at,
+                (CURRENT_DATE - start_date)::int AS age_days
+           FROM cycles
+          WHERE parcela_id = $1 AND end_date IS NULL
+          ORDER BY start_date DESC
+          LIMIT 1`,
+        [parcelId]
+      );
+      const cycle = cyc.rows[0] ?? null;
+      if (!cycle) {
+        return { cycle: null, phase: null, ageDays: null, requirements: [] };
+      }
+      const crop = cycle.crop_type && cycle.crop_type.trim() !== "" ? cycle.crop_type : "cana";
+      const rules = await getPhaseApplicationRules(crop);
+      const ageDays = Number(cycle.age_days ?? 0);
+      const phase = phaseForDays(ageDays);
+      const startDate = toDateString(cycle.start_date as unknown as string) ?? "";
+      const fums = await db.query<{
+        fumigation_date: string;
+        category_slug: string | null;
+        application_type_slug: string | null;
+      }>(
+        `SELECT f.fumigation_date, c.slug AS category_slug, at.slug AS application_type_slug
+           FROM dji_fumigations f
+           LEFT JOIN fumigation_categories c ON c.id = f.category_id
+           LEFT JOIN application_types at ON at.id = f.application_type_id
+          WHERE f.parcel_id = $1 AND f.deleted_at IS NULL`,
+        [parcelId]
+      );
+      const requirements = applicationsForPhase(rules, phase).map((rule) => {
+        const dates = fums.rows
+          .filter(
+            (f) =>
+              f.category_slug === rule.category_slug &&
+              (rule.application_type_slug == null ||
+                f.application_type_slug === rule.application_type_slug)
+          )
+          .map((f) => toDateString(f.fumigation_date as unknown as string) ?? "")
+          .filter((d) => d !== "");
+        return computeRequirement(rule, startDate, today, dates);
+      });
+      return { cycle, phase, ageDays, requirements };
+    },
+    async () => ({ cycle: null, phase: null, ageDays: null, requirements: [] })
+  );
+}
+
+/**
+ * Overview de planificación por fase: parcelas con ciclo activo que
+ * tienen al menos una aplicación requerida pendiente o vencida.
+ * Usado por el PlanningPanel del dashboard.
+ */
+export async function getPhasePlanningOverview(
+  limit = 100
+): Promise<PhasePlanningItem[]> {
+  const db = getDb();
+  const today = getBogotaDateString();
+  return withLocalFallback(
+    async () => {
+      const cycles = await db.query<{
+        parcela_id: number;
+        land_name: string | null;
+        crop_type: string | null;
+        start_date: string;
+        age_days: number;
+      }>(
+        `SELECT c.parcela_id, p.land_name, c.crop_type, c.start_date,
+                (CURRENT_DATE - c.start_date)::int AS age_days
+           FROM cycles c
+           JOIN dji_parcels p ON p.id = c.parcela_id AND p.deleted_at IS NULL
+          WHERE c.end_date IS NULL`
+      );
+      if (cycles.rows.length === 0) return [];
+      const rules = await getPhaseApplicationRules("cana");
+      const fums = await db.query<{
+        parcel_id: number;
+        fumigation_date: string;
+        category_slug: string | null;
+        application_type_slug: string | null;
+      }>(
+        `SELECT f.parcel_id, f.fumigation_date, c.slug AS category_slug, at.slug AS application_type_slug
+           FROM dji_fumigations f
+           LEFT JOIN fumigation_categories c ON c.id = f.category_id
+           LEFT JOIN application_types at ON at.id = f.application_type_id
+          WHERE f.deleted_at IS NULL AND f.parcel_id IS NOT NULL`
+      );
+      const byParcel = new Map<number, typeof fums.rows>();
+      for (const f of fums.rows) {
+        const arr = byParcel.get(f.parcel_id) ?? [];
+        arr.push(f);
+        byParcel.set(f.parcel_id, arr);
+      }
+      const items: PhasePlanningItem[] = [];
+      for (const c of cycles.rows) {
+        const ageDays = Number(c.age_days ?? 0);
+        const phase = phaseForDays(ageDays);
+        const startDate = toDateString(c.start_date as unknown as string) ?? "";
+        const parcelFums = byParcel.get(c.parcela_id) ?? [];
+        const reqs = applicationsForPhase(rules, phase).map((rule) =>
+          computeRequirement(
+            rule,
+            startDate,
+            today,
+            parcelFums
+              .filter(
+                (f) =>
+                  f.category_slug === rule.category_slug &&
+                  (rule.application_type_slug == null ||
+                    f.application_type_slug === rule.application_type_slug)
+              )
+              .map((f) => toDateString(f.fumigation_date as unknown as string) ?? "")
+              .filter((d) => d !== "")
+          )
+        );
+        const pending = reqs.filter((r) => r.status === "pendiente").length;
+        const overdue = reqs.filter((r) => r.status === "vencida").length;
+        if (pending + overdue === 0) continue;
+        const next = reqs
+          .filter((r) => r.status === "vencida" || r.status === "pendiente")
+          .sort((a, b) => (a.windowEnd ?? "").localeCompare(b.windowEnd ?? ""))[0];
+        items.push({
+          parcel_id: c.parcela_id,
+          land_name: c.land_name,
+          crop_type: c.crop_type,
+          start_date: startDate,
+          age_days: ageDays,
+          phase,
+          pending,
+          overdue,
+          nextApplication: next
+            ? {
+                category_slug: next.rule.category_slug,
+                application_type_slug: next.rule.application_type_slug,
+                status: next.status,
+                window_end: next.windowEnd
+              }
+            : null
+        });
+      }
+      return items
+        .sort((a, b) => b.overdue - a.overdue || b.pending - a.pending)
+        .slice(0, limit);
+    },
+    async () => []
   );
 }
