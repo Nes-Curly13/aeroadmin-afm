@@ -43,18 +43,15 @@ import { ReportsTabs } from "@/components/reports/reports-tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrowLeft, FileText, Info, Calendar } from "lucide-react";
 import Link from "next/link";
-import { fmtInt } from "@/lib/format";
+import { fmtDec, fmtInt } from "@/lib/format";
 import { getViewerRole } from "@/lib/auth/role";
 
-/** Helper con 2 decimales. */
-function fmtDec2(value: number | null | undefined): string {
-  if (value === null || value === undefined) return "—";
-  return new Intl.NumberFormat("de-DE", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  }).format(value);
-}
-
+/** UI-11: helper local removido. Usar `fmtDec` de lib/format (es-CO,
+ *  1 decimal). Cambio visual: separadores consistentes con el resto
+ *  de la app (antes era de-DE -> "12,34"; ahora es-CO -> "12,3").
+ *  Si los totales vienen null, fmtDec devuelve "NaN" — en la practica
+ *  la agregacion siempre devuelve number. Si llega null, se puede
+ *  agregar `?? 0` en el callsite. */
 export const dynamic = "force-dynamic";
 
 interface ReportsPageProps {
@@ -220,11 +217,11 @@ export default async function ReportesPage({ searchParams }: ReportsPageProps) {
           />
           <SummaryStat
             label="Área total (ha)"
-            value={fmtDec2(data.totals.totalAreaHa)}
+            value={fmtDec(data.totals.totalAreaHa ?? 0)}
           />
           <SummaryStat
             label="Volumen total (L)"
-            value={fmtDec2(data.totals.totalLiters)}
+            value={fmtDec(data.totals.totalLiters ?? 0)}
           />
           <SummaryStat
             label="Parcelas activas"

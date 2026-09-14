@@ -25,17 +25,13 @@
 import Link from "next/link";
 import { History } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { fmtDate } from "@/lib/format";
+import { fmtDate, fmtDec } from "@/lib/format";
 import type { FarmsFumigationRow } from "@/lib/reports/fetch-farms-report-data";
 
-/** Helper con 2 decimales para los valores numéricos del reporte. */
-function fmtDec2(value: number | null | undefined): string {
-  if (value === null || value === undefined) return "—";
-  return new Intl.NumberFormat("de-DE", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  }).format(value);
-}
+// UI-11: helper local `fmtDec2` removido. Usar `fmtDec` de lib/format
+// (es-CO, 1 decimal). Cambio visual: separadores consistentes con el
+// resto de la app. Antes era de-DE -> "12,34"; ahora es-CO -> "12,3".
+// Si los valores son null, devolver "—" con un wrapper simple.
 
 export function FumigationsTable({
   fumigations,
@@ -119,11 +115,11 @@ export function FumigationsTable({
                   <td className="py-2 text-right font-mono tabular-nums">
                     {f.area_fumigated_ha === null
                       ? "—"
-                      : fmtDec2(f.area_fumigated_ha)}
+                      : fmtDec(f.area_fumigated_ha)}
                   </td>
                   <td className="py-2 text-right font-mono tabular-nums">
                     {f.dose_l_per_ha !== null && f.area_fumigated_ha !== null
-                      ? fmtDec2(f.dose_l_per_ha * f.area_fumigated_ha)
+                      ? fmtDec(f.dose_l_per_ha * f.area_fumigated_ha)
                       : "—"}
                   </td>
                   <td className="py-2 text-muted-foreground">
