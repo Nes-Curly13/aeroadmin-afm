@@ -29,6 +29,7 @@
 
 import { Loader2 } from "lucide-react"
 import type { HTMLAttributes } from "react"
+import { AfmMark } from "@/components/brand/afm-mark"
 import { cn } from "@/lib/utils"
 
 // ============================================================
@@ -234,9 +235,11 @@ export function PageSpinner({ message, className }: PageSpinnerProps) {
         <div className="size-16 rounded-full border-4 border-muted" />
         {/* Anillo activo (gira) */}
         <div className="absolute inset-0 size-16 animate-spin rounded-full border-4 border-transparent border-t-primary" />
-        {/* Logo AFM al centro (placeholder) */}
+        {/* Logo AFM al centro (UI-T3: antes era una "A" placeholder).
+            Usamos el brand mark (24px cuadrado) que se ve consistente
+            con el resto del AFM branding. */}
         <div className="absolute inset-0 flex items-center justify-center">
-          <span className="text-lg font-extrabold text-primary">A</span>
+          <AfmMark variant="mark" size={24} />
         </div>
       </div>
       {message ? (
