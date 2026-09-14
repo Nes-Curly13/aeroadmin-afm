@@ -4,6 +4,8 @@ import { Suspense } from "react"
 import { PageHeader } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { FieldSelect } from "@/components/ui/field-select"
+import { Input } from "@/components/ui/input"
 import { Skeleton, SkeletonTable } from "@/components/ui/loading"
 import { FumigacionesDataLoader } from "@/app/(auth)/fumigaciones/data-loader"
 import { FumigacionesTableClient } from "@/app/(auth)/fumigaciones/fumigaciones-table"
@@ -105,105 +107,79 @@ export default async function FumigacionesPage({ searchParams }: PageProps) {
       {/* Filtros + acción — sync, sin queries */}
       <form
         method="get"
-        className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"
+        className="flex flex-col gap-3"
       >
+        {/* UI-08: reorganizado en 2 filas para mejor lectura. Fila 1 =
+            busqueda libre + clasificacion (fuente/tipo). Fila 2 =
+            rango temporal + parcela + dron + submit. Cada control es
+            primitive (Input/FieldSelect/Button) en vez de <input>/<select>
+            crudos con clases Tailwind ad-hoc. Se preservan name/defaultValue
+            (form es GET server-side). El Input primitive no acepta
+            `label` propio; lo envuelvo en un <label> wrapper (mismo patron
+            que ya usaba el codigo anterior). */}
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:gap-3">
-          <div className="flex flex-col gap-1">
-            <label
-              htmlFor="q"
-              className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground"
-            >
-              Buscar
-            </label>
-            <input
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="q" className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Buscar</label>
+            <Input
               id="q"
               name="q"
               defaultValue={query}
               placeholder="Producto, ICA, licencia, parcela…"
-              className="h-8 w-full rounded-md border border-input bg-background px-2.5 text-sm sm:w-72"
+              className="sm:w-72"
             />
           </div>
-          <div className="flex flex-col gap-1">
-            <label
-              htmlFor="source"
-              className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground"
-            >
-              Fuente
-            </label>
-            <select
-              id="source"
-              name="source"
-              defaultValue={sourceFilter ?? "all"}
-              className="h-8 rounded-md border border-input bg-background px-2 text-sm"
-            >
-              <option value="all">Todas</option>
-              <option value="dji">DJI</option>
-              <option value="manual">Manual</option>
-            </select>
-          </div>
-          <div className="flex flex-col gap-1">
-            <label
-              htmlFor="category"
-              className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground"
-            >
-              Tipo
-            </label>
-            <select
-              id="category"
-              name="category"
-              defaultValue={sp.category ?? ""}
-              className="h-8 rounded-md border border-input bg-background px-2 text-sm"
-            >
-              <option value="">Todos</option>
-              {FUMIGATION_CATEGORIES.map((c) => (
-                <option key={c.id} value={c.slug}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="flex flex-col gap-1">
-            <label
-              htmlFor="from"
-              className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground"
-            >
-              Desde
-            </label>
-            <input
+          <FieldSelect
+            label="Fuente"
+            id="source"
+            name="source"
+            defaultValue={sourceFilter ?? "all"}
+            className="sm:w-40"
+          >
+            <option value="all">Todas</option>
+            <option value="dji">DJI</option>
+            <option value="manual">Manual</option>
+          </FieldSelect>
+          <FieldSelect
+            label="Tipo"
+            id="category"
+            name="category"
+            defaultValue={sp.category ?? ""}
+            className="sm:w-44"
+          >
+            <option value="">Todos</option>
+            {FUMIGATION_CATEGORIES.map((c) => (
+              <option key={c.id} value={c.slug}>
+                {c.label}
+              </option>
+            ))}
+          </FieldSelect>
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:gap-3">
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="from" className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Desde</label>
+            <Input
               id="from"
               name="from"
               type="date"
               defaultValue={fromDate ?? ""}
               max={toDate ?? undefined}
-              className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm sm:w-36"
-              aria-label="Fecha de inicio del rango"
+              className="sm:w-36"
             />
           </div>
-          <div className="flex flex-col gap-1">
-            <label
-              htmlFor="to"
-              className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground"
-            >
-              Hasta
-            </label>
-            <input
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="to" className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Hasta</label>
+            <Input
               id="to"
               name="to"
               type="date"
               defaultValue={toDate ?? ""}
               min={fromDate ?? undefined}
-              className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm sm:w-36"
-              aria-label="Fecha de fin del rango"
+              className="sm:w-36"
             />
           </div>
-          <div className="flex flex-col gap-1">
-            <label
-              htmlFor="parcel"
-              className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground"
-            >
-              Parcela #
-            </label>
-            <input
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="parcel" className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Parcela #</label>
+            <Input
               id="parcel"
               name="parcel"
               type="number"
@@ -212,37 +188,26 @@ export default async function FumigacionesPage({ searchParams }: PageProps) {
               step="1"
               defaultValue={sp.parcel ?? ""}
               placeholder="ej. 3107"
-              className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm sm:w-28"
-              aria-label="ID de parcela específica"
+              className="sm:w-28"
             />
           </div>
-          <div className="flex flex-col gap-1">
-            <label
-              htmlFor="drone"
-              className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground"
-            >
-              Dron
-            </label>
-            <select
-              id="drone"
-              name="drone"
-              defaultValue={sp.drone ?? ""}
-              className="h-8 rounded-md border border-input bg-background px-2 text-sm"
-            >
-              <option value="">Todos</option>
-              {DRONE_MODELS.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.id === 0 ? "Sin asignar" : `${d.name} (${d.tank_l} L)`}
-                </option>
-              ))}
-            </select>
-          </div>
-          <button
-            type="submit"
-            className="h-8 rounded-md border border-input bg-card px-3 text-xs font-medium text-foreground hover:bg-muted"
+          <FieldSelect
+            label="Dron"
+            id="drone"
+            name="drone"
+            defaultValue={sp.drone ?? ""}
+            className="sm:w-44"
           >
+            <option value="">Todos</option>
+            {DRONE_MODELS.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.id === 0 ? "Sin asignar" : `${d.name} (${d.tank_l} L)`}
+              </option>
+            ))}
+          </FieldSelect>
+          <Button type="submit" size="sm" className="self-end">
             Filtrar
-          </button>
+          </Button>
           {/* UI-07: condicion ampliada para incluir TODOS los filtros
               (q, source, category, from, to, parcel, drone). Antes solo
               from/to/parcel/drone -> si el usuario filtraba por source o
