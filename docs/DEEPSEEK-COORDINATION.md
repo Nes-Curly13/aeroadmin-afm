@@ -160,6 +160,18 @@ Total Fase 6: 7 commits, +32 tests (2182 → 2214 verde), tsc/arch 0 errores.
 
 > Plan + decisiones asumidas: `docs/DEEPSEEK-PLAN-CIERRE.md`.
 
+### 2.11 Fase 10 (DeepSeek) — Planificación fitosanitaria por fase (MVP)
+| Capa | Cambio |
+|---|---|
+| Schema | `phase_application_rules` + seed caña + `application_types('madurante')` + curva canónica 4 fases en `phase_rules` (migration `20260913000003`, aplicada) |
+| Lógica | `lib/phase-applications.ts` (`phaseForDays`, `applicationsForPhase`, `computeRequirement`) + 10 tests |
+| Repo | `getPhaseApplicationRules`, `getPhaseApplicationsForParcel`, `getPhasePlanningOverview` |
+| UI | `PlanningPanel` fenológico en el dashboard (reemplaza cadencia fija) + card "Manejo fitosanitario" en `/parcelas/[id]` + workflow registrar corte / iniciar ciclo (`CycleActions`, `POST /api/admin/cycles/[id]/close`) |
+| Docs | `FUMIGATION_CADENCE.md` (sección fase), `DATA-MODEL.md`, propuesta `DEEPSEEK-PROPOSAL-CICLOS-FENOLOGIA.md` |
+
+> Decisiones del usuario: 4 fases (simple), reemplaza las alertas, data-driven
+> + UI, categoría×tipo, solo calendario, misma variedad.
+
 ---
 
 ## 3. PENDIENTE (backlog abierto)

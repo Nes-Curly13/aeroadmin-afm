@@ -25,29 +25,43 @@
 
 ---
 
-## Regla operativa ratificada (2026-09-13 — cierre OE2)
+## Planificación por fase del ciclo (MVP 2026-09-13)
 
-Estados por parcela, calculados desde `last_fumigation_date + cadencia
-efectiva` (`effectiveCadence` = base ajustada por fase/estación/cultivo):
+> **Reemplaza las alertas por cadencia fija.** Ver
+> `docs/DEEPSEEK-PROPOSAL-CICLOS-FENOLOGIA.md` (diseño + valores asumidos).
 
-| Estado | Condición (`days = next_due - hoy`) | Etiqueta UI |
+Cada parcela tiene un **ciclo** (`cycles.start_date`). La **fase** se
+calcula por días desde la siembra/renovación y define qué **aplicaciones**
+requiere. Reglas data-driven en `phase_application_rules`.
+
+| Fase | Días | Aplicaciones (resumen) |
 |---|---|---|
-| `no_history` | sin última fumigación | "Sin historial" |
-| `ok` | `days > 7` | "En fecha" |
-| `due_soon` | `0 <= days <= 7` | "Vence pronto" |
-| `overdue` | `days < 0` (≥1 día de atraso) | "Vencida" |
+| `establecimiento` | 0-120 | Herbicida pre-emergente · fertilizante de fondo · insecticida Diatraea (MIPE, cada 7-10 d) |
+| `vegetativa` | 121-270 | Fertilizante de cobertera · insecticida (salivazo) y fungicida (roya/carbón) *según monitoreo* |
+| `madurante` | 271-360 | Madurante (glifosato) 30-50 d pre-corte |
+| `cosecha` | >360 | — (no se fumiga) |
 
-- **Implementación**: `getFumigationStatus` (`lib/fumigation-cadence.ts`) y
-  `computeSeverity` (`lib/overdue-parcels.ts`); cadencia base en
-  `CADENCE_DEFAULTS` (caña 14 d, frutales 10 d) con override por
-  `dji_fumigation_schedule.recommended_cadence_days`.
-- **Umbral "vence pronto" = 7 días** (default; reevaluar si la operación
-  del cliente cambia). Nota: es una **regla operativa**, no una
-  recomendación agronómica — la agronomía vive en la sección de plagas.
-- **Vista**: `components/dashboard/planning-panel.tsx` en el dashboard
-  (vencidas / por vencer) + columna "Próxima" en `/parcelas`.
-- **Datos**: `dji_fumigation_schedule.last_fumigation_date`/`next_due_date`
-  se recalculan con `npm run refresh:fumigations` (semanal).
+- **Lógica pura**: `lib/phase-applications.ts` (`phaseForDays`,
+  `applicationsForPhase`, `computeRequirement`); tests en
+  `tests/lib-phase-applications.test.ts`.
+- **Reglas**: tabla `phase_application_rules` (fase → categoría × tipo de uso
+  × ventana en días × cadencia × requerida). `is_required=false` = "según
+  monitoreo" (no genera alerta dura). Cambiar agronomía = cambiar data.
+- **Workflow**: la ficha de parcela permite registrar **corte** (cierra el
+  ciclo) o **iniciar ciclo** (siembra/renovación). Endpoints
+  `/api/admin/cycles` + `/api/admin/cycles/[id]/close`.
+- **Vistas**: `PlanningPanel` del dashboard (parcelas con aplicaciones
+  pendientes/vencidas) + card "Manejo fitosanitario" en `/parcelas/[id]`.
+- **Duración**: plantilla ~13 meses, soca ~12 (Cenicaña). Ajustable en
+  `phase_rules`.
+
+### Estados legacy (respaldo)
+
+La lógica anterior por `last + cadencia` (`ok` / `due_soon` / `overdue`,
+`lib/fumigation-cadence.ts`) sigue disponible para reportes y la columna
+"Próxima" de `/parcelas`, pero **ya no es la vista principal de
+planificación**. `dji_fumigation_schedule.next_due_date` se recalcula con
+`npm run refresh:fumigations`.
 
 ---
 

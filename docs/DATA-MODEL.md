@@ -136,6 +136,9 @@ Normalización S11+ Fase 3.A. FKs desde `dji_parcels`. Una finca pertenece a un 
 ### `cycles` + `cycle_events` + `phase_rules` (migration `20260905020000`)
 Capa de gestión de ciclos productivos del cultivo. S11+ Fase 4.4. `cycles` representa el ciclo vigente de una parcela (1+ por parcela), `cycle_events` son eventos de siembra/aplicación/corte/renovación, `phase_rules` configura las transiciones de fase.
 
+### `phase_application_rules` (migration `20260913000003`)
+Planificación fitosanitaria por fase (MVP 2026-09-13). Data-driven: `phase` → `category_slug` × `application_type_slug` (opcional) × `window_from_day`/`window_to_day` (días desde `cycles.start_date`) × `cadence_days` × `is_required`. `is_required=false` = "según monitoreo". Seed inicial: caña (Valle del Cauca). Ver `docs/FUMIGATION_CADENCE.md` y `docs/DEEPSEEK-PROPOSAL-CICLOS-FENOLOGIA.md`.
+
 ### `vw_current_cycle` (view, no tabla)
 View materializada que calcula el ciclo activo y la fase actual (`current_phase(crop, variety, start_date)`) para cada parcela.
 
