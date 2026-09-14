@@ -49,10 +49,14 @@ describe("AdminLandingPage — /admin landing (Fase 8)", () => {
     expect(link).toHaveAttribute("href", "/admin/applications");
   });
 
-  it("muestra la URL visible de cada acción (no-hover discoverability)", () => {
+  it("no muestra la URL cruda en el render (UI-12)", () => {
+    // UI-12: el operador fumigador no es dev; mostrar "/admin/parcels"
+    // en monospace era ruido. La URL queda en el href del <Link>
+    // (accesible por teclado y screen reader; el hover del cursor
+    // muestra la URL en el browser). Esto verifica que el <p>{href}</p>
+    // NO esta presente.
     render(<AdminLandingPage />);
-    // El componente renderiza la URL en monospace para que sea escaneable
-    expect(screen.getByText("/admin/parcels")).toBeInTheDocument();
-    expect(screen.getByText("/admin/calidad")).toBeInTheDocument();
+    expect(screen.queryByText("/admin/parcels")).not.toBeInTheDocument();
+    expect(screen.queryByText("/admin/calidad")).not.toBeInTheDocument();
   });
 });
