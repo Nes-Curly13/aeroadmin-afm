@@ -72,7 +72,8 @@ export default async function ApplicationsAdminPage() {
     return (
       <div className="p-6">
         <Card>
-          <p className="text-sm">Esta pagina es solo accesible para administradores.</p>
+          {/* UI-T2: "pagina" → "página" (tilde). */}
+          <p className="text-sm">Esta página es solo accesible para administradores.</p>
         </Card>
       </div>
     );

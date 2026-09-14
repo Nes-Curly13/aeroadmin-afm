@@ -456,10 +456,17 @@ export default async function ParcelaPage({ params }: { params: Promise<{ id: st
                       )}
                     </div>
                     {fumigations.length > 0 && (
+                      // UI-T2: jerga dev suavizada. Antes mostraba "Tip:
+                      // correr el backfill hibrido desde la API (POST
+                      // /api/admin/cycles/backfill)" — el operador no
+                      // sabe que es un POST ni que es un endpoint.
+                      // Nuevo: explica el efecto ("el sistema calculara
+                      // el ciclo automaticamente") + ruta tecnica en
+                      // code mono para devs que necesiten ver el contrato.
                       <p className="text-[11px] text-muted-foreground">
-                        Tip: correr el backfill híbrido desde la API
-                        (<code className="rounded bg-muted px-1">POST /api/admin/cycles/backfill</code>)
-                        para inferir ciclos desde el histórico de fumigaciones.
+                        El sistema calculará el ciclo automáticamente
+                        cuando se ejecute el backfill
+                        (<code className="rounded bg-muted px-1">POST /api/admin/cycles/backfill</code>).
                       </p>
                     )}
                   </div>
