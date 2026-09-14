@@ -170,8 +170,13 @@ export function FumigacionesTableClient({
     if (selectedIds.size === 0) return;
     const count = selectedIds.size;
     if (
+      // UI-T4: tildes + jerga dev suavizada. "BD" → "base de datos";
+      // "reversible solo desde la BD (audit log conservado)" →
+      // explicacion en espanol del soft-delete + reversibilidad.
       !window.confirm(
-        `¿Borrar ${count} fumigacion${count === 1 ? "" : "es"}? La operación es reversible solo desde la BD (audit log conservado).`
+        `¿Borrar ${count} fumigacion${count === 1 ? "" : "es"}? ` +
+          `Las fumigaciones se marcan como borradas y desaparecen de los listados. ` +
+          `Quedan en la base de datos para auditoría (un admin puede restaurarlas).`
       )
     ) {
       return;
@@ -212,8 +217,9 @@ export function FumigacionesTableClient({
         ? "Sin clasificar"
         : FUMIGATION_CATEGORIES.find((c) => c.id === categoryId)?.label ?? `#${categoryId}`;
     if (
+      // UI-T4: tildes. "fumigaciones" → "fumigación/es" con tilde.
       !window.confirm(
-        `¿Asignar "${target}" a ${count} fumigacion${count === 1 ? "" : "es"}?`
+        `¿Asignar "${target}" a ${count} fumigación${count === 1 ? "" : "es"}?`
       )
     ) {
       return;
