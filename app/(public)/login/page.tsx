@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -43,6 +44,8 @@ import { AuraBackground } from "@/components/aura-background";
 
 export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
+  // UI-T1: toggle para mostrar/ocultar password. Default false (oculto).
+  const [showPassword, setShowPassword] = useState(false);
   const [pending, startTransition] = useTransition();
   const router = useRouter();
 
@@ -159,14 +162,30 @@ export default function LoginPage() {
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                   Password
                 </span>
-                <Input
-                  autoComplete="current-password"
-                  disabled={pending}
-                  name="password"
-                  placeholder="••••••••"
-                  required
-                  type="password"
-                />
+                {/* UI-T1: boton mostrar/ocultar password. Toggle local del
+                    type del input sin librerias. El boton es type="button"
+                    para NO submitear el form al click. */}
+                <div className="relative">
+                  <Input
+                    autoComplete="current-password"
+                    disabled={pending}
+                    name="password"
+                    placeholder="••••••••"
+                    required
+                    type={showPassword ? "text" : "password"}
+                    className="pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    disabled={pending}
+                    aria-label={showPassword ? "Ocultar password" : "Mostrar password"}
+                    aria-pressed={showPassword}
+                    className="absolute right-1 top-1/2 inline-flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                  >
+                    {showPassword ? <EyeOff className="size-4" aria-hidden /> : <Eye className="size-4" aria-hidden />}
+                  </button>
+                </div>
               </label>
               {error ? (
                 <p
