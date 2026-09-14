@@ -180,6 +180,10 @@ Total Fase 6: 7 commits, +32 tests (2182 → 2214 verde), tsc/arch 0 errores.
 > `docs/DEEPSEEK-MINI-TASKS.md` — tareas chicas, con scope de archivos
 > disjunto, listas para correr en paralelo.
 >
+> **Tareas de UI/UX (revisión por página, muy específicas)**: ver
+> `docs/DEEPSEEK-UI-TASKS.md` — incluye 5 bugs funcionales P0 + tareas de
+> pulido. Reglas anti-rotura para MiniMax en §0 de ese doc.
+>
 > **Épicos de modelo (#49/#52)**: propuesta de diseño para discutir en
 > `docs/DEEPSEEK-PROPOSAL-MODELO-DATOS.md`.
 >
