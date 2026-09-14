@@ -593,6 +593,20 @@ export function AdminParcelsClient({
                 </tr>
               </thead>
               <tbody>
+                {filtered.length === 0 ? (
+                  // UI-13: empty state explicito cuando los filtros
+                  // (incluido el q server-side de UI-P0-5) no matchean
+                  // ninguna parcela. Antes el tbody quedaba vacio y
+                  // el operador pensaba que la pagina estaba rota.
+                  <tr>
+                    <td
+                      colSpan={9}
+                      className="px-3 py-12 text-center text-sm text-muted-foreground"
+                    >
+                      Sin parcelas que coincidan.
+                    </td>
+                  </tr>
+                ) : null}
                 {filtered.map((p) => {
                   const draft = drafts[p.id] ?? emptyDraft();
                   const status = statuses[p.id] ?? "idle";
@@ -762,11 +776,17 @@ export function AdminParcelsClient({
                             <Loader2 className="size-3.5 animate-spin text-muted-foreground" aria-label="Guardando" />
                           )}
                           {status === "error" && (
+                            // UI-13: mostrar "Error" como texto visible
+                            // (antes era error?.substring(0, 32), que
+                            // truncaba a 32 chars y dejaba mensajes
+                            // utiles cortados a media palabra). El texto
+                            // completo sigue accesible via title (hover)
+                            // y via click para inspeccionar.
                             <span
-                              className="font-mono text-[10px] text-destructive"
+                              className="font-mono text-[10px] font-medium text-destructive"
                               title={error}
                             >
-                              {error?.substring(0, 32)}
+                              Error
                             </span>
                           )}
                           {dirty && status !== "saving" && (
