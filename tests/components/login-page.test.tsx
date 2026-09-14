@@ -79,7 +79,9 @@ describe("LoginPage (S8 v2.7.5 — client-side fetch flow)", () => {
   it("1. renderiza el form con email, password y boton Ingresar", () => {
     render(<LoginPage />);
     expect(screen.getByLabelText(/email/i)).toBeTruthy();
-    expect(screen.getByLabelText(/password/i)).toBeTruthy();
+    // UI-T1: ahora hay un boton 'Mostrar password' que tambien tiene
+    // 'password' en su aria-label. Scope a input para no matchear el boton.
+    expect(screen.getByLabelText(/password/i, { selector: "input" })).toBeTruthy();
     expect(screen.getByRole("button", { name: /ingresar/i })).toBeTruthy();
   });
 
@@ -111,7 +113,8 @@ describe("LoginPage (S8 v2.7.5 — client-side fetch flow)", () => {
 
     render(<LoginPage />);
     const emailInput = screen.getByLabelText(/email/i) as HTMLInputElement;
-    const passwordInput = screen.getByLabelText(/password/i) as HTMLInputElement;
+    // UI-T1: scope a input (no matchear el boton 'Mostrar password').
+    const passwordInput = screen.getByLabelText(/password/i, { selector: "input" }) as HTMLInputElement;
     fireEvent.change(emailInput, { target: { value: "wrong@example.com" } });
     fireEvent.change(passwordInput, { target: { value: "badpass" } });
     fireEvent.click(screen.getByRole("button", { name: /ingresar/i }));
@@ -142,7 +145,8 @@ describe("LoginPage (S8 v2.7.5 — client-side fetch flow)", () => {
 
     render(<LoginPage />);
     const emailInput = screen.getByLabelText(/email/i) as HTMLInputElement;
-    const passwordInput = screen.getByLabelText(/password/i) as HTMLInputElement;
+    // UI-T1: scope a input (no matchear el boton 'Mostrar password').
+    const passwordInput = screen.getByLabelText(/password/i, { selector: "input" }) as HTMLInputElement;
     fireEvent.change(emailInput, { target: { value: "admin@aeroadmin.local" } });
     fireEvent.change(passwordInput, { target: { value: "ynJPvPXjqjQXhJst@v" } });
     fireEvent.click(screen.getByRole("button", { name: /ingresar/i }));
@@ -161,7 +165,8 @@ describe("LoginPage (S8 v2.7.5 — client-side fetch flow)", () => {
 
     render(<LoginPage />);
     const emailInput = screen.getByLabelText(/email/i) as HTMLInputElement;
-    const passwordInput = screen.getByLabelText(/password/i) as HTMLInputElement;
+    // UI-T1: scope a input (no matchear el boton 'Mostrar password').
+    const passwordInput = screen.getByLabelText(/password/i, { selector: "input" }) as HTMLInputElement;
     fireEvent.change(emailInput, { target: { value: "a@b.com" } });
     fireEvent.change(passwordInput, { target: { value: "x" } });
     fireEvent.click(screen.getByRole("button", { name: /ingresar/i }));
@@ -189,7 +194,8 @@ describe("LoginPage (S8 v2.7.5 — client-side fetch flow)", () => {
 
     render(<LoginPage />);
     fireEvent.change(screen.getByLabelText(/email/i), { target: { value: "a@b.com" } });
-    fireEvent.change(screen.getByLabelText(/password/i), { target: { value: "x" } });
+    // UI-T1: scope a input.
+    fireEvent.change(screen.getByLabelText(/password/i, { selector: "input" }), { target: { value: "x" } });
     fireEvent.click(screen.getByRole("button", { name: /ingresar/i }));
 
     await waitFor(() => {
