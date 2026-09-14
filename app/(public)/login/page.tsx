@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { AfmMark } from "@/components/brand/afm-mark";
 import { AuraBackground } from "@/components/aura-background";
 
@@ -136,7 +137,7 @@ export default function LoginPage() {
             </div>
             <div className="flex flex-col items-center gap-1">
               <CardTitle className="text-lg">AFM Geovisor</CardTitle>
-              <CardDescription>Panel admin — Iniciar sesion</CardDescription>
+              <CardDescription>Panel admin — Iniciar sesión</CardDescription>
             </div>
           </CardHeader>
           <CardContent className="px-6">
@@ -145,9 +146,8 @@ export default function LoginPage() {
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                   Email
                 </span>
-                <input
+                <Input
                   autoComplete="email"
-                  className="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-ring focus:ring-2 focus:ring-ring/40 disabled:opacity-50"
                   disabled={pending}
                   name="email"
                   placeholder="piloto@afm.local"
@@ -159,9 +159,8 @@ export default function LoginPage() {
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                   Password
                 </span>
-                <input
+                <Input
                   autoComplete="current-password"
-                  className="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-ring focus:ring-2 focus:ring-ring/40 disabled:opacity-50"
                   disabled={pending}
                   name="password"
                   placeholder="••••••••"
