@@ -119,8 +119,8 @@ export function ParcelsTable({
     }
   }
 
-  const Th = ({ label, k, className }: { label: string; k?: SortKey; className?: string }) => (
-    <th scope="col" className={cn("px-3 py-2.5 text-left font-semibold", className)}>
+  const Th = ({ label, k, className, title }: { label: string; k?: SortKey; className?: string; title?: string }) => (
+    <th scope="col" className={cn("px-3 py-2.5 text-left font-semibold", className)} title={title}>
       {k ? (
         <button
           type="button"
@@ -176,6 +176,23 @@ export function ParcelsTable({
             </option>
           ))}
         </FieldSelect>
+        {/* UI-06: boton Limpiar visible solo si hay algun filtro activo.
+            Resetea los 3 filtros (query + cliente + estado) a sus defaults.
+            Sin esto, el usuario tenia que borrar cada campo a mano. */}
+        {(query !== "" || client !== "todos" || status !== "todos") && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setQuery("");
+              setClient("todos");
+              setStatus("todos");
+            }}
+            aria-label="Limpiar filtros"
+          >
+            Limpiar
+          </Button>
+        )}
         {/* Sprint S10 (2026-08-06): botones de admin en /parcelas. El sidebar
             linkea a /parcelas (no a /admin/parcels), asi que el admin
             necesita ver los accesos directos ACÁ. Solo admins los ven;
@@ -224,7 +241,18 @@ export function ParcelsTable({
                 <Th label="Cadencia" />
                 <Th label="Última" k="last" />
                 <Th label="Próxima" k="due" />
-                <Th label="Eventos" k="events" className="text-right" />
+                {/* UI-05: header clarificado. Antes era "Eventos" que
+                    mostraba "12 / 3 v" sin contexto. Ahora "Fumigaciones /
+                    Vuelos" deja claro que es la cuenta de fumigaciones
+                    (eventos de aplicacion) + los vuelos de drone que la
+                    componen. La celda mantiene el mismo contenido pero
+                    con title explicativo para hover. */}
+                <Th
+                  label="Fum. / Vuelos"
+                  k="events"
+                  className="text-right"
+                  title="Cantidad de fumigaciones registradas / vuelos de drone que las componen"
+                />
                 <Th label="Estado" />
               </tr>
             </thead>
@@ -247,7 +275,14 @@ export function ParcelsTable({
                     <td className="px-3 py-2.5 font-mono tabular-nums text-muted-foreground">{`${r.cadence} d`}</td>
                     <td className="px-3 py-2.5 font-mono tabular-nums text-muted-foreground">{fmtDate(r.last)}</td>
                     <td className="px-3 py-2.5 font-mono tabular-nums text-muted-foreground">{fmtDate(r.due)}</td>
-                    <td className="px-3 py-2.5 text-right font-mono tabular-nums">
+                    {/* UI-05: title explicativo al hover para que el
+                        usuario entienda "12 / 3" sin tener que adivinar
+                        ("fumigaciones / vuelos"). Mantiene el formato
+                        visual exacto (no es un refactor). */}
+                    <td
+                      className="px-3 py-2.5 text-right font-mono tabular-nums"
+                      title={`${fmtInt(r.events)} fumigaciones registradas / ${fmtInt(r.flights)} vuelos de drone`}
+                    >
                       {fmtInt(r.events)}
                       <span className="text-muted-foreground">{` / ${fmtInt(r.flights)} v`}</span>
                     </td>
