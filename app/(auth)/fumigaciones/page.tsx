@@ -243,7 +243,12 @@ export default async function FumigacionesPage({ searchParams }: PageProps) {
           >
             Filtrar
           </button>
-          {(sp.from || sp.to || sp.parcel || sp.drone) ? (
+          {/* UI-07: condicion ampliada para incluir TODOS los filtros
+              (q, source, category, from, to, parcel, drone). Antes solo
+              from/to/parcel/drone -> si el usuario filtraba por source o
+              tipo, el boton Limpiar quedaba invisible y tenia que
+              borrar cada filtro a mano. */}
+          {(sp.q || sp.source || sp.category || sp.from || sp.to || sp.parcel || sp.drone) ? (
             <Link
               href="/fumigaciones"
               className="h-8 self-end rounded-md px-2 text-xs font-medium text-muted-foreground hover:text-foreground"
