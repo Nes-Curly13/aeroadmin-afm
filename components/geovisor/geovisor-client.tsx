@@ -490,7 +490,10 @@ export function GeovisorClient({ payload }: { payload: GeovisorPayload }) {
             type="button"
             variant="outline"
             size="sm"
-            className="pointer-events-auto hidden bg-card/95 backdrop-blur lg:inline-flex"
+            // UI-10: quitar el `hidden ... lg:inline-flex`. Antes el
+            // boton de mostrar/ocultar filtros solo aparecia en lg+;
+            // mobile users no podian colapsar el rail de filtros.
+            className="pointer-events-auto bg-card/95 backdrop-blur"
             onClick={() => setShowFilters((v) => !v)}
           >
             <SlidersHorizontal className="size-3.5" />

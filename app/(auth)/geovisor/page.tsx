@@ -1,6 +1,7 @@
 import type { Metadata } from "next"
 import { Suspense } from "react"
 import { GeovisorClient } from "@/components/geovisor/geovisor-client"
+import { PageHeader } from "@/components/page-header"
 import { PageSpinner } from "@/components/ui/loading"
 import { getGeovisorPayload } from "@/lib/data"
 
@@ -21,10 +22,18 @@ export default function GeovisorPage() {
   // hulls + cache composicion — ~500ms cold, ~50ms warm). El mapa
   // se monta completo de una vez porque necesita TODA la data para
   // renderizar pins/poligonos.
+  // UI-10: <PageHeader> afuera del Suspense (no depende de data) ->
+  // aparece instantaneamente en lugar de esperar al payload.
   return (
-    <Suspense fallback={<PageSpinner message="Cargando mapa de parcelas y aplicaciones..." />}>
-      <GeovisorContent />
-    </Suspense>
+    <>
+      <PageHeader
+        title="Geovisor"
+        description="Mapa de parcelas con histórico de fumigaciones aplicadas. Filtrá por fecha y consultá el detalle de cada aplicación."
+      />
+      <Suspense fallback={<PageSpinner message="Cargando mapa de parcelas y aplicaciones..." />}>
+        <GeovisorContent />
+      </Suspense>
+    </>
   )
 }
 
