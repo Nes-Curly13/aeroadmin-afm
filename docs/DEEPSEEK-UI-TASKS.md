@@ -27,7 +27,7 @@
 
 ## 1. P0 — Bugs funcionales (hacer primero, alto impacto)
 
-### UI-P0-1 — `HealthPanel` crashea si `health.status === "unknown"`
+### UI-P0-1 — `HealthPanel` crashea si `health.status === "unknown"` ✅ `d4ef40f`
 - **Archivo**: `components/dashboard/health-panel.tsx` (y `components/dashboard/health-panel.tsx:14`)
 - **Problema**: `const Ui = STATUS_UI[health.status]` donde `STATUS_UI` solo mapea `ok|partial|error`. `AppShell` sí contempla `unknown` → si el health viene `unknown`, `Ui.icon` revienta y tumbla el dashboard.
 - **Cambio**: agregar una entrada `unknown` (y un fallback defensivo `STATUS_UI[health.status] ?? STATUS_UI.unknown`) con un icono neutro (`HelpCircle` o `Activity`) y clases `bg-muted text-muted-foreground`.
@@ -35,7 +35,7 @@
 - **Aceptación**: renderiza sin crashear para los 4 estados (`ok/partial/error/unknown`).
 - **Verificación**: `npx tsc --noEmit` + test de health-panel si existe.
 
-### UI-P0-2 — Link `import_excel` roto en `/admin/applications`
+### UI-P0-2 — Link `import_excel` roto en `/admin/applications` ✅ `2f4169d`
 - **Archivos**: `app/(auth)/admin/applications/page.tsx:115` (el `href="/fumigaciones?source=import_excel"`) + `lib/fumigaciones-filters.ts:61-66` (`parseSource`).
 - **Problema**: `parseSource` solo acepta `dji|manual|import`; `import_excel` devuelve `null` → el link muestra TODAS las fumigaciones, no las importadas.
 - **Cambio**: mapear `import_excel` → la fuente correcta que usa el data-loader (revisar cómo se guarda `source` de las importadas; probablemente `"import"`). Si el data-loader filtra por `source="import"`, el href debe ser `/fumigaciones?source=import`. Cambiar **solo el href** (no tocar `parseSource` salvo que sea necesario y esté claro).
@@ -43,7 +43,7 @@
 - **Aceptación**: el link filtra correctamente las importadas del Excel.
 - **Verificación**: `npx vitest run tests/lib-fumigaciones-filters.test.ts` (o el test existente) + click manual.
 
-### UI-P0-3 — `/admin/calidad` puede mostrar "dataset limpio" falso
+### UI-P0-3 — `/admin/calidad` puede mostrar "dataset limpio" falso ✅ `bdc37c2`
 - **Archivo**: `app/(auth)/admin/calidad/page.tsx:36-54` (`fetchAllWarnings`).
 - **Problema**: usa `process.env.NEXTAUTH_URL ?? "http://localhost:3000"` para llamarse a sí mismo; en prod sin esa var falla y devuelve `[]` → la UI dice "Sin alertas — el dataset está limpio" (falso negativo).
 - **Cambio**: en error, NO devolver `[]` silenciosamente. Reemplazar por `null`/flag `error` y renderizar un card de error ("No se pudo consultar la calidad de datos. Reintentá."). Mantener el caso "sin warnings" real como "Sin alertas".
@@ -51,7 +51,7 @@
 - **Aceptación**: distinguir "sin datos por error" de "dataset limpio".
 - **Verificación**: `npx tsc --noEmit` + revisar que el estado vacío real siga funcionando.
 
-### UI-P0-4 — Reportes: PDF/CSV con `href=""` para supervisor
+### UI-P0-4 — Reportes: PDF/CSV con `href=""` para supervisor ✅ `9d8de48`
 - **Archivos**: `app/(auth)/reportes/page.tsx:112-117` (`pdfHref`/`csvHref` vacíos) + `components/reports/reports-form.tsx:179,190`.
 - **Problema**: para no-admin los hrefs son `""` y `<a href="">` recarga la página (no descarga).
 - **Cambio**: si no hay href, **no renderizar** los botones de descarga (o renderizarlos `disabled` con `title="Solo admin"`). No dejar `<a href="">`.
@@ -59,13 +59,15 @@
 - **Aceptación**: supervisor no ve links que recargan; admin sí descarga.
 - **Verificación**: `npx tsc --noEmit` + revisar rol supervisor visualmente.
 
-### UI-P0-5 — Búsqueda de `/admin/parcels` solo filtra la página actual
+### UI-P0-5 — Búsqueda de `/admin/parcels` solo filtra la página actual ✅ `5746872`
 - **Archivo**: `app/(auth)/admin/parcels/admin-parcels-client.tsx:199-213` (`filtered`).
 - **Problema**: filtra las ~50 filas del `initialData` local; buscar "Palmira" no toca el resto de las 1213. El `?q=` del server nunca se actualiza al tipear.
 - **Cambio**: ⚠️ **Tarea de mayor riesgo** — requiere revisar el contrato server (`app/(auth)/admin/parcels/page.tsx` + repo). Hacer que la búsqueda dispare una navegación server-side (`router.push` con `?q=` + debounce) **o** documentar por qué no se puede y escalar. **Si no está 100% claro, NO lo hagas: reportá bloqueado.**
 - **NO tocar**: la edición inline ni los PATCH.
 - **Aceptación**: buscar filtra sobre el dataset completo.
 - **Verificación**: `npx vitest run tests/components/admin/parcels/*` (si existe) + prueba manual.
+
+**Implementado en `5746872`**: `api/repositories.ts` agrega `q` a `DjiParcelsFilter` con ILIKE sobre 6 columnas (`land_name`, `external_id`, `client_name`, `farm_name`, `municipality`, `variety`); `hasFilter` trata `q` no-vacío como activador del camino uncached (el cache no soporta filtros). `page.tsx` pasa `q` al filter. `admin-parcels-client.tsx` agrega `useEffect` con debounce 300ms + `router.push("/admin/parcels?q=...&page=1")` cuando el local state cambia. Tests nuevos: `tests/api-repositories-parcels-q-filter.test.ts` (5 tests: ILIKE sobre 6 cols, q vacío cae al cache, whitespace treated as empty, combinación con `missingClientName`, verificación de que `q` activo va por uncached).
 
 ---
 

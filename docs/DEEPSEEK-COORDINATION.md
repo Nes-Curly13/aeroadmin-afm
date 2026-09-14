@@ -43,8 +43,8 @@ re-aplicar todo). Sin protocolo, multiagente pierde trabajo. Reglas:
 ## 1. Estado actual
 
 - **Fecha**: 2026-09-13
-- **master**: ver `git log --oneline -1`.
-- **Gates**: `tsc` 0 errores · `arch:check` 0 errores · tests **2221/2221** ✅
+- **master**: `5746872` (UI-P0-5 cierra Tanda 1 UI/UX).
+- **Gates**: `tsc` 0 errores · `arch:check` 0 errores · tests **2240/2240** ✅
 - **Producto**: Release Candidate. **OE1/OE2 cerrados; OE4 pendiente (manual).**
 
 ---
@@ -302,6 +302,16 @@ Total Fase 6: 7 commits, +32 tests (2182 → 2214 verde), tsc/arch 0 errores.
   paralelo). `trustHost` condicional (#33), `requireFreshRole` (#27), índices
   de dashboard (#55), i18n import GIS (#37), tests/cobertura de
   `map-filter-types` + `api/queries`. Suite 2214/2214 verde. Ver §2.6.
+- **2026-09-13** — Tanda 1 UI-P0 (sesión actual): 5 bugs funcionales cerrados.
+  UI-P0-1 (`STATUS_UI` mapea `unknown` + fallback), UI-P0-2 (link
+  `source=import_excel` → `source=import`), UI-P0-3 (`calidad` distingue
+  fetch-error de dataset-limpio), UI-P0-4 (reportes supervisor: botones
+  disabled + tooltip en vez de `<a href="">`), UI-P0-5 (búsqueda server-side
+  `?q=` en `/admin/parcels` con ILIKE sobre 6 columnas + debounce 300ms +
+  router.push + 5 tests nuevos). Los 4 agentes paralelos diseñados para
+  Tanda 1 fallaron por 529 (server cluster bajo carga); coordinador tomó
+  el control y ejecutó los 5 items secuencialmente en master. Suite
+  2240/2240 verde. Ver `docs/DEEPSEEK-UI-TASKS.md` §1 P0.
 
 > **Mantené este doc vivo**: si terminás un ítem, actualizá §1/§3 en el mismo
 > commit. Si encontrás un agujero nuevo, agregalo a §3 y avisá.
