@@ -1,5 +1,6 @@
 import Link from "next/link";
 import {
+  CalendarClock,
   Database,
   FileSpreadsheet,
   ListChecks,
@@ -65,6 +66,12 @@ const ADMIN_LINKS: AdminLink[] = [
     title: "Aplicaciones importadas",
     description: "Lista de fumigaciones importadas del Excel del operador fumigador (source='import_excel').",
     icon: Database
+  },
+  {
+    href: "/admin/reglas-fitosanitarias",
+    title: "Reglas fitosanitarias",
+    description: "Aplicaciones recomendadas por fase del cultivo. Ajustá ventanas y cadencias; la planificación se recalcula automáticamente.",
+    icon: CalendarClock
   }
 ];
 

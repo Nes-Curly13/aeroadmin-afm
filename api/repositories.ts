@@ -22,6 +22,10 @@ import {
   type PhasePlanningItem
 } from "@/lib/phase-applications";
 import {
+  PHASE_APPLICATION_DEFAULTS,
+  type PhaseApplicationRuleInput
+} from "@/lib/phase-application-defaults";
+import {
   fetchAlertsCached,
   fetchDashboardMetricsCached,
   fetchFlightPointsCached,
@@ -4816,4 +4820,123 @@ export async function getPhasePlanningOverview(
     },
     async () => []
   );
+}
+
+// ============================================================
+// PHASE APPLICATION RULES — CRUD admin (data-driven, MVP 2026-09-13)
+// ============================================================
+
+const PHASE_RULE_COLS = `id, crop_type, phase, category_slug, application_type_slug,
+  cadence_days, window_from_day, window_to_day, is_required, notes`;
+
+export async function createPhaseApplicationRule(
+  input: PhaseApplicationRuleInput
+): Promise<PhaseApplicationRule> {
+  const db = getDb();
+  const r = await db.query<PhaseApplicationRule>(
+    `INSERT INTO phase_application_rules
+       (crop_type, phase, category_slug, application_type_slug, cadence_days,
+        window_from_day, window_to_day, is_required, notes)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+     RETURNING ${PHASE_RULE_COLS}`,
+    [
+      input.crop_type,
+      input.phase,
+      input.category_slug,
+      input.application_type_slug,
+      input.cadence_days,
+      input.window_from_day,
+      input.window_to_day,
+      input.is_required,
+      input.notes
+    ]
+  );
+  const row = r.rows[0];
+  if (!row) throw new Error("createPhaseApplicationRule: INSERT sin row");
+  return row;
+}
+
+export async function updatePhaseApplicationRule(
+  id: number,
+  patch: Partial<PhaseApplicationRuleInput>
+): Promise<PhaseApplicationRule | null> {
+  const db = getDb();
+  const sets: string[] = [];
+  const values: unknown[] = [];
+  let i = 1;
+  const map: Array<[keyof PhaseApplicationRuleInput, unknown]> = [
+    ["phase", patch.phase],
+    ["category_slug", patch.category_slug],
+    ["application_type_slug", patch.application_type_slug],
+    ["cadence_days", patch.cadence_days],
+    ["window_from_day", patch.window_from_day],
+    ["window_to_day", patch.window_to_day],
+    ["is_required", patch.is_required],
+    ["notes", patch.notes]
+  ];
+  for (const [col, val] of map) {
+    if (val !== undefined) {
+      sets.push(`${col} = $${i++}`);
+      values.push(val);
+    }
+  }
+  if (sets.length === 0) return null;
+  values.push(id);
+  const r = await db.query<PhaseApplicationRule>(
+    `UPDATE phase_application_rules SET ${sets.join(", ")}
+      WHERE id = $${i}
+      RETURNING ${PHASE_RULE_COLS}`,
+    values
+  );
+  return r.rows[0] ?? null;
+}
+
+export async function deletePhaseApplicationRule(id: number): Promise<boolean> {
+  const db = getDb();
+  const r = await db.query(`DELETE FROM phase_application_rules WHERE id = $1`, [id]);
+  return (r.rowCount ?? 0) > 0;
+}
+
+/**
+ * Restaura los valores recomendados de `phase_application_rules` para un
+ * cultivo (borra los del crop y re-inserta los defaults). Devuelve cuántas
+ * reglas quedaron.
+ */
+export async function resetPhaseApplicationRules(cropType = "cana"): Promise<number> {
+  const db = getDb();
+  const client = await db.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(`DELETE FROM phase_application_rules WHERE crop_type = $1`, [cropType]);
+    for (const d of PHASE_APPLICATION_DEFAULTS) {
+      await client.query(
+        `INSERT INTO phase_application_rules
+           (crop_type, phase, category_slug, application_type_slug, cadence_days,
+            window_from_day, window_to_day, is_required, notes)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+        [
+          cropType,
+          d.phase,
+          d.category_slug,
+          d.application_type_slug,
+          d.cadence_days,
+          d.window_from_day,
+          d.window_to_day,
+          d.is_required,
+          d.notes
+        ]
+      );
+    }
+    const r = await client.query<{ n: string }>(
+      `SELECT COUNT(*)::text AS n FROM phase_application_rules WHERE crop_type = $1`,
+      [cropType]
+    );
+    await client.query("COMMIT");
+    return Number(r.rows[0]?.n ?? 0);
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
 }
