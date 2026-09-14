@@ -35,10 +35,6 @@ vi.mock("@/components/parcels/fumigation-map", () => ({
   FumigationMap: () => <div data-testid="fumigation-map" />
 }));
 
-vi.mock("@/components/admin/parcels/parcel-drawer", () => ({
-  ParcelDrawer: () => <div data-testid="parcel-drawer" />
-}));
-
 vi.mock("@/components/parcels/register-fumigation-form", () => ({
   RegisterFumigationForm: () => <div data-testid="register-fumigation-form" />
 }));
@@ -111,6 +107,7 @@ describe("NewFumigationPageClient — wizard V3 (3 steps desde Fase 4)", () => {
       <NewFumigationPageClient
         initialParcelId={null}
         recentParcels={recentParcels}
+        isAdmin
       />
     );
     // El stepper existe
@@ -129,6 +126,7 @@ describe("NewFumigationPageClient — wizard V3 (3 steps desde Fase 4)", () => {
       <NewFumigationPageClient
         initialParcelId={null}
         recentParcels={recentParcels}
+        isAdmin
       />
     );
     const tabImport = screen.getByTestId("tab-import");
@@ -144,6 +142,7 @@ describe("NewFumigationPageClient — wizard V3 (3 steps desde Fase 4)", () => {
       <NewFumigationPageClient
         initialParcelId={null}
         recentParcels={recentParcels}
+        isAdmin
       />
     );
     const tabImport = screen.getByTestId("tab-import");
@@ -157,6 +156,7 @@ describe("NewFumigationPageClient — wizard V3 (3 steps desde Fase 4)", () => {
       <NewFumigationPageClient
         initialParcelId={null}
         recentParcels={recentParcels}
+        isAdmin
       />
     );
     expect(
@@ -165,15 +165,33 @@ describe("NewFumigationPageClient — wizard V3 (3 steps desde Fase 4)", () => {
     expect(screen.queryByTestId("fumigation-map")).not.toBeInTheDocument();
   });
 
-  it("5. Step 1 (que): 'Crear nueva parcela' es PROMINENTE (no <details> colapsado)", () => {
+  it("5. Step 1 (que): 'Crear nueva parcela' (admin) linkea al alta manual /admin/parcels/new", () => {
     render(
       <NewFumigationPageClient
         initialParcelId={null}
         recentParcels={recentParcels}
+        isAdmin
       />
     );
-    const createButton = screen.getByRole("button", { name: /crear.*nueva.*parcela/i });
-    expect(createButton).toBeInTheDocument();
+    const createLink = screen.getByRole("button", { name: /crear.*nueva.*parcela/i });
+    expect(createLink).toBeInTheDocument();
+    expect(createLink).toHaveAttribute("href", "/admin/parcels/new");
+  });
+
+  it("5b. Step 1 (que): supervisor NO ve el link de crear parcela (alta es admin-only)", () => {
+    render(
+      <NewFumigationPageClient
+        initialParcelId={null}
+        recentParcels={recentParcels}
+        isAdmin={false}
+      />
+    );
+    expect(
+      screen.queryByRole("button", { name: /crear.*nueva.*parcela/i })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/pedile a un administrador que la cree/i)
+    ).toBeInTheDocument();
   });
 
   it("6. Step 1 (que): botón 'Continuar al paso 2' está disabled sin parcela", () => {
@@ -181,6 +199,7 @@ describe("NewFumigationPageClient — wizard V3 (3 steps desde Fase 4)", () => {
       <NewFumigationPageClient
         initialParcelId={null}
         recentParcels={recentParcels}
+        isAdmin
       />
     );
     const continueButton = screen.getByTestId("continue-to-como");
@@ -192,6 +211,7 @@ describe("NewFumigationPageClient — wizard V3 (3 steps desde Fase 4)", () => {
       <NewFumigationPageClient
         initialParcelId={null}
         recentParcels={recentParcels}
+        isAdmin
       />
     );
     // El DjiFlightPicker NO debe estar visible (no hay parcela)
@@ -204,6 +224,7 @@ describe("NewFumigationPageClient — wizard V3 (3 steps desde Fase 4)", () => {
       <NewFumigationPageClient
         initialParcelId={null}
         recentParcels={recentParcels}
+        isAdmin
       />
     );
     // Filtrar para mostrar el resultado
@@ -237,6 +258,7 @@ describe("NewFumigationPageClient — wizard V3 (3 steps desde Fase 4)", () => {
       <NewFumigationPageClient
         initialParcelId={null}
         recentParcels={recentParcels}
+        isAdmin
       />
     );
     const searchInput = screen.getByPlaceholderText(/buscar/i);
@@ -260,6 +282,7 @@ describe("NewFumigationPageClient — wizard V3 (3 steps desde Fase 4)", () => {
       <NewFumigationPageClient
         initialParcelId={null}
         recentParcels={recentParcels}
+        isAdmin
       />
     );
     const searchInput = screen.getByPlaceholderText(/buscar/i);
@@ -287,6 +310,7 @@ describe("NewFumigationPageClient — wizard V3 (3 steps desde Fase 4)", () => {
       <NewFumigationPageClient
         initialParcelId={null}
         recentParcels={recentParcels}
+        isAdmin
       />
     );
     // El page.tsx tiene "Nueva fumigación"; el client component no
@@ -303,6 +327,7 @@ describe("NewFumigationPageClient — wizard V3 (3 steps desde Fase 4)", () => {
       <NewFumigationPageClient
         initialParcelId={1}
         recentParcels={recentParcels}
+        isAdmin
       />
     );
     // Step 2 (como) marcado como activo
@@ -321,6 +346,7 @@ describe("NewFumigationPageClient — wizard V3 (3 steps desde Fase 4)", () => {
       <NewFumigationPageClient
         initialParcelId={null}
         recentParcels={recentParcels}
+        isAdmin
       />
     );
     expect(screen.getByTestId("step-que")).toBeInTheDocument();

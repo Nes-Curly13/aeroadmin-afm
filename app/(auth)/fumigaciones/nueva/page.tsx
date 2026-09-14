@@ -1,6 +1,7 @@
 import { PageHeader } from "@/components/page-header";
 import { NewFumigationPageClient } from "@/components/admin/fumigations/new-fumigation-page-client";
 import { getRecentParcelsForPicker } from "@/api/repositories";
+import { getViewerRole } from "@/lib/auth/role";
 
 /**
  * /fumigaciones/nueva — formulario de alta de fumigación en página completa.
@@ -57,6 +58,11 @@ export default async function NuevaFumigacionPage({ searchParams }: PageProps) {
   // (vía `getRecentParcelsForPicker`).
   const recentParcels = await getRecentParcelsForPicker(500, initialQuery);
 
+  // El alta manual de parcela vive bajo /admin/* (admin-only via middleware).
+  // Un supervisor puede registrar fumigaciones pero no crear parcelas: el
+  // wizard muestra un aviso en vez de un botón que lo llevaría a un 403.
+  const isAdmin = (await getViewerRole()) === "admin";
+
   return (
     <div className="flex flex-col gap-4 p-4 md:p-6">
       <PageHeader
@@ -66,6 +72,7 @@ export default async function NuevaFumigacionPage({ searchParams }: PageProps) {
       <NewFumigationPageClient
         initialParcelId={initialParcelId}
         recentParcels={recentParcels}
+        isAdmin={isAdmin}
       />
     </div>
   );

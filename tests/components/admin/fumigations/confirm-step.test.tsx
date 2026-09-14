@@ -163,6 +163,7 @@ describe("NewFumigationPageClient — Confirm step (Fase 1.3)", () => {
       <NewFumigationPageClient
         initialParcelId={null}
         recentParcels={recentParcels}
+        isAdmin
       />
     );
     await goToStep2(user);
@@ -182,6 +183,7 @@ describe("NewFumigationPageClient — Confirm step (Fase 1.3)", () => {
       <NewFumigationPageClient
         initialParcelId={null}
         recentParcels={recentParcels}
+        isAdmin
       />
     );
     await goToStep2(user);
@@ -201,6 +203,7 @@ describe("NewFumigationPageClient — Confirm step (Fase 1.3)", () => {
       <NewFumigationPageClient
         initialParcelId={null}
         recentParcels={recentParcels}
+        isAdmin
       />
     );
     await goToStep2(user);
@@ -222,6 +225,7 @@ describe("NewFumigationPageClient — Confirm step (Fase 1.3)", () => {
       <NewFumigationPageClient
         initialParcelId={null}
         recentParcels={recentParcels}
+        isAdmin
       />
     );
     await goToStep2(user);
@@ -242,6 +246,7 @@ describe("NewFumigationPageClient — Confirm step (Fase 1.3)", () => {
       <NewFumigationPageClient
         initialParcelId={null}
         recentParcels={recentParcels}
+        isAdmin
       />
     );
     await goToStep2(user);

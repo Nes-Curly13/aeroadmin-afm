@@ -190,6 +190,7 @@ describe("NewFumigationPageClient — zod validation del FormState (zod PR #3, V
       <NewFumigationPageClient
         initialParcelId={null}
         recentParcels={recentParcels}
+        isAdmin
       />
     );
     await goToStep2(user);
@@ -207,6 +208,7 @@ describe("NewFumigationPageClient — zod validation del FormState (zod PR #3, V
       <NewFumigationPageClient
         initialParcelId={null}
         recentParcels={recentParcels}
+        isAdmin
       />
     );
     await goToStep2(user);
@@ -229,6 +231,7 @@ describe("NewFumigationPageClient — zod validation del FormState (zod PR #3, V
       <NewFumigationPageClient
         initialParcelId={null}
         recentParcels={recentParcels}
+        isAdmin
       />
     );
     await goToStep2(user);
@@ -245,6 +248,7 @@ describe("NewFumigationPageClient — zod validation del FormState (zod PR #3, V
       <NewFumigationPageClient
         initialParcelId={null}
         recentParcels={recentParcels}
+        isAdmin
       />
     );
     await goToStep2(user);
@@ -260,6 +264,7 @@ describe("NewFumigationPageClient — zod validation del FormState (zod PR #3, V
       <NewFumigationPageClient
         initialParcelId={null}
         recentParcels={recentParcels}
+        isAdmin
       />
     );
     await goToStep2(user);
@@ -276,6 +281,7 @@ describe("NewFumigationPageClient — zod validation del FormState (zod PR #3, V
       <NewFumigationPageClient
         initialParcelId={null}
         recentParcels={recentParcels}
+        isAdmin
       />
     );
     await goToStep2(user);
@@ -305,6 +311,7 @@ describe("NewFumigationPageClient — zod validation del FormState (zod PR #3, V
       <NewFumigationPageClient
         initialParcelId={null}
         recentParcels={recentParcels}
+        isAdmin
       />
     );
     await goToStep2(user);
@@ -321,6 +328,7 @@ describe("NewFumigationPageClient — zod validation del FormState (zod PR #3, V
       <NewFumigationPageClient
         initialParcelId={null}
         recentParcels={recentParcels}
+        isAdmin
       />
     );
     await goToStep2(user);

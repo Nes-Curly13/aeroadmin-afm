@@ -198,6 +198,7 @@ describe("NewFumigationPageClient — Auto-fill con vuelo DJI (V3 / Fase 4)", ()
       <NewFumigationPageClient
         initialParcelId={null}
         recentParcels={recentParcels}
+        isAdmin
       />
     );
     await goToFormInImportMode(user);
@@ -234,6 +235,7 @@ describe("NewFumigationPageClient — Auto-fill con vuelo DJI (V3 / Fase 4)", ()
       <NewFumigationPageClient
         initialParcelId={null}
         recentParcels={recentParcels}
+        isAdmin
       />
     );
     await goToFormInImportMode(user);
@@ -267,6 +269,7 @@ describe("NewFumigationPageClient — Auto-fill con vuelo DJI (V3 / Fase 4)", ()
       <NewFumigationPageClient
         initialParcelId={null}
         recentParcels={recentParcels}
+        isAdmin
       />
     );
     await goToFormInImportMode(user);

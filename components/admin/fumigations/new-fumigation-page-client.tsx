@@ -34,6 +34,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import {
   AlertTriangle,
   Check,
@@ -57,7 +58,6 @@ import {
   CardTitle
 } from "@/components/ui/card";
 import { FumigationMap } from "@/components/parcels/fumigation-map";
-import { ParcelDrawer } from "@/components/admin/parcels/parcel-drawer";
 import {
   RegisterFumigationForm,
   type FormState,
@@ -78,6 +78,7 @@ import { formStateSchema } from "@/lib/api-schemas";
 interface NewFumigationPageClientProps {
   initialParcelId: number | null;
   recentParcels: ParcelPickerRow[];
+  isAdmin: boolean;
 }
 
 type Phase = "que" | "como" | "confirm";
@@ -97,7 +98,8 @@ const STEPS = [
 
 export function NewFumigationPageClient({
   initialParcelId,
-  recentParcels
+  recentParcels,
+  isAdmin
 }: NewFumigationPageClientProps) {
   /**
    * Fase 4 — si el URL trae `?parcel=N`, el operator ya sabe qué
@@ -296,6 +298,7 @@ export function NewFumigationPageClient({
       {phase === "que" ? (
         <QueStep
           entryMode={entryMode}
+          isAdmin={isAdmin}
           onModeChange={setMode}
           recentParcels={recentParcels}
           chosenParcel={chosenParcel}
@@ -305,19 +308,6 @@ export function NewFumigationPageClient({
             setPendingFormData(null);
             setPickedFlight(null);
             setPendingFlightData(null);
-          }}
-          onNewParcel={(geom) => {
-            const p: ParcelPickerRow = {
-              id: 0,
-              land_name: "Nueva parcela (dibujada)",
-              external_id: "manual-drawn",
-              source: "manual",
-              client_name: null,
-              farm_name: null,
-              municipality: null
-            };
-            setChosenParcel(p);
-            setParcelGeom(geom);
           }}
           pickedFlight={pickedFlight}
           onPickFlight={handlePickFlight}
@@ -429,11 +419,11 @@ export function NewFumigationPageClient({
 
 interface QueStepProps {
   entryMode: EntryMode;
+  isAdmin: boolean;
   onModeChange: (mode: EntryMode) => void;
   recentParcels: ParcelPickerRow[];
   chosenParcel: ParcelPickerRow | null;
   onChooseParcel: (p: ParcelPickerRow) => void;
-  onNewParcel: (geom: { type: "Polygon"; coordinates: number[][][] }) => void;
   pickedFlight: DjiFlight | null;
   onPickFlight: (f: DjiFlight) => void;
   onContinue: () => void;
@@ -441,21 +431,16 @@ interface QueStepProps {
 
 function QueStep({
   entryMode,
+  isAdmin,
   onModeChange,
   recentParcels,
   chosenParcel,
   onChooseParcel,
-  onNewParcel,
   pickedFlight,
   onPickFlight,
   onContinue
 }: QueStepProps) {
   const [query, setQuery] = useState("");
-  const [drawerGeom, setDrawerGeom] = useState<{
-    type: "Polygon";
-    coordinates: number[][][];
-  } | null>(null);
-  const [showDrawer, setShowDrawer] = useState(false);
 
   const results = useMemo(() => {
     if (query.trim().length < 1) return [];
@@ -618,39 +603,22 @@ function QueStep({
           <div className="flex flex-col gap-1">
             <p className="text-sm font-medium">¿No encontrás la parcela?</p>
             <p className="text-xs text-muted-foreground">
-              Dibujá el límite en el mapa y creala con el alta manual.
+              {isAdmin
+                ? "Creala primero en el alta manual de parcelas y volvé a esta pantalla para registrar la fumigación."
+                : "La parcela todavía no existe. Pedile a un administrador que la cree y después registrá la fumigación."}
             </p>
           </div>
-          {!showDrawer ? (
+          {isAdmin ? (
             <Button
-              type="button"
               variant="outline"
-              onClick={() => setShowDrawer(true)}
               className="self-start"
+              nativeButton={false}
+              render={<Link href="/admin/parcels/new" />}
             >
               <Plus className="size-4" aria-hidden />
               Crear nueva parcela
             </Button>
-          ) : (
-            <div className="flex flex-col gap-3">
-              <ParcelDrawer onPolygonChange={setDrawerGeom} />
-              {drawerGeom ? (
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-[11px] text-muted-foreground">
-                    Polígono listo ({drawerGeom.coordinates[0].length - 1}{" "}
-                    vértices). La parcela se crea en el alta manual.
-                  </p>
-                  <Button
-                    size="sm"
-                    variant="default"
-                    onClick={() => onNewParcel(drawerGeom)}
-                  >
-                    Continuar
-                  </Button>
-                </div>
-              ) : null}
-            </div>
-          )}
+          ) : null}
         </CardContent>
       </Card>
 
