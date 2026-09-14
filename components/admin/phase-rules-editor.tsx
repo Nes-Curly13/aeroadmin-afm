@@ -17,6 +17,16 @@ export interface PhaseRulesEditorProps {
 }
 
 const PHASES = ["establecimiento", "vegetativa", "madurante", "cosecha"] as const;
+// UI-16: labels en espanol para los <option>. Antes el value era
+// el slug crudo ("establecimiento", "herbicida"), legible solo para
+// el dev. El operador fumigador necesita "Establecimiento", "Herbicida",
+// etc.
+const PHASE_LABELS: Record<(typeof PHASES)[number], string> = {
+  establecimiento: "Establecimiento",
+  vegetativa: "Vegetativa",
+  madurante: "Madurante",
+  cosecha: "Cosecha"
+};
 const CATEGORIES = [
   "herbicida",
   "insecticida",
@@ -26,7 +36,24 @@ const CATEGORIES = [
   "nematicida",
   "otro"
 ] as const;
+const CATEGORY_LABELS: Record<(typeof CATEGORIES)[number], string> = {
+  herbicida: "Herbicida",
+  insecticida: "Insecticida",
+  fungicida: "Fungicida",
+  fertilizante: "Fertilizante",
+  acaricida: "Acaricida",
+  nematicida: "Nematicida",
+  otro: "Otro"
+};
 const TYPES = ["", "pre_emergente", "post_emergente", "bioestimulante", "madurante", "otro"] as const;
+const TYPE_LABELS: Record<(typeof TYPES)[number], string> = {
+  "": "Sin tipo",
+  pre_emergente: "Pre-emergente",
+  post_emergente: "Post-emergente",
+  bioestimulante: "Bioestimulante",
+  madurante: "Madurante",
+  otro: "Otro"
+};
 
 type Draft = PhaseApplicationRule & { isNew?: boolean };
 
@@ -90,6 +117,10 @@ export function PhaseRulesEditor({ initialRules }: PhaseRulesEditorProps) {
   }
 
   function onDelete(id: number) {
+    // UI-16: confirm antes de borrar (accion destructiva).
+    if (!window.confirm("¿Eliminar esta regla? Esta accion no se puede deshacer.")) {
+      return;
+    }
     startTransition(async () => {
       setError(null);
       try {
@@ -107,8 +138,9 @@ export function PhaseRulesEditor({ initialRules }: PhaseRulesEditorProps) {
       setError(null);
       try {
         await api("/api/admin/phase-application-rules/reset", "POST", { crop_type: "cana" });
+        // UI-16: router.refresh() en vez de window.location.reload()
+        // (mas rapido, mantiene el state del cliente, sin parpadeo).
         router.refresh();
-        window.location.reload();
       } catch (e) {
         setError(e instanceof Error ? e.message : "Error al restaurar");
       }
@@ -191,8 +223,9 @@ export function PhaseRulesEditor({ initialRules }: PhaseRulesEditorProps) {
                       aria-label="Fase"
                     >
                       {PHASES.map((p) => (
+                        // UI-16: value = slug (backend), label = espanol legible
                         <option key={p} value={p}>
-                          {p}
+                          {PHASE_LABELS[p]}
                         </option>
                       ))}
                     </select>
@@ -207,7 +240,7 @@ export function PhaseRulesEditor({ initialRules }: PhaseRulesEditorProps) {
                     >
                       {CATEGORIES.map((c) => (
                         <option key={c} value={c}>
-                          {c}
+                          {CATEGORY_LABELS[c]}
                         </option>
                       ))}
                     </select>
@@ -224,7 +257,7 @@ export function PhaseRulesEditor({ initialRules }: PhaseRulesEditorProps) {
                     >
                       {TYPES.map((t) => (
                         <option key={t} value={t}>
-                          {t || "—"}
+                          {TYPE_LABELS[t]}
                         </option>
                       ))}
                     </select>
