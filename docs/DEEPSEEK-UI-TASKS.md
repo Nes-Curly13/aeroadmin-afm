@@ -209,7 +209,7 @@ npx vitest run <test-de-tu-archivo>   # si existe
 
 - **Tanda 1 (P0)**: ✅ cerradas — UI-P0-1 (`d4ef40f`), UI-P0-2 (`2f4169d`), UI-P0-3 (`bdc37c2`), UI-P0-4 (`9d8de48`), UI-P0-5 (`5746872`).
 - **Tanda 2 (UX)**: ✅ cerradas (sesión 2026-09-13) — UI-01 (`899951a`), UI-04 (`c72225c`), UI-05+UI-06 (`2e172ac`), UI-07 (`3fa7148`), UI-09 (`f350682`), UI-12 (`87b582c`), UI-14 (`41c5b22`). Test fix de UI-12 en `869d6b7`.
-- **Tanda 3 (UX)**: ⬜ abiertas — UI-08, UI-10, UI-11, UI-13, UI-15, UI-16.
+- **Tanda 3 (UX)**: ✅ cerradas (sesión 2026-09-13) — UI-08 (`c475159`), UI-10 (`23033a5`), UI-11 (`d774b43` + test fix `00d6172`), UI-13 (`369a82a`), UI-15 (`d620c79`), UI-16 (`5c0706a`).
 - **Tanda 4 (transversal)**: ⬜ abiertas — UI-T1, UI-T2, UI-T3, UI-T4, UI-T5.
 
 > Las lanes son por archivo. Dos tareas que tocan el MISMO archivo van en
