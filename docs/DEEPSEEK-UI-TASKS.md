@@ -73,11 +73,13 @@
 
 ## 2. P1 — UX por página (bajo riesgo, alto valor)
 
-### UI-01 — Dashboard: `RecentActivity` sin límite ni estado vacío
+### UI-01 — Dashboard: `RecentActivity` sin límite ni estado vacío ✅ `899951a`
 - **Archivo**: `components/dashboard/recent-activity.tsx` + `app/(auth)/page.tsx:203-206`.
 - **Cambio**: mostrar solo las **N=8 más recientes** (`.slice(0, 8)`) y agregar "Ver todas →" a `/fumigaciones`. Si `fumigations` está vacío, mostrar un párrafo "Sin aplicaciones registradas.".
 - **NO tocar**: la estructura de la Card ni el mapeo de campos.
 - **Verificación**: `npx vitest run tests/components/dashboard/*`.
+
+**Cerrado en `899951a`**: `RECENT_LIMIT = 8`, slice antes del render, empty state "Sin aplicaciones registradas.", link "Ver todas" en CardHeader cuando `fumigations.length > RECENT_LIMIT`.
 
 ### UI-02 — Dashboard: `PageHeader` con fecha "`Datos al {NOW}`" falsa
 - **Archivo**: `components/page-header.tsx:21` (usa el constante `NOW`).
@@ -90,7 +92,7 @@
 - **Cambio (mínimo)**: pasar `health` en `app/(auth)/layout.tsx` llamando a lo que ya usa el dashboard (revisar cómo obtiene `health` `app/(auth)/page.tsx`) **o** si eso implica queries pesadas en el layout, en su lugar **quitar** el bloque muerto y su JSDoc para no confundir. **Elegir la opción de menor riesgo y explicarla en el commit.**
 - **NO tocar**: logout ni nav.
 
-### UI-04 — Login: inputs nativos e inconsistencias
+### UI-04 — Login: inputs nativos e inconsistencias ✅ `c72225c`
 - **Archivo**: `app/(public)/login/page.tsx:144-171`.
 - **Cambio**: reemplazar los `<input>` crudos por el primitive `Input` de `components/ui/input.tsx` (o igualar clases: `h-9` uniforme NO, usar el `h-8` del primitive). Corregir "Iniciar sesion" → "Iniciar sesión". No tocar la lógica de submit/CSRF.
 - **Frágil**: NO cambiar el flujo de `fetch` a `/api/auth/*` ni `window.location.href = "/"`.
@@ -117,10 +119,12 @@
 - **NO tocar**: los `name` de los inputs (el form es GET server-side) — si cambiás el markup, preservá `name`/`defaultValue`.
 - **Verificación**: `npx vitest run tests/app-fumigaciones-data-loader.test.ts` + tsc.
 
-### UI-09 — Wizard nueva fumigación: emoji de error y unidades
+### UI-09 — Wizard nueva fumigación: emoji de error y unidades ✅ `f350682`
 - **Archivo**: `components/admin/fumigations/new-fumigation-page-client.tsx:348` (emoji ⚠️) y `:775` (área en m²).
 - **Cambio**: reemplazar el emoji por `<AlertTriangle>` de lucide; mostrar el área del ConfirmStep en **hectáreas** (usar `fmtDec(area/10000)`), consistente con el resto.
 - **NO tocar**: el handle imperativo del form ni los steps.
+
+**Cerrado en `f350682`**: span emoji ⚠️ → `<AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />`; SummaryRow área: `${area} m²` → `${(Number(area) / 10000).toFixed(2)} ha` con fallback `—` si vacío/0.
 
 ### UI-10 — Geovisor: sin título y filtros no colapsables en mobile
 - **Archivos**: `app/(auth)/geovisor/page.tsx` + `components/geovisor/geovisor-client.tsx:276,493`.
@@ -132,21 +136,25 @@
 - **Cambio**: usar `fmtDec` de `lib/format` en lugar de los `fmtDec2` locales (eliminar los 3 helpers duplicados). No cambiar el header propio si eso implica riesgo; **opcional**.
 - **NO tocar**: las queries ni las tabs.
 
-### UI-12 — Admin landing: no mostrar el `href` crudo
+### UI-12 — Admin landing: no mostrar el `href` crudo ✅ `87b582c`
 - **Archivo**: `app/(auth)/admin/page.tsx:97-100`.
 - **Cambio**: quitar el `<p>{href}</p>` (mostrar solo título + descripción) y suavizar textos técnicos ("source='import_excel'" → "del Excel"; "5 patrones de data quality" → "problemas de calidad de datos").
 - **NO tocar**: los `href` de los links.
+
+**Cerrado en `87b582c`**: removido el `<p>{href}</p>`; "5 patrones de data quality" → "Problemas de calidad de datos en el dataset"; "source='import_excel'" → "del Excel". Test `app-auth-admin-landing.test.tsx` actualizado en `869d6b7` para reflejar la nueva shape (queryByText NOT toBeInTheDocument).
 
 ### UI-13 — Admin/parcels: sin estado vacío y error truncado
 - **Archivo**: `app/(auth)/admin/parcels/admin-parcels-client.tsx` (tbody ~570-774; error `:740-745`).
 - **Cambio**: si `filtered.length === 0`, renderizar una fila `<td colSpan={N}>Sin parcelas que coincidan.</td>`; mostrar el error completo en `title` y no truncar el texto visible a 32 chars (o mostrar "Error" + title).
 - **NO tocar**: la edición inline ni los PATCH.
 
-### UI-14 — Nueva parcela: label "Tipo" duplicado (bug QA-10)
+### UI-14 — Nueva parcela: label "Tipo" duplicado (bug QA-10) ✅ `41c5b22`
 - **Archivo**: `components/admin/parcels/new-parcel-form.tsx:442-457`.
 - **Problema**: el `<label>` externo con `<span>Tipo *</span>` envuelve un `FieldSelect label="Tipo"` que ya renderiza su label → "Tipo" dos veces.
 - **Cambio**: quitar el `<span>Tipo *</span>` externo (dejar el label del `FieldSelect`). Mismo patrón que se corrigió en `register-fumigation-form`.
 - **Verificación**: `npx vitest run tests/components/admin/parcels/new-parcel-form.test.tsx`.
+
+**Cerrado en `41c5b22`**: removido el `<label>` externo; `FieldSelect` queda como label nativo. `required` se pasa al FieldSelect para preservar el asterisco de requerido.
 
 ### UI-15 — Importador GIS: límite de tamaño y drop zone
 - **Archivo**: `components/admin/parcels/import-gis-wizard.tsx:311` (texto "hasta 100 MB") + drop zone ~284-295.
@@ -199,10 +207,10 @@ npx vitest run <test-de-tu-archivo>   # si existe
 
 ## 5. Orden sugerido (tandas)
 
-- **Tanda 1 (P0)**: UI-P0-1, UI-P0-2, UI-P0-3, UI-P0-4 (UI-P0-5 la toma el coordinador).
-- **Tanda 2 (UX)**: UI-01, UI-04, UI-05, UI-06, UI-07, UI-09, UI-12, UI-14.
-- **Tanda 3 (UX)**: UI-08, UI-10, UI-11, UI-13, UI-15, UI-16.
-- **Tanda 4 (transversal)**: UI-T1, UI-T2, UI-T3, UI-T4, UI-T5.
+- **Tanda 1 (P0)**: ✅ cerradas — UI-P0-1 (`d4ef40f`), UI-P0-2 (`2f4169d`), UI-P0-3 (`bdc37c2`), UI-P0-4 (`9d8de48`), UI-P0-5 (`5746872`).
+- **Tanda 2 (UX)**: ✅ cerradas (sesión 2026-09-13) — UI-01 (`899951a`), UI-04 (`c72225c`), UI-05+UI-06 (`2e172ac`), UI-07 (`3fa7148`), UI-09 (`f350682`), UI-12 (`87b582c`), UI-14 (`41c5b22`). Test fix de UI-12 en `869d6b7`.
+- **Tanda 3 (UX)**: ⬜ abiertas — UI-08, UI-10, UI-11, UI-13, UI-15, UI-16.
+- **Tanda 4 (transversal)**: ⬜ abiertas — UI-T1, UI-T2, UI-T3, UI-T4, UI-T5.
 
 > Las lanes son por archivo. Dos tareas que tocan el MISMO archivo van en
 > tandas distintas (no en paralelo).
