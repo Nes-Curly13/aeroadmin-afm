@@ -58,7 +58,9 @@ describe("FumigationsTable", () => {
       />
     );
     // 1.2 * 8.5 = 10.2
-    expect(screen.getByText("10,20")).toBeInTheDocument();
+    // UI-11: antes era de-DE con 2 decimales ("10,20"). Ahora es-CO con
+    // 1 decimal via fmtDec de lib/format -> "10,2". Mismo valor, 1 decimal.
+    expect(screen.getByText("10,2")).toBeInTheDocument();
   });
 
   it("muestra — para Vol cuando dose o area son null", () => {
