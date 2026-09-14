@@ -46,27 +46,20 @@ function createPool() {
     throw new Error("DATABASE_URL is not configured.");
   }
 
-  // 2026-09-10 (issue #26): TLS a la BD con `rejectUnauthorized: true`
-  // por default. Supabase usa certs de Let's Encrypt (public CA),
-  // asi que verificarlos no rompe nada en prod.
+  // 2026-09-13 (regresión #26 revertida): el default `rejectUnauthorized:
+  // true` rompía la conexión a Supabase con "self-signed certificate in
+  // certificate chain" → el login quedaba caído. El pooler de Supabase
+  // presenta una cadena de certificados que Node no confía por default.
+  // El default vuelve a ser `rejectUnauthorized: false` (comportamiento
+  // pre-#26, compatible con Supabase).
   //
-  // El unico caso donde se justifica `rejectUnauthorized: false` es
-  // dev local contra Postgres en Docker con self-signed cert. Para eso,
-  // `DATABASE_SSL_INSECURE=true` lo permite explicitamente (logged
-  // para que sea visible en operaciones).
-  const sslInsecure = process.env.DATABASE_SSL_INSECURE === "true";
-  let sslConfig: { rejectUnauthorized: boolean } | undefined;
-  if (useSsl) {
-    sslConfig = { rejectUnauthorized: !sslInsecure };
-    if (sslInsecure) {
-      // eslint-disable-next-line no-console
-      console.warn(
-        "[db] DATABASE_SSL_INSECURE=true: TLS certificate verification DISABLED. " +
-          "Solo usar en dev local contra Postgres con self-signed cert. " +
-          "MITM posible en este modo."
-      );
-    }
-  }
+  // Para EXIGIR verificación de certificado (self-host con la CA en el
+  // trust store, o Supabase con la CA configurada), setear
+  // `DATABASE_SSL_STRICT=true`.
+  const sslStrict = process.env.DATABASE_SSL_STRICT === "true";
+  const sslConfig: { rejectUnauthorized: boolean } | undefined = useSsl
+    ? { rejectUnauthorized: sslStrict }
+    : undefined;
 
   return new Pool({
     connectionString,
