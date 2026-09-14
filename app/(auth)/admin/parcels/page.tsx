@@ -71,12 +71,15 @@ export default async function AdminParcelsPage({
   const page = Math.max(1, Number(sp.page ?? 1) || 1);
   const query = (sp.q ?? "").trim();
 
-  // Filtros "missing_X" (QA 2026-08-02).
+  // Filtros "missing_X" (QA 2026-08-02) + UI-P0-5 q server-side.
   const filter: DjiParcelsFilter = {
     missingClientName: parseBoolParam(sp.missing_client),
     missingFarmName: parseBoolParam(sp.missing_farm),
     missingMunicipality: parseBoolParam(sp.missing_municipality),
-    missingVariety: parseBoolParam(sp.missing_variety)
+    missingVariety: parseBoolParam(sp.missing_variety),
+    // UI-P0-5: pasar `q` (ya trimmeado arriba en `const query`) al filter.
+    // El repo hace ILIKE en 6 columnas server-side.
+    q: query
   };
 
   // S11+ / Fase 3.B — queries en paralelo: parcels paginadas + lista

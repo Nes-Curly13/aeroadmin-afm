@@ -169,6 +169,31 @@ export function AdminParcelsClient({
     });
   }, [initialData]);
 
+  // UI-P0-5: cuando el operator tipea en el search, despues de un debounce
+  // empujamos `?q=` a la URL para que el server re-fetchee con el filter
+  // real (ILIKE sobre 1213 filas). Sin esto, el filtro local solo
+  // trabajaba sobre la pagina actual (~50 filas) y "Palmira" no tocaba
+  // el resto del dataset. Usamos un debounce de 300ms para no martillar
+  // el server en cada keystroke y usamos `startTransition` para no
+  // bloquear la UI.
+  useEffect(() => {
+    if (query === initialQuery) return; // ya estamos en sync con la URL
+    const handle = setTimeout(() => {
+      const params = new URLSearchParams();
+      params.set("page", "1"); // reset a pagina 1 al cambiar query
+      if (query) params.set("q", query);
+      if (missing.client) params.set("missing_client", "1");
+      if (missing.farm) params.set("missing_farm", "1");
+      if (missing.municipality) params.set("missing_municipality", "1");
+      if (missing.variety) params.set("missing_variety", "1");
+      startTransition(() => {
+        router.push(`/admin/parcels?${params.toString()}`);
+      });
+    }, 300);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query]);
+
   // Carga inicial de farms (la lista de clients viene pre-cargada del
   // server). Las farms necesitan clientId filter — cargamos TODAS las
   // farms top-N y filtramos en cliente. Para >50 farms del mismo client

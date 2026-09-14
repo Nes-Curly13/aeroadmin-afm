@@ -173,6 +173,13 @@ export interface DjiParcelsFilter {
   minSprayAreaM2?: number;
   fieldType?: string;
   /**
+   * UI-P0-5: texto libre de busqueda server-side. Matchea con ILIKE
+   * contra 6 columnas (mismas que el filtro client-side legacy de
+   * /admin/parcels). Trim + vacio = sin filtro. Si lo pasas con
+   * cualquier filter missing_X activo, se combinan con AND.
+   */
+  q?: string;
+  /**
    * Filtros "mostrar solo con X vacío" para /admin/parcels (QA
    * gap cerrado 2026-08-02). El operador fumigador tiene 1213
    * parcelas y los 4 campos V0 arrancan vacíos en la BD. Sin
@@ -223,7 +230,10 @@ export async function getParcelsNormalized(page = 1, limit = 20, filter: DjiParc
     filter.missingClientName === true ||
     filter.missingFarmName === true ||
     filter.missingMunicipality === true ||
-    filter.missingVariety === true;
+    filter.missingVariety === true ||
+    // UI-P0-5: `q` con texto real tambien activa el camino uncached
+    // (string vacio o solo whitespace = sin filtro).
+    (filter.q !== undefined && filter.q.trim().length > 0);
 
   if (hasFilter) {
     return getParcelsNormalizedUncached(page, limit, filter);
@@ -303,6 +313,20 @@ async function getParcelsNormalizedUncached(page: number, limit: number, filter:
   }
   if (filter.missingVariety) {
     where.push(`(variety IS NULL OR variety = '')`);
+  }
+  // UI-P0-5: filtro de busqueda server-side por texto. ILIKE en 6
+  // columnas (mismas que el filtro client-side legacy). Usamos un
+  // solo param ($N) referenciado 6 veces para que el plan sea estable
+  // (ILIKE OR'ed con el mismo param no usa indices, pero con 1213
+  // filas es instantaneo). Si crece a >100k, ver opcion de trigram.
+  const q = (filter.q ?? "").trim();
+  if (q.length > 0) {
+    const like = `%${q}%`;
+    where.push(
+      `(p.land_name ILIKE $${p} OR p.external_id ILIKE $${p} OR p.client_name ILIKE $${p} OR p.farm_name ILIKE $${p} OR p.municipality ILIKE $${p} OR p.variety ILIKE $${p})`
+    );
+    params.push(like);
+    p++;
   }
   // Sprint B — H1: soft delete. La migration 20260720000000 dejó la columna
   // `deleted_at` lista; este filtro activa el soft delete en la query de
