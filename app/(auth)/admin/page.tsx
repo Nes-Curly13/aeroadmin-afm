@@ -56,15 +56,19 @@ const ADMIN_LINKS: AdminLink[] = [
     icon: FileSpreadsheet
   },
   {
+    // UI-12: descripcion suavizada ("5 patrones de data quality" -> "problemas
+    // de calidad de datos"). El operador fumigador no es dev; "data quality"
+    // sin contexto no le dice nada.
     href: "/admin/calidad",
     title: "Calidad de datos",
-    description: "5 patrones de data quality (parcela sin cliente, sin finca, sin ciclo activo, fumigación en ciclo cerrado, parcela stale).",
+    description: "Problemas de calidad de datos en el dataset (parcelas sin cliente, sin finca, sin ciclo activo, fumigaciones en ciclo cerrado, etc.).",
     icon: ListChecks
   },
   {
+    // UI-12: descripcion suavizada ("source='import_excel'" -> "del Excel").
     href: "/admin/applications",
     title: "Aplicaciones importadas",
-    description: "Lista de fumigaciones importadas del Excel del operador fumigador (source='import_excel').",
+    description: "Lista de fumigaciones importadas del Excel del operador fumigador.",
     icon: Database
   },
   {
@@ -100,11 +104,11 @@ export default function AdminLandingPage() {
                 </CardTitle>
                 <CardDescription>{description}</CardDescription>
               </CardHeader>
-              <CardContent>
-                <p className="font-mono text-xs text-muted-foreground group-hover:text-foreground">
-                  {href}
-                </p>
-              </CardContent>
+              {/* UI-12: removido el <p>{href}</p> (mostraba el path crudo
+                  del link, ruido para el operador fumigador que no es dev).
+                  El href sigue en el <Link href={href}> (accesible por
+                  teclado y screen reader). Si hace falta ver la URL,
+                  hover sobre la card o inspeccionar elemento. */}
             </Card>
           </Link>
         ))}
