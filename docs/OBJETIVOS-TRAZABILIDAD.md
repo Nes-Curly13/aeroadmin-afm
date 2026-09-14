@@ -63,15 +63,17 @@
   `app/api/admin/djiag-health`.
 - **Demo**: `npm run pipeline:djiag:dry`, `npm run refresh:fumigations`.
 
-### OE4 — Documentar y capacitar al personal ⏳ (en ejecución hoy)
+### OE4 — Documentar y capacitar al personal ✅ (documentación lista; falta el walkthrough)
 - **Documentación técnica**: ✅ `docs/SDD.md`, `TDD.md`, `DATA-MODEL.md`,
   `ARCHITECTURE.md`, `STACK.md`, `DEPLOY.md`, `API-INVENTORY.md`.
-- **Documentación del operador** (manual, onboarding, mantenimiento, DR):
-  ⏳ tarea **T-CAP-01** (`docs/DEEPSEEK-TASK-CAPACITACION-OPERADOR.md`);
-  entregables en `docs/manual-operador/**` + `onboarding-operador.md` +
-  `mantenimiento-operador.md` + `disaster-recovery-operador.md`.
-- **Capacitación efectiva**: requiere el **walkthrough real** con el operador
-  (checklist en `docs/onboarding-operador.md`); meta: completar día 1 en <2h.
+- **Documentación del operador**: ✅ **hecha** (commit `220c691`):
+  - `docs/manual-operador/**` (índice, login, dashboard, parcelas,
+    fumigaciones, geovisor, reportes, administración, FAQ + glosario).
+  - `docs/onboarding-operador.md` (Día 1 → Mes 1, checklist).
+  - `docs/mantenimiento-operador.md` (6 casos "qué hacer cuando...").
+  - `docs/disaster-recovery-operador.md` (5 casos de falla + contacto).
+- **Capacitación efectiva**: ⏳ requiere el **walkthrough real** con el operador
+  (seguir el onboarding sin ayuda). Meta: día 1 en <2h.
 
 ---
 

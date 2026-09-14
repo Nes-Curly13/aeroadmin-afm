@@ -155,8 +155,7 @@ Total Fase 6: 7 commits, +32 tests (2182 → 2214 verde), tsc/arch 0 errores.
 | OE1 | Migration `20260913000002_link_parcels_clients_farms.sql`: link de `dji_parcels.client_id/farm_id` por nombre (aplicada en prod: 7 con cliente, 2 con finca, drift 0). |
 | OE2 | `components/dashboard/planning-panel.tsx` (vencidas / por vencer) en el dashboard + regla de cadencia ratificada en `docs/FUMIGATION_CADENCE.md`. |
 | OE3 | Flujo campo→sistema ya implementado; documentado en `docs/ARCHITECTURE.md` + referenciado en `docs/OBJETIVOS-TRAZABILIDAD.md`. |
-| OE4 | ⏳ Manual del operador (T-CAP-01) — asignar a agentes. |
-| — | `docs/OBJETIVOS-TRAZABILIDAD.md` (mapa objetivo↔evidencia para sustentación). |
+| OE4 | ✅ Manual del operador + onboarding + mantenimiento + DR (`220c691`); falta el walkthrough real con el operador. || — | `docs/OBJETIVOS-TRAZABILIDAD.md` (mapa objetivo↔evidencia para sustentación). |
 
 > Plan + decisiones asumidas: `docs/DEEPSEEK-PLAN-CIERRE.md`.
 
