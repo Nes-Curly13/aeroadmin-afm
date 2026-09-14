@@ -36,6 +36,7 @@ import { Spinner } from "@/components/ui/loading";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { fmtDec } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
 interface PreviewFeature {
   index: number;
@@ -280,16 +281,38 @@ const UploadCard = forwardRef<HTMLInputElement, UploadCardProps>(function Upload
   { onFile, isParsing },
   ref
 ) {
+  // UI-15: estado para highlight visual al arrastrar (drag-over).
+  // Antes la drop zone solo aceptaba el drop silencioso, sin feedback
+  // visual de que estaba reconociendo el drag.
+  const [isDragOver, setIsDragOver] = useState(false);
+
   return (
     <div
-      className="flex flex-col items-center gap-4 rounded-lg border-2 border-dashed border-border bg-muted/30 p-10 text-center"
+      // UI-15: ring visible cuando hay drag-over + tabIndex para foco
+      // accesible. El cursor cambia a "grabbing"暗示 de que es drop zone.
+      className={cn(
+        "flex flex-col items-center gap-4 rounded-lg border-2 border-dashed bg-muted/30 p-10 text-center transition-colors",
+        isDragOver
+          ? "border-primary bg-primary/5 ring-2 ring-primary/30"
+          : "border-border"
+      )}
+      tabIndex={0}
+      role="button"
+      aria-label="Zona de drop para archivo GIS. Hacé click o arrastrá un archivo."
       onDragOver={(e) => {
         e.preventDefault();
         e.stopPropagation();
+        setIsDragOver(true);
+      }}
+      onDragLeave={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragOver(false);
       }}
       onDrop={(e) => {
         e.preventDefault();
         e.stopPropagation();
+        setIsDragOver(false);
         const file = e.dataTransfer.files[0];
         if (file) onFile(file);
       }}
@@ -307,8 +330,13 @@ const UploadCard = forwardRef<HTMLInputElement, UploadCardProps>(function Upload
           <FileUp className="size-10 text-muted-foreground" aria-hidden />
           <div>
             <p className="text-sm font-semibold">Subí un archivo GIS</p>
+            {/* UI-15: texto explicito del limite por formato. Antes era
+                un "hasta 100 MB" generico que no matcheaba los limites
+                reales del backend (cada parser aplica su propio cap).
+                Si el archivo supera el limite, el wizard muestra el
+                error del API con detalle. */}
             <p className="text-xs text-muted-foreground">
-              KML · ZIP (archivo SIG) · GPKG — hasta 100 MB
+              KML &middot; hasta 5 MB &middot; ZIP (shapefile) hasta 50 MB &middot; GPKG hasta 100 MB
             </p>
           </div>
           <Button
