@@ -50,17 +50,25 @@ vi.mock("next/navigation", () => ({
 
 const mockFetch = vi.fn();
 const originalFetch = global.fetch;
+
+/**
+ * Respuesta que el mock devuelve para el submit del form
+ * (`/api/admin/fumigations`). Los tests la setean con `setPostResponse`.
+ *
+ * Usar esto (URL-aware) en vez de `mockResolvedValueOnce` evita el flake
+ * real: el ProductPicker dispara autocomplete debounced a
+ * `/api/admin/products` y un `mockResolvedValueOnce` podía ser consumido
+ * por ese fetch en vez del POST.
+ */
+let postResponse: unknown;
+function setPostResponse(r: unknown) {
+  postResponse = r;
+}
+
 beforeEach(() => {
   global.fetch = mockFetch as unknown as typeof fetch;
   vi.clearAllMocks();
-  // Sprint S9 (2026-08-29) — feature/s9-product-picker-wireup.
-  // El ProductPicker ahora dispara fetchs de autocomplete al escribir.
-  // Por defecto, mockFetch devuelve una respuesta vacía válida (200 +
-  // JSON vacío) para esos calls. Los tests individuales usan
-  // `mockResolvedValueOnce` para el POST del form, que se consume
-  // en orden. Si el picker consume el mock primero, los tests
-  // fallarían con "Cannot read properties of undefined (reading 'ok')".
-  // El default de abajo evita ese problema.
+  postResponse = undefined;
   mockFetch.mockImplementation(async (input) => {
     const url = typeof input === "string" ? input : (input as Request).url;
     if (url.includes("/api/admin/products")) {
@@ -70,9 +78,9 @@ beforeEach(() => {
         json: async () => ({ products: [] })
       } as Response;
     }
-    // Default fallback: para cualquier otro endpoint (ej. POST del form),
-    // devolvemos undefined → el código de test que llamó
-    // `mockResolvedValueOnce` provee la respuesta real.
+    if (url.includes("/api/admin/fumigations")) {
+      return postResponse as Response;
+    }
     return undefined as unknown as Response;
   });
 });
@@ -215,7 +223,7 @@ describe("RegisterFumigationForm — render", () => {
 describe("RegisterFumigationForm — submit OK", () => {
   it("hace POST con el body correcto (solo campos llenos)", async () => {
     const user = userEvent.setup();
-    mockFetch.mockResolvedValueOnce({
+    setPostResponse({
       ok: true,
       status: 201,
       json: async () => ({ fumigation: { id: 42 } })
@@ -253,7 +261,7 @@ describe("RegisterFumigationForm — submit OK", () => {
 
   it("muestra banner verde con el ID de la fumigation al success", async () => {
     const user = userEvent.setup();
-    mockFetch.mockResolvedValueOnce({
+    setPostResponse({
       ok: true,
       status: 201,
       json: async () => ({ fumigation: { id: 42 } })
@@ -271,7 +279,7 @@ describe("RegisterFumigationForm — submit OK", () => {
 
   it("llama router.refresh() después del success", async () => {
     const user = userEvent.setup();
-    mockFetch.mockResolvedValueOnce({
+    setPostResponse({
       ok: true,
       status: 201,
       json: async () => ({ fumigation: { id: 42 } })
@@ -288,7 +296,7 @@ describe("RegisterFumigationForm — submit OK", () => {
 
   it("incluye campos opcionales si están llenos", async () => {
     const user = userEvent.setup();
-    mockFetch.mockResolvedValueOnce({
+    setPostResponse({
       ok: true,
       status: 201,
       json: async () => ({ fumigation: { id: 42 } })
@@ -336,7 +344,7 @@ describe("RegisterFumigationForm — submit OK", () => {
 
   it("convierte drone_code_used '0' (default) a no-enviado", async () => {
     const user = userEvent.setup();
-    mockFetch.mockResolvedValueOnce({
+    setPostResponse({
       ok: true,
       status: 201,
       json: async () => ({ fumigation: { id: 42 } })
@@ -371,7 +379,7 @@ describe("RegisterFumigationForm — submit OK", () => {
 describe("RegisterFumigationForm — submit error", () => {
   it("muestra banner rojo con el error del server", async () => {
     const user = userEvent.setup();
-    mockFetch.mockResolvedValueOnce({
+    setPostResponse({
       ok: false,
       status: 400,
       json: async () => ({ error: "ICA license formato inválido" })
@@ -391,7 +399,7 @@ describe("RegisterFumigationForm — submit error", () => {
 
   it("NO llama router.refresh() cuando hay error", async () => {
     const user = userEvent.setup();
-    mockFetch.mockResolvedValueOnce({
+    setPostResponse({
       ok: false,
       status: 400,
       json: async () => ({ error: "x" })
@@ -409,7 +417,7 @@ describe("RegisterFumigationForm — submit error", () => {
 
   it("mantiene los valores del form después del error (no se limpia)", async () => {
     const user = userEvent.setup();
-    mockFetch.mockResolvedValueOnce({
+    setPostResponse({
       ok: false,
       status: 400,
       json: async () => ({ error: "x" })
@@ -428,7 +436,7 @@ describe("RegisterFumigationForm — submit error", () => {
 
   it("usa mensaje por defecto si el server no devuelve error JSON", async () => {
     const user = userEvent.setup();
-    mockFetch.mockResolvedValueOnce({
+    setPostResponse({
       ok: false,
       status: 500,
       json: async () => {
@@ -506,7 +514,7 @@ describe("RegisterFumigationForm — product_id (S9)", () => {
     // El picker's onChange(null, query) se dispara en cada keystroke
     // (no selección). El form debe reflejar ese texto en product_used.
     const user = userEvent.setup();
-    mockFetch.mockResolvedValueOnce({
+    setPostResponse({
       ok: true,
       status: 201,
       json: async () => ({ fumigation: { id: 42 } })
@@ -539,7 +547,7 @@ describe("RegisterFumigationForm — product_id (S9)", () => {
     // El form manda product_id solo si difiere de null. Si el operador
     // tipea free-form sin seleccionar, product_id NO se envía (sparse).
     const user = userEvent.setup();
-    mockFetch.mockResolvedValueOnce({
+    setPostResponse({
       ok: true,
       status: 201,
       json: async () => ({ fumigation: { id: 42 } })
