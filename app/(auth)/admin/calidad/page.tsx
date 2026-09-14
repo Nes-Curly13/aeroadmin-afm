@@ -33,29 +33,33 @@ interface DataQualityWarning {
   fumigation_id?: number;
 }
 
-async function fetchAllWarnings(): Promise<DataQualityWarning[]> {
+async function fetchAllWarnings(): Promise<{ warnings: DataQualityWarning[]; error: boolean }> {
   // Reutilizamos el endpoint HTTP para tener una única fuente de
   // verdad (no duplicamos la lógica de computeInvariants). El
   // endpoint es admin-only y esta página está protegida por
   // requireRole("admin") más arriba, así que el rol se valida 2x.
-  // Hacemos el fetch desde server — si falla (DB caída, etc.)
-  // devolvemos [] y la UI muestra "0 warnings" (no rompemos).
+  // UI-P0-3: antes, si fallaba el fetch (DB caída, sin NEXTAUTH_URL
+  // en prod, network), devolvíamos [] y la UI mostraba "dataset
+  // limpio" (falso negativo). Ahora devolvemos un flag `error` para
+  // que la UI distinga "0 alertas reales" de "no pude consultar".
   const baseUrl = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
   try {
     const res = await fetch(`${baseUrl}/api/data-quality/invariants`, {
       cache: "no-store"
     });
-    if (!res.ok) return [];
+    if (!res.ok) return { warnings: [], error: true };
     const data = (await res.json()) as { warnings: DataQualityWarning[] };
-    return data.warnings ?? [];
+    return { warnings: data.warnings ?? [], error: false };
   } catch {
-    return [];
+    return { warnings: [], error: true };
   }
 }
 
 export default async function CalidadDatosPage() {
   await requireRole("admin");
-  const warnings = await fetchAllWarnings();
+  // UI-P0-3: destructuramos `error` para distinguir fetch fallido de
+  // dataset realmente limpio.
+  const { warnings, error } = await fetchAllWarnings();
 
   // Conteos por severidad.
   const bySeverity = {
@@ -138,11 +142,34 @@ export default async function CalidadDatosPage() {
 
         {/* Lista por parcela */}
         {byParcela.size === 0 ? (
-          <Card>
-            <CardContent className="py-8 text-center text-sm text-muted-foreground">
-              Sin alertas — el dataset está limpio.
-            </CardContent>
-          </Card>
+          error ? (
+            // UI-P0-3: card de error explicito cuando el fetch al endpoint
+            // fallo (DB caida, sin NEXTAUTH_URL, etc). Antes mostraba
+            // "dataset limpio" que era un falso negativo.
+            <Card className="border-destructive/40">
+              <CardContent className="flex items-start gap-3 py-6">
+                <ShieldAlert className="size-5 shrink-0 text-destructive" aria-hidden />
+                <div>
+                  <p className="text-sm font-semibold text-destructive">
+                    No se pudo consultar la calidad de datos
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Reintentá en unos segundos. Si persiste, el endpoint
+                    <code className="mx-1 rounded bg-muted px-1.5 py-0.5 font-mono text-[10px]">
+                      /api/data-quality/invariants
+                    </code>
+                    puede estar caído.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardContent className="py-8 text-center text-sm text-muted-foreground">
+                Sin alertas — el dataset está limpio.
+              </CardContent>
+            </Card>
+          )
         ) : (
           <div className="flex flex-col gap-3">
             {Array.from(byParcela.entries()).map(([parcelaId, ws]) => {
