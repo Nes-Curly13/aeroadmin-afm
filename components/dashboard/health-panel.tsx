@@ -1,4 +1,4 @@
-import { Activity, CircleAlert, CircleCheck, CircleX } from "lucide-react"
+import { Activity, CircleAlert, CircleCheck, CircleX, HelpCircle } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { fmtDateTime, fmtInt, fmtRelative } from "@/lib/format"
@@ -8,10 +8,16 @@ const STATUS_UI = {
   ok: { icon: CircleCheck, label: "OK", className: "text-primary" },
   partial: { icon: CircleAlert, label: "Parcial", className: "text-chart-4" },
   error: { icon: CircleX, label: "Error", className: "text-destructive" },
+  // UI-P0-1: estado neutro para `unknown` o cualquier valor inesperado
+  // (defensa contra crashes si el backend agrega un status nuevo sin
+  // actualizar este mapa). Icono HelpCircle + texto muted.
+  unknown: { icon: HelpCircle, label: "Sin datos", className: "text-muted-foreground" }
 } as const
 
 export function HealthPanel({ health, batches }: { health: DjiAgHealth; batches: DjiImportBatch[] }) {
-  const Ui = STATUS_UI[health.status]
+  // UI-P0-1: fallback defensivo — cae a `unknown` si el status no está
+  // mapeado (en lugar de `undefined` que tiraba el dashboard).
+  const Ui = STATUS_UI[health.status] ?? STATUS_UI.unknown
 
   return (
     <Card>
@@ -54,7 +60,8 @@ export function HealthPanel({ health, batches }: { health: DjiAgHealth; batches:
           <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Lotes recientes</p>
           <ul className="divide-y divide-border">
             {batches.slice(0, 5).map((b) => {
-              const S = STATUS_UI[b.status]
+              // UI-P0-1: mismo fallback defensivo para batches.
+              const S = STATUS_UI[b.status] ?? STATUS_UI.unknown
               return (
                 <li key={b.id} className="flex items-start gap-2.5 py-2">
                   <S.icon className={`mt-0.5 size-3.5 shrink-0 ${S.className}`} aria-hidden />
