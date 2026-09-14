@@ -439,23 +439,26 @@ export function NewParcelForm() {
               aria-label="Nombre del lote"
             />
           </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Tipo *
-            </span>
-            <FieldSelect
-              label="Tipo"
-              value={form.field_type}
-              onChange={(e) => update("field_type", e.target.value)}
-              disabled={isPending}
-            >
-              {FIELD_TYPE_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </FieldSelect>
-          </label>
+          {/* UI-14 (bug QA-10): el <label> externo con <span>Tipo *</span>
+              envolvia un <FieldSelect label="Tipo"> que ya renderea su
+              label, mostrando "Tipo" dos veces. Mismo patron que se
+              corrigio en register-fumigation-form. Solucion: el label
+              lo renderea el FieldSelect. Mantenemos el asterisco
+              indicando requerido via aria-required o required attr
+              si el FieldSelect lo soporta. */}
+          <FieldSelect
+            label="Tipo"
+            value={form.field_type}
+            onChange={(e) => update("field_type", e.target.value)}
+            disabled={isPending}
+            required
+          >
+            {FIELD_TYPE_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </FieldSelect>
           <label className="flex flex-col gap-1">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               Suerte
