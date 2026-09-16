@@ -244,6 +244,17 @@ const CUSTOM_LAYER_PREFIXES = ["parcels-", "td-"];
 const DEFAULT_CENTER: [number, number] = [-76.31, 3.45];
 const DEFAULT_ZOOM = 12;
 
+/**
+ * Logs de diagnóstico del mapa (solo en dev). Prefijo [ParcelDrawer]
+ * para filtrarlos fácil en la consola del navegador. Sirven para ubicar
+ * dónde falla el renderizado (contenedor sin tamaño, style que no carga,
+ * terra-draw que no dispara `ready`, errores del basemap).
+ */
+const DEBUG = process.env.NODE_ENV !== "production";
+const dbg = (...args: unknown[]) => {
+  if (DEBUG) console.log("[ParcelDrawer]", ...args);
+};
+
 export function ParcelDrawer({
   onPolygonChange,
   initialCenter = DEFAULT_CENTER,
@@ -297,6 +308,19 @@ export function ParcelDrawer({
     if (!containerRef.current) return;
     if (mapRef.current) return; // ya inicializado
 
+    const el = containerRef.current;
+    dbg("init mapa", {
+      useMapTiler: USE_MAPTILER,
+      width: el.clientWidth,
+      height: el.clientHeight,
+      hasSize: el.clientWidth > 0 && el.clientHeight > 0
+    });
+    if (el.clientWidth === 0 || el.clientHeight === 0) {
+      console.warn(
+        "[ParcelDrawer] el contenedor del mapa tiene tamaño 0 — el mapa no será visible. Revisá la altura del padre (h-[calc(...)]/min-h)."
+      );
+    }
+
     // Estilo inicial según el basemap default (satélite).
     const initialStyle: string | StyleSpecification = USE_MAPTILER
       ? MAPTILER_STYLE_URLS.satelite
@@ -309,6 +333,11 @@ export function ParcelDrawer({
       zoom
     });
     mapRef.current = map;
+    map.on("error", (e) => {
+      const msg =
+        (e as { error?: Error })?.error?.message ?? JSON.stringify(e);
+      console.error("[ParcelDrawer] map error:", msg);
+    });
     // Defensa contra el bug del doble-click de MapLibre: lo deshabilitamos
     // desde ya. El modo polygon de terra-draw cierra con dblclick; si
     // MapLibre gana la carrera, hace zoom en vez de cerrar.
@@ -323,6 +352,7 @@ export function ParcelDrawer({
     );
 
     map.on("load", () => {
+      dbg("style cargado — arrancando terra-draw");
       const draw = new TerraDraw({
         adapter: new TerraDrawMapLibreGLAdapter({ map }),
         modes: [
@@ -378,6 +408,7 @@ export function ParcelDrawer({
         map.doubleClickZoom.disable();
 
         draw.setMode(modeRef.current === "edit" ? "select" : "polygon");
+        dbg("terra-draw ready · mode", modeRef.current);
 
         // Sprint 2026-08-04 (sub-sprint 2): si recibimos
         // initialPolygon, lo pre-cargamos como feature del modo
@@ -732,12 +763,14 @@ export function ParcelDrawer({
 
   return (
     <div className="relative h-full w-full overflow-hidden rounded-lg border border-input">
-      {/* Contenedor del mapa — absolute inset-0 para que llene el
-          parent. El parent maneja el height (en new-parcel-form
-          usamos h-[calc(100vh-220px)] min-h-[640px] para desktop). */}
+      {/* Contenedor del mapa — `h-full w-full` (flujo normal), NO
+          `absolute inset-0`: MapLibre agrega la clase `.maplibregl-map`
+          que setea `position: relative` y PISA el `absolute` (misma
+          especificidad) → el contenedor colapsaba a 0px y el mapa no se
+          veía. Con `h-full` llena el wrapper (`relative h-full w-full`). */}
       <div
         ref={containerRef}
-        className="absolute inset-0"
+        className="h-full w-full"
         data-testid="parcel-drawer-map"
         role="application"
         aria-label="Mapa para dibujar el polígono de la parcela"
@@ -878,9 +911,13 @@ export function ParcelDrawer({
         })}
       </div>
 
-      {/* Search flotante (top-right, debajo del nav control). */}
-      <form
-        onSubmit={handleSearch}
+      {/* Search flotante (top-right, debajo del nav control).
+          OJO: usamos <div role="search"> y NO <form>, porque el drawer
+          se monta dentro del <form> del alta de parcela -> un <form>
+          anidado es HTML inválido y rompe la hidratación (React
+          regenera el árbol y el contenedor del mapa colapsa a 0px).
+          El Enter se maneja con onKeyDown. */}
+      <div
         className="absolute right-3 top-3 z-10 flex items-center gap-1 rounded-lg border border-border bg-card/95 p-1.5 shadow-lg backdrop-blur"
         role="search"
         data-testid="drawer-search-bar"
@@ -895,6 +932,12 @@ export function ParcelDrawer({
             type="search"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                void handleSearch();
+              }
+            }}
             placeholder="Buscar ubicación"
             aria-label="Buscar ubicación"
             disabled={searchPending}
@@ -911,7 +954,7 @@ export function ParcelDrawer({
             {searchError}
           </span>
         )}
-      </form>
+      </div>
 
       {/* Empty state (esquina inferior-izquierda, no cubre el mapa). */}
       {!hasPolygon && (
