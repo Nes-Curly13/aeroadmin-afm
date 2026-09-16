@@ -32,6 +32,10 @@ interface CommitParcelInput {
   name: string;
   field_type?: string;
   geometry: ManualParcelGeometry;
+  /** Identificador externo (ej. HDASTE del shapefile). */
+  external_id?: string | null;
+  /** Área declarada en ha (ej. AREA_HA del shapefile). */
+  declared_area_ha?: number | null;
   luck_name?: string | null;
   client_name?: string | null;
   farm_name?: string | null;
@@ -105,6 +109,8 @@ export async function POST(req: NextRequest) {
     land_name: p.name,
     field_type: p.field_type ?? "Farmland",
     geometry: p.geometry,
+    external_id: p.external_id ?? null,
+    declared_area_ha: p.declared_area_ha ?? null,
     luck_name: p.luck_name ?? null,
     client_name: p.client_name ?? null,
     farm_name: p.farm_name ?? null,

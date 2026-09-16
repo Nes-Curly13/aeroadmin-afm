@@ -44,6 +44,18 @@ interface PreviewFeature {
   properties: Record<string, unknown>;
   geometry: { type: "Polygon" | "MultiPolygon"; coordinates: unknown };
   approxAreaHa: number;
+  /** Mapeo a nuestras columnas (lo hace el server). Sin fechas. */
+  mapped?: {
+    land_name: string | null;
+    external_id: string | null;
+    luck_name: string | null;
+    farm_name: string | null;
+    variety: string | null;
+    crop_type: string | null;
+    client_name: string | null;
+    municipality: string | null;
+    declared_area_ha: number | null;
+  } | null;
 }
 
 interface PreviewResult {
@@ -73,6 +85,10 @@ export function ImportGisWizard() {
   const [preview, setPreview] = useState<PreviewResult | null>(null);
   const [editedNames, setEditedNames] = useState<Record<number, string>>({});
   const [createdIds, setCreatedIds] = useState<CommitResponse["created"]>([]);
+  const [commitProgress, setCommitProgress] = useState<{
+    done: number;
+    total: number;
+  } | null>(null);
 
   function handleFile(file: File) {
     setError(null);
@@ -132,37 +148,59 @@ export function ImportGisWizard() {
       });
   }
 
-  function handleCommit() {
+  async function handleCommit() {
     if (!preview) return;
     setError(null);
     setPhase("committing");
 
     const parcels = preview.features.map((f) => ({
-      name: editedNames[f.index]?.trim() || f.name,
-      geometry: f.geometry
+      name: editedNames[f.index]?.trim() || f.mapped?.land_name || f.name,
+      geometry: f.geometry,
+      // Mapeo a nuestras columnas (el server lo computó). Sin fechas:
+      // F.SIEMBRA/F.COSECHA vienen desactualizadas.
+      external_id: f.mapped?.external_id ?? null,
+      declared_area_ha: f.mapped?.declared_area_ha ?? null,
+      luck_name: f.mapped?.luck_name ?? null,
+      farm_name: f.mapped?.farm_name ?? null,
+      variety: f.mapped?.variety ?? null,
+      crop_type: f.mapped?.crop_type ?? null,
+      client_name: f.mapped?.client_name ?? null,
+      municipality: f.mapped?.municipality ?? null
     }));
 
-    fetch("/api/admin/parcels/import/commit", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ parcels })
-    })
-      .then(async (res) => {
+    // El endpoint commit tiene tope de 1000 por request → mandamos en
+    // lotes de 500 para que un shapefile grande (ej. 3.350 suertes)
+    // entre completo sin exceder el límite.
+    const CHUNK = 500;
+    const all: CommitResponse["created"] = [];
+    setCommitProgress({ done: 0, total: parcels.length });
+    try {
+      for (let i = 0; i < parcels.length; i += CHUNK) {
+        const chunk = parcels.slice(i, i + CHUNK);
+        const res = await fetch("/api/admin/parcels/import/commit", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ parcels: chunk })
+        });
         if (!res.ok) {
-          const data = (await res.json().catch(() => ({}))) as { error?: string };
+          const data = (await res.json().catch(() => ({}))) as {
+            error?: string;
+          };
           throw new Error(data.error ?? `HTTP ${res.status}`);
         }
-        return res.json() as Promise<CommitResponse>;
-      })
-      .then((data) => {
-        setCreatedIds(data.created);
-        setPhase("done");
-        router.refresh();
-      })
-      .catch((err) => {
-        setError(err instanceof Error ? err.message : "error al crear");
-        setPhase("preview"); // Volvemos a la preview para que pueda reintentar
-      });
+        const data = (await res.json()) as CommitResponse;
+        all.push(...data.created);
+        setCommitProgress({ done: all.length, total: parcels.length });
+      }
+      setCreatedIds(all);
+      setPhase("done");
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "error al crear");
+      setPhase("preview"); // Volvemos a la preview para que pueda reintentar
+    } finally {
+      setCommitProgress(null);
+    }
   }
 
   function handleReset() {
@@ -236,7 +274,10 @@ export function ImportGisWizard() {
       {phase === "committing" ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Spinner size={16} />
-          Creando parcelas…
+          Creando parcelas
+          {commitProgress
+            ? `… ${commitProgress.done}/${commitProgress.total}`
+            : "…"}
         </div>
       ) : null}
 
@@ -248,12 +289,18 @@ export function ImportGisWizard() {
             {createdIds.length === 1 ? "" : "s"} exitosamente
           </div>
           <ul className="grid grid-cols-2 gap-1 text-xs text-chart-1/80 sm:grid-cols-4">
-            {createdIds.map((c) => (
+            {createdIds.slice(0, 60).map((c) => (
               <li key={c.id} className="font-mono">
                 #{c.id} — {c.land_name}
               </li>
             ))}
           </ul>
+          {createdIds.length > 60 ? (
+            <p className="text-xs text-chart-1/80">
+              …y {createdIds.length - 60} parcela
+              {createdIds.length - 60 === 1 ? "" : "s"} más.
+            </p>
+          ) : null}
           <div className="flex gap-2 pt-2">
             <Button variant="outline" size="sm" onClick={handleReset}>
               Importar otro archivo

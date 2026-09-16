@@ -671,6 +671,16 @@ export type CreateManualParcelInput = {
   land_name: string;
   /** Tipo de campo DJI (obligatorio, "Farmland" | "Orchards" | otro). */
   field_type: string;
+  /**
+   * Identificador externo (ej. `HDASTE` del shapefile). Si no se pasa,
+   * el bulk genera `imported-<uuid>`.
+   */
+  external_id?: string | null;
+  /**
+   * Área declarada en hectáreas (ej. `AREA_HA` del shapefile). Si no se
+   * pasa, queda NULL (el área real se calcula de la geometría).
+   */
+  declared_area_ha?: number | null;
   /** Suerte (opcional, max 100). */
   luck_name?: string | null;
   /** Cliente / ingenio (opcional, max 200). */
@@ -739,6 +749,15 @@ function validateManualParcelInput(input: CreateManualParcelInput): void {
   }
   if (!input.field_type || input.field_type.trim().length === 0) {
     throw validationError("field_type es obligatorio");
+  }
+  if (input.external_id != null && input.external_id.trim().length > 200) {
+    throw validationError("external_id max 200 chars");
+  }
+  if (
+    input.declared_area_ha != null &&
+    (!Number.isFinite(input.declared_area_ha) || input.declared_area_ha < 0)
+  ) {
+    throw validationError("declared_area_ha debe ser un número >= 0");
   }
   if (input.luck_name != null && input.luck_name.length > 100) {
     throw validationError("luck_name max 100 chars");
@@ -942,7 +961,7 @@ export async function createManualParcelsBulk(
   try {
     await client.query("BEGIN");
     for (const input of inputs) {
-      const externalId = `imported-${crypto.randomUUID()}`;
+      const externalId = input.external_id?.trim() || `imported-${crypto.randomUUID()}`;
       // Issue #21 (perf 2026-09-10): usamos `RETURNING *` y evitamos el
       // SELECT posterior. Antes hacíamos `RETURNING id` + `SELECT *` por
       // fila (2N round-trips); ahora 1 round-trip por fila (N). El shape
@@ -967,7 +986,7 @@ export async function createManualParcelsBulk(
           VALUES (
             NULL, $1, 'imported',
             $2, $3, false,
-            NULL, NULL,
+            $17, NULL,
             $4, $5, $6, $7, $8, $9, $10,
             $11, $12, $13, $14, $15,
             ST_Multi(ST_GeomFromGeoJSON($16::text)),
@@ -994,7 +1013,8 @@ export async function createManualParcelsBulk(
           input.owner_name?.trim() ?? null,
           input.owner_contact?.trim() ?? null,
           input.supervisor_notes?.trim() ?? null,
-          JSON.stringify(input.geometry)
+          JSON.stringify(input.geometry),
+          input.declared_area_ha ?? null
         ]
       );
       const row = result.rows[0];

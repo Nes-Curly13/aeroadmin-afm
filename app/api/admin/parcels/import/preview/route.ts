@@ -20,6 +20,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/role";
 import { parseGisFile } from "@/lib/gis-import";
 import { approxAreaM2 } from "@/lib/gis-import/normalize";
+import { mapParcelFields } from "@/lib/gis-import/field-mapping";
 
 export const runtime = "nodejs"; // Necesitamos Node.js APIs (Buffer, fs)
 export const dynamic = "force-dynamic";
@@ -90,6 +91,9 @@ export async function POST(req: NextRequest) {
       name: f.name,
       properties: f.properties,
       geometry: f.geometry,
+      // Mapeo a nuestras columnas (sin fechas). El wizard lo usa para el
+      // commit; el operador puede editar el nombre en la preview.
+      mapped: mapParcelFields(f.properties),
       approxAreaHa:
         Math.round((approxAreaM2(f.geometry) / 10_000) * 100) / 100
     }))
