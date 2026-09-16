@@ -28,6 +28,10 @@ vi.mock("@/components/parcels/fumigation-map", () => ({
   FumigationMap: () => <div data-testid="fumigation-map" />
 }));
 
+vi.mock("@/components/fumigations/parcel-map-picker", () => ({
+  ParcelMapPicker: () => <div data-testid="parcel-map-picker" />
+}));
+
 vi.mock("@/components/admin/parcels/parcel-drawer", () => ({
   ParcelDrawer: () => <div data-testid="parcel-drawer" />
 }));

@@ -67,6 +67,7 @@ import {
   DjiFlightPicker,
   type DjiFlight
 } from "@/components/fumigations/dji-flight-picker";
+import { ParcelMapPicker } from "@/components/fumigations/parcel-map-picker";
 import type { ParcelPickerRow } from "@/api/repositories";
 import {
   APPLICATION_TYPES,
@@ -594,6 +595,20 @@ function QueStep({
               registradas.
             </p>
           ) : null}
+
+          {/* Elegir por mapa: cuando no se sabe el nombre pero sí la
+              ubicación. Click en el polígono = misma selección que la
+              búsqueda por texto. */}
+          <div className="mt-4 flex flex-col gap-2 border-t border-border pt-4">
+            <p className="text-xs font-medium">
+              …o elegí la parcela tocándola en el mapa
+            </p>
+            <ParcelMapPicker
+              selectedId={chosenParcel?.id ?? null}
+              onPick={onChooseParcel}
+              className="h-[320px]"
+            />
+          </div>
         </CardContent>
       </Card>
 

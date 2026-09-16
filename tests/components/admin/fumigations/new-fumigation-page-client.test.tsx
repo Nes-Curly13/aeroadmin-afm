@@ -43,6 +43,10 @@ vi.mock("@/components/fumigations/dji-flight-picker", () => ({
   DjiFlightPicker: () => <div data-testid="dji-flight-picker" />
 }));
 
+vi.mock("@/components/fumigations/parcel-map-picker", () => ({
+  ParcelMapPicker: () => <div data-testid="parcel-map-picker" />
+}));
+
 const mockFetch = vi.fn();
 const originalFetch = global.fetch;
 

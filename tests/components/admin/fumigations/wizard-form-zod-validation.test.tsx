@@ -40,6 +40,10 @@ vi.mock("@/components/fumigations/dji-flight-picker", () => ({
   DjiFlightPicker: () => <div data-testid="dji-flight-picker" />
 }));
 
+vi.mock("@/components/fumigations/parcel-map-picker", () => ({
+  ParcelMapPicker: () => <div data-testid="parcel-map-picker" />
+}));
+
 // Mock parametrizado: el test puede setear el form data que devuelve
 // `onRequestReview`. Default = valido.
 let mockFormData: Record<string, unknown> | null = {

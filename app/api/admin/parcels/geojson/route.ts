@@ -63,8 +63,11 @@ export async function GET(req: Request) {
         properties: {
           id: f.id,
           land_name: f.land_name,
+          external_id: f.external_id,
+          source: f.source,
           client_name: f.client_name,
-          farm_name: f.farm_name
+          farm_name: f.farm_name,
+          municipality: f.municipality
         },
         geometry: f.geometry
       }))

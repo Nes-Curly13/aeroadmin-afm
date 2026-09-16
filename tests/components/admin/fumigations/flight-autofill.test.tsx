@@ -37,6 +37,10 @@ vi.mock("@/components/admin/parcels/parcel-drawer", () => ({
   ParcelDrawer: () => <div data-testid="parcel-drawer" />
 }));
 
+vi.mock("@/components/fumigations/parcel-map-picker", () => ({
+  ParcelMapPicker: () => <div data-testid="parcel-map-picker" />
+}));
+
 // Mock del DjiFlightPicker con 2 flights para que el test pueda
 // "pickear" uno y luego el otro.
 vi.mock("@/components/fumigations/dji-flight-picker", () => ({

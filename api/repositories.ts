@@ -5503,8 +5503,11 @@ export async function getDashboardData(
 export interface ParcelGeomFeature {
   id: number;
   land_name: string | null;
+  external_id: string;
+  source: string | null;
   client_name: string | null;
   farm_name: string | null;
+  municipality: string | null;
   /** GeoJSON Polygon/MultiPolygon. */
   geometry: unknown;
 }
@@ -5522,7 +5525,8 @@ export async function getParcelGeometriesInBbox(input: {
   return withLocalFallback(
     async () => {
       const r = await db.query<ParcelGeomFeature>(
-        `SELECT p.id, p.land_name, p.client_name, p.farm_name,
+        `SELECT p.id, p.land_name, p.external_id, p.source,
+                p.client_name, p.farm_name, p.municipality,
                 ST_AsGeoJSON(
                   ST_SimplifyPreserveTopology(p.spray_geom, 0.00002)
                 )::json AS geometry
