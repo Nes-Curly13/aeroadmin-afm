@@ -31,6 +31,9 @@ vi.mock("next/navigation", () => ({
 // "fake-set-polygon" que inyecta una geometría válida en el state del
 // form. Así podemos testear el submit sin tener un mapa real.
 vi.mock("@/components/admin/parcels/parcel-drawer", () => ({
+  // Stub del helper de área que el form usa para mostrar las ha
+  // calculadas (el cálculo real vive en el drawer y se testea aparte).
+  polygonAreaHectares: () => 0,
   ParcelDrawer: ({
     onPolygonChange
   }: {

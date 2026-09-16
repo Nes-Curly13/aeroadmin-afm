@@ -55,7 +55,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FieldSelect } from "@/components/ui/field-select";
 import { SpinnerInline } from "@/components/ui/loading";
-import { ParcelDrawer } from "./parcel-drawer";
+import { ParcelDrawer, polygonAreaHectares } from "./parcel-drawer";
 import { Save } from "lucide-react";
 
 interface FormState {
@@ -286,11 +286,11 @@ export function NewParcelForm() {
 
   function handlePolygonChange(geom: { type: "Polygon"; coordinates: number[][][] } | null) {
     setGeometry(geom);
-    // Si no hay polígono, reseteamos el área. El cálculo de ha vive
-    // adentro del ParcelDrawer para evitar duplicar la fórmula acá.
-    if (!geom) {
-      setAreaHa(0);
-    }
+    // El área se recalcula con la misma fórmula que usa el ParcelDrawer
+    // para su display. Antes solo se reseteaba a 0 y el header del form
+    // quedaba pegado en "Sin polígono — el área se calcula al dibujar"
+    // incluso después de dibujar.
+    setAreaHa(geom ? polygonAreaHectares(geom) : 0);
   }
 
   async function onSubmit(e: React.FormEvent) {
@@ -299,6 +299,23 @@ export function NewParcelForm() {
 
     if (!geometry) {
       setError("Tenés que dibujar el polígono de la parcela en el mapa");
+      return;
+    }
+
+    // El drawer emite `onPolygonChange` también con polígonos EN CURSO
+    // (ring abierto, < 4 puntos). Rechazamos el submit en ese caso: un
+    // ring no cerrado es GeoJSON inválido y PostGIS `ST_GeomFromGeoJSON`
+    // lo rechaza. El botón "Cerrar" del mapa (o el doble-click) cierra
+    // el ring.
+    const ring = geometry.coordinates?.[0] ?? [];
+    const ringClosed =
+      ring.length >= 4 &&
+      ring[0][0] === ring[ring.length - 1][0] &&
+      ring[0][1] === ring[ring.length - 1][1];
+    if (!ringClosed) {
+      setError(
+        "El polígono no está cerrado. En el mapa, poné al menos 3 vértices y usá el botón Cerrar."
+      );
       return;
     }
 

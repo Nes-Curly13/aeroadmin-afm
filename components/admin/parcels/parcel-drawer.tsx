@@ -152,7 +152,7 @@ function polygonCentroid(p: PolygonGeom): [number, number] {
  *
  * Referencia: https://en.wikipedia.org/wiki/Spherical_excess
  */
-function polygonAreaHectares(p: PolygonGeom): number {
+export function polygonAreaHectares(p: PolygonGeom): number {
   const ring = p.coordinates[0];
   if (!ring || ring.length < 4) return 0;
   const EARTH_RADIUS_M = 6_378_137;
@@ -231,10 +231,23 @@ const FALLBACK_STYLE: StyleSpecification = {
 /** IDs de layers/sources del drawer que NO son del basemap. */
 const CUSTOM_LAYER_PREFIXES = ["parcels-", "td-"];
 
+/**
+ * Defaults ESTABLES (misma referencia entre renders). Si usáramos
+ * `initialCenter = [-76.31, 3.45]` como default param, cada render
+ * crearía un array nuevo → el useMemo de `center` se recalcularía →
+ * el effect de init del mapa se re-correría en cada render (destruye
+ * y recrea el mapa, perdiendo el polígono que se está dibujando).
+ * Bug observado en /admin/parcels/new: al hacer el primer click,
+ * `onPolygonChange` actualizaba el estado del padre → re-render →
+ * el mapa se reseteaba y el vértice desaparecía.
+ */
+const DEFAULT_CENTER: [number, number] = [-76.31, 3.45];
+const DEFAULT_ZOOM = 12;
+
 export function ParcelDrawer({
   onPolygonChange,
-  initialCenter = [-76.31, 3.45],
-  initialZoom = 12,
+  initialCenter = DEFAULT_CENTER,
+  initialZoom = DEFAULT_ZOOM,
   initialPolygon,
   initialMode = "draw"
 }: ParcelDrawerProps) {
@@ -509,11 +522,12 @@ export function ParcelDrawer({
             for (const [id, source] of Object.entries(
               previousStyle.sources ?? {}
             )) {
-              if (
-                id !== "eox" &&
-                id !== "osm" &&
-                !id.startsWith("td-")
-              ) {
+              // Preservamos SOLO las sources custom (las del basemap
+              // las trae el next style). Antes se excluía `eox`/`osm`
+              // y `td-`, pero los LAYERS `td-` sí se preservaban acá
+              // abajo → quedaban layers huérfanos sin source y
+              // MapLibre rompía el style al cambiar basemap.
+              if (CUSTOM_LAYER_PREFIXES.some((p) => id.startsWith(p))) {
                 preservedSources[id] = source;
               }
             }

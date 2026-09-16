@@ -26,7 +26,7 @@
 //     vitest.config.
 
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { render, act } from "@testing-library/react";
+import { render, act, fireEvent, screen } from "@testing-library/react";
 
 // =====================================================================
 // Mocks
@@ -166,6 +166,11 @@ vi.mock("terra-draw", () => ({
 // Test
 // =====================================================================
 
+// Forzamos el path MapTiler para que `handleBasemapChange` use
+// `map.setStyle(url, { transformStyle })` y podamos testear la
+// preservación de sources/layers custom al cambiar de basemap.
+vi.stubEnv("NEXT_PUBLIC_MAPTILER_KEY", "test-key");
+
 const { ParcelDrawer } = await import(
   "@/components/admin/parcels/parcel-drawer"
 );
@@ -183,7 +188,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  // No-op: solo por simetría con otros tests
+  vi.unstubAllEnvs();
 });
 
 describe("ParcelDrawer — inicialización (bug fix 2026-08-22)", () => {
@@ -333,5 +338,68 @@ describe("ParcelDrawer — inicialización (bug fix 2026-08-22)", () => {
     });
     // Después del ready, sí
     expect(finishHandlers.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("NO re-inicializa el mapa cuando el padre re-renderiza (regresión: default initialCenter inestable)", () => {
+    const { rerender } = render(<ParcelDrawer onPolygonChange={() => {}} />);
+    act(() => {
+      loadHandlers.forEach((h) => h());
+    });
+    expect(MapMock).toHaveBeenCalledTimes(1);
+
+    // El padre re-renderiza (p.ej. onPolygonChange actualiza su estado
+    // al dibujar un vértice). El default `initialCenter = [...]` se
+    // recreaba en cada render → useMemo → effect de init se re-corre →
+    // el mapa se destruye y se recrea, perdiendo el polígono.
+    rerender(<ParcelDrawer onPolygonChange={() => {}} />);
+
+    expect(MapMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("al cambiar basemap preserva los sources td- (terra-draw), no solo sus layers", () => {
+    render(<ParcelDrawer onPolygonChange={() => {}} />);
+    act(() => {
+      loadHandlers.forEach((h) => h());
+    });
+
+    // Cambiar a "Callejero" dispara map.setStyle(url, { transformStyle }).
+    fireEvent.click(screen.getByTestId("drawer-basemap-calles"));
+
+    const calls = mockMapInstance.setStyle.mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    const options = calls[calls.length - 1][1] as {
+      transformStyle: (
+        prev: unknown,
+        next: unknown
+      ) => { sources: Record<string, unknown>; layers: unknown[] };
+    };
+    expect(typeof options.transformStyle).toBe("function");
+
+    const prevStyle = {
+      sources: {
+        "td-polygon": { type: "geojson" },
+        "td-linestring": { type: "geojson" },
+        openmaptiles: { type: "vector" }
+      },
+      layers: [{ id: "td-polygon" }, { id: "water" }]
+    };
+    const nextStyle = {
+      version: 8,
+      sources: { openmaptiles: { type: "vector" } },
+      layers: []
+    };
+    const merged = options.transformStyle(prevStyle, nextStyle);
+
+    // Las sources custom de terra-draw se preservan (si no, sus layers
+    // quedan huérfanos y MapLibre rompe el style).
+    expect(merged.sources["td-polygon"]).toBeDefined();
+    expect(merged.sources["td-linestring"]).toBeDefined();
+    // Las sources del basemap NO se duplican desde el style anterior:
+    // las trae el next style.
+    expect(merged.sources["openmaptiles"]).toEqual({ type: "vector" });
+    // El layer custom también se preserva.
+    expect(merged.layers).toEqual(
+      expect.arrayContaining([{ id: "td-polygon" }])
+    );
   });
 });
