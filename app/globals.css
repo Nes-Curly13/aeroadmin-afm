@@ -68,25 +68,34 @@
   --border: oklch(0.906 0.008 160);
   --input: oklch(0.906 0.008 160);
 
-  /* Marca AFM */
-  --brand: oklch(0.42 0.09 150);
+  /* Marca AFM Topografía — paleta del logo (docs/afm_png.svg):
+     amarillo del anillo #f5e839, verde de los campos #4ea66a / #3f8f5d,
+     azul del cielo #2175b4, azul profundo #1e4464. */
+  --brand-green: oklch(0.6 0.11 152);
+  --brand-yellow: oklch(0.9 0.19 105);
+  --brand-blue: oklch(0.55 0.13 250);
+  --brand-blue-deep: oklch(0.38 0.06 246);
+  --brand-teal: oklch(0.57 0.085 190);
+  --brand-lime: oklch(0.88 0.15 108);
+
+  --brand: oklch(0.48 0.11 151);
   --brand-foreground: oklch(0.985 0.01 120);
-  --primary: oklch(0.42 0.09 150);
+  --primary: oklch(0.48 0.11 151);
   --primary-foreground: oklch(0.985 0.01 120);
   --secondary: oklch(0.951 0.014 160);
   --secondary-foreground: oklch(0.34 0.07 152);
   --accent: oklch(0.951 0.014 160);
   --accent-foreground: oklch(0.34 0.07 152);
-  --teal: oklch(0.53 0.076 190);
-  --lime: oklch(0.92 0.185 104);
-  --ring: oklch(0.53 0.076 190);
+  --teal: oklch(0.57 0.085 190);
+  --lime: oklch(0.9 0.17 106);
+  --ring: oklch(0.57 0.085 190);
 
   --destructive: oklch(0.55 0.2 26);
 
-  --chart-1: oklch(0.42 0.09 150);
-  --chart-2: oklch(0.53 0.076 190);
-  --chart-3: oklch(0.55 0.12 250);
-  --chart-4: oklch(0.86 0.16 104);
+  --chart-1: oklch(0.52 0.11 151);
+  --chart-2: oklch(0.57 0.085 190);
+  --chart-3: oklch(0.55 0.13 250);
+  --chart-4: oklch(0.88 0.16 106);
   --chart-5: oklch(0.62 0.11 145);
 
   --radius: 0.5rem;
@@ -188,6 +197,29 @@
     .aura-layer-2 {
       filter: blur(180px);
     }
+  }
+
+  /* Branding AFM — glow de marca sobre el sidebar oscuro.
+   * Capas radiales (teal arriba-derecha, verde abajo-izquierda) que se
+   * componen sobre `bg-sidebar`. Da identidad de marca sin sacrificar
+   * el contraste del texto (los tokens de sidebar-foreground no cambian). */
+  .brand-sidebar {
+    background-image:
+      radial-gradient(
+        120% 70% at 100% 0%,
+        oklch(0.55 0.13 250 / 0.3),
+        transparent 60%
+      ),
+      radial-gradient(
+        130% 80% at 0% 100%,
+        oklch(0.6 0.11 152 / 0.34),
+        transparent 62%
+      ),
+      radial-gradient(
+        90% 55% at 60% 118%,
+        oklch(0.9 0.17 106 / 0.12),
+        transparent 62%
+      );
   }
 }
 

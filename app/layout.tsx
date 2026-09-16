@@ -19,17 +19,17 @@ export const metadata: Metadata = {
     "Geovisor de operaciones de fumigación aérea de caña de azúcar: parcelas, vuelos, cadencia y hoja de vida de cada suerte.",
   generator: "v0.app",
   icons: {
-    // v2.7.2 (2026-08-22 — QA): cambiamos el favicon de /afm-logo.svg
-    // (57KB, vertical 485x695 con paths SVG complejos) a /afm-logo-mark.svg
-    // (1.3KB, horizontal 120x40). El mark usa currentColor así que hereda
-    // el color del browser tab. Mucho más rápido de cargar.
-    icon: [{ url: "/afm-logo-mark.svg", type: "image/svg+xml" }],
+    // v3.0 (2026-09-15): favicon = emblema cuadrado (badge con
+    // gradiente de marca + hoja de caña). Antes era el mark horizontal
+    // 120x40 (se veía apretado en el tab). El emblema no usa
+    // currentColor → color consistente en cualquier tema del browser.
+    icon: [{ url: "/afm-emblem.svg", type: "image/svg+xml" }],
   },
 }
 
 export const viewport: Viewport = {
   colorScheme: "light",
-  themeColor: "#2f6135",
+  themeColor: "#3f8f5d",
   width: "device-width",
   initialScale: 1,
 }

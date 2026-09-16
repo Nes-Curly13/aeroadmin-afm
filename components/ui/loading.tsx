@@ -239,7 +239,7 @@ export function PageSpinner({ message, className }: PageSpinnerProps) {
             Usamos el brand mark (24px cuadrado) que se ve consistente
             con el resto del AFM branding. */}
         <div className="absolute inset-0 flex items-center justify-center">
-          <AfmMark variant="mark" size={24} />
+          <AfmMark variant="emblem" size={28} />
         </div>
       </div>
       {message ? (

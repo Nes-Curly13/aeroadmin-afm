@@ -129,14 +129,12 @@ export default function LoginPage() {
       <main className="flex min-h-svh items-center justify-center p-4">
         <Card className="w-full max-w-sm gap-0 py-6">
           <CardHeader className="items-center gap-3 px-6 pb-4">
-            {/* Branding header — 2026-09-10:
-                Reemplazamos el icon generico <Plane /> (lucide) por el
-                monograma real de AFM. Es la primera impresion de marca
-                del usuario. El full logo requiere `unoptimized` por
-                el issue QA-01 → PR #68 (paths SVG con fills
-                hardcoded que el optimizer de Next.js no rasteriza). */}
-            <div className="flex h-[100px] w-[70px] items-center justify-center">
-              <AfmMark variant="full" size={70} priority />
+            {/* Branding header — 2026-09-15:
+                Logo completo de AFM Topografía (círculo + "AFM" +
+                "TOPOGRAFÍA"), recortado del original con fondo
+                transparente. `size` = altura en px. */}
+            <div className="flex h-[104px] w-[74px] items-center justify-center">
+              <AfmMark variant="full" size={104} priority />
             </div>
             <div className="flex flex-col items-center gap-1">
               <CardTitle className="text-lg">AFM Geovisor</CardTitle>

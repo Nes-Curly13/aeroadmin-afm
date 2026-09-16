@@ -1,18 +1,14 @@
 /**
  * tests/components/brand/afm-mark.test.tsx
  *
- * Tests para <AfmMark /> — wrapper unificado del branding AFM.
+ * Tests para <AfmMark /> — wrapper del logo de AFM Topografía.
  *
  * Cubrimos:
- *   1. Default variant es "mark" → src=/afm-logo-mark.svg
- *   2. variant="mark" calcula dimensiones por aspect 120/40
- *      (size es la altura, width = size * 3.0)
- *   3. variant="full" calcula dimensiones por aspect 485/695
- *      (size es el ancho, height = size / 0.697)
- *   4. variant="full" propaga unoptimized al <Image> (issue QA-01
- *      → PR #68: optimizer de Next.js devuelve 400 con el monograma)
- *   5. variant="mark" NO propaga unoptimized (texto + currentColor
- *      se rasteriza bien)
+ *   1. Default variant "emblem" → src=/afm-emblem.svg
+ *   2. variant="emblem" aspect 423/423 → cuadrado (size = altura)
+ *   3. variant="full" aspect 485/695 (size = altura, width = size*0.698)
+ *   4. variant="full" propaga unoptimized=true (SVG complejo)
+ *   5. variant="emblem" propaga unoptimized=true
  *   6. alt por default es descriptivo y distinto por variant
  *   7. alt custom pisa al default
  *   8. priority se propaga cuando se pide
@@ -51,59 +47,55 @@ vi.mock("next/image", () => ({
 import { AfmMark } from "@/components/brand/afm-mark";
 
 describe("<AfmMark />", () => {
-  it("1) default variant es 'mark' → src=/afm-logo-mark.svg", () => {
+  it("1) default variant es 'emblem' → src=/afm-emblem.svg", () => {
     imageSpy.mockClear();
     const { getByTestId } = render(<AfmMark />);
     const img = getByTestId("afm-mark-img");
-    expect(img.getAttribute("data-src")).toBe("/afm-logo-mark.svg");
+    expect(img.getAttribute("data-src")).toBe("/afm-emblem.svg");
   });
 
-  it("2) variant='mark' calcula dimensiones por aspect 120/40 (size = altura)", () => {
+  it("2) variant='emblem' es cuadrado (size = altura = ancho)", () => {
     imageSpy.mockClear();
-    const { getByTestId } = render(<AfmMark variant="mark" size={40} />);
+    const { getByTestId } = render(<AfmMark variant="emblem" size={40} />);
     const img = getByTestId("afm-mark-img");
-    // height=40, width=40*3.0=120
-    expect(img.getAttribute("data-width")).toBe("120");
+    expect(img.getAttribute("data-width")).toBe("40");
     expect(img.getAttribute("data-height")).toBe("40");
   });
 
-  it("3) variant='full' calcula dimensiones por aspect 485/695 (size = ancho)", () => {
+  it("3) variant='full' calcula width por aspect 485/695 (size = altura)", () => {
     imageSpy.mockClear();
-    const { getByTestId } = render(<AfmMark variant="full" size={97} />);
+    const { getByTestId } = render(<AfmMark variant="full" size={100} />);
     const img = getByTestId("afm-mark-img");
-    // width=97, height=97/0.697≈139 (485/695≈0.6975)
-    const w = Number(img.getAttribute("data-width"));
-    const h = Number(img.getAttribute("data-height"));
-    expect(w).toBe(97);
-    // 97 / (485/695) = 97 * 695/485 ≈ 139
-    expect(h).toBeGreaterThan(135);
-    expect(h).toBeLessThan(145);
+    // height=100, width=100*0.6978≈70
+    expect(img.getAttribute("data-height")).toBe("100");
+    expect(img.getAttribute("data-width")).toBe("70");
+    expect(img.getAttribute("data-src")).toBe("/afm-logo-full.svg");
   });
 
-  it("4) variant='full' propaga unoptimized=true (fix SVG 400 QA-01 → PR #68)", () => {
+  it("4) variant='full' propaga unoptimized=true (SVG complejo)", () => {
     imageSpy.mockClear();
     const { getByTestId } = render(<AfmMark variant="full" />);
     const img = getByTestId("afm-mark-img");
     expect(img.getAttribute("data-unoptimized")).toBe("true");
   });
 
-  it("5) variant='mark' NO propaga unoptimized (texto + currentColor)", () => {
+  it("5) variant='emblem' propaga unoptimized=true", () => {
     imageSpy.mockClear();
-    const { getByTestId } = render(<AfmMark variant="mark" />);
+    const { getByTestId } = render(<AfmMark variant="emblem" />);
     const img = getByTestId("afm-mark-img");
-    expect(img.getAttribute("data-unoptimized")).toBe("false");
+    expect(img.getAttribute("data-unoptimized")).toBe("true");
   });
 
   it("6) alt por default es descriptivo y distinto por variant", () => {
     imageSpy.mockClear();
-    const { getByTestId, rerender } = render(<AfmMark variant="mark" />);
+    const { getByTestId, rerender } = render(<AfmMark variant="emblem" />);
     const markAlt = getByTestId("afm-mark-img").getAttribute("data-alt");
     expect(markAlt).toMatch(/AFM/);
     expect(markAlt?.length).toBeGreaterThan(3);
 
     rerender(<AfmMark variant="full" />);
     const fullAlt = getByTestId("afm-mark-img").getAttribute("data-alt");
-    expect(fullAlt).toMatch(/AeroAdmin|AFM/);
+    expect(fullAlt).toMatch(/AFM/);
     expect(fullAlt).not.toBe(markAlt);
   });
 

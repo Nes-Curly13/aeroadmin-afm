@@ -74,27 +74,22 @@ export async function AppShell({
 
   return (
     <div className="flex min-h-svh flex-col lg:flex-row">
-      <aside className="flex shrink-0 flex-col gap-6 border-b border-sidebar-border bg-sidebar px-4 py-4 text-sidebar-foreground lg:sticky lg:top-0 lg:h-svh lg:w-64 lg:border-b-0 lg:border-r lg:py-6">
+      <aside className="brand-sidebar flex shrink-0 flex-col gap-6 border-b border-sidebar-border bg-sidebar px-4 py-4 text-sidebar-foreground lg:sticky lg:top-0 lg:h-svh lg:w-64 lg:border-b-0 lg:border-r lg:py-6">
         <div className="flex items-center justify-between gap-3">
           <Link
             href="/"
             aria-label="Ir al panel principal"
             className="flex items-center gap-3"
           >
-            {/* Branding header — 2026-09-10:
-                Cambiamos del monograma vertical 64x92 (ocupaba 36% del
-                alto del sidebar y se veia apretado) al mark horizontal
-                compacto. El mark es el "AFM" + subtitulo "Fumigacion"
-                que ya usamos como favicon, pero a 28px de alto (84x28).
-                El wordmark al lado (titulo + subtitulo) sigue dando
-                contexto de que es el panel. El monograma completo
-                (/afm-logo.svg, 57KB) queda reservado para pantallas
-                de branding (login).
-                Ver <AfmMark /> en components/brand/afm-mark.tsx. */}
-            <AfmMark variant="mark" size={28} priority />
+            {/* Branding header — 2026-09-15:
+                Emblema de AFM Topografía (círculo amarillo + paisaje),
+                recortado fielmente del logo original. El nombre del
+                producto va al lado en texto. Ver <AfmMark /> en
+                components/brand/afm-mark.tsx. */}
+            <AfmMark variant="emblem" size={40} priority />
             <div className="flex flex-col leading-tight">
               <span className="text-sm font-extrabold tracking-tight">AFM Geovisor</span>
-              <span className="text-[11px] text-sidebar-foreground/60">Fumigación de caña · Valle</span>
+              <span className="text-[11px] text-sidebar-foreground/60">Topografía · Valle del Cauca</span>
             </div>
           </Link>
           <div className="lg:hidden">

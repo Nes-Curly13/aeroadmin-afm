@@ -12,9 +12,10 @@
 //   4. El parcel PDF template idem
 //   5. El fumigation PDF template idem
 //
-// El mark es de 1.3KB → el data URL pesa ~1.8KB. No medimos bytes
-// porque el contenido exacto del SVG puede cambiar — solo verificamos
-// que el data URL este bien formado.
+// El mark es el emblema del logo original (SVG traced, ~51KB) →
+// el data URL pesa ~68KB. No medimos bytes exactos porque el contenido
+// del SVG puede cambiar — solo verificamos que esté bien formado y
+// dentro de un rango razonable.
 
 import { describe, expect, it, beforeEach } from "vitest";
 import {
@@ -118,8 +119,8 @@ describe("lib/reports/brand-mark-data-url", () => {
   it("1) getAfmMarkDataUrl() devuelve un data URL valido", () => {
     const url = getAfmMarkDataUrl();
     expect(url).toMatch(/^data:image\/svg\+xml;base64,/);
-    expect(url.length).toBeGreaterThan(100);
-    expect(url.length).toBeLessThan(5000);
+    expect(url.length).toBeGreaterThan(1000);
+    expect(url.length).toBeLessThan(120_000);
   });
 
   it("2) el data URL se cachea entre llamadas", () => {

@@ -1,17 +1,13 @@
 import { test, expect, type Page } from "@playwright/test"
 
 /**
- * S8.8 v2.7.1 — Verifica SOLO que el logo AFM se ve en el sidebar izquierdo
- * (no en el Filtros panel). Login + screenshot.
+ * Verifica que el emblema de marca AFM se ve en el sidebar izquierdo.
  *
- * v2.7.2 (2026-08-22): actualizado para apuntar al nuevo mark horizontal
- * `/afm-logo-mark.svg` (1.3KB) en vez del logo vertical viejo `/afm-logo.svg`
- * (57KB). El mark usa `currentColor` y se ve bien en el sidebar dark.
- *
- * QA-01 fix (2026-09-06): el operador pidio el logo original
- * (`/afm-logo.svg`, 57KB, 485x695). El mark se quedo solo para el
- * favicon (browser tab, 16x16). El sidebar ahora muestra el logo
- * completo escalado a 64x92 (aspect 0.7).
+ * 2026-09-15: el sidebar usa `/afm-emblem.svg` (recorte del círculo
+ * amarillo del logo original de AFM Topografía) vía
+ * `<AfmMark variant="emblem" />`. Los assets previos
+ * (`/afm-logo-mark.svg`, `/afm-logo.svg`) fueron reemplazados por el
+ * emblema y el logo completo fieles al original.
  */
 const E2E_EMAIL = process.env.E2E_USER_EMAIL ?? "e2e@aeroadmin.local"
 const E2E_PASSWORD = process.env.E2E_USER_PASSWORD ?? "E2ETest12345!"
@@ -26,20 +22,16 @@ async function login(page: Page) {
 
 test("logo AFM visible en sidebar izquierdo del app shell", async ({ page }) => {
   await login(page)
-  // Estamos en /dashboard (o /). Vamos directo al geovisor para ver el sidebar.
   await page.goto("/geovisor")
   await page.waitForTimeout(3000)
 
-  // El logo AFM debe estar visible (es el unico en la pagina)
-  const logo = page.locator('img[src="/afm-logo.svg"]')
+  const logo = page.locator('img[src="/afm-emblem.svg"]')
   await expect(logo).toBeVisible()
-  await expect(logo).toHaveAttribute("alt", /Logo AFM/i)
+  await expect(logo).toHaveAttribute("alt", /AFM/i)
 
-  // El logo debe estar en el sidebar IZQUIERDO (etiqueta "Navegación principal"
-  // cerca). Confirmamos que el sidebar contiene tanto el logo como la nav.
   const sidebar = page.locator("aside").first()
-  await expect(sidebar.locator('img[src="/afm-logo.svg"]')).toBeVisible()
+  await expect(sidebar.locator('img[src="/afm-emblem.svg"]')).toBeVisible()
   await expect(sidebar.getByRole("navigation")).toBeVisible()
 
-  await page.screenshot({ path: "test-results/logo-sidebar-qa01.png", fullPage: false })
+  await page.screenshot({ path: "test-results/logo-sidebar-v3.png", fullPage: false })
 })
