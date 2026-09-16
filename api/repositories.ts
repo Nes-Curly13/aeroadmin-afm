@@ -5490,3 +5490,62 @@ export async function getDashboardData(
     async () => emptyDashboardData()
   );
 }
+
+// ============================================================
+// PARCEL GEOMETRIES (contexto del mapa) — 2026-09-15
+// ============================================================
+//
+// Geometrías de las parcelas dentro de un bbox, para dibujarlas como
+// CONTEXTO al crear/re-dibujar una parcela (ver las vecinas y evitar
+// solapes). Se simplifica la geometría (~2 m) para aligerar el payload
+// y se acota por bbox (no se cargan las 1.237 parcelas de una).
+
+export interface ParcelGeomFeature {
+  id: number;
+  land_name: string | null;
+  client_name: string | null;
+  farm_name: string | null;
+  /** GeoJSON Polygon/MultiPolygon. */
+  geometry: unknown;
+}
+
+export async function getParcelGeometriesInBbox(input: {
+  minLng: number;
+  minLat: number;
+  maxLng: number;
+  maxLat: number;
+  excludeId?: number | null;
+  limit?: number;
+}): Promise<ParcelGeomFeature[]> {
+  const db = getDb();
+  const limit = Math.min(Math.max(input.limit ?? 500, 1), 2000);
+  return withLocalFallback(
+    async () => {
+      const r = await db.query<ParcelGeomFeature>(
+        `SELECT p.id, p.land_name, p.client_name, p.farm_name,
+                ST_AsGeoJSON(
+                  ST_SimplifyPreserveTopology(p.spray_geom, 0.00002)
+                )::json AS geometry
+           FROM dji_parcels p
+          WHERE p.deleted_at IS NULL
+            AND p.spray_geom IS NOT NULL
+            AND ST_Intersects(
+                  p.spray_geom,
+                  ST_MakeEnvelope($1, $2, $3, $4, 4326)
+                )
+            AND ($5::bigint IS NULL OR p.id <> $5)
+          LIMIT $6`,
+        [
+          input.minLng,
+          input.minLat,
+          input.maxLng,
+          input.maxLat,
+          input.excludeId ?? null,
+          limit
+        ]
+      );
+      return r.rows;
+    },
+    async () => []
+  );
+}

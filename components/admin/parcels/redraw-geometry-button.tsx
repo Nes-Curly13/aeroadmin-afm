@@ -235,6 +235,8 @@ export function RedrawGeometryButton({
                 <ParcelDrawer
                   onPolygonChange={setGeometry}
                   initialPolygon={currentGeometry}
+                  showContextParcels
+                  excludeParcelId={parcelId}
                 />
               </section>
 

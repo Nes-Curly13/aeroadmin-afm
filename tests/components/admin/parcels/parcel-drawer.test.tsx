@@ -362,8 +362,8 @@ describe("ParcelDrawer — inicialización (bug fix 2026-08-22)", () => {
       loadHandlers.forEach((h) => h());
     });
 
-    // Cambiar a "Callejero" dispara map.setStyle(url, { transformStyle }).
-    fireEvent.click(screen.getByTestId("drawer-basemap-calles"));
+    // Cambiar a "Híbrido" dispara map.setStyle(url, { transformStyle }).
+    fireEvent.click(screen.getByTestId("drawer-basemap-hibrido"));
 
     const calls = mockMapInstance.setStyle.mock.calls;
     expect(calls.length).toBeGreaterThan(0);

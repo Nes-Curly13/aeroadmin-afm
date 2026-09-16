@@ -13,7 +13,7 @@
  *     parcel-drawer.test.tsx y tests/e2e/parcel-drawer-click.spec.ts.
  *   - QA-12 (2026-09-06, fix/qa-12-polygon-ux): rediseño completo de UX.
  *     Toolbar visible con Dibujar/Editar/Limpiar/Undo/Redo, toggle de
- *     basemap (Satélite/Híbrido/Callejero) con default satélite, empty
+ *     basemap (Satélite/Híbrido) con default satélite, empty
  *     state con botón "Comenzar dibujo", display del área calculada en
  *     hectáreas, modo "select" para editar vértices existentes.
  *
@@ -82,6 +82,7 @@ import {
 } from "react";
 import { Button } from "@/components/ui/button";
 import {
+  AlertTriangle,
   Check,
   Eraser,
   Loader2,
@@ -95,12 +96,13 @@ import {
   X
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { geometriesOverlap } from "@/lib/geometry";
 
 /** Geometría GeoJSON Polygon (formato compartido con la API y lib/types). */
 type PolygonGeom = { type: "Polygon"; coordinates: number[][][] };
 
 /** Tipos de basemap disponibles en el toggle del toolbar. */
-export type BasemapKind = "satelite" | "hibrido" | "calles";
+export type BasemapKind = "satelite" | "hibrido";
 
 export interface ParcelDrawerProps {
   /** Callback con el polígono dibujado en formato GeoJSON Polygon. */
@@ -118,6 +120,16 @@ export interface ParcelDrawerProps {
   initialPolygon?: PolygonGeom | null;
   /** Modo inicial del drawer: "draw" (polygon) o "edit" (select). */
   initialMode?: "draw" | "edit";
+  /**
+   * Dibuja las parcelas vecinas (del viewport) como contexto, para no
+   * crear una parcela encima de otra. Default false.
+   */
+  showContextParcels?: boolean;
+  /**
+   * ID de la parcela a excluir del contexto (al re-dibujar una parcela
+   * existente, no mostrarse a sí misma).
+   */
+  excludeParcelId?: number | null;
 }
 
 /**
@@ -190,19 +202,21 @@ const USE_MAPTILER = MAPTILER_KEY.length > 0;
 
 const MAPTILER_STYLE_URLS: Record<BasemapKind, string> = {
   satelite: `https://api.maptiler.com/maps/satellite/style.json?key=${MAPTILER_KEY}`,
-  hibrido: `https://api.maptiler.com/maps/hybrid/style.json?key=${MAPTILER_KEY}`,
-  calles: `https://api.maptiler.com/maps/streets-v2/style.json?key=${MAPTILER_KEY}`
+  hibrido: `https://api.maptiler.com/maps/hybrid/style.json?key=${MAPTILER_KEY}`
 };
 
-/** Estilo fallback sin key MapTiler: EOX Sentinel-2 cloudless 2024 + OSM. */
+/**
+ * Estilo fallback SIN key MapTiler: EOX Sentinel-2 cloudless 2024
+ * (satélite) + overlay de etiquetas/caminos de EOX (para el "híbrido").
+ */
 const GLYPHS_URL = "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf";
 const EOX_TILE_URL =
   "https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2024_3857/default/g/{z}/{y}/{x}.jpg";
-const OSM_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+const EOX_OVERLAY_URL =
+  "https://tiles.maps.eox.at/wmts/1.0.0/overlay_3857/default/g/{z}/{y}/{x}.png";
 
 const EOX_ATTRIBUTION =
   "Sentinel-2 cloudless 2024 &copy; <a href=\"https://eox.at\" target=\"_blank\" rel=\"noopener\">EOX</a>";
-const OSM_ATTRIBUTION = "&copy; OpenStreetMap contributors";
 
 const FALLBACK_STYLE: StyleSpecification = {
   version: 8,
@@ -215,21 +229,35 @@ const FALLBACK_STYLE: StyleSpecification = {
       maxzoom: 14,
       attribution: EOX_ATTRIBUTION
     },
-    osm: {
+    "eox-overlay": {
       type: "raster",
-      tiles: [OSM_TILE_URL],
+      tiles: [EOX_OVERLAY_URL],
       tileSize: 256,
-      maxzoom: 19,
-      attribution: OSM_ATTRIBUTION
+      maxzoom: 14,
+      attribution: EOX_ATTRIBUTION
     }
   },
   layers: [
-    { id: "eox", type: "raster", source: "eox" }
+    { id: "eox", type: "raster", source: "eox" },
+    {
+      id: "eox-overlay",
+      type: "raster",
+      source: "eox-overlay",
+      layout: { visibility: "none" }
+    }
   ]
 };
 
 /** IDs de layers/sources del drawer que NO son del basemap. */
 const CUSTOM_LAYER_PREFIXES = ["parcels-", "td-"];
+
+/**
+ * Source/layers de "parcelas vecinas" (contexto). El prefijo `parcels-`
+ * hace que el toggle de basemap los preserve.
+ */
+const CTX_SOURCE = "parcels-ctx";
+const CTX_FILL = "parcels-ctx-fill";
+const CTX_LINE = "parcels-ctx-line";
 
 /**
  * Defaults ESTABLES (misma referencia entre renders). Si usáramos
@@ -260,7 +288,9 @@ export function ParcelDrawer({
   initialCenter = DEFAULT_CENTER,
   initialZoom = DEFAULT_ZOOM,
   initialPolygon,
-  initialMode = "draw"
+  initialMode = "draw",
+  showContextParcels = false,
+  excludeParcelId = null
 }: ParcelDrawerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MlMap | null>(null);
@@ -287,6 +317,12 @@ export function ParcelDrawer({
   const [coordsOpen, setCoordsOpen] = useState(false);
   const [coordsText, setCoordsText] = useState("");
   const [coordsError, setCoordsError] = useState<string | null>(null);
+  /** Nombres de parcelas vecinas con las que el polígono dibujado se solapa. */
+  const [overlaps, setOverlaps] = useState<string[]>([]);
+  /** Features de contexto cargadas (para chequear solape). */
+  const ctxFeaturesRef = useRef<
+    Array<{ id: number; name: string; geometry: unknown }>
+  >([]);
   const onChangeRef = useRef(onPolygonChange);
   // Mantener el callback actualizado sin re-inicializar el mapa.
   useEffect(() => {
@@ -353,6 +389,114 @@ export function ParcelDrawer({
 
     map.on("load", () => {
       dbg("style cargado — arrancando terra-draw");
+
+      // Compara el polígono dibujado con las parcelas vecinas cargadas.
+      const checkOverlap = (geom: PolygonGeom) => {
+        if (!showContextParcels) return;
+        const hits = new Set<string>();
+        for (const f of ctxFeaturesRef.current) {
+          if (geometriesOverlap(geom, f.geometry)) hits.add(f.name);
+        }
+        setOverlaps(Array.from(hits).slice(0, 6));
+      };
+
+      // Contexto: parcelas vecinas del viewport (para no crear una
+      // parcela encima de otra). Se cargan ANTES de terra-draw para que
+      // las capas de dibujo queden por encima.
+      if (showContextParcels) {
+        map.addSource(CTX_SOURCE, {
+          type: "geojson",
+          data: { type: "FeatureCollection", features: [] }
+        });
+        map.addLayer({
+          id: CTX_FILL,
+          type: "fill",
+          source: CTX_SOURCE,
+          paint: { "fill-color": "#f59e0b", "fill-opacity": 0.1 }
+        });
+        map.addLayer({
+          id: CTX_LINE,
+          type: "line",
+          source: CTX_SOURCE,
+          paint: {
+            "line-color": "#b45309",
+            "line-width": 1.2,
+            "line-opacity": 0.75
+          }
+        });
+
+        const refreshContext = async () => {
+          const b = map.getBounds();
+          const url =
+            `/api/admin/parcels/geojson?bbox=${b.getWest()},${b.getSouth()},${b.getEast()},${b.getNorth()}` +
+            `${excludeParcelId ? `&excludeId=${excludeParcelId}` : ""}&limit=500`;
+          try {
+            const res = await fetch(url);
+            if (!res.ok) return;
+            const fc = (await res.json()) as {
+              features?: Array<{
+                properties?: { id?: number; land_name?: string | null };
+                geometry?: unknown;
+              }>;
+            };
+            const feats = fc.features ?? [];
+            ctxFeaturesRef.current = feats.map((f) => ({
+              id: Number(f.properties?.id ?? 0),
+              name: f.properties?.land_name ?? "Parcela sin nombre",
+              geometry: f.geometry
+            }));
+            (map.getSource(CTX_SOURCE) as
+              | maplibregl.GeoJSONSource
+              | undefined)?.setData(
+              fc as unknown as GeoJSON.FeatureCollection
+            );
+            dbg("contexto parcelas cargadas:", feats.length);
+          } catch {
+            /* sin contexto si falla la red */
+          }
+        };
+
+        void refreshContext();
+        let ctxTimer: ReturnType<typeof setTimeout> | undefined;
+        map.on("moveend", () => {
+          if (ctxTimer) clearTimeout(ctxTimer);
+          ctxTimer = setTimeout(() => void refreshContext(), 350);
+        });
+
+        // Popup con el nombre de la parcela vecina.
+        map.on("click", CTX_FILL, (e) => {
+          const p = (e.features?.[0]?.properties ?? {}) as {
+            land_name?: string;
+            client_name?: string;
+            farm_name?: string;
+          };
+          const esc = (s: string) =>
+            s.replace(
+              /[&<>"]/g,
+              (c) =>
+                ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] ??
+                c
+            );
+          const el = document.createElement("div");
+          el.style.cssText =
+            "font:12px system-ui;padding:6px 8px;max-width:220px";
+          const sub = [p.client_name, p.farm_name].filter(Boolean).join(" · ");
+          el.innerHTML =
+            `<strong>${esc(p.land_name ?? "Parcela")}</strong>` +
+            (sub ? `<br/>${esc(sub)}` : "");
+          new maplibregl.Popup({ closeButton: false, offset: 8 })
+            .setLngLat(e.lngLat)
+            .setDOMContent(el)
+            .addTo(map);
+        });
+        map.on("mouseenter", CTX_FILL, () => {
+          map.getCanvas().style.cursor = "pointer";
+        });
+        map.on("mouseleave", CTX_FILL, () => {
+          map.getCanvas().style.cursor = "";
+        });
+      }
+
       const draw = new TerraDraw({
         adapter: new TerraDrawMapLibreGLAdapter({ map }),
         modes: [
@@ -436,6 +580,7 @@ export function ParcelDrawer({
           onChangeRef.current(geom);
           setHasPolygon(true);
           setAreaHa(polygonAreaHectares(geom));
+          checkOverlap(geom);
           syncHistory(draw);
         });
 
@@ -469,6 +614,13 @@ export function ParcelDrawer({
             }
           }
           setVertexCount(count);
+          if (
+            ring.length >= 4 &&
+            ring[0][0] === ring[ring.length - 1][0] &&
+            ring[0][1] === ring[ring.length - 1][1]
+          ) {
+            checkOverlap(geom);
+          }
           onChangeRef.current(geom);
           setHasPolygon(true);
           setAreaHa(polygonAreaHectares(geom));
@@ -518,6 +670,7 @@ export function ParcelDrawer({
     onChangeRef.current(null);
     setHasPolygon(false);
     setAreaHa(0);
+    setOverlaps([]);
     setCanUndo(false);
     setCanRedo(false);
   }, []);
@@ -577,44 +730,19 @@ export function ParcelDrawer({
         }
       });
     } else {
-      // Fallback: toggle de visibilidad entre los sources raster ya
-      // cargados en el style. Más barato que recrear el style.
+      // Fallback sin MapTiler: EOX. "satelite" = solo satélite;
+      // "hibrido" = satélite + overlay de etiquetas/caminos de EOX.
       const style = map.getStyle();
-      const hasEox = !!style.sources?.eox;
-      const hasOsm = !!style.sources?.osm;
       for (const layer of style.layers ?? []) {
-        if (layer.id === "eox" || layer.id === "osm") {
+        if (layer.id === "eox") {
+          map.setLayoutProperty(layer.id, "visibility", "visible");
+        } else if (layer.id === "eox-overlay") {
           map.setLayoutProperty(
             layer.id,
             "visibility",
-            (layer.id === "eox" && next === "satelite") ||
-              (next === "hibrido") ||
-              (layer.id === "osm" && next === "calles")
-              ? "visible"
-              : "none"
+            next === "hibrido" ? "visible" : "none"
           );
         }
-      }
-      // Por si el style inicial no tenía OSM, lo agregamos ahora.
-      if (next === "calles" && !hasOsm) {
-        map.addSource("osm", {
-          type: "raster",
-          tiles: [OSM_TILE_URL],
-          tileSize: 256,
-          maxzoom: 19,
-          attribution: OSM_ATTRIBUTION
-        });
-        map.addLayer({ id: "osm", type: "raster", source: "osm" });
-      }
-      if ((next === "satelite" || next === "hibrido") && !hasEox) {
-        map.addSource("eox", {
-          type: "raster",
-          tiles: [EOX_TILE_URL],
-          tileSize: 256,
-          maxzoom: 14,
-          attribution: EOX_ATTRIBUTION
-        });
-        map.addLayer({ id: "eox", type: "raster", source: "eox" });
       }
     }
   }, []);
@@ -762,7 +890,7 @@ export function ParcelDrawer({
   }, [coordsText]);
 
   return (
-    <div className="relative h-full w-full overflow-hidden rounded-lg border border-input">
+    <div className="relative h-full min-h-[320px] w-full overflow-hidden rounded-lg border border-input">
       {/* Contenedor del mapa — `h-full w-full` (flujo normal), NO
           `absolute inset-0`: MapLibre agrega la clase `.maplibregl-map`
           que setea `position: relative` y PISA el `absolute` (misma
@@ -873,6 +1001,22 @@ export function ParcelDrawer({
         </Button>
       </div>
 
+      {/* Aviso de solape con parcelas vecinas. */}
+      {overlaps.length > 0 ? (
+        <div
+          role="alert"
+          data-testid="drawer-overlap-warning"
+          className="absolute left-1/2 top-3 z-30 flex max-w-[90%] -translate-x-1/2 items-start gap-1.5 rounded-lg border border-amber-500/50 bg-amber-50/95 px-3 py-1.5 text-[11px] font-medium text-amber-900 shadow-lg backdrop-blur dark:border-amber-500/40 dark:bg-amber-950/90 dark:text-amber-100"
+        >
+          <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+          <span>
+            Se superpone con{" "}
+            {overlaps.length === 1 ? "la parcela" : "las parcelas"}:{" "}
+            {overlaps.join(", ")}
+          </span>
+        </div>
+      ) : null}
+
       {/* Toggle de basemap flotante (bottom-right). */}
       <div
         className="absolute bottom-3 right-3 z-10 flex items-center gap-1 rounded-lg border border-border bg-card/95 p-1 shadow-lg backdrop-blur"
@@ -883,8 +1027,7 @@ export function ParcelDrawer({
         {(
           [
             { id: "satelite", label: "Satélite", icon: Satellite },
-            { id: "hibrido", label: "Híbrido", icon: MapPin },
-            { id: "calles", label: "Callejero", icon: MapPin }
+            { id: "hibrido", label: "Híbrido", icon: MapPin }
           ] as const
         ).map((opt) => {
           const Icon = opt.icon;
@@ -1002,22 +1145,23 @@ export function ParcelDrawer({
         </div>
       )}
 
-      {/* Display del área calculada (bottom-left, sobre scale control). */}
-      <div
-        className="pointer-events-none absolute bottom-12 left-3 z-10 flex items-center gap-2 rounded-md border border-border bg-card/95 px-3 py-1.5 text-xs shadow-md backdrop-blur"
-        data-testid="drawer-area"
-      >
-        <span className="text-muted-foreground">
-          {hasPolygon
-            ? vertexCount > 0
-              ? "Área"
-              : "Polígono dibujado"
-            : "Sin polígono"}
-        </span>
-        <span className="font-mono text-sm font-semibold tabular-nums text-foreground">
-          {areaHa > 0 ? `${areaHa.toFixed(2)} ha` : "—"}
-        </span>
-      </div>
+      {/* Display del área calculada (bottom-left, sobre scale control).
+          Solo cuando HAY polígono: si no, el empty state ("Cómo dibujar
+          la parcela", bottom-left) ocupa esa zona y se pisaban entre sí
+          (el "Sin polígono" quedaba encima de la guía). */}
+      {hasPolygon ? (
+        <div
+          className="pointer-events-none absolute bottom-12 left-3 z-10 flex items-center gap-2 rounded-md border border-border bg-card/95 px-3 py-1.5 text-xs shadow-md backdrop-blur"
+          data-testid="drawer-area"
+        >
+          <span className="text-muted-foreground">
+            {vertexCount > 0 ? "Área" : "Polígono dibujado"}
+          </span>
+          <span className="font-mono text-sm font-semibold tabular-nums text-foreground">
+            {areaHa > 0 ? `${areaHa.toFixed(2)} ha` : "—"}
+          </span>
+        </div>
+      ) : null}
 
       {searchPending && (
         <div

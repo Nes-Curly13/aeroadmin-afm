@@ -416,7 +416,7 @@ export function NewParcelForm() {
         {/* QA-13: el contenedor padre maneja el alto del mapa. En
             desktop ocupa toda la altura visible menos el page header. */}
         <div className="h-[calc(100vh-220px)] min-h-[640px]">
-          <ParcelDrawer onPolygonChange={handlePolygonChange} />
+          <ParcelDrawer onPolygonChange={handlePolygonChange} showContextParcels />
         </div>
       </div>
 

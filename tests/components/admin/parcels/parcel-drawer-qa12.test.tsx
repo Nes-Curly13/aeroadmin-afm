@@ -4,7 +4,7 @@
 //
 // Cubre:
 //   - Toolbar visible: botones Dibujar / Editar / Limpiar / Undo / Redo
-//   - Basemap toggle: Satélite / Híbrido / Callejero
+//   - Basemap toggle: Satélite / Híbrido
 //   - Empty state: "Comenzar dibujo" cuando no hay polígono
 //   - Edit deshabilitado cuando no hay polígono
 //   - Botón "Limpiar" se deshabilita cuando no hay polígono
@@ -208,11 +208,11 @@ describe("ParcelDrawer — toolbar QA-12", () => {
 });
 
 describe("ParcelDrawer — basemap toggle QA-12", () => {
-  it("renderiza los 3 botones de basemap: Satélite / Híbrido / Callejero", () => {
+  it("renderiza los 2 botones de basemap: Satélite / Híbrido (sin Callejero)", () => {
     render(<ParcelDrawer onPolygonChange={() => {}} />);
     expect(screen.getByTestId("drawer-basemap-satelite")).toBeInTheDocument();
     expect(screen.getByTestId("drawer-basemap-hibrido")).toBeInTheDocument();
-    expect(screen.getByTestId("drawer-basemap-calles")).toBeInTheDocument();
+    expect(screen.queryByTestId("drawer-basemap-calles")).not.toBeInTheDocument();
   });
 
   it("el basemap default es Satélite (aria-selected='true')", () => {
@@ -225,16 +225,12 @@ describe("ParcelDrawer — basemap toggle QA-12", () => {
       "aria-selected",
       "false"
     );
-    expect(screen.getByTestId("drawer-basemap-calles")).toHaveAttribute(
-      "aria-selected",
-      "false"
-    );
   });
 
-  it("click en 'Callejero' cambia el basemap activo", () => {
+  it("click en 'Híbrido' cambia el basemap activo", () => {
     render(<ParcelDrawer onPolygonChange={() => {}} />);
-    fireEvent.click(screen.getByTestId("drawer-basemap-calles"));
-    expect(screen.getByTestId("drawer-basemap-calles")).toHaveAttribute(
+    fireEvent.click(screen.getByTestId("drawer-basemap-hibrido"));
+    expect(screen.getByTestId("drawer-basemap-hibrido")).toHaveAttribute(
       "aria-selected",
       "true"
     );
@@ -284,10 +280,11 @@ describe("ParcelDrawer — empty state QA-12", () => {
 });
 
 describe("ParcelDrawer — area display QA-12", () => {
-  it("muestra el área inicial como 0 ha cuando no hay initialPolygon", () => {
+  it("NO muestra el display de área cuando no hay polígono (evita pisar el empty state)", () => {
     render(<ParcelDrawer onPolygonChange={() => {}} />);
-    const area = screen.getByTestId("drawer-area");
-    expect(area.textContent).toMatch(/—/);
+    expect(screen.queryByTestId("drawer-area")).not.toBeInTheDocument();
+    // El empty state (guía) sí está visible.
+    expect(screen.getByTestId("drawer-empty-state")).toBeInTheDocument();
   });
 
   it("muestra el área en ha cuando se le pasa un initialPolygon", () => {
