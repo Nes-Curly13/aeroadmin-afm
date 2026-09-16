@@ -153,20 +153,33 @@ export function ImportGisWizard() {
     setError(null);
     setPhase("committing");
 
-    const parcels = preview.features.map((f) => ({
-      name: editedNames[f.index]?.trim() || f.mapped?.land_name || f.name,
-      geometry: f.geometry,
-      // Mapeo a nuestras columnas (el server lo computó). Sin fechas:
-      // F.SIEMBRA/F.COSECHA vienen desactualizadas.
-      external_id: f.mapped?.external_id ?? null,
-      declared_area_ha: f.mapped?.declared_area_ha ?? null,
-      luck_name: f.mapped?.luck_name ?? null,
-      farm_name: f.mapped?.farm_name ?? null,
-      variety: f.mapped?.variety ?? null,
-      crop_type: f.mapped?.crop_type ?? null,
-      client_name: f.mapped?.client_name ?? null,
-      municipality: f.mapped?.municipality ?? null
-    }));
+    // `external_id` tiene UNIQUE en la BD, pero el identificador del GIS
+    // puede repetirse (ej. HDASTE: una suerte partida en varios
+    // tablones). Sufijamos los duplicados para no romper la constraint.
+    const seenExternal = new Map<string, number>();
+    const parcels = preview.features.map((f) => {
+      const base = f.mapped?.external_id;
+      let externalId: string | null = null;
+      if (base) {
+        const n = (seenExternal.get(base) ?? 0) + 1;
+        seenExternal.set(base, n);
+        externalId = n === 1 ? base : `${base}-${n}`;
+      }
+      return {
+        name: editedNames[f.index]?.trim() || f.mapped?.land_name || f.name,
+        geometry: f.geometry,
+        // Mapeo a nuestras columnas (el server lo computó). Sin fechas:
+        // F.SIEMBRA/F.COSECHA vienen desactualizadas.
+        external_id: externalId,
+        declared_area_ha: f.mapped?.declared_area_ha ?? null,
+        luck_name: f.mapped?.luck_name ?? null,
+        farm_name: f.mapped?.farm_name ?? null,
+        variety: f.mapped?.variety ?? null,
+        crop_type: f.mapped?.crop_type ?? null,
+        client_name: f.mapped?.client_name ?? null,
+        municipality: f.mapped?.municipality ?? null
+      };
+    });
 
     // El endpoint commit tiene tope de 1000 por request → mandamos en
     // lotes de 500 para que un shapefile grande (ej. 3.350 suertes)
