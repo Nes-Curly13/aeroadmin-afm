@@ -75,9 +75,12 @@ function parseArgs() {
   return opts;
 }
 
-function buildLikeClause(column, patterns) {
+function buildLikeClause(column, patterns, startIndex = 1) {
   // OR de ILIKE para cada pattern. Postgres ILIKE = case-insensitive.
-  return patterns.map((_, i) => `${column} ILIKE $${i + 1}`).join(' OR ');
+  // `startIndex` permite encadenar varias columnas sin repetir placeholders.
+  return patterns
+    .map((_, i) => `${column} ILIKE $${startIndex + i}`)
+    .join(' OR ');
 }
 
 function patternArgs(patterns) {
@@ -154,6 +157,16 @@ async function main() {
 
     const likeSql = buildLikeClause('name', opts.patterns);
     const likeArgs = patternArgs(opts.patterns);
+    // Para parcelas: 3 columnas × N patterns → indices secuenciales.
+    // NO matcheamos external_id: los UUIDs (`<hex>`) contienen substring
+    // como "e2e" y darían falsos positivos sobre parcelas reales.
+    const nPat = opts.patterns.length;
+    const parcelWhere = [
+      buildLikeClause('land_name', opts.patterns, 1),
+      buildLikeClause('client_name', opts.patterns, 1 + nPat),
+      buildLikeClause('farm_name', opts.patterns, 1 + 2 * nPat)
+    ].join(' OR ');
+    const parcelArgs = [...likeArgs, ...likeArgs, ...likeArgs];
 
     // 1. Find test fumigations (by product_used, notes, or parcel match)
     const testFumigations = await client.query(
@@ -170,13 +183,10 @@ async function main() {
     const testParcels = await client.query(
       `SELECT id, external_id, land_name, client_name, farm_name, source
        FROM dji_parcels
-       WHERE ${likeSql.replace(/name/g, 'land_name')}
-          OR ${likeSql.replace(/name/g, 'external_id')}
-          OR ${likeSql.replace(/name/g, 'client_name')}
-          OR ${likeSql.replace(/name/g, 'farm_name')}
+       WHERE ${parcelWhere}
        ORDER BY id
        LIMIT 200`,
-      [...likeArgs, ...likeArgs, ...likeArgs, ...likeArgs]
+      parcelArgs
     );
 
     // 3. Find test clients
