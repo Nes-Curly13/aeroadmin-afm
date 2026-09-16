@@ -255,6 +255,43 @@ export const createFumigationBodySchema = z.object({
 });
 export type CreateFumigationBody = z.infer<typeof createFumigationBodySchema>;
 
+// --- POST/PATCH /api/admin/fumigation-plans ---------------------
+//
+// Planificación MANUAL (2026-09-15). El POST crea un plan agendado a
+// mano; el PATCH lo edita / lo marca hecho o cancelado. Distinto de
+// `createFumigationBodySchema`: un plan no tiene dosis ni área (es una
+// intención, no una aplicación ejecutada).
+
+export const createFumigationPlanBodySchema = z.object({
+  parcel_id: z.number().int().positive("parcel_id es obligatorio y positivo"),
+  planned_date: dateString,
+  category_id: optionalPositiveInt(),
+  application_type_id: optionalPositiveInt(),
+  product_name: optionalString(200),
+  notes: optionalString(2000)
+});
+export type CreateFumigationPlanBody = z.infer<
+  typeof createFumigationPlanBodySchema
+>;
+
+/**
+ * PATCH: distingue "campo ausente" (no tocar) de "null" (limpiar). Por
+ * eso NO usamos `optionalString`/`optionalPositiveInt` acá (esos
+ * convierten `undefined` → `null` y borrarían todo en cada PATCH).
+ */
+export const updateFumigationPlanBodySchema = z.object({
+  planned_date: dateString.optional(),
+  category_id: z.number().int().positive().nullable().optional(),
+  application_type_id: z.number().int().positive().nullable().optional(),
+  product_name: z.string().trim().max(200).nullable().optional(),
+  notes: z.string().trim().max(2000).nullable().optional(),
+  status: z.enum(["planificada", "hecha", "cancelada"]).optional(),
+  completed_fumigation_id: z.number().int().positive().nullable().optional()
+});
+export type UpdateFumigationPlanBody = z.infer<
+  typeof updateFumigationPlanBodySchema
+>;
+
 // --- Validation error response shape ----------------------------
 
 /**

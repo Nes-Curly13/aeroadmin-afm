@@ -63,7 +63,10 @@ const ACTIONS: QuickAction[] = [
   }
 ];
 
-export function QuickActions() {
+export function QuickActions({ isAdmin = false }: { isAdmin?: boolean }) {
+  const actions = isAdmin
+    ? ACTIONS
+    : ACTIONS.filter((a) => a.href !== "/admin/parcels/new");
   return (
     <Card>
       <CardHeader className="pb-3">
@@ -76,7 +79,7 @@ export function QuickActions() {
       </CardHeader>
       <CardContent>
         <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          {ACTIONS.map(({ href, label, description, icon: Icon }) => (
+          {actions.map(({ href, label, description, icon: Icon }) => (
             <li key={href}>
               <Link
                 href={href}

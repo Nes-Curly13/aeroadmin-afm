@@ -4749,7 +4749,12 @@ export async function getPhaseApplicationsForParcel(
 /**
  * Overview de planificación por fase: parcelas con ciclo activo que
  * tienen al menos una aplicación requerida pendiente o vencida.
- * Usado por el PlanningPanel del dashboard.
+ *
+ * @deprecated 2026-09-15 — la planificación pasó a ser MANUAL
+ * (`fumigation_plans` + `PlanningBoard`). Esta derivación automática
+ * llenaba el dashboard de "vencidas" para toda parcela con ciclo viejo.
+ * Se conserva por si se quiere reusar como *referencia* (no como
+ * alerta), pero el dashboard ya NO la consume.
  */
 export async function getPhasePlanningOverview(
   limit = 100
@@ -4844,6 +4849,210 @@ export async function getPhasePlanningOverview(
     },
     async () => []
   );
+}
+
+// ============================================================
+// FUMIGATION PLANS — planificación MANUAL (2026-09-15)
+// ============================================================
+//
+// Reemplaza la planificación auto-derivada de `phase_application_rules`
+// (que marcaba "vencida" a toda parcela con ciclo viejo). Acá el
+// operador agenda planes a mano y el dashboard arranca VACÍO; el
+// sistema solo marca vencido lo agendado explícitamente.
+
+export type FumigationPlanStatus = "planificada" | "hecha" | "cancelada";
+
+export interface FumigationPlan {
+  id: number;
+  parcel_id: number;
+  land_name: string | null;
+  client_name: string | null;
+  farm_name: string | null;
+  planned_date: string;
+  category_id: number | null;
+  category_slug: string | null;
+  application_type_id: number | null;
+  application_type_slug: string | null;
+  product_name: string | null;
+  notes: string | null;
+  status: FumigationPlanStatus;
+  completed_fumigation_id: number | null;
+  created_by_email: string | null;
+  created_at: string;
+  updated_at: string;
+  /** Días hasta `planned_date` (negativo = ya pasó). */
+  days_until: number;
+  /** true = abierto (status='planificada') y con fecha pasada. */
+  is_overdue: boolean;
+}
+
+export interface FumigationPlanInput {
+  parcel_id: number;
+  planned_date: string;
+  category_id?: number | null;
+  application_type_id?: number | null;
+  product_name?: string | null;
+  notes?: string | null;
+  created_by_email?: string | null;
+}
+
+export interface FumigationPlanPatch {
+  planned_date?: string;
+  category_id?: number | null;
+  application_type_id?: number | null;
+  product_name?: string | null;
+  notes?: string | null;
+  status?: FumigationPlanStatus;
+  completed_fumigation_id?: number | null;
+}
+
+export interface FumigationPlanFilter {
+  status?: FumigationPlanStatus[];
+  parcelId?: number;
+  fromDate?: string;
+  toDate?: string;
+  limit?: number;
+}
+
+/**
+ * SELECT compartido. `$1` = fecha de hoy (Bogotá) — así `days_until`
+ * e `is_overdue` no dependen del TZ del servidor de BD.
+ */
+const FUMIGATION_PLAN_SELECT = `
+  SELECT fp.id, fp.parcel_id, fp.planned_date,
+         fp.category_id, c.slug AS category_slug,
+         fp.application_type_id, at.slug AS application_type_slug,
+         fp.product_name, fp.notes, fp.status,
+         fp.completed_fumigation_id, fp.created_by_email,
+         fp.created_at, fp.updated_at,
+         p.land_name, p.client_name, p.farm_name,
+         (fp.planned_date - $1::date)::int AS days_until,
+         (fp.status = 'planificada' AND fp.planned_date < $1::date) AS is_overdue
+    FROM fumigation_plans fp
+    JOIN dji_parcels p ON p.id = fp.parcel_id
+    LEFT JOIN fumigation_categories c ON c.id = fp.category_id
+    LEFT JOIN application_types at ON at.id = fp.application_type_id`;
+
+/** Lista planes manuales (dashboard / detalle de parcela). */
+export async function listFumigationPlans(
+  filter: FumigationPlanFilter = {}
+): Promise<FumigationPlan[]> {
+  const db = getDb();
+  const today = getBogotaDateString();
+  const limit = Math.min(Math.max(filter.limit ?? 200, 1), 500);
+  return withLocalFallback(
+    async () => {
+      const clauses: string[] = [];
+      const params: unknown[] = [today];
+      let i = 2;
+      if (filter.parcelId != null) {
+        clauses.push(`fp.parcel_id = $${i++}`);
+        params.push(filter.parcelId);
+      }
+      if (filter.status && filter.status.length > 0) {
+        clauses.push(`fp.status = ANY($${i++}::text[])`);
+        params.push(filter.status);
+      }
+      if (filter.fromDate) {
+        clauses.push(`fp.planned_date >= $${i++}::date`);
+        params.push(filter.fromDate);
+      }
+      if (filter.toDate) {
+        clauses.push(`fp.planned_date <= $${i++}::date`);
+        params.push(filter.toDate);
+      }
+      const where = clauses.length > 0 ? ` WHERE ${clauses.join(" AND ")}` : "";
+      const r = await db.query<FumigationPlan>(
+        `${FUMIGATION_PLAN_SELECT}${where}
+          ORDER BY fp.planned_date ASC, fp.id ASC
+          LIMIT ${limit}`,
+        params
+      );
+      return r.rows;
+    },
+    async () => []
+  );
+}
+
+export async function getFumigationPlanById(
+  id: number
+): Promise<FumigationPlan | null> {
+  const db = getDb();
+  const today = getBogotaDateString();
+  const r = await db.query<FumigationPlan>(
+    `${FUMIGATION_PLAN_SELECT} WHERE fp.id = $2 LIMIT 1`,
+    [today, id]
+  );
+  return r.rows[0] ?? null;
+}
+
+export async function createFumigationPlan(
+  input: FumigationPlanInput
+): Promise<FumigationPlan> {
+  const db = getDb();
+  const r = await db.query<{ id: number }>(
+    `INSERT INTO fumigation_plans
+       (parcel_id, planned_date, category_id, application_type_id,
+        product_name, notes, created_by_email)
+     VALUES ($1,$2,$3,$4,$5,$6,$7)
+     RETURNING id`,
+    [
+      input.parcel_id,
+      input.planned_date,
+      input.category_id ?? null,
+      input.application_type_id ?? null,
+      input.product_name?.trim() || null,
+      input.notes?.trim() || null,
+      input.created_by_email ?? null
+    ]
+  );
+  const id = r.rows[0]?.id;
+  if (!id) throw new Error("createFumigationPlan: INSERT sin row");
+  const plan = await getFumigationPlanById(id);
+  if (!plan) throw new Error("createFumigationPlan: no se pudo releer el plan");
+  return plan;
+}
+
+export async function updateFumigationPlan(
+  id: number,
+  patch: FumigationPlanPatch
+): Promise<FumigationPlan | null> {
+  const db = getDb();
+  const sets: string[] = [];
+  const params: unknown[] = [];
+  let i = 1;
+  const push = (col: string, value: unknown) => {
+    sets.push(`${col} = $${i++}`);
+    params.push(value);
+  };
+  if (patch.planned_date !== undefined) push("planned_date", patch.planned_date);
+  if (patch.category_id !== undefined) push("category_id", patch.category_id);
+  if (patch.application_type_id !== undefined) {
+    push("application_type_id", patch.application_type_id);
+  }
+  if (patch.product_name !== undefined) {
+    push("product_name", patch.product_name?.trim() || null);
+  }
+  if (patch.notes !== undefined) push("notes", patch.notes?.trim() || null);
+  if (patch.status !== undefined) push("status", patch.status);
+  if (patch.completed_fumigation_id !== undefined) {
+    push("completed_fumigation_id", patch.completed_fumigation_id);
+  }
+  if (sets.length === 0) return getFumigationPlanById(id);
+  sets.push("updated_at = NOW()");
+  params.push(id);
+  const r = await db.query<{ id: number }>(
+    `UPDATE fumigation_plans SET ${sets.join(", ")} WHERE id = $${i} RETURNING id`,
+    params
+  );
+  if (!r.rows[0]) return null;
+  return getFumigationPlanById(id);
+}
+
+export async function deleteFumigationPlan(id: number): Promise<boolean> {
+  const db = getDb();
+  const r = await db.query(`DELETE FROM fumigation_plans WHERE id = $1`, [id]);
+  return (r.rowCount ?? 0) > 0;
 }
 
 // ============================================================
@@ -4963,4 +5172,321 @@ export async function resetPhaseApplicationRules(cropType = "cana"): Promise<num
   } finally {
     client.release();
   }
+}
+
+// ============================================================
+// DASHBOARD — agregaciones en SQL (2026-09-15)
+// ============================================================
+//
+// Todo se agrega en Postgres (NO se traen ~16k filas al server para
+// filtrar en JS) y se acota por período + cliente/hacienda. Los
+// "deltas" comparan el período actual contra el anterior de igual
+// duración. Diseño guiado por el skill `kpi-dashboard-design`:
+//   - 5 KPIs, cada uno con contexto (delta vs período previo).
+//   - Accionable > descriptivo.
+//   - Pre-agregar (OLAP separado del OLTP de escritura).
+
+export interface DashboardFilter {
+  /** YYYY-MM-DD inclusive. null = todo el histórico. */
+  fromDate: string | null;
+  /** YYYY-MM-DD inclusive. null = hoy. */
+  toDate: string | null;
+  clientId: number | null;
+  farmId: number | null;
+  /** Granularidad de la tendencia. Default "week". */
+  grain?: "week" | "month";
+}
+
+export interface DashboardKpis {
+  fumigaciones: number;
+  hectareas: number;
+  volumen_l: number;
+  dosis_media: number | null;
+  parcelas_cubiertas: number;
+  parcelas_total: number;
+  vuelos: number;
+  prev: {
+    fumigaciones: number;
+    hectareas: number;
+    parcelas_cubiertas: number;
+    dosis_media: number | null;
+    vuelos: number;
+  };
+}
+
+export interface DashboardTrendPoint {
+  /** Lunes de la semana (YYYY-MM-DD). */
+  bucket: string;
+  fumigaciones: number;
+  ha: number;
+}
+
+export interface DashboardFleetRow {
+  drone_code: number;
+  fumigaciones: number;
+  ha: number;
+}
+
+export interface DashboardCategoryRow {
+  slug: string;
+  fumigaciones: number;
+  ha: number;
+}
+
+export interface DashboardClientRow {
+  client_id: number | null;
+  client_name: string;
+  fumigaciones: number;
+  ha: number;
+  parcelas: number;
+}
+
+export interface DashboardPlanCompliance {
+  hechas: number;
+  planificadas: number;
+  canceladas: number;
+}
+
+export interface DashboardData {
+  kpis: DashboardKpis;
+  trend: DashboardTrendPoint[];
+  fleet: DashboardFleetRow[];
+  categories: DashboardCategoryRow[];
+  clients: DashboardClientRow[];
+  planCompliance: DashboardPlanCompliance;
+}
+
+const DAY_MS = 86_400_000;
+
+function addDaysIso(iso: string, days: number): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function diffDaysIso(from: string, to: string): number {
+  const a = new Date(`${from}T00:00:00Z`).getTime();
+  const b = new Date(`${to}T00:00:00Z`).getTime();
+  return Math.round((b - a) / DAY_MS);
+}
+
+function emptyDashboardData(): DashboardData {
+  return {
+    kpis: {
+      fumigaciones: 0,
+      hectareas: 0,
+      volumen_l: 0,
+      dosis_media: null,
+      parcelas_cubiertas: 0,
+      parcelas_total: 0,
+      vuelos: 0,
+      prev: {
+        fumigaciones: 0,
+        hectareas: 0,
+        parcelas_cubiertas: 0,
+        dosis_media: null,
+        vuelos: 0
+      }
+    },
+    trend: [],
+    fleet: [],
+    categories: [],
+    clients: [],
+    planCompliance: { hechas: 0, planificadas: 0, canceladas: 0 }
+  };
+}
+
+export async function getDashboardData(
+  filter: DashboardFilter
+): Promise<DashboardData> {
+  const db = getDb();
+  const today = getBogotaDateString();
+  const to = filter.toDate ?? today;
+  const from = filter.fromDate;
+  const clientId = filter.clientId;
+  const farmId = filter.farmId;
+
+  return withLocalFallback(
+    async () => {
+      // Rango actual y previo (misma duración). Si no hay `from`
+      // (histórico), no hay comparación: prev = vacío.
+      const curFrom = from ?? "1900-01-01";
+      const prevFrom =
+        from !== null ? addDaysIso(from, -Math.max(1, diffDaysIso(from, to)) - 1) : null;
+      const lowFrom = prevFrom ?? curFrom;
+
+      const p = [lowFrom, to, clientId, farmId] as const;
+
+      const [kpiRes, parcelsRes, flightsRes, trendRes, fleetRes, catRes, clientRes, planRes] =
+        await Promise.all([
+          db.query<Record<string, unknown>>(
+            `WITH base AS (
+               SELECT f.parcel_id, f.fumigation_date, f.area_fumigated_m2, f.dose_l_per_ha
+                 FROM dji_fumigations f
+                 JOIN dji_parcels p ON p.id = f.parcel_id
+                WHERE f.deleted_at IS NULL
+                  AND f.fumigation_date >= $1
+                  AND f.fumigation_date <= $2
+                  AND ($3::int IS NULL OR p.client_id = $3)
+                  AND ($4::int IS NULL OR p.farm_id = $4)
+             )
+             SELECT
+               COUNT(*) FILTER (WHERE fumigation_date >= $5) AS fum_cur,
+               COUNT(DISTINCT parcel_id) FILTER (WHERE fumigation_date >= $5) AS parcels_cur,
+               COALESCE(SUM(area_fumigated_m2) FILTER (WHERE fumigation_date >= $5), 0) / 10000.0 AS ha_cur,
+               COALESCE(SUM(area_fumigated_m2 / 10000.0 * dose_l_per_ha) FILTER (WHERE fumigation_date >= $5), 0) AS vol_cur,
+               AVG(dose_l_per_ha) FILTER (WHERE fumigation_date >= $5) AS dose_cur,
+               COUNT(*) FILTER (WHERE fumigation_date < $5) AS fum_prev,
+               COUNT(DISTINCT parcel_id) FILTER (WHERE fumigation_date < $5) AS parcels_prev,
+               COALESCE(SUM(area_fumigated_m2) FILTER (WHERE fumigation_date < $5), 0) / 10000.0 AS ha_prev,
+               AVG(dose_l_per_ha) FILTER (WHERE fumigation_date < $5) AS dose_prev
+              FROM base`,
+            [...p, curFrom]
+          ),
+          db.query<{ n: number }>(
+            `SELECT COUNT(*)::int AS n
+               FROM dji_parcels p
+              WHERE p.deleted_at IS NULL
+                AND ($1::int IS NULL OR p.client_id = $1)
+                AND ($2::int IS NULL OR p.farm_id = $2)`,
+            [clientId, farmId]
+          ),
+          db.query<Record<string, unknown>>(
+            `SELECT
+               COUNT(*) FILTER (WHERE fl.start_at >= $5::date) AS cur,
+               COUNT(*) FILTER (WHERE fl.start_at < $5::date) AS prev
+              FROM dji_flights fl
+              JOIN dji_parcels p ON p.id = fl.parcel_id
+             WHERE fl.start_at >= $1::date
+               AND fl.start_at < ($2::date + INTERVAL '1 day')
+               AND ($3::int IS NULL OR p.client_id = $3)
+               AND ($4::int IS NULL OR p.farm_id = $4)`,
+            [...p, curFrom]
+          ),
+          db.query<{ bucket: string; fumigaciones: number; ha: number }>(
+            `SELECT to_char(date_trunc($5::text, f.fumigation_date), 'YYYY-MM-DD') AS bucket,
+                    COUNT(*)::int AS fumigaciones,
+                    COALESCE(SUM(f.area_fumigated_m2), 0) / 10000.0 AS ha
+               FROM dji_fumigations f
+               JOIN dji_parcels p ON p.id = f.parcel_id
+              WHERE f.deleted_at IS NULL
+                AND f.fumigation_date >= $1 AND f.fumigation_date <= $2
+                AND ($3::int IS NULL OR p.client_id = $3)
+                AND ($4::int IS NULL OR p.farm_id = $4)
+              GROUP BY 1 ORDER BY 1`,
+            [...p, filter.grain ?? "week"]
+          ),
+          db.query<{ drone_code: number; fumigaciones: number; ha: number }>(
+            `SELECT COALESCE(f.drone_code_used, 0)::int AS drone_code,
+                    COUNT(*)::int AS fumigaciones,
+                    COALESCE(SUM(f.area_fumigated_m2), 0) / 10000.0 AS ha
+               FROM dji_fumigations f
+               JOIN dji_parcels p ON p.id = f.parcel_id
+              WHERE f.deleted_at IS NULL
+                AND f.fumigation_date >= $1 AND f.fumigation_date <= $2
+                AND ($3::int IS NULL OR p.client_id = $3)
+                AND ($4::int IS NULL OR p.farm_id = $4)
+              GROUP BY 1 ORDER BY ha DESC`,
+            [...p]
+          ),
+          db.query<{ slug: string; fumigaciones: number; ha: number }>(
+            `SELECT COALESCE(c.slug, 'otro') AS slug,
+                    COUNT(*)::int AS fumigaciones,
+                    COALESCE(SUM(f.area_fumigated_m2), 0) / 10000.0 AS ha
+               FROM dji_fumigations f
+               JOIN dji_parcels p ON p.id = f.parcel_id
+               LEFT JOIN fumigation_categories c ON c.id = f.category_id
+              WHERE f.deleted_at IS NULL
+                AND f.fumigation_date >= $1 AND f.fumigation_date <= $2
+                AND ($3::int IS NULL OR p.client_id = $3)
+                AND ($4::int IS NULL OR p.farm_id = $4)
+              GROUP BY 1 ORDER BY ha DESC`,
+            [...p]
+          ),
+          db.query<{
+            client_id: number | null;
+            client_name: string;
+            fumigaciones: number;
+            ha: number;
+            parcelas: number;
+          }>(
+            `SELECT p.client_id,
+                    COALESCE(p.client_name, 'Sin cliente') AS client_name,
+                    COUNT(*)::int AS fumigaciones,
+                    COALESCE(SUM(f.area_fumigated_m2), 0) / 10000.0 AS ha,
+                    COUNT(DISTINCT f.parcel_id)::int AS parcelas
+               FROM dji_fumigations f
+               JOIN dji_parcels p ON p.id = f.parcel_id
+              WHERE f.deleted_at IS NULL
+                AND f.fumigation_date >= $1 AND f.fumigation_date <= $2
+                AND ($3::int IS NULL OR p.client_id = $3)
+                AND ($4::int IS NULL OR p.farm_id = $4)
+              GROUP BY 1, 2 ORDER BY ha DESC LIMIT 8`,
+            [...p]
+          ),
+          db.query<{ status: string; n: number }>(
+            `SELECT status, COUNT(*)::int AS n
+               FROM fumigation_plans
+              WHERE planned_date >= $1 AND planned_date <= $2
+              GROUP BY 1`,
+            [curFrom, to]
+          )
+        ]);
+
+      const k = kpiRes.rows[0] ?? {};
+      const num = (v: unknown, fallback = 0) =>
+        v === null || v === undefined ? fallback : Number(v);
+      const flights = flightsRes.rows[0] ?? {};
+      const plan = { hechas: 0, planificadas: 0, canceladas: 0 };
+      for (const r of planRes.rows) {
+        if (r.status === "hecha") plan.hechas = num(r.n);
+        else if (r.status === "planificada") plan.planificadas = num(r.n);
+        else if (r.status === "cancelada") plan.canceladas = num(r.n);
+      }
+
+      return {
+        kpis: {
+          fumigaciones: num(k.fum_cur),
+          hectareas: num(k.ha_cur),
+          volumen_l: num(k.vol_cur),
+          dosis_media: k.dose_cur === null || k.dose_cur === undefined ? null : num(k.dose_cur),
+          parcelas_cubiertas: num(k.parcels_cur),
+          parcelas_total: num(parcelsRes.rows[0]?.n),
+          vuelos: num(flights.cur),
+          prev: {
+            fumigaciones: num(k.fum_prev),
+            hectareas: num(k.ha_prev),
+            parcelas_cubiertas: num(k.parcels_prev),
+            dosis_media:
+              k.dose_prev === null || k.dose_prev === undefined ? null : num(k.dose_prev),
+            vuelos: num(flights.prev)
+          }
+        },
+        trend: trendRes.rows.map((r) => ({
+          bucket: String(r.bucket),
+          fumigaciones: num(r.fumigaciones),
+          ha: num(r.ha)
+        })),
+        fleet: fleetRes.rows.map((r) => ({
+          drone_code: num(r.drone_code),
+          fumigaciones: num(r.fumigaciones),
+          ha: num(r.ha)
+        })),
+        categories: catRes.rows.map((r) => ({
+          slug: String(r.slug),
+          fumigaciones: num(r.fumigaciones),
+          ha: num(r.ha)
+        })),
+        clients: clientRes.rows.map((r) => ({
+          client_id: r.client_id === null ? null : num(r.client_id),
+          client_name: String(r.client_name),
+          fumigaciones: num(r.fumigaciones),
+          ha: num(r.ha),
+          parcelas: num(r.parcelas)
+        })),
+        planCompliance: plan
+      };
+    },
+    async () => emptyDashboardData()
+  );
 }

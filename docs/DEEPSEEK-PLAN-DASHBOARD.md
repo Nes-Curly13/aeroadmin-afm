@@ -7,6 +7,32 @@
 
 ---
 
+## 0. PIVOT 2026-09-15 — planificación MANUAL + dashboard interactivo
+
+El operador pidió **dejar de marcar todo como "vencido"**. Decisión aplicada:
+
+- La planificación **ya no se auto-deriva** de `phase_application_rules`.
+  `getPhasePlanningOverview` quedó **deprecada** (el dashboard no la usa).
+- Nueva tabla **`fumigation_plans`** (migration `20260915000000_add_fumigation_plans.sql`):
+  el operador agenda planes a mano. El tablero arranca **vacío** y solo se
+  marca "vencido" lo agendado explícitamente.
+- Repo: `listFumigationPlans` / `createFumigationPlan` / `updateFumigationPlan`
+  / `deleteFumigationPlan` (`api/repositories.ts`). API:
+  `/api/admin/fumigation-plans` (+`/[id]`), auth `admin|supervisor`.
+- UI: `components/dashboard/planning-board.tsx` (reemplaza a `planning-panel.tsx`,
+  eliminado) — crear / marcar hecha / cancelar / borrar + link "Registrar".
+- Dashboard reimaginado (`app/(auth)/page.tsx`): **filtros interactivos**
+  (`components/dashboard/dashboard-filters.tsx`) por período y cliente vía
+  `searchParams` (server-rendered), KPIs recalculados, `QuickActions` con gate
+  admin (DASH-06), chart y actividad filtrados.
+
+**Estado**: implementado + tests (repo/API/UI). `tsc` 0, `arch:check` 0,
+suite completa verde, build de producción OK, migration aplicada a la BD y
+SQL validado end-to-end. Los items DASH-01..08 originales quedan **superados**
+por este pivot (salvo DASH-06, ya incluido).
+
+---
+
 ## 1. Diagnóstico (revisión del dashboard + alertas)
 
 ### 1.1 Dashboard actual (`app/(auth)/page.tsx`)

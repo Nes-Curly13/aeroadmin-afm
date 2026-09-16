@@ -22,10 +22,17 @@ describe("QuickActions — Fase 8 dashboard", () => {
     expect(link).toHaveAttribute("href", "/geovisor");
   });
 
-  it("incluye link 'Nueva parcela' apuntando al admin", () => {
-    render(<QuickActions />);
+  it("incluye link 'Nueva parcela' apuntando al admin (solo admin)", () => {
+    render(<QuickActions isAdmin />);
     const link = screen.getByRole("link", { name: /Nueva parcela/i });
     expect(link).toHaveAttribute("href", "/admin/parcels/new");
+  });
+
+  it("oculta 'Nueva parcela' a no-admin (DASH-06)", () => {
+    render(<QuickActions />);
+    expect(
+      screen.queryByRole("link", { name: /Nueva parcela/i })
+    ).not.toBeInTheDocument();
   });
 
   it("incluye link 'Ver reportes' apuntando a /reportes", () => {
@@ -35,7 +42,7 @@ describe("QuickActions — Fase 8 dashboard", () => {
   });
 
   it("cada link tiene descripción visible para discoverability sin hover", () => {
-    render(<QuickActions />);
+    render(<QuickActions isAdmin />);
     expect(screen.getByText(/Wizard 3 pasos/i)).toBeInTheDocument();
     expect(screen.getByText(/Mapa con parcelas y fumigaciones/i)).toBeInTheDocument();
     expect(screen.getByText(/Dibujar polígono sobre el mapa satelital/i)).toBeInTheDocument();
