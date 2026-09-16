@@ -102,12 +102,41 @@ async function main() {
     });
     console.log(`[backfill] Inserted ${farmsRes.rowCount} new farms`);
 
-    // 4) Resumen
+    // 4) Link dji_parcels.client_id / farm_id por nombre (idempotente).
+    //    Misma lógica que la migration 20260913000002, pero re-ejecutable
+    //    después de importar parcelas nuevas (ej. shapefile de suertes).
+    const linkClient = await client.query({
+      text: `UPDATE dji_parcels p
+                SET client_id = c.id
+               FROM clients c
+              WHERE p.client_id IS NULL
+                AND p.client_name IS NOT NULL
+                AND TRIM(p.client_name) <> ''
+                AND LOWER(TRIM(c.name)) = LOWER(TRIM(p.client_name))`,
+      noPrepare: true,
+    });
+    console.log(`[backfill] Linked ${linkClient.rowCount} parcels to clients`);
+
+    const linkFarm = await client.query({
+      text: `UPDATE dji_parcels p
+                SET farm_id = f.id
+               FROM farms f
+              WHERE p.farm_id IS NULL
+                AND p.farm_name IS NOT NULL
+                AND TRIM(p.farm_name) <> ''
+                AND LOWER(TRIM(f.name)) = LOWER(TRIM(p.farm_name))
+                AND (p.client_id IS NULL OR f.client_id = p.client_id)`,
+      noPrepare: true,
+    });
+    console.log(`[backfill] Linked ${linkFarm.rowCount} parcels to farms`);
+
+    // 5) Resumen
     const summary = await client.query({
       text: `SELECT
                (SELECT COUNT(*) FROM clients WHERE data_validity = 'needs_review') AS clients_to_review,
                (SELECT COUNT(*) FROM farms WHERE data_validity = 'needs_review') AS farms_to_review,
-               (SELECT COUNT(*) FROM dji_parcels WHERE client_id IS NULL) AS parcels_unassigned`,
+               (SELECT COUNT(*) FROM dji_parcels WHERE client_id IS NULL) AS parcels_unassigned,
+               (SELECT COUNT(*) FROM dji_parcels WHERE farm_id IS NULL) AS parcels_without_farm`,
       noPrepare: true,
     });
     console.log('[backfill] Summary:', summary.rows[0]);
