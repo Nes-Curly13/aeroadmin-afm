@@ -347,11 +347,8 @@ export function GeoMap({
           type: "fill",
           source: "parcels",
           paint: {
-            // 2026-09-16 — la parcela es la capa BASE: color neutro
-            // (azul) para que el polígono de fumigación (amarillo)
-            // resalte encima.
-            "fill-color": "#3b82f6",
-            "fill-opacity": 0.12,
+            "fill-color": ["get", "color"],
+            "fill-opacity": 0.42,
           },
         })
         map.addLayer({
@@ -359,7 +356,7 @@ export function GeoMap({
           type: "line",
           source: "parcels",
           paint: {
-            "line-color": "#60a5fa",
+            "line-color": ["get", "color"],
             "line-width": ["case", ["boolean", ["feature-state", "selected"], false], 3.5, 1.4],
             "line-opacity": 0.95,
           },
