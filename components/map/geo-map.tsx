@@ -23,8 +23,15 @@ export interface MapParcel {
 
 export interface MapEvent {
   id: string
-  lng: number
-  lat: number
+  lng: number | null
+  lat: number | null
+  /**
+   * 2026-09-16 — polígono (convex hull de los flight points) de la
+   * fumigación. Es la geometría PRIMARIA del evento: el mapa dibuja el
+   * área, no un punto. Fallback a un círculo chico alrededor de lng/lat
+   * si no hay hull.
+   */
+  hull: GeoJSON.Polygon | null
   parcel_id: string
   /**
    * s8.8 (2026-07-31) — campos del V0 que se muestran en el popup al
@@ -192,22 +199,56 @@ function escapeHtml(s: string): string {
     .replace(/'/g, "&#039;")
 }
 
+/** Polígono chico (~radio m) alrededor de un punto, para eventos sin hull. */
+function pointFallbackPolygon(
+  lng: number,
+  lat: number,
+  radiusM = 45
+): GeoJSON.Polygon {
+  const dLat = radiusM / 111_320
+  const dLng = radiusM / (111_320 * Math.cos((lat * Math.PI) / 180) || 1)
+  const ring: [number, number][] = []
+  for (let i = 0; i < 12; i++) {
+    const a = (2 * Math.PI * i) / 12
+    ring.push([lng + Math.cos(a) * dLng, lat + Math.sin(a) * dLat])
+  }
+  ring.push(ring[0])
+  return { type: "Polygon", coordinates: [ring] }
+}
+
+/** Punto de anclaje (centroide aprox. del anillo exterior) de un polígono. */
+function polygonAnchor(poly: GeoJSON.Polygon): [number, number] | null {
+  const ring = poly.coordinates?.[0]
+  if (!ring || ring.length === 0) return null
+  let lng = 0
+  let lat = 0
+  let n = 0
+  for (const p of ring) {
+    if (Array.isArray(p) && p.length >= 2) {
+      lng += p[0]
+      lat += p[1]
+      n++
+    }
+  }
+  return n === 0 ? null : [lng / n, lat / n]
+}
+
 function eventsToFeatures(events: MapEvent[]) {
-  // Jitter determinista para que los eventos de una misma parcela no se apilen.
-  // s8.8 (2026-07-31): incluye todos los campos del V0 en properties
-  // para que el popup pueda leerlos via map.queryRenderedFeatures()
-  // sin necesidad de un Map<id, event> en memoria.
-  return {
-    type: "FeatureCollection" as const,
-    features: events.map((e, i) => {
-      const a = (i % 12) * ((Math.PI * 2) / 12)
-      const r = 0.00035 + (i % 4) * 0.00022
-      return {
+  // 2026-09-16: el evento se dibuja como POLÍGONO (área fumigada), no
+  // como punto. Geometría = hull de los vuelos; si falta el hull pero hay
+  // lng/lat, cae a un círculo chico; si no hay ninguno, no se dibuja.
+  // Se mantienen TODAS las properties para el popup de metadata.
+  const features = events.flatMap((e) => {
+    const geometry =
+      e.hull ??
+      (typeof e.lng === "number" && typeof e.lat === "number"
+        ? pointFallbackPolygon(e.lng, e.lat)
+        : null)
+    if (!geometry) return []
+    return [
+      {
         type: "Feature" as const,
-        geometry: {
-          type: "Point" as const,
-          coordinates: [e.lng + Math.cos(a) * r, e.lat + Math.sin(a) * r],
-        },
+        geometry,
         properties: {
           id: e.id,
           parcel_id: e.parcel_id,
@@ -221,9 +262,10 @@ function eventsToFeatures(events: MapEvent[]) {
           source: e.source,
           n_matched_flights: e.n_matched_flights,
         },
-      }
-    }),
-  }
+      },
+    ]
+  })
+  return { type: "FeatureCollection" as const, features }
 }
 
 interface GeoMapProps {
@@ -305,8 +347,11 @@ export function GeoMap({
           type: "fill",
           source: "parcels",
           paint: {
-            "fill-color": ["get", "color"],
-            "fill-opacity": 0.42,
+            // 2026-09-16 — la parcela es la capa BASE: color neutro
+            // (azul) para que el polígono de fumigación (amarillo)
+            // resalte encima.
+            "fill-color": "#3b82f6",
+            "fill-opacity": 0.12,
           },
         })
         map.addLayer({
@@ -314,7 +359,7 @@ export function GeoMap({
           type: "line",
           source: "parcels",
           paint: {
-            "line-color": ["get", "color"],
+            "line-color": "#60a5fa",
             "line-width": ["case", ["boolean", ["feature-state", "selected"], false], 3.5, 1.4],
             "line-opacity": 0.95,
           },
@@ -336,15 +381,24 @@ export function GeoMap({
           },
         })
         map.addLayer({
-          id: "events-circle",
-          type: "circle",
+          id: "events-fill",
+          type: "fill",
           source: "events",
           paint: {
-            "circle-radius": ["interpolate", ["linear"], ["zoom"], 9, 2.2, 13, 4, 16, 6.5],
-            "circle-color": "#f5e839",
-            "circle-opacity": 0.85,
-            "circle-stroke-color": "rgba(32,33,37,0.7)",
-            "circle-stroke-width": 0.6,
+            // 2026-09-16 — la fumigación es un POLÍGONO (área volada),
+            // ya no un punto. Amarillo para contrastar con las parcelas.
+            "fill-color": "#f5e839",
+            "fill-opacity": 0.32,
+          },
+        })
+        map.addLayer({
+          id: "events-line",
+          type: "line",
+          source: "events",
+          paint: {
+            "line-color": "#8a7a10",
+            "line-width": 1.6,
+            "line-opacity": 0.95,
           },
         })
 
@@ -354,23 +408,23 @@ export function GeoMap({
         })
         // s8.8 (2026-07-31): click en un event (fumigacion) abre el popup
         // con el detalle. El id del event se pasa al padre via onSelectEvent.
-        map.on("click", "events-circle", (e) => {
+        map.on("click", "events-fill", (e) => {
           const props = e.features?.[0]?.properties
           if (props && selectEventRef.current) {
             selectEventRef.current(String(props.id))
           }
         })
         map.on("click", (e) => {
-          const hits = map?.queryRenderedFeatures(e.point, { layers: ["parcels-fill", "events-circle"] })
+          const hits = map?.queryRenderedFeatures(e.point, { layers: ["parcels-fill", "events-fill"] })
           if (!hits || hits.length === 0) {
             selectRef.current(null)
             if (selectEventRef.current) selectEventRef.current(null)
           }
         })
-        map.on("mouseenter", "events-circle", () => {
+        map.on("mouseenter", "events-fill", () => {
           if (map) map.getCanvas().style.cursor = "pointer"
         })
-        map.on("mouseleave", "events-circle", () => {
+        map.on("mouseleave", "events-fill", () => {
           if (map) map.getCanvas().style.cursor = ""
         })
         map.on("mouseenter", "parcels-fill", () => {
@@ -415,7 +469,8 @@ export function GeoMap({
     map.setLayoutProperty("parcels-fill", "visibility", showParcels ? "visible" : "none")
     map.setLayoutProperty("parcels-line", "visibility", showParcels ? "visible" : "none")
     map.setLayoutProperty("parcels-label", "visibility", showParcels && showLabels ? "visible" : "none")
-    map.setLayoutProperty("events-circle", "visibility", showEvents ? "visible" : "none")
+    map.setLayoutProperty("events-fill", "visibility", showEvents ? "visible" : "none")
+    map.setLayoutProperty("events-line", "visibility", showEvents ? "visible" : "none")
   }, [showParcels, showEvents, showLabels, ready])
 
   // s8.8 (2026-07-31): sincronizar el popup MapLibre con selectedEventId.
@@ -432,7 +487,16 @@ export function GeoMap({
     }
     if (!selectedEventId) return
     const event = events.find((e) => e.id === selectedEventId)
-    if (!event || event.lng == null || event.lat == null) return
+    if (!event) return
+    // Ancla del popup: lng/lat si existen; si no, el centroide del hull
+    // (la fumigación ahora se dibuja como polígono, sin punto).
+    const anchor: [number, number] | null =
+      typeof event.lng === "number" && typeof event.lat === "number"
+        ? [event.lng, event.lat]
+        : event.hull
+          ? polygonAnchor(event.hull)
+          : null
+    if (!anchor) return
     ;(async () => {
       const maplibregl = await import("maplibre-gl")
       const date = new Date(event.executed_at)
@@ -471,7 +535,7 @@ export function GeoMap({
         offset: 12,
         className: "event-popup-container",
       })
-        .setLngLat([event.lng, event.lat])
+        .setLngLat(anchor)
         .setHTML(html)
         .addTo(map)
       popupRef.current = popup

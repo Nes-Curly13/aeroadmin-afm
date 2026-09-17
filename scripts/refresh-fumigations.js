@@ -83,7 +83,11 @@ async function refreshMaterializedViews(client) {
   // usa via LEFT JOIN (en vez de ST_Centroid on-the-fly).
   const mvsToRefresh = [
     { name: "mv_fumigations_monthly", migration: "20260801000000" },
-    { name: "mv_fumigation_flight_centroids", migration: "20260824000002" }
+    { name: "mv_fumigation_flight_centroids", migration: "20260824000002" },
+    {
+      name: "mv_fumigation_hulls",
+      migration: "20260917000000"
+    }
   ];
   for (const { name, migration } of mvsToRefresh) {
     try {

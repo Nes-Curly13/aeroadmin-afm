@@ -339,7 +339,7 @@ export function GeovisorClient({ payload }: { payload: GeovisorPayload }) {
                   sym: (
                     <span
                       className="size-3.5 rounded-sm border border-foreground/20"
-                      style={{ backgroundColor: "#16a34a" }}
+                      style={{ backgroundColor: "#3b82f6" }}
                       aria-hidden
                     />
                   )
@@ -350,7 +350,7 @@ export function GeovisorClient({ payload }: { payload: GeovisorPayload }) {
                   set: setShowEvents,
                   sym: (
                     <span
-                      className="size-3.5 rounded-full border border-foreground/30"
+                      className="size-3.5 rounded-sm border border-foreground/30"
                       style={{ backgroundColor: "#f5e839" }}
                       aria-hidden
                     />
@@ -434,13 +434,18 @@ export function GeovisorClient({ payload }: { payload: GeovisorPayload }) {
         <GeoMap
           parcels={mapParcels}
           events={sortedEvents
-            .filter((e): e is typeof e & { lng: number; lat: number } =>
-              typeof e.lng === "number" && typeof e.lat === "number"
+            .filter(
+              (e) =>
+                e.hull != null ||
+                (typeof e.lng === "number" && typeof e.lat === "number")
             )
             .map((e) => ({
               id: e.id,
-              lng: e.lng,
-              lat: e.lat,
+              lng: e.lng ?? null,
+              lat: e.lat ?? null,
+              // 2026-09-16 — polígono (hull de los vuelos). El mapa lo
+              // dibuja como área; si falta, cae al punto lng/lat.
+              hull: e.hull ?? null,
               parcel_id: e.parcel_id,
               executed_at: e.executed_at,
               area_treated_ha: e.area_treated_ha,

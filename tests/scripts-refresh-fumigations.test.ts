@@ -16,7 +16,7 @@
 // ver `tests/integration/post-import-data-integrity.test.ts` para
 // el patrón con `checkDbReachable`.
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 describe("scripts/refresh-fumigations.js", () => {
   const originalEnv = { ...process.env };
@@ -26,11 +26,18 @@ describe("scripts/refresh-fumigations.js", () => {
     // heredado del test runner (raro pero defensivo).
     delete process.env.DATABASE_URL;
     delete process.env.DATABASE_URL_DIRECT;
+    // El script hace `loadLocalEnv()`, que lee `.env.local` desde
+    // `process.cwd()`. En la máquina del dev SÍ existe → `main()` se
+    // conectaría a la BD real (15s de refresh) en vez de tirar por falta
+    // de DATABASE_URL. Forzamos un cwd sin `.env.local` para que sea
+    // determinístico (y rápido) en cualquier entorno.
+    vi.spyOn(process, "cwd").mockReturnValue("__afm_test_no_env_dir__");
   });
 
   afterEach(() => {
     // Restaurar env original.
     process.env = { ...originalEnv };
+    vi.restoreAllMocks();
   });
 
   it("se puede requerir sin error (módulo bien-formed)", async () => {

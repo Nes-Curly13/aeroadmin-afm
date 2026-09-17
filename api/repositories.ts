@@ -3168,6 +3168,10 @@ export async function getRecentFumigations(
             mv.lat AS lat,
             mv.lng AS lng,
             mv.n_matched_flights::int AS n_matched_flights,
+            -- 2026-09-16: polígono (convex hull de los flight points) por
+            -- fumigación, para dibujarla como ÁREA en el geovisor en vez de
+            -- punto. MV mv_fumigation_hulls (migration 20260917000000).
+            ST_AsGeoJSON(hull.geom)::json AS hull_geometry,
             -- Catálogo de categoría hidratado (LEFT JOIN; null si fumigación
             -- histórica no clasificada). row_to_json para anidar.
             CASE WHEN f.category_id IS NULL THEN NULL
@@ -3178,6 +3182,8 @@ export async function getRecentFumigations(
            FROM dji_fumigations f
            LEFT JOIN mv_fumigation_flight_centroids mv
              ON mv.fumigation_id = f.id
+           LEFT JOIN mv_fumigation_hulls hull
+             ON hull.fumigation_id = f.id
            LEFT JOIN fumigation_categories cat
              ON cat.id = f.category_id AND cat.is_active = TRUE
            LEFT JOIN application_types at

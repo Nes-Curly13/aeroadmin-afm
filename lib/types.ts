@@ -328,6 +328,13 @@ export interface DjiFumigationEvent {
    */
   n_matched_flights?: number | null;
   /**
+   * 2026-09-16 — polígono (convex hull de los flight points) de la
+   * fumigación, derivado de la MV `mv_fumigation_hulls` en el JOIN.
+   * El geovisor lo usa para dibujar el ÁREA fumigada en vez de un punto.
+   * null si la fumigación no tiene vuelos con punto.
+   */
+  hull_geometry?: GeoJSON.Polygon | null;
+  /**
    * Sprint S9 (2026-08-30) — feature/multi-parcela-fumigation.
    * Array de `external_id` de las suertes SECUNDARIAS cubiertas por esta
    * fumigación (excluye la primaria que vive en `parcel_id`).
@@ -758,6 +765,12 @@ export interface DjiFumigationV0 {
    */
   n_matched_flights?: number | null;
   /**
+   * 2026-09-16 — polígono (convex hull de los flight points) de la
+   * fumigación, para dibujarla como área en el geovisor. null si no
+   * tiene vuelos con punto.
+   */
+  hull?: GeoJSON.Polygon | null;
+  /**
    * Sprint S9 (2026-08-30) — feature/multi-parcela-fumigation.
    * Lista de external_id de las suertes SECUNDARIAS cubiertas por
    * esta fumigación (excluye la primaria = parcel_id).
@@ -902,6 +915,7 @@ export interface GeovisorPayload {
       | "lat"
       | "notes"
       | "n_matched_flights"
+      | "hull"
     >
   >;
   /**

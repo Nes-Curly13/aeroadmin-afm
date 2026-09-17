@@ -366,6 +366,9 @@ function adaptFumigation(e: DjiFumigationEvent, flightsCount: number): DjiFumiga
     lng: e.lng ?? null,
     lat: e.lat ?? null,
     n_matched_flights: e.n_matched_flights ?? null,
+    // 2026-09-16 — polígono (hull de los vuelos) para dibujar la
+    // fumigación como área en el geovisor.
+    hull: e.hull_geometry ?? null,
     // Sprint S9 (2026-08-30) — feature/multi-parcela-fumigation.
     // El array `parcels[]` (external_ids de suertes secundarias) lo
     // popula `scripts/backfill-fumigation-parcels.js`. Aquí solo
@@ -914,8 +917,10 @@ export async function getGeovisorPayload(): Promise<GeovisorPayload> {
   // se vieran como 5 puntos superpuestos. Ahora cada fumigacion
   // se renderiza donde realmente voló el dron.
   const events = fumigations
-    .filter((f): f is typeof f & { lng: number; lat: number } =>
-      typeof f.lng === "number" && typeof f.lat === "number"
+    .filter(
+      (f) =>
+        f.hull != null ||
+        (typeof f.lng === "number" && typeof f.lat === "number")
     )
     .map((f) => ({
       id: f.id,
@@ -929,8 +934,10 @@ export async function getGeovisorPayload(): Promise<GeovisorPayload> {
       operator: f.operator,
       notes: f.notes,
       n_matched_flights: f.n_matched_flights ?? null,
-      lng: f.lng,
-      lat: f.lat,
+      lng: f.lng ?? null,
+      lat: f.lat ?? null,
+      // 2026-09-16 — polígono (hull de los vuelos) de la fumigación.
+      hull: f.hull ?? null,
     }));
 
   // Sprint S8 (Bloque B — 2026-08-29): agregados de `dji_flights` para
