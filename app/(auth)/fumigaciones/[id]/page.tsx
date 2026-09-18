@@ -585,14 +585,18 @@ export default async function FumigacionPage({ params }: PageProps) {
                 <DetailRow
                   label="Dron"
                   value={
-                    droneInfo
-                      ? `${droneInfo.name} (${droneInfo.tank_l} L)`
-                      : "Sin asignar"
+                    fumigation.flight_drone
+                      ? fumigation.flight_drone
+                      : droneInfo
+                        ? `${droneInfo.name} (${droneInfo.tank_l} L)`
+                        : "Sin asignar"
                   }
                 />
                 <DetailRow
                   label="Operador"
-                  value={fumigation.recorded_by ?? "—"}
+                  value={
+                    fumigation.flight_pilot ?? fumigation.recorded_by ?? "—"
+                  }
                 />
               </dl>
             </CardContent>
