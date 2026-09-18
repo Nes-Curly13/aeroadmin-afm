@@ -339,7 +339,7 @@ export function GeovisorClient({ payload }: { payload: GeovisorPayload }) {
                   sym: (
                     <span
                       className="size-3.5 rounded-sm border border-foreground/20"
-                      style={{ backgroundColor: "#16a34a" }}
+                      style={{ backgroundColor: "#f97316" }}
                       aria-hidden
                     />
                   )

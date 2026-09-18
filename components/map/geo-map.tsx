@@ -350,8 +350,9 @@ export function GeoMap({
           type: "fill",
           source: "parcels",
           paint: {
-            "fill-color": ["get", "color"],
-            "fill-opacity": 0.42,
+            // 2026-09-17 — naranja tenue: se ve sobre el satélite.
+            "fill-color": "#f97316",
+            "fill-opacity": 0.2,
           },
         })
         map.addLayer({
@@ -359,8 +360,8 @@ export function GeoMap({
           type: "line",
           source: "parcels",
           paint: {
-            "line-color": ["get", "color"],
-            "line-width": ["case", ["boolean", ["feature-state", "selected"], false], 3.5, 1.4],
+            "line-color": "#dc2626",
+            "line-width": ["case", ["boolean", ["feature-state", "selected"], false], 3.5, 1.6],
             "line-opacity": 0.95,
           },
         })
