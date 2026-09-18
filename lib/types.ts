@@ -335,6 +335,14 @@ export interface DjiFumigationEvent {
    */
   hull_geometry?: GeoJSON.Polygon | null;
   /**
+   * 2026-09-17 — métricas derivadas de los VUELOS (MV
+   * mv_fumigation_flights_agg): volumen real (mL), piloto y dron.
+   */
+  flight_spray_ml?: number | null;
+  flight_pilot?: string | null;
+  flight_drone?: string | null;
+  flight_duration_s?: number | null;
+  /**
    * Sprint S9 (2026-08-30) — feature/multi-parcela-fumigation.
    * Array de `external_id` de las suertes SECUNDARIAS cubiertas por esta
    * fumigación (excluye la primaria que vive en `parcel_id`).
@@ -770,6 +778,8 @@ export interface DjiFumigationV0 {
    * tiene vuelos con punto.
    */
   hull?: GeoJSON.Polygon | null;
+  /** 2026-09-17 — dron (nickname real del vuelo). */
+  drone_nickname?: string | null;
   /**
    * Sprint S9 (2026-08-30) — feature/multi-parcela-fumigation.
    * Lista de external_id de las suertes SECUNDARIAS cubiertas por
@@ -916,6 +926,7 @@ export interface GeovisorPayload {
       | "notes"
       | "n_matched_flights"
       | "hull"
+      | "drone_nickname"
     >
   >;
   /**

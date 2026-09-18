@@ -32,6 +32,8 @@ export interface MapEvent {
    * si no hay hull.
    */
   hull: GeoJSON.Polygon | null
+  /** 2026-09-17 — dron real (nickname del vuelo). */
+  drone_nickname?: string | null
   parcel_id: string
   /**
    * s8.8 (2026-07-31) — campos del V0 que se muestran en el popup al
@@ -261,6 +263,7 @@ function eventsToFeatures(events: MapEvent[]) {
           notes: e.notes,
           source: e.source,
           n_matched_flights: e.n_matched_flights,
+          drone_nickname: e.drone_nickname ?? null,
         },
       },
     ]
@@ -520,6 +523,7 @@ export function GeoMap({
           <div class="event-popup__row"><span class="event-popup__lbl">Área tratada</span><span class="event-popup__val">${areaLabel} ha</span></div>
           <div class="event-popup__row"><span class="event-popup__lbl">Volumen</span><span class="event-popup__val">${volumeLabel} L</span></div>
           <div class="event-popup__row"><span class="event-popup__lbl">Operador</span><span class="event-popup__val">${escapeHtml(operator)}</span></div>
+          ${event.drone_nickname ? `<div class="event-popup__row"><span class="event-popup__lbl">Dron</span><span class="event-popup__val">${escapeHtml(event.drone_nickname)}</span></div>` : ""}
           ${matchInfo}
           ${notesHtml}
           <a class="event-popup__link" href="/parcelas/${event.parcel_id}">Ver hoja de vida de la parcela →</a>

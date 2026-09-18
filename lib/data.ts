@@ -345,9 +345,16 @@ function adaptSchedule(s: DjiFumigationSchedule | null | undefined, parcelId: st
 /** Mapea un DjiFumigationEvent (project) → DjiFumigationV0. */
 function adaptFumigation(e: DjiFumigationEvent, flightsCount: number): DjiFumigationV0 {
   const areaHa = e.area_fumigated_m2 != null ? e.area_fumigated_m2 / 10_000 : 0;
-  // El proyecto no tiene volume_l directo, pero sí dose_l_per_ha.
-  // Volumen = area_ha * dose_l_ha. Si no hay, 0.
-  const volumeL = e.dose_l_per_ha != null ? areaHa * e.dose_l_per_ha : 0;
+  // Volumen: preferimos el REAL de los vuelos (MV mv_fumigation_flights_agg,
+  // Σ spray_usage_ml). Si no hay, derivamos de dosis×área.
+  const flightVolumeL =
+    e.flight_spray_ml != null ? Number(e.flight_spray_ml) / 1000 : null;
+  const volumeL =
+    flightVolumeL != null
+      ? flightVolumeL
+      : e.dose_l_per_ha != null
+        ? areaHa * e.dose_l_per_ha
+        : 0;
   return {
     id: String(e.id),
     parcel_id: String(e.parcel_id),
@@ -356,7 +363,10 @@ function adaptFumigation(e: DjiFumigationEvent, flightsCount: number): DjiFumiga
     area_treated_ha: areaHa,
     product: e.product_used ?? "Sin producto",
     volume_l: volumeL,
-    operator: e.recorded_by ?? "Sin asignar",
+    operator:
+      (e.flight_pilot && e.flight_pilot.trim()) ||
+      e.recorded_by ||
+      "Sin asignar",
     flights_count: flightsCount,
     notes: e.human_notes ?? null,
     // s8.8 (2026-07-31): lng/lat del centroide de flights (calculado en
@@ -369,6 +379,8 @@ function adaptFumigation(e: DjiFumigationEvent, flightsCount: number): DjiFumiga
     // 2026-09-16 — polígono (hull de los vuelos) para dibujar la
     // fumigación como área en el geovisor.
     hull: e.hull_geometry ?? null,
+    // 2026-09-17 — dron real (nickname del vuelo).
+    drone_nickname: e.flight_drone ?? null,
     // Sprint S9 (2026-08-30) — feature/multi-parcela-fumigation.
     // El array `parcels[]` (external_ids de suertes secundarias) lo
     // popula `scripts/backfill-fumigation-parcels.js`. Aquí solo
@@ -938,6 +950,8 @@ export async function getGeovisorPayload(): Promise<GeovisorPayload> {
       lat: f.lat ?? null,
       // 2026-09-16 — polígono (hull de los vuelos) de la fumigación.
       hull: f.hull ?? null,
+      // 2026-09-17 — dron real (nickname del vuelo).
+      drone_nickname: f.drone_nickname ?? null,
     }));
 
   // Sprint S8 (Bloque B — 2026-08-29): agregados de `dji_flights` para

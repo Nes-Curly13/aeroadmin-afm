@@ -446,6 +446,8 @@ export function GeovisorClient({ payload }: { payload: GeovisorPayload }) {
               // 2026-09-16 — polígono (hull de los vuelos). El mapa lo
               // dibuja como área; si falta, cae al punto lng/lat.
               hull: e.hull ?? null,
+              // 2026-09-17 — dron real (nickname del vuelo).
+              drone_nickname: e.drone_nickname ?? null,
               parcel_id: e.parcel_id,
               executed_at: e.executed_at,
               area_treated_ha: e.area_treated_ha,

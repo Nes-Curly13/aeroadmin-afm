@@ -1524,6 +1524,12 @@ export async function getFumigationById(id: number): Promise<DjiFumigationEvent 
           mv.n_matched_flights,
           mv.lat,
           mv.lng,
+          -- 2026-09-17: métricas derivadas de los VUELOS (MV
+          -- mv_fumigation_flights_agg) — volumen real, dron y piloto.
+          agg.spray_ml::bigint AS flight_spray_ml,
+          agg.pilot_name AS flight_pilot,
+          agg.drone_nickname AS flight_drone,
+          agg.duration_seconds AS flight_duration_s,
           -- Catálogo de categoría hidratado (LEFT JOIN; null si fumigación
           -- histórica no clasificada). row_to_json para que el caller
           -- reciba un objeto anidado, no columnas planas.
@@ -1545,6 +1551,8 @@ export async function getFumigationById(id: number): Promise<DjiFumigationEvent 
          FROM dji_fumigations f
          LEFT JOIN mv_fumigation_flight_centroids mv
            ON mv.fumigation_id = f.id
+         LEFT JOIN mv_fumigation_flights_agg agg
+           ON agg.fumigation_id = f.id
          LEFT JOIN fumigation_categories cat
            ON cat.id = f.category_id AND cat.is_active = TRUE
          LEFT JOIN application_types at
@@ -3168,6 +3176,12 @@ export async function getRecentFumigations(
             mv.lat AS lat,
             mv.lng AS lng,
             mv.n_matched_flights::int AS n_matched_flights,
+            -- 2026-09-17: métricas derivadas de los VUELOS (MV
+            -- mv_fumigation_flights_agg) — volumen real, dron y piloto.
+            agg.spray_ml::bigint AS flight_spray_ml,
+            agg.pilot_name AS flight_pilot,
+            agg.drone_nickname AS flight_drone,
+            agg.duration_seconds AS flight_duration_s,
             -- 2026-09-16: polígono (convex hull de los flight points) por
             -- fumigación, para dibujarla como ÁREA en el geovisor en vez de
             -- punto. MV mv_fumigation_hulls (migration 20260917000000).
@@ -3182,6 +3196,8 @@ export async function getRecentFumigations(
            FROM dji_fumigations f
            LEFT JOIN mv_fumigation_flight_centroids mv
              ON mv.fumigation_id = f.id
+           LEFT JOIN mv_fumigation_flights_agg agg
+             ON agg.fumigation_id = f.id
            LEFT JOIN mv_fumigation_hulls hull
              ON hull.fumigation_id = f.id
            LEFT JOIN fumigation_categories cat

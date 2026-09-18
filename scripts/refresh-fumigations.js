@@ -87,6 +87,10 @@ async function refreshMaterializedViews(client) {
     {
       name: "mv_fumigation_hulls",
       migration: "20260917000000"
+    },
+    {
+      name: "mv_fumigation_flights_agg",
+      migration: "20260918000000"
     }
   ];
   for (const { name, migration } of mvsToRefresh) {
