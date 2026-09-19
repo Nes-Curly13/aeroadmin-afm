@@ -55,6 +55,7 @@
 import { ArrowUpRight, Droplets, Layers, MapPin, Plane, Search, SlidersHorizontal, Sprout } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { ParcelPanel } from "@/components/geovisor/parcel-panel";
 import { type BaseMap, GeoMap, USE_MAPTILER, type MapParcel } from "@/components/map/geo-map";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -257,6 +258,13 @@ export function GeovisorClient({ payload }: { payload: GeovisorPayload }) {
 
   // Card-resumen cuando hay evento seleccionado: incluye los datos
   // del V0 que el operador quiere ver.
+  // 2026-09-19 — parcela seleccionada en el mapa (panel A del geovisor).
+  // Cómputo plano (sin hook) para no alterar el orden de hooks del
+  // componente: hay `return` tempranos más arriba.
+  const selectedParcel = selectedId
+    ? payload.parcels.find((p) => p.id === selectedId) ?? null
+    : null;
+
   const selectedCardData = selectedEvent && selectedEventParcel ? {
     event: selectedEvent,
     parcel: selectedEventParcel
@@ -509,6 +517,15 @@ export function GeovisorClient({ payload }: { payload: GeovisorPayload }) {
         className="flex shrink-0 flex-col border-t border-border bg-card lg:w-96 lg:border-l lg:border-t-0"
         data-testid="geovisor-events-panel"
       >
+        {/* 2026-09-19 — panel de la parcela seleccionada (opción A). */}
+        {selectedParcel ? (
+          <div className="border-b border-border p-3">
+            <ParcelPanel
+              parcel={selectedParcel}
+              onClose={() => setSelectedId(null)}
+            />
+          </div>
+        ) : null}
         {/* Card del evento seleccionado (opcional) */}
         {selectedCardData ? (
           <div className="flex flex-col gap-2 border-b border-border p-4">

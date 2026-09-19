@@ -360,7 +360,8 @@ export function GeoMap({
           type: "line",
           source: "parcels",
           paint: {
-            "line-color": "#dc2626",
+            // 2026-09-19 — borde de la parcela seleccionada: azul.
+            "line-color": ["case", ["boolean", ["feature-state", "selected"], false], "#2563eb", "#dc2626"],
             "line-width": ["case", ["boolean", ["feature-state", "selected"], false], 3.5, 1.6],
             "line-opacity": 0.95,
           },

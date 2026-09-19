@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Propuestas — cuadro de datos de parcela (Geovisor AFM)</title>
+<style>
+  :root{
+    --green:#3f8f5d; --green-d:#2f6f47; --ink:#1c2b22; --muted:#5b6b60;
+    --line:rgba(20,40,30,.10); --line2:rgba(20,40,30,.08); --card:#fff; --soft:#fafcf9;
+    --sel: #2563eb;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:ui-sans-serif,system-ui,"Segoe UI",Roboto,sans-serif;background:#eef1ee;color:var(--ink)}
+  header{position:sticky;top:0;z-index:5;background:rgba(255,255,255,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--line);padding:12px 20px;display:flex;flex-wrap:wrap;gap:14px;align-items:center}
+  h1{font-size:14px;margin:0;font-weight:700}
+  .grow{flex:1}
+  .tabs{display:flex;gap:6px;background:#e7ece8;border:1px solid var(--line);border-radius:11px;padding:3px}
+  .tabs button{font:inherit;font-size:12.5px;font-weight:650;border:0;background:transparent;color:var(--muted);padding:6px 12px;border-radius:8px;cursor:pointer}
+  .tabs button.on{background:#fff;color:var(--green-d);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+  .colors{display:flex;gap:6px;align-items:center;font-size:12px;color:var(--muted)}
+  .sw{width:20px;height:20px;border-radius:6px;border:2px solid transparent;cursor:pointer}
+  .sw.on{border-color:var(--ink)}
+  main{display:grid;grid-template-columns:1fr 380px;gap:16px;padding:16px 20px;align-items:start;max-width:1400px;margin:0 auto}
+  @media (max-width:980px){main{grid-template-columns:1fr}}
+  .stage{position:relative;border-radius:16px;overflow:hidden;border:1px solid var(--line);min-height:520px;
+    background:
+      radial-gradient(120% 90% at 70% 20%, #6f8f5f 0 18%, transparent 60%),
+      radial-gradient(90% 70% at 20% 80%, #55704a 0 20%, transparent 65%),
+      repeating-linear-gradient(34deg,#4d6b4a 0 26px,#5a7a55 26px 50px);
+    box-shadow:inset 0 0 0 1px rgba(255,255,255,.05)}
+  .stage svg{position:absolute;inset:0;width:100%;height:100%}
+  .plot{cursor:pointer;fill:rgba(249,115,22,.20);stroke:#dc2626;stroke-width:1.6;vector-effect:non-scaling-stroke;transition:stroke-width .12s}
+  .plot:hover{fill:rgba(249,115,22,.34)}
+  .plot.sel{stroke-width:3.2;fill:rgba(249,115,22,.30)}
+  .hint{position:absolute;left:12px;bottom:12px;background:rgba(255,255,255,.92);border:1px solid var(--line);border-radius:10px;padding:7px 10px;font-size:11.5px;color:var(--muted)}
+  .legend{position:absolute;right:12px;top:12px;background:rgba(255,255,255,.92);border:1px solid var(--line);border-radius:10px;padding:9px 11px;font-size:11.5px}
+  .legend .row{display:flex;gap:7px;align-items:center;margin:3px 0}
+  .legend i{width:11px;height:11px;border-radius:3px;display:inline-block}
+  /* panel */
+  .panel{width:100%}
+  .label{font-size:11px;font-weight:750;letter-spacing:.08em;text-transform:uppercase;color:var(--green);margin:0 0 8px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 2px 10px rgba(20,40,30,.06);overflow:hidden}
+  .hd{padding:12px 14px;border-bottom:1px solid var(--line2);display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+  .ttl{font-size:15px;font-weight:650}
+  .meta{font-size:11.5px;color:var(--muted);margin-top:2px}
+  .chip{font-size:11px;font-weight:650;background:#eaf4ec;color:var(--green-d);border:1px solid #cfe4d6;border-radius:999px;padding:2px 8px;white-space:nowrap}
+  .bd{padding:12px 14px}
+  .sec{font-size:10.5px;font-weight:750;letter-spacing:.07em;text-transform:uppercase;color:#8a9a90;margin:2px 0 7px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px 12px}
+  .fk{font-size:10.5px;color:#7d8d83}
+  .fv{font-size:13px;font-weight:600}
+  .fvb{font-size:19px;font-weight:700}
+  .new::after{content:"nuevo";font-size:9px;font-weight:700;color:#a16207;background:#fef3c7;border-radius:4px;padding:1px 4px;margin-left:5px;vertical-align:1px}
+  .kpis{display:flex;gap:8px;padding:10px 14px;background:var(--soft);border-top:1px solid var(--line2)}
+  .kpi{flex:1;min-width:0}
+  .cta{display:flex;gap:8px;padding:10px 14px;border-top:1px solid var(--line2)}
+  .btn{font:inherit;font-size:12px;font-weight:650;border-radius:9px;padding:7px 11px;border:1px solid rgba(20,40,30,.12);background:#fff;cursor:pointer}
+  .btn.p{background:var(--green);color:#fff;border-color:var(--green)}
+  .pop{position:absolute;max-width:320px;filter:drop-shadow(0 8px 20px rgba(0,0,0,.28))}
+  .pop .tail{position:absolute;bottom:-7px;left:32px;width:14px;height:14px;background:#fff;border-right:1px solid var(--line);border-bottom:1px solid var(--line);transform:rotate(45deg)}
+  .note{font-size:11px;color:var(--muted);margin-top:10px;line-height:1.5}
+  .cols{display:grid;grid-template-columns:1.1fr 1fr 1fr;gap:14px;padding:12px 14px}
+  .empty{padding:20px;text-align:center;color:var(--muted);font-size:12.5px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Propuestas — cuadro de datos de parcela</h1>
+  <div class="tabs" id="tabs">
+    <button data-opt="A" class="on">A · Panel lateral</button>
+    <button data-opt="B">B · Popup</button>
+    <button data-opt="C">C · Barra inferior</button>
+  </div>
+  <div class="grow"></div>
+  <div class="colors">
+    Borde seleccionado:
+    <span class="sw on" data-color="#2563eb" style="background:#2563eb"></span>
+    <span class="sw" data-color="#facc15" style="background:#facc15"></span>
+    <span class="sw" data-color="#06b6d4" style="background:#06b6d4"></span>
+  </div>
+</header>
+
+<main>
+  <div class="stage" id="stage">
+    <svg viewBox="0 0 900 560" preserveAspectRatio="none" id="svg">
+      <polygon class="plot" data-i="0" points="90,120 280,90 330,220 150,260" />
+      <polygon class="plot" data-i="1" points="360,300 700,260 760,430 420,480" />
+      <polygon class="plot" data-i="2" points="520,90 760,80 800,180 560,205" />
+      <polygon class="plot" data-i="3" points="120,320 300,300 340,430 160,470" />
+    </svg>
+    <div class="legend">
+      <div class="row"><i style="background:#dc2626"></i> Parcela</div>
+      <div class="row"><i style="background:var(--sel)" id="lgSel"></i> Seleccionada</div>
+    </div>
+    <div class="hint">Click en una parcela para seleccionarla · click en el fondo para limpiar</div>
+  </div>
+  <div class="panel">
+    <div class="label" id="plabel">Opción A — Panel lateral (drawer)</div>
+    <div id="out"></div>
+    <div class="note" id="pnote"></div>
+  </div>
+</main>
+
+<script>
+const PARCELS = [
+  { name:"Delicias · 70C", farm:"Hacienda Delicias", code:"030070C", ha:"2,05", var:"CC 01-678",
+    siembra:"26/10/2019", corte:"30/12/2024", edad:"10,4", sac:"12,49 %", tch:"120,2", nCortes:"6",
+    dist:"6,3 m", topo:"Plana", zona:"11H1", ten:"Propia (PR)", mun:"— (por cargar)", fum:"— (sin datos)", nFum:"0" },
+  { name:"La Generala · 03", farm:"Hacienda La Generala", code:"1630003", ha:"21,61", var:"CC 05-430",
+    siembra:"18/04/2021", corte:"05/11/2024", edad:"4,9", sac:"13,10 %", tch:"132,7", nCortes:"3",
+    dist:"6,0 m", topo:"Ondulada", zona:"11H2", ten:"Arrendada", mun:"— (por cargar)", fum:"— (sin datos)", nFum:"0" },
+  { name:"Delicias · 70F", farm:"Hacienda Delicias", code:"030070F", ha:"2,79", var:"CC132(1)-066(1)",
+    siembra:"02/03/2020", corte:"12/01/2025", edad:"6,4", sac:"11,80 %", tch:"108,4", nCortes:"5",
+    dist:"6,3 m", topo:"Plana", zona:"11H1", ten:"Propia (PR)", mun:"— (por cargar)", fum:"— (sin datos)", nFum:"0" },
+  { name:"Delicias · 70E", farm:"Hacienda Delicias", code:"030070E", ha:"1,42", var:"CC 01-678",
+    siembra:"10/09/2022", corte:"20/02/2025", edad:"3,1", sac:"12,05 %", tch:"95,6", nCortes:"2",
+    dist:"6,3 m", topo:"Plana", zona:"11H1", ten:"Propia (PR)", mun:"— (por cargar)", fum:"— (sin datos)", nFum:"0" },
+];
+
+let OPT = "A", COLOR = "#2563eb", SEL = null;
+
+const f = (k,v,cls="") => `<div class="f"><div class="fk">${k}</div><div class="fv ${cls}">${v}</div></div>`;
+const big = (k,v,cls="") => `<div class="kpi"><div class="fk">${k}</div><div class="fv ${cls}" style="font-size:16px;font-weight:700">${v}</div></div>`;
+
+function head(p){
+  return `<div class="hd"><div><div class="ttl">${p.name}</div><div class="meta">${p.farm} · ${p.code}${OPT==="A"?" · Variedad "+p.var:""}</div></div><div class="chip">${p.ha} ha</div></div>`;
+}
+
+function bodyA(p){
+  return `<div class="bd">
+    <div class="sec">Identificación</div>
+    <div class="grid">${f("Variedad",p.var)}${f("Tenencia",p.ten,"new")}</div>
+    <div class="sec" style="margin-top:12px">Agronomía</div>
+    <div class="grid3">
+      ${f("Siembra",p.siembra,"new")}${f("Últ. corte",p.corte,"new")}${f("Edad",p.edad,"new")}
+      ${f("Sacarosa",p.sac,"new")}${f("Últ. TCH",p.tch,"new")}${f("Cortes",p.nCortes,"new")}
+      ${f("Distancia",p.dist,"new")}${f("Topografía",p.topo,"new")}${f("Zona agro",p.zona,"new")}
+    </div>
+    <div class="sec" style="margin-top:12px">Operación</div>
+    <div class="grid">${f("Última fumigación",p.fum)}${f("Aplicaciones",p.nFum)}</div>
+  </div>
+  <div class="cta"><button class="btn p">Ver ficha completa</button><button class="btn">Centrar</button></div>`;
+}
+
+function bodyB(p){
+  return `<div class="bd" style="padding:10px 14px">
+    <div class="grid3">
+      ${f("Siembra",p.siembra,"new")}${f("Sacarosa",p.sac,"new")}${f("Últ. TCH",p.tch,"new")}
+    </div>
+    <div class="kpis" style="margin:10px -14px -10px">
+      ${big("Últ. fumigación",p.fum)}${big("Aplicaciones",p.nFum)}
+    </div>
+  </div>`;
+}
+
+function bodyC(p){
+  return `<div class="kpis" style="border-top:none">
+      ${big("Área",p.ha+" ha")}${big("Siembra",p.siembra,"new")}${big("Sacarosa",p.sac,"new")}
+      ${big("Últ. TCH",p.tch,"new")}${big("Cortes",p.nCortes,"new")}${big("Fumigaciones",p.nFum)}
+    </div>
+    <div class="cols">
+      <div><div class="sec">Agronomía</div>${f("Variedad",p.var)}<div style="height:6px"></div>${f("Últ. corte",p.corte,"new")}</div>
+      <div><div class="sec">Manejo</div>${f("Distancia",p.dist,"new")}<div style="height:6px"></div>${f("Topografía / Zona",p.topo+" · "+p.zona,"new")}</div>
+      <div><div class="sec">Tenencia</div>${f("Tipo",p.ten,"new")}<div style="height:6px"></div>${f("Municipio",p.mun)}</div>
+    </div>
+    <div class="cta"><button class="btn p">Ver ficha completa</button><button class="btn">Comparar seleccionadas</button></div>`;
+}
+
+function render(){
+  document.querySelectorAll("#tabs button").forEach(b=>b.classList.toggle("on", b.dataset.opt===OPT));
+  document.getElementById("lgSel").style.background = COLOR;
+  document.querySelectorAll(".plot").forEach(el=>{
+    el.classList.toggle("sel", SEL!==null && +el.dataset.i===SEL);
+    el.style.stroke = (SEL!==null && +el.dataset.i===SEL) ? COLOR : "#dc2626";
+  });
+  const labels = {A:["Opción A — Panel lateral (drawer)","Ancho ~360px, secciones siempre visibles. Consulta profunda sin perder el mapa."],
+                  B:["Opción B — Popup sobre el mapa","Compacto, anclado a la parcela. Muestra lo esencial; “Ver ficha completa” para el resto."],
+                  C:["Opción C — Barra inferior (dock)","Ancho con KPIs en fila + 3 columnas. Ideal para comparar varias parcelas."]};
+  document.getElementById("plabel").textContent = labels[OPT][0];
+  document.getElementById("pnote").textContent = labels[OPT][1];
+
+  const out = document.getElementById("out");
+  if(SEL===null){
+    out.innerHTML = `<div class="card"><div class="empty">Seleccioná una parcela en el mapa<br><span style="font-size:11px">(click en cualquier polígono)</span></div></div>`;
+    return;
+  }
+  const p = PARCELS[SEL];
+  if(OPT==="A") out.innerHTML = `<div class="card">${head(p)}${bodyA(p)}</div>`;
+  if(OPT==="C") out.innerHTML = `<div class="card">${head(p)}${bodyC(p)}</div>`;
+  if(OPT==="B"){
+    out.innerHTML = `<div class="card" style="max-width:none"><div class="empty" style="text-align:left;padding:14px">
+      En la opción <b>B</b> el cuadro aparece <b>flotando sobre la parcela</b> (no en este panel).</div></div>`;
+    showPopupOnMap(p);
+  }
+}
+
+function showPopupOnMap(p){
+  removePopup();
+  const stage = document.getElementById("stage");
+  const el = document.createElement("div");
+  el.className = "pop"; el.id="pop";
+  el.style.left = "38%"; el.style.top = "46%";
+  el.innerHTML = `<div class="card" style="width:320px">${head(p)}${bodyB(p)}</div><div class="tail"></div>`;
+  stage.appendChild(el);
+}
+function removePopup(){ const e=document.getElementById("pop"); if(e) e.remove(); }
+
+document.querySelectorAll("#tabs button").forEach(b=>b.onclick = ()=>{ OPT=b.dataset.opt; render(); });
+document.querySelectorAll(".sw").forEach(s=>s.onclick = ()=>{
+  COLOR = s.dataset.color;
+  document.querySelectorAll(".sw").forEach(x=>x.classList.toggle("on", x===s));
+  render();
+});
+document.getElementById("svg").addEventListener("click", (e)=>{
+  const t = e.target.closest(".plot");
+  SEL = t ? +t.dataset.i : null;
+  render();
+});
+render();
+</script>
+</body>
+</html>

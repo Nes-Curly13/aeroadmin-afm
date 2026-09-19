@@ -317,7 +317,10 @@ function adaptParcel(
     // source: cableado para que el detail page pueda distinguir
     // parcelas manuales de DJI. Default "dji" para compat con
     // fixtures/queries que no proyectan el campo.
-    source: (p.source ?? "dji") as "dji" | "manual" | "imported"
+    source: (p.source ?? "dji") as "dji" | "manual" | "imported",
+    // 2026-09-19 — panel de parcela del geovisor (datos agronomicos del shape).
+    planting_date: p.planting_date ?? null,
+    shape_attrs: p.shape_attrs ?? null
   };
 }
 
@@ -999,6 +1002,9 @@ export async function getGeovisorPayload(): Promise<GeovisorPayload> {
       municipality: s.parcel.municipality,
       variety: s.parcel.variety,
       area_ha: s.parcel.area_ha,
+      dji_land_id: s.parcel.dji_land_id,
+      planting_date: s.parcel.planting_date ?? null,
+      shape_attrs: s.parcel.shape_attrs ?? null,
       drone_model_id: s.parcel.drone_model_id,
       centroid_lng: s.parcel.centroid_lng,
       centroid_lat: s.parcel.centroid_lat,

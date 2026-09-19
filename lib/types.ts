@@ -64,6 +64,11 @@ export interface DjiParcelRecord {
   owner_name?: string | null;
   owner_contact?: string | null;
   supervisor_notes?: string | null;
+  // 2026-09-19 — atributos crudos del shapefile Suertes_MYZ (jsonb):
+  // HDASTE, COD, AREA_HA, Topografia, Region, HACIENDA, VARIEDAD, STE,
+  // DISTANCIA, F.SIEMBRA, F.COSECHA, ULT.TCH, Z.AGRO, TENENCIA, NC, Edad,
+  // Sacarosa, ESPACIO.
+  shape_attrs?: Record<string, unknown> | null;
   // Sprint A — F1.1: dot de cadencia por color. `last_fumigation_date`
   // viene de la fumigación real más reciente (no soft-deleted) vía
   // `LEFT JOIN LATERAL` con `dji_fumigations` en `djiParcelsQuery`.
@@ -716,6 +721,8 @@ export interface DjiParcel {
   // a "Fase: desconocida".
   planting_date?: string | null;     // YYYY-MM-DD
   cycle_phase?: CyclePhase | null;
+  // 2026-09-19 — atributos crudos del shapefile Suertes_MYZ (jsonb).
+  shape_attrs?: Record<string, unknown> | null;
 }
 
 /**
@@ -891,6 +898,11 @@ export interface GeovisorPayload {
     municipality: string;
     variety: string;
     area_ha: number;
+    // 2026-09-19 — para el panel de parcela del geovisor. Opcionales por
+    // compat con fixtures de tests previos; la query siempre los trae.
+    dji_land_id?: string | null;
+    planting_date?: string | null;
+    shape_attrs?: Record<string, unknown> | null;
     drone_model_id: DroneModelId;
     centroid_lng: number;
     centroid_lat: number;

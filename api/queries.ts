@@ -223,6 +223,7 @@ export const djiParcelsMetadataQuery = `
     p.fetched_at,
     p.crop_type,
     p.planting_date,
+    p.shape_attrs,
     p.owner_name,
     p.owner_contact,
     p.supervisor_notes,
