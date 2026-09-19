@@ -137,25 +137,20 @@ export function GeovisorClient({ payload }: { payload: GeovisorPayload }) {
     });
   }, [payload.events, fromMs, toMs]);
 
-  // IDs de parcelas que tienen al menos un evento en el rango.
-  const parcelIdsWithEvents = useMemo(
-    () => new Set(eventsInRange.map((e) => e.parcel_id)),
-    [eventsInRange]
-  );
-
-  // Filtrar parcelas: (1) con eventos en el rango, (2) que matchean
-  // la búsqueda de texto (si hay).
+  // 2026-09-17 — el geovisor antes mostraba solo parcelas CON eventos
+  // de fumigación en el rango. Con la base recién cargada (solo shapes,
+  // sin fumigaciones) eso dejaba el mapa sin polígonos. Ahora muestra
+  // TODAS las parcelas del payload; la búsqueda de texto sigue filtrando.
   const filteredParcels = useMemo(() => {
     const q = query.trim().toLowerCase();
     return payload.parcels.filter((p) => {
-      if (!parcelIdsWithEvents.has(p.id)) return false;
       if (q) {
         const hay = `${p.name} ${p.farm_name} ${p.municipality} ${p.variety} ${p.id}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
     });
-  }, [payload.parcels, parcelIdsWithEvents, query]);
+  }, [payload.parcels, query]);
 
   const filteredParcelsById = useMemo(
     () => new Map(filteredParcels.map((p) => [p.id, p])),
