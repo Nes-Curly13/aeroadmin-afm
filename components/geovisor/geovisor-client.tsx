@@ -467,7 +467,7 @@ export function GeovisorClient({ payload }: { payload: GeovisorPayload }) {
           showLabels={showLabels}
           baseMap={baseMap}
           selectedId={selectedId}
-          onSelect={setSelectedId}
+                onSelect={setSelectedId}
           selectedEventId={selectedEventId}
           onSelectEvent={setSelectedEventId}
         />

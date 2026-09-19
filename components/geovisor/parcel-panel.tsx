@@ -37,11 +37,24 @@ function shapeDate(v: string | null): string | null {
   return m ? `${m[1]}/${m[2]}/${m[3]}` : v
 }
 
-/** ISO (YYYY-MM-DD...) → DD/MM/YYYY, cortando el string (sin TZ shift). */
-function isoDate(v: string | null): string | null {
-  if (!v) return null
-  const m = v.match(/^(\d{4})-(\d{2})-(\d{2})/)
-  return m ? `${m[3]}/${m[2]}/${m[1]}` : v
+/**
+ * Formatea una fecha a DD/MM/YYYY. Acepta string ISO (`YYYY-MM-DD...`),
+ * string `DD/MM/YYYY` o un objeto `Date` — pg devuelve las columnas `date`
+ * como `Date` y el RSC las serializa como Date (no string), asi que el
+ * panel no puede asumir string (bug 2026-09-19: `v.match is not a function`).
+ */
+function isoDate(v: unknown): string | null {
+  if (v === null || v === undefined || v === "") return null
+  if (v instanceof Date) {
+    const d = String(v.getDate()).padStart(2, "0")
+    const m = String(v.getMonth() + 1).padStart(2, "0")
+    return `${d}/${m}/${v.getFullYear()}`
+  }
+  const s = String(v)
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (iso) return `${iso[3]}/${iso[2]}/${iso[1]}`
+  const dmy = s.match(/^(\d{2})\/(\d{2})\/(\d{4})/)
+  return dmy ? `${dmy[1]}/${dmy[2]}/${dmy[3]}` : s
 }
 
 function num(v: string | null, dec = 2): string | null {
@@ -68,7 +81,7 @@ export function ParcelPanel({
 }) {
   const tenenciaRaw = attr(parcel, "TENENCIA")
   const topoRaw = attr(parcel, "Topografia")
-  const siembra = isoDate(parcel.planting_date ?? null) ?? shapeDate(attr(parcel, "F.SIEMBRA"))
+  const siembra = isoDate(parcel.planting_date) ?? shapeDate(attr(parcel, "F.SIEMBRA"))
   const corte = shapeDate(attr(parcel, "F.COSECHA"))
 
   return (

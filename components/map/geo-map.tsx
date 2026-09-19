@@ -612,8 +612,14 @@ export function GeoMap({
     if (!selectedId) return
     const parcel = parcels.find((p) => p.id === selectedId)
     if (!parcel) return
-    map.setFeatureState({ source: "parcels", id: Number(parcel.id.replace(/\D/g, "")) }, { selected: true })
-    map.flyTo({ center: [parcel.centroid_lng, parcel.centroid_lat], zoom: 14.6, duration: 900 })
+    try {
+      map.setFeatureState({ source: "parcels", id: Number(parcel.id.replace(/\D/g, "")) }, { selected: true })
+      map.flyTo({ center: [parcel.centroid_lng, parcel.centroid_lat], zoom: 14.6, duration: 900 })
+    } catch (err) {
+      // Defensivo: si el feature no existe en la fuente, MapLibre puede
+      // tirar. No queremos que rompa el render del mapa.
+      console.error("[geo-map] setFeatureState/flyTo:", err)
+    }
   }, [selectedId, parcels, ready])
 
   return (
