@@ -989,12 +989,9 @@ export async function getGeovisorPayload(): Promise<GeovisorPayload> {
   }
 
   return {
-    // 2026-09-17 — el operador quiere ver SOLO las parcelas del shape
-    // (Suertes_MYZ, source='imported'). Las del scraper (dji) quedan
-    // fuera del geovisor por ahora.
-    parcels: summaries
-      .filter((s) => s.parcel.source === "imported")
-      .map((s) => ({
+    // 2026-09-17 — sin filtro por source: hoy la DB solo tiene parcelas
+    // del shape (Suertes_MYZ). Si se re-cargan las del scraper, filtrar.
+    parcels: summaries.map((s) => ({
       id: s.parcel.id,
       name: s.parcel.name,
       farm_name: s.parcel.farm_name,
