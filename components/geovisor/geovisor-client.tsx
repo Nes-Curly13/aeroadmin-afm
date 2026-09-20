@@ -271,7 +271,10 @@ export function GeovisorClient({ payload }: { payload: GeovisorPayload }) {
   } : null;
 
   return (
-    <div className="flex h-svh flex-col lg:flex-row">
+    // PR-3 (auditoría UI): `h-svh` medía el VIEWPORT, así que el geovisor
+    // desbordaba su contenedor (main) por la altura del header y generaba
+    // scroll. `h-full + min-h-0` lo ata a la altura del Workspace.
+    <div className="flex h-full min-h-0 flex-col lg:flex-row">
       {/* Rail de filtros */}
       <aside
         className={cn(

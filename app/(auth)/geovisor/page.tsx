@@ -25,7 +25,7 @@ export default function GeovisorPage() {
   // UI-10: <PageHeader> afuera del Suspense (no depende de data) ->
   // aparece instantaneamente en lugar de esperar al payload.
   return (
-    <>
+    <div className="flex h-full flex-col">
       <PageHeader
         title="Geovisor"
         description="Mapa de parcelas con histórico de fumigaciones aplicadas. Filtrá por fecha y consultá el detalle de cada aplicación."
@@ -33,11 +33,15 @@ export default function GeovisorPage() {
       <Suspense fallback={<PageSpinner message="Cargando mapa de parcelas y aplicaciones..." />}>
         <GeovisorContent />
       </Suspense>
-    </>
+    </div>
   )
 }
 
 async function GeovisorContent() {
   const payload = await getGeovisorPayload()
-  return <GeovisorClient payload={payload} />
+  return (
+    <div className="min-h-0 flex-1">
+      <GeovisorClient payload={payload} />
+    </div>
+  )
 }
