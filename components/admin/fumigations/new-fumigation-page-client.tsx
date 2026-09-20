@@ -606,7 +606,7 @@ function QueStep({
             <ParcelMapPicker
               selectedId={chosenParcel?.id ?? null}
               onPick={onChooseParcel}
-              className="h-[320px]"
+              className="h-80"
             />
           </div>
         </CardContent>
