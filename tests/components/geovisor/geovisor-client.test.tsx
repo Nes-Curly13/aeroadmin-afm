@@ -42,6 +42,21 @@ vi.mock("@/components/map/geo-map", () => ({
   USE_MAPTILER: false
 }));
 
+// PR-3b: react-resizable-panels mide el layout REAL (ResizeObserver +
+// tamaño del contenedor). En jsdom el grupo mide 0 y tira
+// "Previous layout not found for panel index -1". Mock transparente:
+// renderiza los children y preserva `data-testid` (el test asserts
+// sobre `geovisor-events-panel`, que ahora es un <Panel>).
+vi.mock("react-resizable-panels", () => ({
+  PanelGroup: (p: { children?: unknown; "data-testid"?: string }) => (
+    <div data-testid={p["data-testid"]}>{p.children as never}</div>
+  ),
+  Panel: (p: { children?: unknown; "data-testid"?: string }) => (
+    <div data-testid={p["data-testid"]}>{p.children as never}</div>
+  ),
+  PanelResizeHandle: () => <div />
+}));
+
 const { GeovisorClient } = await import("@/components/geovisor/geovisor-client");
 
 // =====================================================================

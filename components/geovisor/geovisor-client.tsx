@@ -54,7 +54,13 @@
 
 import { ArrowUpRight, Droplets, Layers, MapPin, Plane, Search, SlidersHorizontal, Sprout } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  Panel,
+  PanelGroup,
+  PanelResizeHandle,
+  type ImperativePanelHandle
+} from "react-resizable-panels";
 import { ParcelPanel } from "@/components/geovisor/parcel-panel";
 import { type BaseMap, GeoMap, USE_MAPTILER, type MapParcel } from "@/components/map/geo-map";
 import { Badge } from "@/components/ui/badge";
@@ -107,9 +113,29 @@ export function GeovisorClient({ payload }: { payload: GeovisorPayload }) {
 
   const [baseMap, setBaseMap] = useState<BaseMap>("satelite");
   const [showParcels, setShowParcels] = useState(true);
+
+  // PR-3b (auditoría UI): paneles redimensionables. En desktop el
+  // workspace es horizontal (filtros | mapa | eventos); en mobile se
+  // apila vertical. `autoSaveId` persiste los tamaños en localStorage.
+  const [isDesktop, setIsDesktop] = useState(false);
+  const filtersPanelRef = useRef<ImperativePanelHandle>(null);
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const sync = () => setIsDesktop(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
   const [showEvents, setShowEvents] = useState(true);
   const [showLabels, setShowLabels] = useState(false);
   const [showFilters, setShowFilters] = useState(true);
+  // El toggle "Ocultar filtros" ahora colapsa/expande el panel (PR-3b).
+  useEffect(() => {
+    const p = filtersPanelRef.current;
+    if (!p) return;
+    if (showFilters) p.expand();
+    else p.collapse();
+  }, [showFilters]);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // QA-02: el id del EVENTO (fumigación) seleccionado desde la lista
@@ -271,16 +297,23 @@ export function GeovisorClient({ payload }: { payload: GeovisorPayload }) {
   } : null;
 
   return (
-    // PR-3 (auditoría UI): `h-svh` medía el VIEWPORT, así que el geovisor
-    // desbordaba su contenedor (main) por la altura del header y generaba
-    // scroll. `h-full + min-h-0` lo ata a la altura del Workspace.
-    <div className="flex h-full min-h-0 flex-col lg:flex-row">
+    // PR-3a: `h-full + min-h-0` ata el geovisor a la altura del Workspace.
+    // PR-3b: los 3 paneles (filtros | mapa | eventos) son redimensionables
+    // (horizontal en desktop, vertical en mobile) y persisten en
+    // localStorage via `autoSaveId`.
+    <PanelGroup
+      direction={isDesktop ? "horizontal" : "vertical"}
+      autoSaveId="afm-geovisor-layout"
+      className="h-full min-h-0"
+    >
       {/* Rail de filtros */}
-      <aside
-        className={cn(
-          "flex shrink-0 flex-col gap-5 overflow-y-auto border-b border-border bg-card p-4 lg:border-b-0 lg:border-r",
-          showFilters ? "lg:w-72" : "lg:w-0 lg:overflow-hidden lg:border-r-0 lg:p-0"
-        )}
+      <Panel
+        ref={filtersPanelRef}
+        collapsible
+        collapsedSize={0}
+        defaultSize={22}
+        minSize={isDesktop ? 14 : 28}
+        className="flex flex-col gap-5 overflow-y-auto border-b border-border bg-card p-4 lg:border-b-0 lg:border-r"
       >
         <div className="flex items-center gap-2">
           <SlidersHorizontal className="size-4 text-primary" aria-hidden />
@@ -433,10 +466,16 @@ export function GeovisorClient({ payload }: { payload: GeovisorPayload }) {
               ))}
           </div>
         </fieldset>
-      </aside>
+      </Panel>
+      <PanelResizeHandle
+        className={cn(
+          "shrink-0 bg-border/70 transition-colors hover:bg-primary/50 data-[resize-handle-state=drag]:bg-primary",
+          isDesktop ? "w-1" : "h-1 w-full"
+        )}
+      />
 
       {/* Mapa */}
-      <section className="relative min-h-[60svh] flex-1">
+      <Panel className="relative min-h-0">
         <GeoMap
           parcels={mapParcels}
           events={sortedEvents
@@ -513,11 +552,19 @@ export function GeovisorClient({ payload }: { payload: GeovisorPayload }) {
             {showFilters ? "Ocultar filtros" : "Mostrar filtros"}
           </Button>
         </div>
-      </section>
+      </Panel>
+      <PanelResizeHandle
+        className={cn(
+          "shrink-0 bg-border/70 transition-colors hover:bg-primary/50 data-[resize-handle-state=drag]:bg-primary",
+          isDesktop ? "w-1" : "h-1 w-full"
+        )}
+      />
 
       {/* Panel de resultados: lista de fumigaciones */}
-      <aside
-        className="flex shrink-0 flex-col border-t border-border bg-card lg:w-96 lg:border-l lg:border-t-0"
+      <Panel
+        defaultSize={26}
+        minSize={16}
+        className="flex flex-col border-t border-border bg-card lg:border-l lg:border-t-0"
         data-testid="geovisor-events-panel"
       >
         {/* 2026-09-19 — panel de la parcela seleccionada (opción A). */}
@@ -637,7 +684,7 @@ export function GeovisorClient({ payload }: { payload: GeovisorPayload }) {
             </li>
           )}
         </ul>
-      </aside>
-    </div>
+      </Panel>
+    </PanelGroup>
   );
 }
