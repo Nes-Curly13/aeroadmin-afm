@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { LogOut, Menu, UserCircle2, X } from "lucide-react"
 import { fmtRelative } from "@/lib/format"
 import { logoutAction } from "@/app/(public)/login/actions"
@@ -43,6 +43,19 @@ export function ShellLayout({
   role?: AppRole;
 }) {
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  // PR-2b (auditoría UI): el drawer mobile es un `<dialog>` NATIVO.
+  // `showModal()` da focus trap, cierre con Escape, backdrop e
+  // inercia del fondo — todo provisto por el navegador, sin deps.
+  // En desktop el mismo elemento se muestra estático via `lg:flex!`
+  // (el `!` gana al `dialog:not([open]){display:none}` del UA).
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const d = dialogRef.current;
+    if (!d) return;
+    if (mobileOpen && !d.open) d.showModal();
+    else if (!mobileOpen && d.open) d.close();
+  }, [mobileOpen]);
   const status = health?.status ?? "unknown";
   const statusColor =
     status === "ok" ? "bg-chart-1" : status === "partial" ? "bg-chart-4" : status === "unknown" ? "bg-muted-foreground/30" : "bg-destructive";
@@ -54,23 +67,15 @@ export function ShellLayout({
 
   return (
     <div className="flex h-svh flex-col overflow-hidden lg:flex-row">
-      {/* Backdrop del drawer (solo mobile). */}
-      {mobileOpen ? (
-        <div
-          className="fixed inset-0 z-30 bg-foreground/40 backdrop-blur-[1px] lg:hidden"
-          onClick={() => setMobileOpen(false)}
-          aria-hidden
-        />
-      ) : null}
-
-      <aside
+      <dialog
+        ref={dialogRef}
         aria-label="Barra lateral"
-        className={[
-          "brand-sidebar flex shrink-0 flex-col gap-6 border-sidebar-border bg-sidebar px-4 py-4 text-sidebar-foreground lg:h-full lg:w-64 lg:border-b-0 lg:border-r lg:py-6",
-          mobileOpen
-            ? "fixed inset-y-0 left-0 z-40 w-72 overflow-y-auto border-r"
-            : "hidden border-b lg:flex"
-        ].join(" ")}
+        onClose={() => setMobileOpen(false)}
+        onClick={(e) => {
+          // Click en el backdrop (el target es el propio <dialog>).
+          if (e.target === dialogRef.current) setMobileOpen(false);
+        }}
+        className="brand-sidebar m-0 box-border h-svh max-h-svh w-72 max-w-none flex-col gap-6 overflow-y-auto border-0 bg-sidebar px-4 py-4 text-sidebar-foreground backdrop:bg-foreground/40 open:flex lg:static lg:h-full lg:max-h-none lg:w-64 lg:border-r lg:py-6 lg:flex! lg:backdrop:bg-transparent"
       >
         <div className="flex items-center justify-between gap-3">
           <Link
@@ -136,7 +141,7 @@ export function ShellLayout({
             </Button>
           </form>
         </div>
-      </aside>
+      </dialog>
 
       <main className="flex min-h-0 min-w-0 flex-1 flex-col">
         <header
