@@ -917,7 +917,7 @@ export interface GeovisorPayload {
     area_ha: number;
     // 2026-09-19 — para el panel de parcela del geovisor. Opcionales por
     // compat con fixtures de tests previos; la query siempre los trae.
-    source?: "dji" | "manual" | "imported" | string;
+    source?: "dji" | "manual" | "imported" | string | null;
     dji_land_id?: string | null;
     planting_date?: string | null;
     shape_attrs?: Record<string, unknown> | null;
