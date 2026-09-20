@@ -40,6 +40,13 @@ function loadLocalEnv() {
   }
 }
 
+// SSL opcional (prod Supabase). Local docker usa DATABASE_SSL=false.
+function sslOption() {
+  return (process.env.DATABASE_SSL || "false").toLowerCase() === "true"
+    ? { rejectUnauthorized: false }
+    : undefined;
+}
+
 async function ensureMigrationsTable(client) {
   await client.query(`
     CREATE TABLE IF NOT EXISTS dji_migrations (
@@ -214,7 +221,7 @@ async function main() {
   const fileIdx = args.indexOf('--file');
   const onlyFile = fileIdx >= 0 ? args[fileIdx + 1] : null;
 
-  const pool = new Pool({ connectionString, max: 3, idleTimeoutMillis: 30_000 });
+  const pool = new Pool({ connectionString, max: 3, idleTimeoutMillis: 30_000, ssl: sslOption() });
   const client = await pool.connect();
   try {
     await ensureMigrationsTable(client);

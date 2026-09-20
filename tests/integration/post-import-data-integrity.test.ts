@@ -33,7 +33,9 @@
 //   - spray_geom NULL < 5%          (prod espera <5%, ideal 0%)
 //   - waypoints NULL < 5%           (idem spray_geom)
 //   - dji_flights.parcel_id NULL < 30%  (baseline del spatial join)
-//   - dji_fumigations.parcel_id NULL < 50%  (aggregate imports OK)
+//   - dji_fumigations sin parcela SIN flag needs_parcel_assignment = 0
+//                                        (las huérfanas del import por-sesión
+//                                         se marcan siempre; ver 2026-09-20)
 //
 // Importante: el check de skip es SÍNCRONO (basado en presencia de
 // `process.env.DATABASE_URL` o `.env.local`). NO usamos `checkDbReachable`
@@ -67,8 +69,14 @@ export const POST_IMPORT_THRESHOLDS = {
   waypointsNullMax: 0.05,
   /** dji_flights.parcel_id NULL rate (el spatial join no es 100%). */
   flightsParcelIdNullMax: 0.3,
-  /** dji_fumigations.parcel_id NULL rate (aggregate imports son válidos). */
-  fumigationsParcelIdNullMax: 0.5
+  /**
+   * 2026-09-20 — dji_fumigations sin parcela: el import por-sesión de
+   * vuelos crea "huérfanas" A PROPÓSITO (vuelos fuera de toda parcela),
+   * siempre marcadas con `needs_parcel_assignment = true`. El invariante
+   * ya no es "pocos NULL" sino "ningún NULL sin flag". Este umbral es el
+   * máximo de filas sin parcela que pueden quedar SIN marcar.
+   */
+  fumigationsOrphanUnflaggedMax: 0
 } as const;
 
 // ============================================================
@@ -261,16 +269,33 @@ d("post-import data integrity", () => {
     expect(r.total).toBeGreaterThan(0);
   });
 
-  it("dji_fumigations.parcel_id NULL rate < 50% (aggregate imports OK)", async () => {
-    const r = await computeNullRate(
+  it("dji_fumigations sin parcela deben estar marcadas needs_parcel_assignment", async () => {
+    // 2026-09-20 — el import por-sesión crea huérfanas legítimas
+    // (parcel_id NULL) pero SIEMPRE con needs_parcel_assignment=true.
+    // Una fila sin parcela y sin flag es un bug del import (o un
+    // aggregate legacy sin revisar).
+    if (!pool) return;
+    const r = await pool.query<{
+      total: string;
+      null_unflagged: string;
+      orphans: string;
+    }>(
       `SELECT COUNT(*)::text AS total,
-              COUNT(*) FILTER (WHERE parcel_id IS NULL)::text AS null_count
+              COUNT(*) FILTER (
+                WHERE parcel_id IS NULL AND needs_parcel_assignment = false
+              )::text AS null_unflagged,
+              COUNT(*) FILTER (WHERE needs_parcel_assignment = true)::text AS orphans
          FROM dji_fumigations
         WHERE deleted_at IS NULL`
     );
+    const total = Number(r.rows[0]?.total ?? 0);
+    const nullUnflagged = Number(r.rows[0]?.null_unflagged ?? 0);
+    const orphans = Number(r.rows[0]?.orphans ?? 0);
+    if (total === 0) return;
     expect(
-      r.rate,
-      `dji_fumigations.parcel_id: ${r.nullCount}/${r.total} NULLs (${(r.rate * 100).toFixed(2)}%) > threshold ${POST_IMPORT_THRESHOLDS.fumigationsParcelIdNullMax * 100}%`
-    ).toBeLessThanOrEqual(POST_IMPORT_THRESHOLDS.fumigationsParcelIdNullMax);
+      nullUnflagged,
+      `dji_fumigations: ${nullUnflagged}/${total} sin parcela y SIN flag needs_parcel_assignment ` +
+        `(huérfanas marcadas: ${orphans}).`
+    ).toBeLessThanOrEqual(POST_IMPORT_THRESHOLDS.fumigationsOrphanUnflaggedMax);
   });
 });
