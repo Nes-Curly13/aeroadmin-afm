@@ -36,6 +36,7 @@
     "capture:djiag:all-flights": "node scripts/capture-all-flight-responses.js",
     "capture:djiag:flight-detail": "node scripts/capture-flight-detail.js",
     "upsert:djiag:lands": "node scripts/upsert-lands-from-djiag.js",
+    "backfill:lands:geometry": "node scripts/backfill-lands-geometry.js",
     "db:import:lands": "node scripts/import-lands-pipeline.js",
     "seed:cadences": "node scripts/seed-cadences.js",
     "auth:seed": "node scripts/seed-admin-user.js",
