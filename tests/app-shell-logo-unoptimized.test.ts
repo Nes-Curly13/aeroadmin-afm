@@ -49,17 +49,24 @@ function readNoComments(relPath: string): string {
 }
 
 describe("brand integration — anti-SVG-400", () => {
-  it("app-shell usa <AfmMark /> (no <Image src='/afm-logo.svg' /> directo)", () => {
+  it("sidebar usa <AfmMark /> (no <Image src='/afm-logo.svg' /> directo)", () => {
+    // PR-2 (auditoría UI, 2026-09-20): el markup del sidebar se movió de
+    // app-shell.tsx a components/shell-layout.tsx. El contrato anti-SVG-400
+    // es el mismo: la marca va por el wrapper <AfmMark />, nunca el svg
+    // directo. app-shell.tsx queda como wrapper server que delega.
     const appShell = readNoComments("components/app-shell.tsx");
-    // El sidebar no debe importar ni usar el logo grande directo. Va
-    // por el wrapper <AfmMark variant='mark' />.
+    const sidebar = readNoComments("components/shell-layout.tsx");
     expect(
-      appShell.includes('src="/afm-logo.svg"'),
-      "app-shell.tsx no debe usar /afm-logo.svg directo. Usar <AfmMark />."
+      appShell.includes("ShellLayout"),
+      "app-shell.tsx debe delegar en <ShellLayout /> (única arquitectura de sidebar)."
+    ).toBe(true);
+    expect(
+      sidebar.includes('src="/afm-logo.svg"'),
+      "shell-layout.tsx no debe usar /afm-logo.svg directo. Usar <AfmMark />."
     ).toBe(false);
     expect(
-      appShell.includes("AfmMark"),
-      "app-shell.tsx debe usar el componente <AfmMark />."
+      sidebar.includes("AfmMark"),
+      "shell-layout.tsx debe usar el componente <AfmMark />."
     ).toBe(true);
   });
 
