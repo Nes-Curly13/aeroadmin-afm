@@ -6,6 +6,30 @@
       "sourceType": "github",
       "skillPath": "plugins/business-analytics/skills/kpi-dashboard-design/SKILL.md",
       "computedHash": "237c91f703641b4abd39600062d55de1dbfb1ff6d42608b0ba5bd729aefa6f55"
+    },
+    "shadcn": {
+      "source": "shadcn-ui/ui",
+      "sourceType": "github",
+      "skillPath": "skills/shadcn/SKILL.md",
+      "computedHash": "e39871b64b1ba34f1aefc50ffea1b162c5a0750bc42a9ba54282ac503534429b"
+    },
+    "ui-design": {
+      "source": "mblode/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/ui-design/SKILL.md",
+      "computedHash": "404f6f16e63440c1bebdbd6930c982db2cf90b2420d9e992230fdd8822ed0a4a"
+    },
+    "design-md": {
+      "source": "nolly-studio/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/design-md/SKILL.md",
+      "computedHash": "55bc1bcd7ec169cf461eeede18f4dc191319ae5c44d7a352ef6c7d7efddebb2b"
+    },
+    "ui-verification": {
+      "source": "mblode/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/ui-verification/SKILL.md",
+      "computedHash": "06717415c836f62fd34cfd282cc9eaedb128846622baf13b1d2bb4585b195383"
     }
   }
 }
