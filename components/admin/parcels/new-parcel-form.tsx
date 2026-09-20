@@ -415,14 +415,14 @@ export function NewParcelForm() {
         </div>
         {/* QA-13: el contenedor padre maneja el alto del mapa. En
             desktop ocupa toda la altura visible menos el page header. */}
-        <div className="h-[calc(100vh-220px)] min-h-[640px]">
+        <div className="h-[calc(100svh-13.75rem)] min-h-[40rem]">
           <ParcelDrawer onPolygonChange={handlePolygonChange} showContextParcels />
         </div>
       </div>
 
       {/* Columna derecha: form alfanumérico (sticky sidebar).
           Fase 3: dividido en 3 secciones con headers visuales. */}
-      <div className="flex flex-col gap-5 lg:max-h-[calc(100vh-180px)] lg:overflow-y-auto lg:pr-1">
+      <div className="flex flex-col gap-5 lg:max-h-[calc(100svh-11.25rem)] lg:overflow-y-auto lg:pr-1">
         {error && (
           <p
             role="alert"
