@@ -50,6 +50,13 @@ export interface MapEvent {
   notes: string | null
   source: "manual" | "import" | "djiscraper"
   n_matched_flights: number | null
+  /**
+   * 2026-09-20 — fumigación huérfana (sin parcela asignada). El mapa la
+   * dibuja con color propio (magenta) y borde punteado.
+   */
+  is_orphan?: boolean
+  /** 2026-09-20 — nota de asignación de la huérfana. */
+  assignment_note?: string | null
 }
 
 /**
@@ -264,6 +271,8 @@ function eventsToFeatures(events: MapEvent[]) {
           source: e.source,
           n_matched_flights: e.n_matched_flights,
           drone_nickname: e.drone_nickname ?? null,
+          is_orphan: e.is_orphan === true,
+          assignment_note: e.assignment_note ?? null,
         },
       },
     ]
@@ -350,9 +359,11 @@ export function GeoMap({
           type: "fill",
           source: "parcels",
           paint: {
-            // 2026-09-17 — naranja tenue: se ve sobre el satélite.
-            "fill-color": "#f97316",
-            "fill-opacity": 0.2,
+            // 2026-09-20 — simbología del geovisor: las parcelas son
+            // borde ámbar fino (relleno casi nulo para no tapar el
+            // satélite).
+            "fill-color": "#f59e0b",
+            "fill-opacity": 0.06,
           },
         })
         map.addLayer({
@@ -360,9 +371,9 @@ export function GeoMap({
           type: "line",
           source: "parcels",
           paint: {
-            // 2026-09-19 — borde de la parcela seleccionada: azul.
-            "line-color": ["case", ["boolean", ["feature-state", "selected"], false], "#2563eb", "#dc2626"],
-            "line-width": ["case", ["boolean", ["feature-state", "selected"], false], 3.5, 1.6],
+            // 2026-09-20 — borde ámbar fino; seleccionada = azul.
+            "line-color": ["case", ["boolean", ["feature-state", "selected"], false], "#2563eb", "#f59e0b"],
+            "line-width": ["case", ["boolean", ["feature-state", "selected"], false], 3.5, 1.2],
             "line-opacity": 0.95,
           },
         })
@@ -387,20 +398,37 @@ export function GeoMap({
           type: "fill",
           source: "events",
           paint: {
-            // 2026-09-16 — la fumigación es un POLÍGONO (área volada),
-            // ya no un punto. Amarillo para contrastar con las parcelas.
-            "fill-color": "#f5e839",
-            "fill-opacity": 0.32,
+            // 2026-09-20 — simbología: fumigaciones cian translúcido;
+            // huérfanas (sin parcela) magenta.
+            "fill-color": ["case", ["boolean", ["get", "is_orphan"], false], "#a855f7", "#06b6d4"],
+            "fill-opacity": 0.28,
           },
         })
+        // MapLibre v4 NO soporta `line-dasharray` data-driven (lanza
+        // "data expressions not supported"). Por eso separamos el borde
+        // en 2 capas con `filter` constante: cian sólido (con parcela)
+        // y magenta punteado (huérfanas).
         map.addLayer({
           id: "events-line",
           type: "line",
           source: "events",
+          filter: ["!=", ["get", "is_orphan"], true],
           paint: {
-            "line-color": "#8a7a10",
+            "line-color": "#0891b2",
             "line-width": 1.6,
             "line-opacity": 0.95,
+          },
+        })
+        map.addLayer({
+          id: "events-line-orphan",
+          type: "line",
+          source: "events",
+          filter: ["==", ["get", "is_orphan"], true],
+          paint: {
+            "line-color": "#7e22ce",
+            "line-width": 1.8,
+            "line-opacity": 0.95,
+            "line-dasharray": [2, 1.5],
           },
         })
 
@@ -473,6 +501,7 @@ export function GeoMap({
     map.setLayoutProperty("parcels-label", "visibility", showParcels && showLabels ? "visible" : "none")
     map.setLayoutProperty("events-fill", "visibility", showEvents ? "visible" : "none")
     map.setLayoutProperty("events-line", "visibility", showEvents ? "visible" : "none")
+    map.setLayoutProperty("events-line-orphan", "visibility", showEvents ? "visible" : "none")
   }, [showParcels, showEvents, showLabels, ready])
 
   // s8.8 (2026-07-31): sincronizar el popup MapLibre con selectedEventId.
@@ -515,10 +544,22 @@ export function GeoMap({
       const notesHtml = event.notes
         ? `<div class="event-popup__notes">${escapeHtml(event.notes)}</div>`
         : ""
+      const orphan = event.is_orphan === true
+      const orphanBadge = orphan
+        ? `<span class="event-popup__src" style="background:#a855f7;color:#fff">Sin asignar</span>`
+        : ""
+      const assignmentInfo =
+        orphan && event.assignment_note
+          ? `<div class="event-popup__notes">${escapeHtml(event.assignment_note)}</div>`
+          : ""
+      const parcelLink = orphan
+        ? ""
+        : `<a class="event-popup__link" href="/parcelas/${event.parcel_id}">Ver hoja de vida de la parcela →</a>`
       const html = `
         <div class="event-popup">
           <div class="event-popup__head">
             <span class="event-popup__date">${dateLabel}</span>
+            ${orphanBadge}
             <span class="event-popup__src">${event.source}</span>
           </div>
           <div class="event-popup__row"><span class="event-popup__lbl">Producto</span><span class="event-popup__val">${escapeHtml(product)}</span></div>
@@ -528,7 +569,8 @@ export function GeoMap({
           ${event.drone_nickname ? `<div class="event-popup__row"><span class="event-popup__lbl">Dron</span><span class="event-popup__val">${escapeHtml(event.drone_nickname)}</span></div>` : ""}
           ${matchInfo}
           ${notesHtml}
-          <a class="event-popup__link" href="/parcelas/${event.parcel_id}">Ver hoja de vida de la parcela →</a>
+          ${assignmentInfo}
+          ${parcelLink}
         </div>
       `
       const popup = new maplibregl.Popup({

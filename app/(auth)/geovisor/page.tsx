@@ -4,6 +4,7 @@ import { GeovisorClient } from "@/components/geovisor/geovisor-client"
 import { PageHeader } from "@/components/page-header"
 import { PageSpinner } from "@/components/ui/loading"
 import { getGeovisorPayload } from "@/lib/data"
+import { getViewerRole } from "@/lib/auth/role"
 
 export const metadata: Metadata = {
   title: "AFM Geovisor",
@@ -38,10 +39,12 @@ export default function GeovisorPage() {
 }
 
 async function GeovisorContent() {
-  const payload = await getGeovisorPayload()
+  const [payload, role] = await Promise.all([getGeovisorPayload(), getViewerRole()])
+  // 2026-09-20 — admin y supervisor pueden asignar parcela a huérfanas.
+  const canAssign = role === "admin" || role === "supervisor"
   return (
     <div className="min-h-0 flex-1">
-      <GeovisorClient payload={payload} />
+      <GeovisorClient payload={payload} canAssign={canAssign} />
     </div>
   )
 }

@@ -21,6 +21,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { DeleteFumigationButton } from "@/components/fumigations/delete-fumigation-button";
+import { AssignParcelDialog } from "@/components/fumigations/assign-parcel-dialog";
 import { FumigationAuditTrail } from "@/components/fumigations/fumigation-audit-trail";
 import { InvoicesCard } from "@/components/fumigations/invoices-card";
 import { FumigationMap } from "@/components/parcels/fumigation-map";
@@ -121,7 +122,11 @@ export default async function FumigacionPage({ params }: PageProps) {
   }
 
   // Cargar el parcel en paralelo (es chico, no hace falta await seriado).
-  const parcel = await getParcelById(fumigation.parcel_id);
+  // 2026-09-20 — las fumigaciones huérfanas no tienen parcel_id.
+  const parcel =
+    fumigation.parcel_id != null
+      ? await getParcelById(fumigation.parcel_id)
+      : null;
 
   // Cargar los vuelos asociados a la fumigación.
   const flights = await getFumigationFlights(fumigation.flight_ids);
@@ -242,6 +247,28 @@ export default async function FumigacionPage({ params }: PageProps) {
           </svg>
           {`Modo lectura — ${readOnlyReason}. Las acciones de edición están deshabilitadas.`}
         </p>
+      ) : null}
+
+      {/* 2026-09-20 — banner de fumigación huérfana (sin parcela). */}
+      {fumigation.needs_parcel_assignment ? (
+        <div
+          role="status"
+          className="flex flex-wrap items-center gap-3 rounded-md border border-[#a855f7]/50 bg-[#a855f7]/10 px-3 py-2 text-xs"
+        >
+          <Badge className="border-transparent bg-[#a855f7] text-white">
+            Sin asignar
+          </Badge>
+          <span className="min-w-0 flex-1 text-muted-foreground">
+            {fumigation.assignment_note ??
+              "Esta fumigación se importó de los vuelos DJI pero no se pudo asociar a ninguna parcela."}
+          </span>
+          {canEdit ? (
+            <AssignParcelDialog
+              fumigationId={fumigation.id}
+              note={fumigation.assignment_note}
+            />
+          ) : null}
+        </div>
       ) : null}
 
       {/* Header */}

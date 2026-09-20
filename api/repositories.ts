@@ -1524,6 +1524,9 @@ export async function getFumigationById(id: number): Promise<DjiFumigationEvent 
           mv.n_matched_flights,
           mv.lat,
           mv.lng,
+          -- 2026-09-20 — import por-sesión: huérfanas (sin parcela).
+          f.needs_parcel_assignment,
+          f.assignment_note,
           -- 2026-09-17: métricas derivadas de los VUELOS (MV
           -- mv_fumigation_flights_agg) — volumen real, dron y piloto.
           agg.spray_ml::bigint AS flight_spray_ml,
@@ -1577,6 +1580,64 @@ export async function getFumigationById(id: number): Promise<DjiFumigationEvent 
     }
     throw err;
   }
+}
+
+/**
+ * 2026-09-20 — asigna una parcela a una fumigación huérfana
+ * (`needs_parcel_assignment = true`, `parcel_id IS NULL`).
+ *
+ * Hace 2 writes:
+ *   1. `dji_fumigations`: set parcel_id, limpia el flag y la nota.
+ *   2. `dji_flights`: propaga `parcel_id` a los vuelos de la fumigación
+ *      que aún no tenían parcela (para que el log de vuelos quede
+ *      consistente con la fumigación).
+ *
+ * Valida que la parcela exista y no esté soft-deleted. Devuelve la
+ * fumigación actualizada (shape `DjiFumigationEvent`) o `null` si la
+ * fumigación no existe / está soft-deleted.
+ *
+ * Errores:
+ *   - code "PARCEL_NOT_FOUND" → parcela inexistente o soft-deleted.
+ */
+export async function assignFumigationParcel(
+  fumigationId: number,
+  parcelId: number
+): Promise<DjiFumigationEvent | null> {
+  const db = getDb();
+  const parcel = await db.query<{ id: number }>(
+    `SELECT id FROM dji_parcels WHERE id = $1 AND deleted_at IS NULL`,
+    [parcelId]
+  );
+  if (parcel.rowCount === 0) {
+    throw Object.assign(new Error("parcela no encontrada"), {
+      code: "PARCEL_NOT_FOUND"
+    });
+  }
+
+  const result = await db.query<{ id: number; flight_ids: number[] | null }>(
+    `UPDATE dji_fumigations
+        SET parcel_id = $2,
+            needs_parcel_assignment = false,
+            assignment_note = NULL
+      WHERE id = $1
+        AND deleted_at IS NULL
+      RETURNING id, flight_ids`,
+    [fumigationId, parcelId]
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+
+  if (row.flight_ids && row.flight_ids.length > 0) {
+    await db.query(
+      `UPDATE dji_flights
+          SET parcel_id = $2
+        WHERE flight_id = ANY($1::bigint[])
+          AND parcel_id IS NULL`,
+      [row.flight_ids, parcelId]
+    );
+  }
+
+  return getFumigationById(fumigationId);
 }
 
 /**
@@ -3113,6 +3174,13 @@ export async function getRecentFumigations(
     toDate?: string;
     /** Filtrar por parcela específica. Null = todas. */
     parcelId?: number;
+    /**
+     * 2026-09-20 — incluir fumigaciones huérfanas (parcel_id NULL,
+     * importadas por-sesión sin matchear parcela). Default false:
+     * los callers que listan por parcela no las quieren. El geovisor
+     * las pide explícitamente para mostrarlas y permitir asignarlas.
+     */
+    includeOrphans?: boolean;
   }
 ): Promise<DjiFumigationEvent[]> {
   const db = getDb();
@@ -3161,6 +3229,9 @@ export async function getRecentFumigations(
             f.source,
             f.category_id,
             f.flight_ids,
+            -- 2026-09-20 — import por-sesión: huérfanas (sin parcela).
+            f.needs_parcel_assignment,
+            f.assignment_note,
             -- Sprint S7 — application_type_id + catálogo hidratado.
             f.application_type_id,
             -- Sprint S9 (2026-08-29) — product_id FK al catálogo products.
@@ -3205,7 +3276,7 @@ export async function getRecentFumigations(
            LEFT JOIN application_types at
              ON at.id = f.application_type_id AND at.is_active = TRUE
           WHERE f.deleted_at IS NULL
-            AND f.parcel_id IS NOT NULL
+            AND ($5::boolean IS TRUE OR f.parcel_id IS NOT NULL)
             AND ($2::date IS NULL OR f.fumigation_date >= $2)
             AND ($3::date IS NULL OR f.fumigation_date <= $3)
             AND ($4::bigint IS NULL OR f.parcel_id = $4)
@@ -3215,7 +3286,8 @@ export async function getRecentFumigations(
           limit,
           filter?.fromDate ?? null,
           filter?.toDate ?? null,
-          filter?.parcelId ?? null
+          filter?.parcelId ?? null,
+          filter?.includeOrphans ?? false
         ]
       );
       return result.rows.map((row) => ({

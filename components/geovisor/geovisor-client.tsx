@@ -62,6 +62,8 @@ import {
   type ImperativePanelHandle
 } from "react-resizable-panels";
 import { ParcelPanel } from "@/components/geovisor/parcel-panel";
+import { AssignParcelDialog } from "@/components/fumigations/assign-parcel-dialog";
+import { SidebarBoxes } from "@/components/geovisor/sidebar-boxes";
 import { type BaseMap, GeoMap, USE_MAPTILER, type MapParcel } from "@/components/map/geo-map";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -95,7 +97,13 @@ function parseLocalISODate(s: string): number | null {
   return new Date(y, mo - 1, d).getTime();
 }
 
-export function GeovisorClient({ payload }: { payload: GeovisorPayload }) {
+export function GeovisorClient({
+  payload,
+  canAssign = false
+}: {
+  payload: GeovisorPayload;
+  canAssign?: boolean;
+}) {
   // QA-02 (2026-09-06): rango temporal con defaults sensatos.
   // Última fumigación conocida (si hay) o hoy.
   const lastEventMs = useMemo(() => {
@@ -190,7 +198,11 @@ export function GeovisorClient({ payload }: { payload: GeovisorPayload }) {
   const sortedEvents = useMemo(
     () =>
       [...eventsInRange]
-        .filter((e) => filteredParcelsById.has(e.parcel_id))
+        .filter(
+          (e) =>
+            filteredParcelsById.has(e.parcel_id) ||
+            e.needs_parcel_assignment === true
+        )
         .sort((a, b) => new Date(b.executed_at).getTime() - new Date(a.executed_at).getTime()),
     [eventsInRange, filteredParcelsById]
   );
@@ -291,7 +303,7 @@ export function GeovisorClient({ payload }: { payload: GeovisorPayload }) {
     ? payload.parcels.find((p) => p.id === selectedId) ?? null
     : null;
 
-  const selectedCardData = selectedEvent && selectedEventParcel ? {
+  const selectedCardData = selectedEvent ? {
     event: selectedEvent,
     parcel: selectedEventParcel
   } : null;
@@ -378,7 +390,7 @@ export function GeovisorClient({ payload }: { payload: GeovisorPayload }) {
                   sym: (
                     <span
                       className="size-3.5 rounded-sm border border-foreground/20"
-                      style={{ backgroundColor: "#f97316" }}
+                      style={{ backgroundColor: "#f59e0b" }}
                       aria-hidden
                     />
                   )
@@ -390,7 +402,7 @@ export function GeovisorClient({ payload }: { payload: GeovisorPayload }) {
                   sym: (
                     <span
                       className="size-3.5 rounded-sm border border-foreground/30"
-                      style={{ backgroundColor: "#f5e839" }}
+                      style={{ backgroundColor: "#06b6d4" }}
                       aria-hidden
                     />
                   )
@@ -437,6 +449,34 @@ export function GeovisorClient({ payload }: { payload: GeovisorPayload }) {
               </button>
             ))}
           </div>
+        </fieldset>
+
+        <fieldset className="flex flex-col gap-2">
+          <legend className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Leyenda
+          </legend>
+          <ul className="flex flex-col gap-1.5 text-[11px] text-muted-foreground">
+            <li className="flex items-center gap-2">
+              <span className="h-0.5 w-4 shrink-0 rounded" style={{ backgroundColor: "#f59e0b" }} aria-hidden />
+              Parcela (borde ámbar)
+            </li>
+            <li className="flex items-center gap-2">
+              <span className="size-3 shrink-0 rounded-sm" style={{ backgroundColor: "#06b6d4", opacity: 0.5 }} aria-hidden />
+              Fumigación (relleno cian)
+            </li>
+            <li className="flex items-center gap-2">
+              <span
+                className="size-3 shrink-0 rounded-sm border border-dashed"
+                style={{ backgroundColor: "#a855f7", opacity: 0.5, borderColor: "#7e22ce" }}
+                aria-hidden
+              />
+              Sin asignar (magenta, borde punteado)
+            </li>
+            <li className="flex items-center gap-2">
+              <span className="h-0.5 w-4 shrink-0 rounded" style={{ backgroundColor: "#2563eb" }} aria-hidden />
+              Parcela seleccionada (azul)
+            </li>
+          </ul>
         </fieldset>
 
         <fieldset className="flex flex-col gap-2">
@@ -502,7 +542,9 @@ export function GeovisorClient({ payload }: { payload: GeovisorPayload }) {
               flights_count: e.flights_count,
               notes: e.notes,
               source: e.source,
-              n_matched_flights: e.n_matched_flights ?? null
+              n_matched_flights: e.n_matched_flights ?? null,
+              is_orphan: e.needs_parcel_assignment === true,
+              assignment_note: e.assignment_note ?? null
             }))}
           showParcels={showParcels}
           showEvents={showEvents}
@@ -582,18 +624,24 @@ export function GeovisorClient({ payload }: { payload: GeovisorPayload }) {
             <div className="flex items-start justify-between gap-2">
               <div>
                 <p className="text-[11px] uppercase tracking-wider text-muted-foreground">
-                  {selectedCardData.parcel.farm_name}
+                  {selectedCardData.parcel?.farm_name ?? "Sin parcela asignada"}
                 </p>
                 <h3 className="text-base font-bold tracking-tight">
-                  {selectedCardData.parcel.name}
+                  {selectedCardData.parcel?.name ?? "Fumigación huérfana"}
                 </h3>
                 <p className="text-xs text-muted-foreground">
                   {fmtDate(selectedCardData.event.executed_at)}
                 </p>
               </div>
-              <Badge variant="secondary" className="shrink-0">
-                {SOURCE_LABEL[selectedCardData.event.source]}
-              </Badge>
+              {selectedCardData.event.needs_parcel_assignment ? (
+                <Badge className="shrink-0 border-transparent bg-[#a855f7] text-white">
+                  Sin asignar
+                </Badge>
+              ) : (
+                <Badge variant="secondary" className="shrink-0">
+                  {SOURCE_LABEL[selectedCardData.event.source]}
+                </Badge>
+              )}
             </div>
             <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
               <div className="flex flex-col">
@@ -617,73 +665,178 @@ export function GeovisorClient({ payload }: { payload: GeovisorPayload }) {
                 <dd className="font-medium">{selectedCardData.event.operator || "—"}</dd>
               </div>
             </dl>
-            <Button
-              render={
-                <Link
-                  href={`/parcelas/${selectedCardData.parcel.id}`}
-                  aria-label="Ver hoja de vida de la parcela"
-                />
-              }
-              nativeButton={false}
-              size="sm"
-              className="w-full"
-            >
-              Ver detalle
-              <ArrowUpRight className="size-3.5" />
-            </Button>
-          </div>
-        ) : (
-          <div className="border-b border-border p-4">
-            <h3 className="text-sm font-bold tracking-tight">Fumigaciones en el rango</h3>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {sortedEvents.length} aplicaciones · click para ver el detalle y centrar el mapa.
-            </p>
-          </div>
-        )}
-
-        <ul className="flex-1 divide-y divide-border overflow-y-auto lg:max-h-none max-h-72">
-          {sortedEvents.map((e) => {
-            const parcel = filteredParcelsById.get(e.parcel_id);
-            const active = e.id === selectedEventId;
-            return (
-              <li key={e.id}>
-                <button
-                  type="button"
-                  onClick={() => handleEventClick(e.id)}
-                  aria-pressed={active}
-                  data-testid={`geovisor-event-${e.id}`}
-                  className={cn(
-                    "flex w-full items-start gap-3 px-4 py-2.5 text-left hover:bg-muted",
-                    active && "bg-muted"
-                  )}
-                >
-                  <span
-                    className="mt-0.5 size-2.5 shrink-0 rounded-full"
-                    style={{ backgroundColor: "#f5e839", border: "1px solid rgba(31,41,55,0.5)" }}
-                    aria-hidden
+            {selectedCardData.event.needs_parcel_assignment &&
+            selectedCardData.event.assignment_note ? (
+              <p className="rounded-md bg-muted p-2 text-[11px] text-muted-foreground">
+                {selectedCardData.event.assignment_note}
+              </p>
+            ) : null}
+            {selectedCardData.parcel ? (
+              <Button
+                render={
+                  <Link
+                    href={`/parcelas/${selectedCardData.parcel.id}`}
+                    aria-label="Ver hoja de vida de la parcela"
                   />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-semibold">
-                      {parcel?.name ?? "(parcela)"}
-                    </span>
-                    <span className="block truncate text-[11px] text-muted-foreground">
-                      {fmtDate(e.executed_at)} · {fmtDec(e.area_treated_ha)} ha
-                      {e.product ? ` · ${e.product}` : ""}
-                    </span>
-                  </span>
-                  <Badge variant="secondary" className="shrink-0 text-[10px]">
-                    {SOURCE_LABEL[e.source]}
-                  </Badge>
-                </button>
-              </li>
-            );
-          })}
-          {sortedEvents.length === 0 && (
-            <li className="p-4 text-sm text-muted-foreground">
-              No hay fumigaciones en el rango seleccionado.
-            </li>
-          )}
-        </ul>
+                }
+                nativeButton={false}
+                size="sm"
+                className="w-full"
+              >
+                Ver detalle
+                <ArrowUpRight className="size-3.5" />
+              </Button>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {canAssign ? (
+                  <AssignParcelDialog
+                    fumigationId={Number(selectedCardData.event.id)}
+                    note={selectedCardData.event.assignment_note}
+                  />
+                ) : null}
+                <Button
+                  render={
+                    <Link
+                      href={`/fumigaciones/${selectedCardData.event.id}`}
+                      aria-label="Ver detalle de la fumigación"
+                    />
+                  }
+                  nativeButton={false}
+                  variant="outline"
+                  size="sm"
+                >
+                  Ver fumigación
+                  <ArrowUpRight className="size-3.5" />
+                </Button>
+              </div>
+            )}
+          </div>
+        ) : null}
+
+        <SidebarBoxes
+          storageKey="afm-geovisor-sidebar-boxes"
+          boxes={[
+            {
+              id: "parcelas",
+              title: "Parcelas",
+              badge: (
+                <Badge variant="secondary" className="font-mono text-[10px]">
+                  {fmtInt(filteredParcels.length)}
+                </Badge>
+              ),
+              content: (
+                <ul className="divide-y divide-border">
+                  {filteredParcels.map((p) => {
+                    const agg = eventsByParcel.get(p.id);
+                    const active = p.id === selectedId;
+                    return (
+                      <li key={p.id}>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedId(p.id)}
+                          aria-pressed={active}
+                          data-testid={`geovisor-parcel-${p.id}`}
+                          className={cn(
+                            "flex w-full items-start gap-3 px-4 py-2 text-left hover:bg-muted",
+                            active && "bg-muted"
+                          )}
+                        >
+                          <span
+                            className="mt-0.5 size-2.5 shrink-0 rounded-sm"
+                            style={{ backgroundColor: "#f59e0b" }}
+                            aria-hidden
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-sm font-semibold">
+                              {p.name}
+                            </span>
+                            <span className="block truncate text-[11px] text-muted-foreground">
+                              {[p.farm_name, p.municipality].filter(Boolean).join(" · ")}
+                            </span>
+                          </span>
+                          <span className="shrink-0 text-right text-[10px] text-muted-foreground">
+                            <span className="block font-mono">{fmtDec(p.area_ha)} ha</span>
+                            {agg ? <span className="block">{fmtInt(agg.count)} fum.</span> : null}
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                  {filteredParcels.length === 0 && (
+                    <li className="p-4 text-xs text-muted-foreground">
+                      Sin parcelas para la búsqueda.
+                    </li>
+                  )}
+                </ul>
+              ),
+            },
+            {
+              id: "fumigaciones",
+              title: "Fumigaciones",
+              badge: (
+                <Badge variant="secondary" className="font-mono text-[10px]">
+                  {fmtInt(sortedEvents.length)}
+                </Badge>
+              ),
+              content: (
+                <ul className="divide-y divide-border">
+                  {sortedEvents.map((e) => {
+                    const parcel = filteredParcelsById.get(e.parcel_id);
+                    const active = e.id === selectedEventId;
+                    const isOrphan = e.needs_parcel_assignment === true;
+                    return (
+                      <li key={e.id}>
+                        <button
+                          type="button"
+                          onClick={() => handleEventClick(e.id)}
+                          aria-pressed={active}
+                          data-testid={`geovisor-event-${e.id}`}
+                          className={cn(
+                            "flex w-full items-start gap-3 px-4 py-2.5 text-left hover:bg-muted",
+                            active && "bg-muted"
+                          )}
+                        >
+                          <span
+                            className="mt-0.5 size-2.5 shrink-0 rounded-full"
+                            style={
+                              isOrphan
+                                ? { backgroundColor: "#a855f7", border: "1px dashed rgba(255,255,255,0.8)" }
+                                : { backgroundColor: "#06b6d4", border: "1px solid rgba(31,41,55,0.5)" }
+                            }
+                            aria-hidden
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-sm font-semibold">
+                              {parcel?.name ?? "Fumigación sin parcela"}
+                            </span>
+                            <span className="block truncate text-[11px] text-muted-foreground">
+                              {fmtDate(e.executed_at)} · {fmtDec(e.area_treated_ha)} ha
+                              {e.product ? ` · ${e.product}` : ""}
+                            </span>
+                          </span>
+                          {isOrphan ? (
+                            <Badge className="shrink-0 border-transparent bg-[#a855f7] text-[10px] text-white">
+                              Sin asignar
+                            </Badge>
+                          ) : (
+                            <Badge variant="secondary" className="shrink-0 text-[10px]">
+                              {SOURCE_LABEL[e.source]}
+                            </Badge>
+                          )}
+                        </button>
+                      </li>
+                    );
+                  })}
+                  {sortedEvents.length === 0 && (
+                    <li className="p-4 text-sm text-muted-foreground">
+                      No hay fumigaciones en el rango seleccionado.
+                    </li>
+                  )}
+                </ul>
+              ),
+            },
+          ]}
+        />
       </Panel>
     </PanelGroup>
   );
