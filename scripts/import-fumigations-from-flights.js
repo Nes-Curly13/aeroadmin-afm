@@ -23,7 +23,11 @@
 // Uso:
 //   node scripts/import-fumigations-from-flights.js
 //   node scripts/import-fumigations-from-flights.js --limit 500
-//   node scripts/import-fumigations-from-flights.js --tolerance 50 --gap-minutes 60
+//   node scripts/import-fumigations-from-flights.js --tolerance 50 --gap-minutes 30
+//   node scripts/import-fumigations-from-flights.js --parcel-source dji   (default)
+//   node scripts/import-fumigations-from-flights.js --parcel-source imported
+//   node scripts/import-fumigations-from-flights.js --parcel-source any
+//   node scripts/import-fumigations-from-flights.js --apply --reset
 //   node scripts/import-fumigations-from-flights.js --apply
 //
 // Env (.env.local): DATABASE_URL (o DATABASE_URL_DIRECT), DATABASE_SSL.
@@ -31,7 +35,7 @@
 const fs = require("fs");
 const path = require("path");
 const { Client } = require("pg");
-const { parsePerFlightFile, UPSERT_SQL, paramsToPgArray } = require("../lib/djiag-flights-fetcher");
+const { parsePerFlightFile, paramsToPgArray } = require("../lib/djiag-flights-fetcher");
 const { groupFumigationFlights } = require("../lib/fumigation-grouping");
 
 const ML_PER_L = 1000;
@@ -55,17 +59,21 @@ function parseArgs(argv) {
     inPath: path.join(process.cwd(), "djiag_exports", "perflight_records.json"),
     apply: false,
     refresh: true,
+    reset: false,
     tolerance: 50,
-    gapMinutes: 60,
+    gapMinutes: 30,
     maxOrphanDistanceM: 1000,
     orphanSpatialSplit: true,
     limit: null,
+    parcelSource: "dji",
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--apply") args.apply = true;
+    else if (a === "--reset") args.reset = true;
     else if (a === "--no-refresh") args.refresh = false;
     else if (a === "--no-orphan-spatial-split") args.orphanSpatialSplit = false;
+    else if (a === "--parcel-source" && argv[i + 1]) args.parcelSource = String(argv[++i]).trim();
     else if (a === "--in" && argv[i + 1]) args.inPath = path.resolve(argv[++i]);
     else if (a === "--tolerance" && argv[i + 1]) args.tolerance = Number(argv[++i]);
     else if (a === "--gap-minutes" && argv[i + 1]) args.gapMinutes = Number(argv[++i]);
@@ -73,7 +81,7 @@ function parseArgs(argv) {
     else if (a === "--limit" && argv[i + 1]) args.limit = Number(argv[++i]);
   }
   if (!Number.isFinite(args.tolerance) || args.tolerance < 0) args.tolerance = 50;
-  if (!Number.isFinite(args.gapMinutes) || args.gapMinutes <= 0) args.gapMinutes = 60;
+  if (!Number.isFinite(args.gapMinutes) || args.gapMinutes <= 0) args.gapMinutes = 30;
   if (!Number.isFinite(args.maxOrphanDistanceM) || args.maxOrphanDistanceM <= 0) args.maxOrphanDistanceM = 1000;
   if (args.limit !== null && (!Number.isFinite(args.limit) || args.limit <= 0)) args.limit = null;
   return args;
@@ -113,7 +121,7 @@ function fmtL(ml) {
  * Matchea vuelos a parcelas (READ-ONLY).
  * @returns {Promise<Map<number, { parcelId: number|null, landName: string|null, externalId: string|null, distanceM: number|null }>>}
  */
-async function matchFlightsToParcels(client, flights, toleranceMeters) {
+async function matchFlightsToParcels(client, flights, toleranceMeters, parcelSource = "dji") {
   const withCoords = flights.filter(
     (f) => f.flightId && f.lng !== null && f.lng !== undefined && f.lat !== null && f.lat !== undefined
   );
@@ -126,6 +134,9 @@ async function matchFlightsToParcels(client, flights, toleranceMeters) {
   // reventaba el statement_timeout. La distancia final (m) si usa geography,
   // solo para el candidato ya elegido.
   const toleranceDeg = Number(toleranceMeters) / 111320;
+
+  const sourceFilter = parcelSource && parcelSource !== "any" ? " AND p.source = $5" : "";
+  const sqlParamsNote = parcelSource && parcelSource !== "any" ? ` (source=${parcelSource})` : " (source=any)";
 
   const sql = `
     WITH input AS (
@@ -147,35 +158,41 @@ async function matchFlightsToParcels(client, flights, toleranceMeters) {
     FROM input i
     LEFT JOIN LATERAL (
       SELECT id, land_name, external_id, spray_geom
-      FROM dji_parcels
+      FROM dji_parcels p
       WHERE deleted_at IS NULL
-        AND spray_geom IS NOT NULL
+        AND spray_geom IS NOT NULL${sourceFilter}
         AND (
-          ST_Within(ST_SetSRID(ST_MakePoint(i.lng, i.lat), 4326), spray_geom)
+          ST_Within(ST_SetSRID(ST_MakePoint(i.lng, i.lat), 4326), p.spray_geom)
           OR ST_DWithin(
             ST_SetSRID(ST_MakePoint(i.lng, i.lat), 4326),
-            spray_geom,
+            p.spray_geom,
             $4::float8
           )
         )
       ORDER BY
-        CASE WHEN ST_Within(ST_SetSRID(ST_MakePoint(i.lng, i.lat), 4326), spray_geom)
+        CASE WHEN ST_Within(ST_SetSRID(ST_MakePoint(i.lng, i.lat), 4326), p.spray_geom)
              THEN 0 ELSE 1 END,
         ST_Distance(
           ST_SetSRID(ST_MakePoint(i.lng, i.lat), 4326),
-          spray_geom
+          p.spray_geom
         )
       LIMIT 1
     ) p ON true
   `;
+  console.log(`  filtro parcelario:${sqlParamsNote}`);
 
   const BATCH = 1000;
+  const params = [null, null, null, toleranceDeg];
+  if (parcelSource && parcelSource !== "any") params.push(parcelSource);
   for (let start = 0; start < withCoords.length; start += BATCH) {
     const chunk = withCoords.slice(start, start + BATCH);
     const ids = chunk.map((f) => Number(f.flightId));
     const lngs = chunk.map((f) => Number(f.lng));
     const lats = chunk.map((f) => Number(f.lat));
-    const res = await client.query(sql, [ids, lngs, lats, toleranceDeg]);
+    params[0] = ids;
+    params[1] = lngs;
+    params[2] = lats;
+    const res = await client.query(sql, params);
     for (const row of res.rows) {
       map.set(Number(row.flight_id), {
         parcelId: row.parcel_id === null ? null : Number(row.parcel_id),
@@ -241,6 +258,7 @@ function printDryRunReport({ args, totalFlights, eligible, groups, matchMap, par
   console.log(`  archivo:                 ${path.relative(process.cwd(), args.inPath)}`);
   console.log(`  limite:                  ${args.limit ?? "(todos)"}`);
   console.log(`  tolerancia match:        ${args.tolerance} m`);
+  console.log(`  parcelario del match:    ${args.parcelSource}`);
   console.log(`  gap de sesion:           ${args.gapMinutes} min`);
   console.log(`  salto huerfanas:         ${args.orphanSpatialSplit ? `${args.maxOrphanDistanceM} m` : "desactivado (solo tiempo)"}`);
   console.log("");
@@ -282,18 +300,75 @@ function printDryRunReport({ args, totalFlights, eligible, groups, matchMap, par
   console.log("");
 }
 
-async function applyImport({ client, parsedFlights, groups, matchMap }) {
-  await client.query("BEGIN");
+// Columnas de dji_flights en el orden de `paramsToPgArray` (lib/djiag-flights-fetcher).
+const FLIGHT_COLUMNS = [
+  "flight_id", "parcel_id", "drone_serial", "drone_nickname",
+  "pilot_name", "flyer_name", "district", "location",
+  "start_at", "end_at", "duration_seconds",
+  "area_m2", "spray_usage_ml", "work_speed_m_s", "spray_width_m", "radar_height_m",
+  "manual_mode", "mode_name", "create_date",
+  "lng", "lat", "notes", "captured_at", "source",
+];
+const FLIGHT_UPDATE_SET = FLIGHT_COLUMNS
+  .filter((c) => c !== "flight_id" && c !== "source")
+  .map((c) => `${c} = EXCLUDED.${c}`)
+  .join(", ");
+
+/**
+ * UPSERT batcheado de dji_flights (multi-row, ~1 statement por lote).
+ *
+ * Por que: la version fila-por-fila (10.475 round-trips dentro de una
+ * transaccion) hace que el pooler de Supabase corte la conexion
+ * ("Connection terminated unexpectedly"). Con multi-row el apply baja a
+ * ~20 statements y no hay transaccion larga.
+ */
+async function upsertFlightsBatched(client, flights, batchSize = 500, onProgress) {
+  let done = 0;
+  for (let i = 0; i < flights.length; i += batchSize) {
+    const chunk = flights.slice(i, i + batchSize);
+    const values = [];
+    const params = [];
+    let p = 1;
+    for (const f of chunk) {
+      const arr = paramsToPgArray(f);
+      values.push(`(${arr.map(() => `$${p++}`).join(",")})`);
+      params.push(...arr);
+    }
+    const sql = `INSERT INTO dji_flights (${FLIGHT_COLUMNS.join(",")}) VALUES ${values.join(",")} ` +
+      `ON CONFLICT (flight_id, source) DO UPDATE SET ${FLIGHT_UPDATE_SET}`;
+    await client.query(sql, params);
+    done += chunk.length;
+    if (onProgress) onProgress(done);
+  }
+  return done;
+}
+
+async function applyImport({ client, parsedFlights, groups, matchMap, reset }) {
+  // Supabase/pooler aplica statement_timeout (~2 min); subimos el de la
+  // sesion por si algun lote/refresco se pasa.
+  await client.query("SET statement_timeout = '15min'");
+
+  // Sin transaccion gigante: cada lote se auto-commitea. Idempotente
+  // (UPSERT por flight_id / session_key), asi que un fallo parcial se
+  // arregla re-corriendo. El `--reset` reemplaza las fumigaciones de
+  // import previas (no toca las manuales ni asignaciones ajenas).
+  if (reset) {
+    const del = await client.query(
+      "DELETE FROM dji_fumigations WHERE source = 'import' AND session_key IS NOT NULL"
+    );
+    console.log(`  reset: ${del.rowCount} fumigaciones de import previas borradas`);
+  }
 
   // 1) UPSERT de TODOS los vuelos (log completo), con parcel_id matcheado.
-  let flightsUpserted = 0;
-  for (const f of parsedFlights) {
-    if (!f.flightId || (!f.startAt && !f.endAt)) continue;
+  const valid = parsedFlights.filter((f) => f.flightId && (f.startAt || f.endAt));
+  for (const f of valid) {
     const m = matchMap.get(Number(f.flightId));
     f.parcelId = m ? m.parcelId : null;
-    await client.query(UPSERT_SQL, paramsToPgArray(f));
-    flightsUpserted += 1;
   }
+  const flightsUpserted = await upsertFlightsBatched(client, valid, 500, (n) => {
+    if (n % 2000 === 0) console.log(`  vuelos upsert: ${n}`);
+  });
+  console.log(`  vuelos upsert: ${flightsUpserted} (ok)`);
 
   // 2) UPSERT de las fumigaciones por session_key.
   const insertSql = `
@@ -356,9 +431,12 @@ async function applyImport({ client, parsedFlights, groups, matchMap }) {
       g.sessionKey,
     ]);
     fumigationsUpserted += 1;
+    if (fumigationsUpserted % 200 === 0) {
+      console.log(`  fumigaciones upsert: ${fumigationsUpserted}`);
+    }
   }
+  console.log(`  fumigaciones upsert: ${fumigationsUpserted} (ok)`);
 
-  await client.query("COMMIT");
   return { flightsUpserted, fumigationsUpserted };
 }
 
@@ -385,8 +463,8 @@ async function main() {
   try {
     await client.connect();
 
-    console.log(`[import-fumigations] matching vuelos -> parcelas (read-only, tol=${args.tolerance}m)...`);
-    const matchMap = await matchFlightsToParcels(client, parsedFlights, args.tolerance);
+    console.log(`[import-fumigations] matching vuelos -> parcelas (read-only, tol=${args.tolerance}m, source=${args.parcelSource})...`);
+    const matchMap = await matchFlightsToParcels(client, parsedFlights, args.tolerance, args.parcelSource);
     console.log(`  matcheados: ${[...matchMap.values()].filter((m) => m.parcelId !== null).length}`);
 
     const eligible = buildCandidates(parsedFlights, rawFlights, matchMap);
@@ -411,6 +489,7 @@ async function main() {
       parsedFlights,
       groups,
       matchMap,
+      reset: args.reset,
     });
     console.log(`  dji_flights upsert:      ${stats.flightsUpserted}`);
     console.log(`  dji_fumigations upsert:  ${stats.fumigationsUpserted}`);
