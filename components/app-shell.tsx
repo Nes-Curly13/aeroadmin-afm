@@ -73,8 +73,8 @@ export async function AppShell({
     role === "admin" ? "Admin" : role === "supervisor" ? "Supervisor" : "—";
 
   return (
-    <div className="flex min-h-svh flex-col lg:flex-row">
-      <aside className="brand-sidebar flex shrink-0 flex-col gap-6 border-b border-sidebar-border bg-sidebar px-4 py-4 text-sidebar-foreground lg:sticky lg:top-0 lg:h-svh lg:w-64 lg:border-b-0 lg:border-r lg:py-6">
+    <div className="flex h-svh flex-col overflow-hidden lg:flex-row">
+      <aside className="brand-sidebar flex shrink-0 flex-col gap-6 border-b border-sidebar-border bg-sidebar px-4 py-4 text-sidebar-foreground lg:h-full lg:w-64 lg:border-b-0 lg:border-r lg:py-6">
         <div className="flex items-center justify-between gap-3">
           <Link
             href="/"
@@ -139,7 +139,7 @@ export async function AppShell({
         </div>
       </aside>
 
-      <main className="min-w-0 flex-1">
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col">
         {/* Top header (v2.8 — sprint 2026-08-04). Identifica al usuario
             actual en TODAS las páginas: email + role badge. Sticky en
             top con `backdrop-blur` para que se vea bien cuando el
@@ -149,7 +149,7 @@ export async function AppShell({
             viewer "contorno" (outline). Asi el operador distingue
             visualmente sin leer texto. */}
         <header
-          className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b border-border bg-card/90 px-4 py-2 backdrop-blur supports-[backdrop-filter]:bg-card/70 sm:px-6"
+          className="z-20 flex shrink-0 items-center justify-between gap-3 border-b border-border bg-card/90 px-4 py-2 backdrop-blur supports-[backdrop-filter]:bg-card/70 sm:px-6"
           role="banner"
         >
           <div className="min-w-0 flex-1" aria-hidden />
@@ -179,7 +179,7 @@ export async function AppShell({
             )}
           </div>
         </header>
-        {children}
+        <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
       </main>
     </div>
   )
