@@ -333,6 +333,19 @@ export interface DjiFumigationEvent {
    */
   n_matched_flights?: number | null;
   /**
+   * 2026-09-20 — fumigación huérfana: el import por-sesión no encontró
+   * parcela para sus vuelos (cayeron fuera de toda parcela). En la BD
+   * `parcel_id` es NULL y esta bandera es TRUE. La UI muestra un badge
+   * "Sin asignar" y ofrece asignar una parcela existente o crear una.
+   */
+  needs_parcel_assignment?: boolean | null;
+  /**
+   * 2026-09-20 — nota de la fumigación huérfana (cantidad de vuelos +
+   * centroide del hull), para orientar la asignación. NULL en
+   * fumigaciones con parcela.
+   */
+  assignment_note?: string | null;
+  /**
    * 2026-09-16 — polígono (convex hull de los flight points) de la
    * fumigación, derivado de la MV `mv_fumigation_hulls` en el JOIN.
    * El geovisor lo usa para dibujar el ÁREA fumigada en vez de un punto.
@@ -779,6 +792,10 @@ export interface DjiFumigationV0 {
    * match. Util para el popup ("5 de 7 flights asociados").
    */
   n_matched_flights?: number | null;
+  /** 2026-09-20 — fumigación huérfana (sin parcela). Ver DjiFumigationEvent. */
+  needs_parcel_assignment?: boolean | null;
+  /** 2026-09-20 — nota de la fumigación huérfana (vuelos + centroide). */
+  assignment_note?: string | null;
   /**
    * 2026-09-16 — polígono (convex hull de los flight points) de la
    * fumigación, para dibujarla como área en el geovisor. null si no
@@ -900,6 +917,7 @@ export interface GeovisorPayload {
     area_ha: number;
     // 2026-09-19 — para el panel de parcela del geovisor. Opcionales por
     // compat con fixtures de tests previos; la query siempre los trae.
+    source?: "dji" | "manual" | "imported" | string;
     dji_land_id?: string | null;
     planting_date?: string | null;
     shape_attrs?: Record<string, unknown> | null;
@@ -937,6 +955,8 @@ export interface GeovisorPayload {
       | "lat"
       | "notes"
       | "n_matched_flights"
+      | "needs_parcel_assignment"
+      | "assignment_note"
       | "hull"
       | "drone_nickname"
     >

@@ -80,6 +80,17 @@ export function ParcelPanel({
   onClose?: () => void
 }) {
   const tenenciaRaw = attr(parcel, "TENENCIA")
+  // 2026-09-20 — origen del registro: 'dji' = parcelario operativo de DJI
+  // (los que efectivamente se volaron), 'imported' = shape Suertes_MYZ
+  // (agronómico). Diferenciados para poder modificarlos por separado.
+  const origin =
+    parcel.source === "dji" ? "DJI" : parcel.source === "imported" ? "MYZ" : (parcel.source ?? "—")
+  const originFull =
+    parcel.source === "dji"
+      ? "Parcelario DJI (operativo)"
+      : parcel.source === "imported"
+        ? "Shape Suertes_MYZ (agronómico)"
+        : "Desconocido"
   const topoRaw = attr(parcel, "Topografia")
   const siembra = isoDate(parcel.planting_date) ?? shapeDate(attr(parcel, "F.SIEMBRA"))
   const corte = shapeDate(attr(parcel, "F.COSECHA"))
@@ -94,6 +105,12 @@ export function ParcelPanel({
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <span
+            className="whitespace-nowrap rounded-full border border-foreground/15 bg-muted px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground"
+            title={`Origen: ${originFull}`}
+          >
+            {origin}
+          </span>
           <span className="whitespace-nowrap rounded-full border border-primary/25 bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">
             {num(String(parcel.area_ha))} ha
           </span>
@@ -116,6 +133,7 @@ export function ParcelPanel({
             Identificación
           </div>
           <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+            <Field label="Origen" value={originFull} />
             <Field label="Variedad" value={parcel.variety} />
             <Field label="Tenencia" value={tenenciaRaw ? (TENENCIA[tenenciaRaw] ?? tenenciaRaw) : null} />
             <Field label="Cliente" value={parcel.client_name} />

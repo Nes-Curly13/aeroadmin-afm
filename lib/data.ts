@@ -384,6 +384,9 @@ function adaptFumigation(e: DjiFumigationEvent, flightsCount: number): DjiFumiga
     hull: e.hull_geometry ?? null,
     // 2026-09-17 — dron real (nickname del vuelo).
     drone_nickname: e.flight_drone ?? null,
+    // 2026-09-20 — fumigación huérfana (import por-sesión sin parcela).
+    needs_parcel_assignment: e.needs_parcel_assignment ?? false,
+    assignment_note: e.assignment_note ?? null,
     // Sprint S9 (2026-08-30) — feature/multi-parcela-fumigation.
     // El array `parcels[]` (external_ids de suertes secundarias) lo
     // popula `scripts/backfill-fumigation-parcels.js`. Aquí solo
@@ -765,6 +768,21 @@ export async function getFlights(): Promise<DjiFlightV0[]> {
   return ds.flightPoints.map((f, i) => adaptFlight(f, i, f.parcel_id ?? 0));
 }
 
+/**
+ * 2026-09-20 — fumigaciones para el geovisor, INCLUYENDO las huérfanas
+ * (`parcel_id NULL`, importadas por sesión sin matchear parcela). Las
+ * huérfanas no entran en `loadDataset` (que las excluye para dashboards
+ * y timelines por parcela); el geovisor las pide explícitamente para
+ * mostrarlas como capa magenta y ofrecer la asignación de parcela.
+ *
+ * `flights_count` usa `n_matched_flights` de la MV (los vuelos de la
+ * sesión) porque el lookup por parcela no aplica a las huérfanas.
+ */
+export async function getFumigationsForGeovisor(): Promise<DjiFumigationV0[]> {
+  const rows = await getRecentFumigations(2000, { includeOrphans: true });
+  return rows.map((e) => adaptFumigation(e, e.n_matched_flights ?? 0));
+}
+
 export async function getParcelSummaries(): Promise<ParcelSummary[]> {
   return getSummaries();
 }
@@ -923,7 +941,8 @@ export async function getFumigationsMonthly(): Promise<MonthlyBar[]> {
 
 export async function getGeovisorPayload(): Promise<GeovisorPayload> {
   const summaries = await getSummaries();
-  const fumigations = await getFumigations();
+  // 2026-09-20 — incluye huérfanas (parcel_id NULL) para el geovisor.
+  const fumigations = await getFumigationsForGeovisor();
   // s8.8 (2026-07-31): filtrar eventos sin coordenadas validas
   // (centroide de flights). El `f.lng`/`f.lat` ya viene calculado
   // de `getRecentFumigations` (LEFT JOIN con dji_flights por
@@ -955,6 +974,9 @@ export async function getGeovisorPayload(): Promise<GeovisorPayload> {
       hull: f.hull ?? null,
       // 2026-09-17 — dron real (nickname del vuelo).
       drone_nickname: f.drone_nickname ?? null,
+      // 2026-09-20 — huérfana (sin parcela) + nota de asignación.
+      needs_parcel_assignment: f.needs_parcel_assignment ?? false,
+      assignment_note: f.assignment_note ?? null,
     }));
 
   // Sprint S8 (Bloque B — 2026-08-29): agregados de `dji_flights` para
@@ -1002,6 +1024,7 @@ export async function getGeovisorPayload(): Promise<GeovisorPayload> {
       municipality: s.parcel.municipality,
       variety: s.parcel.variety,
       area_ha: s.parcel.area_ha,
+      source: s.parcel.source ?? null,
       dji_land_id: s.parcel.dji_land_id,
       planting_date: s.parcel.planting_date ?? null,
       shape_attrs: s.parcel.shape_attrs ?? null,
