@@ -3253,10 +3253,12 @@ export async function getRecentFumigations(
             agg.pilot_name AS flight_pilot,
             agg.drone_nickname AS flight_drone,
             agg.duration_seconds AS flight_duration_s,
-            -- 2026-09-16: polígono (convex hull de los flight points) por
-            -- fumigación, para dibujarla como ÁREA en el geovisor en vez de
-            -- punto. MV mv_fumigation_hulls (migration 20260917000000).
-            ST_AsGeoJSON(hull.geom)::json AS hull_geometry,
+            -- 2026-09-16: polígono de la fumigación para el geovisor.
+            -- 2026-09-21: preferimos f.coverage (área real = unión de
+            -- buffers 2 m de los tracks KML) sobre el convex hull de puntos
+            -- (mv_fumigation_hulls), que generaba "franjas" cuando el grupo
+            -- tenía vuelos dispersos. Fallback a hull si no hay cobertura.
+            COALESCE(ST_AsGeoJSON(f.coverage)::json, ST_AsGeoJSON(hull.geom)::json) AS hull_geometry,
             -- Catálogo de categoría hidratado (LEFT JOIN; null si fumigación
             -- histórica no clasificada). row_to_json para anidar.
             CASE WHEN f.category_id IS NULL THEN NULL

@@ -167,7 +167,7 @@ export function SidebarBoxes({
         onDragEnd={handleDragEnd}
       >
         <SortableContext items={visibleIds} strategy={verticalListSortingStrategy}>
-          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             {visibleIds.map((id) => {
               const box = boxes.find((b) => b.id === id)
               if (!box) return null
@@ -251,7 +251,7 @@ function SortableBox({
           <X className="size-3.5" aria-hidden />
         </button>
       </div>
-      <div className="min-h-0 flex-1">{children}</div>
+      <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
     </section>
   )
 }
