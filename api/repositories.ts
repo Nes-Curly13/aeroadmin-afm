@@ -5302,30 +5302,45 @@ export async function resetPhaseApplicationRules(cropType = "cana"): Promise<num
 //   - Accionable > descriptivo.
 //   - Pre-agregar (OLAP separado del OLTP de escritura).
 
+export type DashboardEstado = "con_parcela" | "sin_asignar" | "revisar";
+
 export interface DashboardFilter {
   /** YYYY-MM-DD inclusive. null = todo el histórico. */
   fromDate: string | null;
   /** YYYY-MM-DD inclusive. null = hoy. */
   toDate: string | null;
+  /** @deprecated el modelo ya no usa client_id (clients vacío). */
   clientId: number | null;
   farmId: number | null;
+  /** Nombre del dron (nickname del vuelo, ej "AFM T50-1"). */
+  drone?: string | null;
+  /** Estado de asignación de la fumigación. */
+  estado?: DashboardEstado | null;
+  /** Búsqueda por texto en suerte/hacienda. */
+  query?: string | null;
   /** Granularidad de la tendencia. Default "week". */
   grain?: "week" | "month";
 }
 
 export interface DashboardKpis {
   fumigaciones: number;
+  /** Σ area_m2_total / 10000 (área reportada). */
   hectareas: number;
+  /** Σ spray_usage_total / 1000 (volumen real de los vuelos). */
   volumen_l: number;
-  dosis_media: number | null;
+  /** Σ ST_Area(coverage) / 10000 (área real volada). */
+  cobertura_ha: number;
   parcelas_cubiertas: number;
   parcelas_total: number;
   vuelos: number;
+  /** Fumigaciones sobre parcelas auto (`cov-auto-*`) = por revisar. */
+  por_revisar: number;
   prev: {
     fumigaciones: number;
     hectareas: number;
+    volumen_l: number;
+    cobertura_ha: number;
     parcelas_cubiertas: number;
-    dosis_media: number | null;
     vuelos: number;
   };
 }
@@ -5338,7 +5353,8 @@ export interface DashboardTrendPoint {
 }
 
 export interface DashboardFleetRow {
-  drone_code: number;
+  /** Nickname del dron ("AFM T50-1", ...) o "Sin dron". */
+  drone: string;
   fumigaciones: number;
   ha: number;
 }
@@ -5349,9 +5365,9 @@ export interface DashboardCategoryRow {
   ha: number;
 }
 
-export interface DashboardClientRow {
-  client_id: number | null;
-  client_name: string;
+export interface DashboardFarmRow {
+  farm_id: number | null;
+  farm_name: string;
   fumigaciones: number;
   ha: number;
   parcelas: number;
@@ -5368,7 +5384,7 @@ export interface DashboardData {
   trend: DashboardTrendPoint[];
   fleet: DashboardFleetRow[];
   categories: DashboardCategoryRow[];
-  clients: DashboardClientRow[];
+  farms: DashboardFarmRow[];
   planCompliance: DashboardPlanCompliance;
 }
 
@@ -5392,24 +5408,46 @@ function emptyDashboardData(): DashboardData {
       fumigaciones: 0,
       hectareas: 0,
       volumen_l: 0,
-      dosis_media: null,
+      cobertura_ha: 0,
       parcelas_cubiertas: 0,
       parcelas_total: 0,
       vuelos: 0,
+      por_revisar: 0,
       prev: {
         fumigaciones: 0,
         hectareas: 0,
+        volumen_l: 0,
+        cobertura_ha: 0,
         parcelas_cubiertas: 0,
-        dosis_media: null,
         vuelos: 0
       }
     },
     trend: [],
     fleet: [],
     categories: [],
-    clients: [],
+    farms: [],
     planCompliance: { hechas: 0, planificadas: 0, canceladas: 0 }
   };
+}
+
+/**
+ * Drones (nickname) distintos que aparecen en los vuelos. Alimenta el
+ * dropdown de "Dron" del dashboard (dimensión con datos reales del KML).
+ */
+export async function getDistinctDroneNicknames(): Promise<string[]> {
+  const db = getDb();
+  return withLocalFallback(
+    async () => {
+      const r = await db.query<{ drone: string }>(
+        `SELECT DISTINCT drone_nickname AS drone
+           FROM mv_fumigation_flights_agg
+          WHERE drone_nickname IS NOT NULL AND drone_nickname <> ''
+          ORDER BY 1`
+      );
+      return r.rows.map((x) => x.drone);
+    },
+    async () => []
+  );
 }
 
 export async function getDashboardData(
@@ -5419,8 +5457,10 @@ export async function getDashboardData(
   const today = getBogotaDateString();
   const to = filter.toDate ?? today;
   const from = filter.fromDate;
-  const clientId = filter.clientId;
   const farmId = filter.farmId;
+  const drone = filter.drone?.trim() || null;
+  const estado = filter.estado ?? null;
+  const query = filter.query?.trim() || null;
 
   return withLocalFallback(
     async () => {
@@ -5431,114 +5471,112 @@ export async function getDashboardData(
         from !== null ? addDaysIso(from, -Math.max(1, diffDaysIso(from, to)) - 1) : null;
       const lowFrom = prevFrom ?? curFrom;
 
-      const p = [lowFrom, to, clientId, farmId] as const;
+      const baseParams = [lowFrom, to, farmId, drone, estado, query];
+      // Base común: fumigaciones del rango, con parcela, filtros de
+      // hacienda/dron/estado/búsqueda y agregados de los vuelos.
+      const base = `
+        WITH base AS (
+          SELECT f.id AS fumigation_id, f.parcel_id, f.fumigation_date,
+                 f.category_id, f.needs_parcel_assignment,
+                 COALESCE(f.area_m2_total, 0)::float8 AS area_m2,
+                 COALESCE(f.spray_usage_total, 0)::float8 AS spray_ml,
+                 f.coverage,
+                 p.farm_id, p.farm_name, p.external_id,
+                 agg.drone_nickname
+            FROM dji_fumigations f
+            JOIN dji_parcels p ON p.id = f.parcel_id
+            LEFT JOIN mv_fumigation_flights_agg agg ON agg.fumigation_id = f.id
+           WHERE f.deleted_at IS NULL
+             AND f.fumigation_date >= $1 AND f.fumigation_date <= $2
+             AND ($3::int IS NULL OR p.farm_id = $3)
+             AND ($4::text IS NULL OR agg.drone_nickname = $4)
+             AND (
+               $5::text IS NULL
+               OR ($5 = 'con_parcela' AND f.needs_parcel_assignment = false)
+               OR ($5 = 'sin_asignar' AND f.needs_parcel_assignment = true)
+               OR ($5 = 'revisar' AND p.external_id LIKE 'cov-auto-%')
+             )
+             AND ($6::text IS NULL OR p.land_name ILIKE '%'||$6||'%' OR p.farm_name ILIKE '%'||$6||'%')
+        )`;
 
-      const [kpiRes, parcelsRes, flightsRes, trendRes, fleetRes, catRes, clientRes, planRes] =
+      const [kpiRes, parcelsRes, flightsRes, trendRes, fleetRes, catRes, farmRes, planRes] =
         await Promise.all([
           db.query<Record<string, unknown>>(
-            `WITH base AS (
-               SELECT f.parcel_id, f.fumigation_date, f.area_fumigated_m2, f.dose_l_per_ha
-                 FROM dji_fumigations f
-                 JOIN dji_parcels p ON p.id = f.parcel_id
-                WHERE f.deleted_at IS NULL
-                  AND f.fumigation_date >= $1
-                  AND f.fumigation_date <= $2
-                  AND ($3::int IS NULL OR p.client_id = $3)
-                  AND ($4::int IS NULL OR p.farm_id = $4)
-             )
+            `${base}
              SELECT
-               COUNT(*) FILTER (WHERE fumigation_date >= $5) AS fum_cur,
-               COUNT(DISTINCT parcel_id) FILTER (WHERE fumigation_date >= $5) AS parcels_cur,
-               COALESCE(SUM(area_fumigated_m2) FILTER (WHERE fumigation_date >= $5), 0) / 10000.0 AS ha_cur,
-               COALESCE(SUM(area_fumigated_m2 / 10000.0 * dose_l_per_ha) FILTER (WHERE fumigation_date >= $5), 0) AS vol_cur,
-               AVG(dose_l_per_ha) FILTER (WHERE fumigation_date >= $5) AS dose_cur,
-               COUNT(*) FILTER (WHERE fumigation_date < $5) AS fum_prev,
-               COUNT(DISTINCT parcel_id) FILTER (WHERE fumigation_date < $5) AS parcels_prev,
-               COALESCE(SUM(area_fumigated_m2) FILTER (WHERE fumigation_date < $5), 0) / 10000.0 AS ha_prev,
-               AVG(dose_l_per_ha) FILTER (WHERE fumigation_date < $5) AS dose_prev
-              FROM base`,
-            [...p, curFrom]
+               COUNT(*) FILTER (WHERE fumigation_date >= $7)::int AS fum_cur,
+               COUNT(DISTINCT parcel_id) FILTER (WHERE fumigation_date >= $7)::int AS parcels_cur,
+               COALESCE(SUM(area_m2) FILTER (WHERE fumigation_date >= $7), 0) / 10000.0 AS ha_cur,
+               COALESCE(SUM(spray_ml) FILTER (WHERE fumigation_date >= $7), 0) / 1000.0 AS vol_cur,
+               COALESCE(SUM(ST_Area(coverage::geography)) FILTER (WHERE fumigation_date >= $7), 0) / 10000.0 AS cob_cur,
+               COUNT(*) FILTER (WHERE fumigation_date >= $7 AND external_id LIKE 'cov-auto-%')::int AS revisar_cur,
+               COUNT(*) FILTER (WHERE fumigation_date < $7)::int AS fum_prev,
+               COUNT(DISTINCT parcel_id) FILTER (WHERE fumigation_date < $7)::int AS parcels_prev,
+               COALESCE(SUM(area_m2) FILTER (WHERE fumigation_date < $7), 0) / 10000.0 AS ha_prev,
+               COALESCE(SUM(spray_ml) FILTER (WHERE fumigation_date < $7), 0) / 1000.0 AS vol_prev,
+               COALESCE(SUM(ST_Area(coverage::geography)) FILTER (WHERE fumigation_date < $7), 0) / 10000.0 AS cob_prev
+               FROM base`,
+            [...baseParams, curFrom]
           ),
           db.query<{ n: number }>(
             `SELECT COUNT(*)::int AS n
                FROM dji_parcels p
               WHERE p.deleted_at IS NULL
-                AND ($1::int IS NULL OR p.client_id = $1)
-                AND ($2::int IS NULL OR p.farm_id = $2)`,
-            [clientId, farmId]
+                AND ($1::int IS NULL OR p.farm_id = $1)`,
+            [farmId]
           ),
           db.query<Record<string, unknown>>(
             `SELECT
-               COUNT(*) FILTER (WHERE fl.start_at >= $5::date) AS cur,
-               COUNT(*) FILTER (WHERE fl.start_at < $5::date) AS prev
+               COUNT(*) FILTER (WHERE fl.start_at >= $5::date)::int AS cur,
+               COUNT(*) FILTER (WHERE fl.start_at < $5::date)::int AS prev
               FROM dji_flights fl
               JOIN dji_parcels p ON p.id = fl.parcel_id
              WHERE fl.start_at >= $1::date
                AND fl.start_at < ($2::date + INTERVAL '1 day')
-               AND ($3::int IS NULL OR p.client_id = $3)
-               AND ($4::int IS NULL OR p.farm_id = $4)`,
-            [...p, curFrom]
+               AND ($3::int IS NULL OR p.farm_id = $3)
+               AND ($4::text IS NULL OR fl.drone_nickname = $4)`,
+            [lowFrom, to, farmId, drone, curFrom]
           ),
           db.query<{ bucket: string; fumigaciones: number; ha: number }>(
-            `SELECT to_char(date_trunc($5::text, f.fumigation_date), 'YYYY-MM-DD') AS bucket,
+            `${base}
+             SELECT to_char(date_trunc($7::text, fumigation_date), 'YYYY-MM-DD') AS bucket,
                     COUNT(*)::int AS fumigaciones,
-                    COALESCE(SUM(f.area_fumigated_m2), 0) / 10000.0 AS ha
-               FROM dji_fumigations f
-               JOIN dji_parcels p ON p.id = f.parcel_id
-              WHERE f.deleted_at IS NULL
-                AND f.fumigation_date >= $1 AND f.fumigation_date <= $2
-                AND ($3::int IS NULL OR p.client_id = $3)
-                AND ($4::int IS NULL OR p.farm_id = $4)
-              GROUP BY 1 ORDER BY 1`,
-            [...p, filter.grain ?? "week"]
+                    COALESCE(SUM(area_m2), 0) / 10000.0 AS ha
+               FROM base GROUP BY 1 ORDER BY 1`,
+            [...baseParams, filter.grain ?? "week"]
           ),
-          db.query<{ drone_code: number; fumigaciones: number; ha: number }>(
-            `SELECT COALESCE(f.drone_code_used, 0)::int AS drone_code,
+          db.query<{ drone: string; fumigaciones: number; ha: number }>(
+            `${base}
+             SELECT COALESCE(drone_nickname, 'Sin dron') AS drone,
                     COUNT(*)::int AS fumigaciones,
-                    COALESCE(SUM(f.area_fumigated_m2), 0) / 10000.0 AS ha
-               FROM dji_fumigations f
-               JOIN dji_parcels p ON p.id = f.parcel_id
-              WHERE f.deleted_at IS NULL
-                AND f.fumigation_date >= $1 AND f.fumigation_date <= $2
-                AND ($3::int IS NULL OR p.client_id = $3)
-                AND ($4::int IS NULL OR p.farm_id = $4)
-              GROUP BY 1 ORDER BY ha DESC`,
-            [...p]
+                    COALESCE(SUM(area_m2), 0) / 10000.0 AS ha
+               FROM base GROUP BY 1 ORDER BY ha DESC`,
+            baseParams
           ),
           db.query<{ slug: string; fumigaciones: number; ha: number }>(
-            `SELECT COALESCE(c.slug, 'otro') AS slug,
+            `${base}
+             SELECT COALESCE(c.slug, 'otro') AS slug,
                     COUNT(*)::int AS fumigaciones,
-                    COALESCE(SUM(f.area_fumigated_m2), 0) / 10000.0 AS ha
-               FROM dji_fumigations f
-               JOIN dji_parcels p ON p.id = f.parcel_id
-               LEFT JOIN fumigation_categories c ON c.id = f.category_id
-              WHERE f.deleted_at IS NULL
-                AND f.fumigation_date >= $1 AND f.fumigation_date <= $2
-                AND ($3::int IS NULL OR p.client_id = $3)
-                AND ($4::int IS NULL OR p.farm_id = $4)
+                    COALESCE(SUM(base.area_m2), 0) / 10000.0 AS ha
+               FROM base LEFT JOIN fumigation_categories c ON c.id = base.category_id
               GROUP BY 1 ORDER BY ha DESC`,
-            [...p]
+            baseParams
           ),
           db.query<{
-            client_id: number | null;
-            client_name: string;
+            farm_id: number | null;
+            farm_name: string;
             fumigaciones: number;
             ha: number;
             parcelas: number;
           }>(
-            `SELECT p.client_id,
-                    COALESCE(p.client_name, 'Sin cliente') AS client_name,
+            `${base}
+             SELECT farm_id,
+                    COALESCE(farm_name, 'Sin hacienda') AS farm_name,
                     COUNT(*)::int AS fumigaciones,
-                    COALESCE(SUM(f.area_fumigated_m2), 0) / 10000.0 AS ha,
-                    COUNT(DISTINCT f.parcel_id)::int AS parcelas
-               FROM dji_fumigations f
-               JOIN dji_parcels p ON p.id = f.parcel_id
-              WHERE f.deleted_at IS NULL
-                AND f.fumigation_date >= $1 AND f.fumigation_date <= $2
-                AND ($3::int IS NULL OR p.client_id = $3)
-                AND ($4::int IS NULL OR p.farm_id = $4)
-              GROUP BY 1, 2 ORDER BY ha DESC LIMIT 8`,
-            [...p]
+                    COALESCE(SUM(area_m2), 0) / 10000.0 AS ha,
+                    COUNT(DISTINCT parcel_id)::int AS parcelas
+               FROM base GROUP BY 1, 2 ORDER BY ha DESC LIMIT 8`,
+            baseParams
           ),
           db.query<{ status: string; n: number }>(
             `SELECT status, COUNT(*)::int AS n
@@ -5565,16 +5603,17 @@ export async function getDashboardData(
           fumigaciones: num(k.fum_cur),
           hectareas: num(k.ha_cur),
           volumen_l: num(k.vol_cur),
-          dosis_media: k.dose_cur === null || k.dose_cur === undefined ? null : num(k.dose_cur),
+          cobertura_ha: num(k.cob_cur),
           parcelas_cubiertas: num(k.parcels_cur),
           parcelas_total: num(parcelsRes.rows[0]?.n),
           vuelos: num(flights.cur),
+          por_revisar: num(k.revisar_cur),
           prev: {
             fumigaciones: num(k.fum_prev),
             hectareas: num(k.ha_prev),
+            volumen_l: num(k.vol_prev),
+            cobertura_ha: num(k.cob_prev),
             parcelas_cubiertas: num(k.parcels_prev),
-            dosis_media:
-              k.dose_prev === null || k.dose_prev === undefined ? null : num(k.dose_prev),
             vuelos: num(flights.prev)
           }
         },
@@ -5584,7 +5623,7 @@ export async function getDashboardData(
           ha: num(r.ha)
         })),
         fleet: fleetRes.rows.map((r) => ({
-          drone_code: num(r.drone_code),
+          drone: String(r.drone),
           fumigaciones: num(r.fumigaciones),
           ha: num(r.ha)
         })),
@@ -5593,9 +5632,9 @@ export async function getDashboardData(
           fumigaciones: num(r.fumigaciones),
           ha: num(r.ha)
         })),
-        clients: clientRes.rows.map((r) => ({
-          client_id: r.client_id === null ? null : num(r.client_id),
-          client_name: String(r.client_name),
+        farms: farmRes.rows.map((r) => ({
+          farm_id: r.farm_id === null ? null : num(r.farm_id),
+          farm_name: String(r.farm_name),
           fumigaciones: num(r.fumigaciones),
           ha: num(r.ha),
           parcelas: num(r.parcelas)

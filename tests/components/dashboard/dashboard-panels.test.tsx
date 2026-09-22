@@ -87,31 +87,44 @@ describe("PlanCompliance", () => {
 describe("DashboardFilters", () => {
   beforeEach(() => push.mockReset());
 
-  const clients = [{ id: 1, name: "Agro XYZ" }];
   const farms = [{ id: 9, name: "La Esperanza" }];
+  const drones = ["AFM T50-1", "AFM T40 1"];
+  const base = { farms, drones, range: "90", farmId: "", drone: "", estado: "", query: "" };
 
-  it("hacienda deshabilitada sin cliente", () => {
-    render(
-      <DashboardFilters clients={clients} farms={[]} range="90" clientId="" farmId="" />
-    );
-    expect(screen.getByTestId("dashboard-farm")).toBeDisabled();
-  });
-
-  it("elegir cliente navega con ?client= y resetea farm", async () => {
+  it("hacienda se puede elegir sin cliente → ?farm=", async () => {
     const user = userEvent.setup();
-    render(
-      <DashboardFilters clients={clients} farms={[]} range="90" clientId="" farmId="" />
-    );
-    await user.selectOptions(screen.getByTestId("dashboard-client"), "1");
-    expect(push).toHaveBeenCalledWith("/?client=1");
-  });
-
-  it("elegir hacienda navega con client + farm", async () => {
-    const user = userEvent.setup();
-    render(
-      <DashboardFilters clients={clients} farms={farms} range="90" clientId="1" farmId="" />
-    );
+    render(<DashboardFilters {...base} />);
+    expect(screen.getByTestId("dashboard-farm")).not.toBeDisabled();
     await user.selectOptions(screen.getByTestId("dashboard-farm"), "9");
-    expect(push).toHaveBeenCalledWith("/?client=1&farm=9");
+    expect(push).toHaveBeenCalledWith("/?farm=9");
+  });
+
+  it("elegir dron navega con ?drone=", async () => {
+    const user = userEvent.setup();
+    render(<DashboardFilters {...base} />);
+    await user.selectOptions(screen.getByTestId("dashboard-drone"), "AFM T50-1");
+    expect(push).toHaveBeenCalledWith("/?drone=AFM+T50-1");
+  });
+
+  it("elegir estado navega con ?estado=", async () => {
+    const user = userEvent.setup();
+    render(<DashboardFilters {...base} />);
+    await user.selectOptions(screen.getByTestId("dashboard-estado"), "revisar");
+    expect(push).toHaveBeenCalledWith("/?estado=revisar");
+  });
+
+  it("buscar navega con ?q=", async () => {
+    const user = userEvent.setup();
+    render(<DashboardFilters {...base} />);
+    await user.type(screen.getByTestId("dashboard-search"), "ste");
+    await user.click(screen.getByRole("button", { name: /Buscar/ }));
+    expect(push).toHaveBeenCalledWith("/?q=ste");
+  });
+
+  it("limpiar resetea los filtros", async () => {
+    const user = userEvent.setup();
+    render(<DashboardFilters {...base} range="30" farmId="9" />);
+    await user.click(screen.getByTestId("dashboard-clear"));
+    expect(push).toHaveBeenCalledWith("/");
   });
 });

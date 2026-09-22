@@ -1,7 +1,10 @@
 ﻿// tests/api-repositories-dashboard.test.ts
 //
-// Tests de getDashboardData â€” agregaciones SQL del dashboard (2026-09-15).
-// Mock de @/lib/db con getDb; cada query se matchea por substring.
+// Tests de getDashboardData — agregaciones SQL del dashboard.
+// Refactor 2026-09-21: filtros por hacienda/dron/estado/búsqueda; KPIs con
+// `spray_usage_total` (volumen), `coverage` (cobertura) y `por_revisar`;
+// paneles por hacienda (reemplaza cliente). Mock de @/lib/db, cada query se
+// matchea por substring único.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -18,44 +21,40 @@ function installDb() {
   (getDb as unknown as ReturnType<typeof vi.fn>).mockReturnValue({ query });
 }
 
-/** Handlers por substring SQL (mÃ¡s especÃ­fico primero). */
+/** Handlers por substring SQL (más específico primero). */
 function handlers(overrides: Record<string, Row[] | ((args: unknown[]) => Row[])> = {}) {
   const base: Record<string, Row[] | ((args: unknown[]) => Row[])> = {
-    "fum_cur": [
+    fum_cur: [
       {
         fum_cur: 120,
         parcels_cur: 40,
         ha_cur: 300.5,
         vol_cur: 900,
-        dose_cur: 3,
+        cob_cur: 280.25,
+        revisar_cur: 12,
         fum_prev: 100,
         parcels_prev: 35,
         ha_prev: 250,
-        dose_prev: 2.5
+        vol_prev: 800,
+        cob_prev: 230
       }
     ],
     "FROM dji_parcels": [{ n: 1200 }],
     "FROM dji_flights": [{ cur: 80, prev: 60 }],
-    "date_trunc($5": [
+    "date_trunc($7": [
       { bucket: "2026-09-07", fumigaciones: 20, ha: 50 },
       { bucket: "2026-09-14", fumigaciones: 15, ha: 40 }
     ],
-    "COALESCE(f.drone_code_used": [
-      { drone_code: 201, fumigaciones: 60, ha: 180 },
-      { drone_code: 72, fumigaciones: 30, ha: 70 }
+    "'Sin dron'": [
+      { drone: "AFM T50-1", fumigaciones: 60, ha: 180 },
+      { drone: "AFM T40 1", fumigaciones: 30, ha: 70 }
     ],
-    "c.slug": [
+    fumigation_categories: [
       { slug: "herbicida", fumigaciones: 70, ha: 200 },
       { slug: "insecticida", fumigaciones: 20, ha: 60 }
     ],
-    "p.client_name": [
-      {
-        client_id: 3,
-        client_name: "Agro XYZ",
-        fumigaciones: 80,
-        ha: 220,
-        parcelas: 25
-      }
+    "'Sin hacienda'": [
+      { farm_id: 9, farm_name: "La Esperanza", fumigaciones: 80, ha: 220, parcelas: 25 }
     ],
     "FROM fumigation_plans": [
       { status: "hecha", n: 6 },
@@ -85,7 +84,7 @@ describe("getDashboardData", () => {
     installDb();
   });
 
-  it("mapea KPIs, deltas de perÃ­odo previo y paneles", async () => {
+  it("mapea KPIs (volumen/cobertura/por_revisar), deltas y paneles", async () => {
     wire(handlers());
     const d = await getDashboardData({
       fromDate: "2026-08-01",
@@ -97,63 +96,65 @@ describe("getDashboardData", () => {
 
     expect(d.kpis.fumigaciones).toBe(120);
     expect(d.kpis.hectareas).toBeCloseTo(300.5);
-    expect(d.kpis.dosis_media).toBe(3);
+    expect(d.kpis.volumen_l).toBe(900);
+    expect(d.kpis.cobertura_ha).toBeCloseTo(280.25);
+    expect(d.kpis.por_revisar).toBe(12);
     expect(d.kpis.parcelas_cubiertas).toBe(40);
     expect(d.kpis.parcelas_total).toBe(1200);
     expect(d.kpis.vuelos).toBe(80);
     expect(d.kpis.prev.fumigaciones).toBe(100);
+    expect(d.kpis.prev.volumen_l).toBe(800);
     expect(d.kpis.prev.vuelos).toBe(60);
 
     expect(d.trend).toHaveLength(2);
-    expect(d.trend[0]).toEqual({
-      bucket: "2026-09-07",
-      fumigaciones: 20,
-      ha: 50
-    });
+    expect(d.trend[0]).toEqual({ bucket: "2026-09-07", fumigaciones: 20, ha: 50 });
 
-    expect(d.fleet[0]).toEqual({ drone_code: 201, fumigaciones: 60, ha: 180 });
+    expect(d.fleet[0]).toEqual({ drone: "AFM T50-1", fumigaciones: 60, ha: 180 });
     expect(d.categories[0].slug).toBe("herbicida");
-    expect(d.clients[0].client_name).toBe("Agro XYZ");
+    expect(d.farms[0].farm_name).toBe("La Esperanza");
 
-    expect(d.planCompliance).toEqual({
-      hechas: 6,
-      planificadas: 3,
-      canceladas: 1
-    });
+    expect(d.planCompliance).toEqual({ hechas: 6, planificadas: 3, canceladas: 1 });
   });
 
-  it("pasa clientId/farmId como params (filtro)", async () => {
+  it("pasa farmId/drone/estado/query como params (filtro)", async () => {
     wire(handlers());
     await getDashboardData({
       fromDate: "2026-08-01",
       toDate: "2026-09-15",
-      clientId: 7,
-      farmId: 9
+      clientId: null,
+      farmId: 9,
+      drone: "AFM T50-1",
+      estado: "revisar",
+      query: "ste"
     });
     const kpiCall = query.mock.calls.find(([sql]) => String(sql).includes("fum_cur"));
     expect(kpiCall?.[1]).toEqual([
       expect.any(String),
       "2026-09-15",
-      7,
       9,
+      "AFM T50-1",
+      "revisar",
+      "ste",
       "2026-08-01"
     ]);
   });
 
-  it("histÃ³rico (fromDate null): prev queda en 0 y no rompe", async () => {
+  it("histórico (fromDate null): prev en 0 y no rompe", async () => {
     wire(
       handlers({
-        "fum_cur": [
+        fum_cur: [
           {
             fum_cur: 500,
             parcels_cur: 300,
             ha_cur: 1000,
             vol_cur: 3000,
-            dose_cur: 3,
+            cob_cur: 900,
+            revisar_cur: 0,
             fum_prev: 0,
             parcels_prev: 0,
             ha_prev: 0,
-            dose_prev: null
+            vol_prev: 0,
+            cob_prev: 0
           }
         ],
         "FROM dji_flights": [{ cur: 400, prev: 0 }]
@@ -167,31 +168,33 @@ describe("getDashboardData", () => {
     });
     expect(d.kpis.fumigaciones).toBe(500);
     expect(d.kpis.prev.fumigaciones).toBe(0);
-    expect(d.kpis.prev.dosis_media).toBeNull();
+    expect(d.kpis.prev.cobertura_ha).toBe(0);
   });
 
-  it("sin filas devuelve estructura vacÃ­a vÃ¡lida", async () => {
+  it("sin filas devuelve estructura vacía válida", async () => {
     wire(
       handlers({
-        "fum_cur": [
+        fum_cur: [
           {
             fum_cur: 0,
             parcels_cur: 0,
             ha_cur: 0,
             vol_cur: 0,
-            dose_cur: null,
+            cob_cur: 0,
+            revisar_cur: 0,
             fum_prev: 0,
             parcels_prev: 0,
             ha_prev: 0,
-            dose_prev: null
+            vol_prev: 0,
+            cob_prev: 0
           }
         ],
         "FROM dji_parcels": [{ n: 0 }],
         "FROM dji_flights": [{ cur: 0, prev: 0 }],
-        "date_trunc($5": [],
-        "COALESCE(f.drone_code_used": [],
-        "c.slug": [],
-        "p.client_name": [],
+        "date_trunc($7": [],
+        "'Sin dron'": [],
+        fumigation_categories: [],
+        "'Sin hacienda'": [],
         "FROM fumigation_plans": []
       })
     );
@@ -202,12 +205,9 @@ describe("getDashboardData", () => {
       farmId: null
     });
     expect(d.kpis.fumigaciones).toBe(0);
-    expect(d.kpis.dosis_media).toBeNull();
+    expect(d.kpis.cobertura_ha).toBe(0);
     expect(d.trend).toEqual([]);
-    expect(d.planCompliance).toEqual({
-      hechas: 0,
-      planificadas: 0,
-      canceladas: 0
-    });
+    expect(d.farms).toEqual([]);
+    expect(d.planCompliance).toEqual({ hechas: 0, planificadas: 0, canceladas: 0 });
   });
 });
