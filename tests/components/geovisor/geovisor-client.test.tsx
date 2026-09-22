@@ -1,24 +1,22 @@
 // tests/components/geovisor/geovisor-client.test.tsx
 //
-// Tests del rediseño del geovisor (QA-02, fix/qa-02-geovisor-simplify,
-// 2026-09-06).
+// Tests del geovisor. Refactor 2026-09-21: el sidebar con cajas + card flotante
+// + popup MapLibre se unificó en un único `InspectorPanel` con 3 modos
+// (Contexto / Parcelas / Fumigaciones). El mapa ya no abre popups.
 //
 // Cubre:
-//   - Sin filtros de cadencia, cliente, hacienda, drone, source
-//   - Filtro por rango temporal (Desde / Hasta) con defaults sensatos
-//   - Filtro por búsqueda de texto
-//   - Lista de fumigaciones en el sidebar derecho (no lista de parcelas)
-//   - KPIs: Fumigaciones / Parcelas tratadas / Área aplicada / Última
-//   - Click en un evento selecciona y muestra el card de detalle
+//   - QA-02: sin filtros de cadencia/cliente/hacienda/drone/source
+//   - Rango temporal (Desde / Hasta) y búsqueda de texto
+//   - KPIs
+//   - Inspector: modos, contexto de parcela, detalle de fumigación, volver
+//   - Huérfanas (asignar / ver fumigación)
+//   - GeoMap recibe events/parcels correctos
 //
-// Estrategia de mocking: GeoMap es client-only con MapLibre + DOM
-// real. Para no requerir el browser, mockeamos el componente
-// `@/components/map/geo-map` con un stub que recibe props y registra
-// llamadas. Así podemos verificar QUÉ se le pasa al mapa sin
-// ejercitar el render real.
+// Estrategia: GeoMap es client-only (MapLibre + DOM). Se mockea con un stub
+// que registra las props, para verificar qué recibe el mapa sin render real.
 
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen, within, act } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 // =====================================================================
@@ -33,7 +31,6 @@ vi.mock("@/components/map/geo-map", () => ({
     return (
       <div
         data-testid="mock-geo-map"
-        data-selected-event-id={String(props.selectedEventId ?? "")}
         data-parcel-count={String((props.parcels as unknown[] | undefined)?.length ?? 0)}
         data-event-count={String((props.events as unknown[] | undefined)?.length ?? 0)}
       />
@@ -42,11 +39,6 @@ vi.mock("@/components/map/geo-map", () => ({
   USE_MAPTILER: false
 }));
 
-// PR-3b: react-resizable-panels mide el layout REAL (ResizeObserver +
-// tamaño del contenedor). En jsdom el grupo mide 0 y tira
-// "Previous layout not found for panel index -1". Mock transparente:
-// renderiza los children y preserva `data-testid` (el test asserts
-// sobre `geovisor-events-panel`, que ahora es un <Panel>).
 vi.mock("react-resizable-panels", () => ({
   PanelGroup: (p: { children?: unknown; "data-testid"?: string }) => (
     <div data-testid={p["data-testid"]}>{p.children as never}</div>
@@ -76,6 +68,7 @@ const baseParcel = {
   municipality: "Palmira",
   variety: "CC 85-92",
   area_ha: 10,
+  source: "dji" as const,
   drone_model_id: 72 as const,
   centroid_lng: -76.31,
   centroid_lat: 3.47,
@@ -106,6 +99,7 @@ const baseEvent = {
   flights_count: 1,
   product: "Glifosato",
   operator: "Juan Pérez",
+  drone_nickname: "AFM T50-1",
   lng: -76.305,
   lat: 3.475,
   notes: null,
@@ -116,8 +110,20 @@ const secondParcel = {
   ...baseParcel,
   id: "P-2",
   name: "Lote 13",
-  farm_name: "Hacienda El Edén",
   centroid_lng: -76.32,
+  centroid_lat: 3.47,
+  fumigations_count: 1
+};
+
+// Parcela SIN fumigaciones (para el empty state del contexto).
+const thirdParcel = {
+  ...baseParcel,
+  id: "P-3",
+  name: "Lote 30",
+  farm_name: "Hacienda El Edén",
+  fumigations_count: 0,
+  last_fumigation_at: null,
+  centroid_lng: -76.33,
   centroid_lat: 3.47
 };
 
@@ -135,7 +141,7 @@ const oldEvent = {
   executed_at: "2024-01-15T10:00:00Z"
 };
 
-// 2026-09-20 — fumigación huérfana (sin parcela) del import por-sesión.
+// 2026-09-20 — fumigación huérfana (sin parcela).
 const orphanEvent = {
   ...baseEvent,
   id: "300",
@@ -149,7 +155,7 @@ const orphanEvent = {
 };
 
 const buildPayload = () => ({
-  parcels: [baseParcel, secondParcel],
+  parcels: [baseParcel, secondParcel, thirdParcel],
   events: [baseEvent, secondEvent, oldEvent, orphanEvent],
   flight_aggregates: {
     total_flights: 1,
@@ -160,19 +166,18 @@ const buildPayload = () => ({
   }
 });
 
-// =====================================================================
-// Tests
-// =====================================================================
-
 beforeEach(() => {
   mockGeoMapProps.length = 0;
 });
+
+// =====================================================================
+// QA-02: filtros / inputs / KPIs
+// =====================================================================
 
 describe("GeovisorClient — QA-02 simplificación", () => {
   it("no renderiza filtros de cadencia, cliente, hacienda, drone ni source", () => {
     render(<GeovisorClient payload={buildPayload()} />);
     expect(screen.queryByText("Cliente / Ingenio")).not.toBeInTheDocument();
-    expect(screen.queryByText("Hacienda")).not.toBeInTheDocument();
     expect(screen.queryByText("Modelo de dron asignado")).not.toBeInTheDocument();
     expect(screen.queryByText("Estado de cadencia")).not.toBeInTheDocument();
     expect(screen.queryByText("Origen del registro")).not.toBeInTheDocument();
@@ -184,51 +189,29 @@ describe("GeovisorClient — QA-02 simplificación", () => {
     expect(screen.getByTestId("geovisor-to")).toBeInTheDocument();
   });
 
-  it("muestra KPIs simplificados: Fumigaciones, Parcelas tratadas, Área aplicada, Última", () => {
+  it("muestra KPIs simplificados", () => {
     render(<GeovisorClient payload={buildPayload()} />);
     expect(screen.getAllByText("Fumigaciones").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("Parcelas tratadas")).toBeInTheDocument();
     expect(screen.getByText("Área aplicada")).toBeInTheDocument();
     expect(screen.getByText("Última aplicación")).toBeInTheDocument();
   });
-
-  it("muestra la lista de fumigaciones en el sidebar derecho (no la lista de parcelas)", () => {
-    render(<GeovisorClient payload={buildPayload()} />);
-    const panel = screen.getByTestId("geovisor-events-panel");
-    expect(panel).toBeInTheDocument();
-    // El sidebar debe contener los items de eventos
-    const items = within(panel).getAllByRole("button", { pressed: false });
-    expect(items.length).toBeGreaterThan(0);
-  });
-
-  it("ordena los eventos por fecha DESC (más reciente primero)", () => {
-    render(<GeovisorClient payload={buildPayload()} />);
-    const panel = screen.getByTestId("geovisor-events-panel");
-    const buttons = within(panel).getAllByRole("button");
-    // F-2 (2026-09-01) debe estar antes de F-1 (2026-08-15)
-    const f2Button = screen.getByTestId("geovisor-event-F-2");
-    const f1Button = screen.getByTestId("geovisor-event-F-1");
-    const f2Idx = buttons.indexOf(f2Button);
-    const f1Idx = buttons.indexOf(f1Button);
-    expect(f2Idx).toBeLessThan(f1Idx);
-  });
 });
+
+// =====================================================================
+// Rango temporal / búsqueda
+// =====================================================================
 
 describe("GeovisorClient — rango temporal filtra eventos", () => {
   it("filtra eventos fuera del rango Desde/Hasta", async () => {
     const user = userEvent.setup();
     render(<GeovisorClient payload={buildPayload()} />);
-    // Por default el rango es últimos 90 días desde la última
-    // fumigación (2026-09-01), así que F-2 (2026-09-01) y F-1
-    // (2026-08-15) están dentro. F-0 (2024-01-15) está fuera.
     const fromInput = screen.getByTestId("geovisor-from");
     const toInput = screen.getByTestId("geovisor-to");
-    // Forzamos un rango que solo incluye F-2
     await user.clear(fromInput);
     await user.type(fromInput, "2026-09-01");
     await user.clear(toInput);
     await user.type(toInput, "2026-09-30");
-    // Después del filtro, F-0 y F-1 no deben estar en la lista
     expect(screen.queryByTestId("geovisor-event-F-0")).not.toBeInTheDocument();
     expect(screen.queryByTestId("geovisor-event-F-1")).not.toBeInTheDocument();
     expect(screen.getByTestId("geovisor-event-F-2")).toBeInTheDocument();
@@ -236,92 +219,111 @@ describe("GeovisorClient — rango temporal filtra eventos", () => {
 });
 
 describe("GeovisorClient — búsqueda de texto", () => {
-  it("filtra parcelas por texto (case-insensitive) en name/farm_name/municipality/variety", async () => {
+  it("filtra parcelas por texto (case-insensitive)", async () => {
     const user = userEvent.setup();
     render(<GeovisorClient payload={buildPayload()} />);
     const search = screen.getByTestId("geovisor-search");
-    // Filtrar por "Lote 12" (case-insensitive) — solo P-1 matchea.
-    // F-0 (2024-01-15) está fuera del rango temporal default
-    // (últimos 90 días desde F-2 = 2026-09-01), así que ya está
-    // filtrado por la fecha. Después del search, F-2 (Lote 13)
-    // tampoco debe estar.
     await user.type(search, "lote 12");
     expect(screen.getByTestId("geovisor-event-F-1")).toBeInTheDocument();
     expect(screen.queryByTestId("geovisor-event-F-2")).not.toBeInTheDocument();
   });
 });
 
-describe("GeovisorClient — click en evento selecciona y abre card", () => {
-  it("click en un item de la lista setea selectedEventId y muestra el card de detalle", async () => {
-    const user = userEvent.setup();
+// =====================================================================
+// Inspector — modos y contexto
+// =====================================================================
+
+describe("GeovisorClient — Inspector", () => {
+  it("arranca en Fumigaciones y las ordena DESC", () => {
     render(<GeovisorClient payload={buildPayload()} />);
-    const item = screen.getByTestId("geovisor-event-F-2");
-    await user.click(item);
-    // El card de detalle aparece — verificamos con queryAllByText
-    // porque "Área aplicada" aparece tanto en los KPIs como en el
-    // card del evento seleccionado. Buscamos específicamente el
-    // que está dentro del <dl> del card.
-    expect(screen.getAllByText("Área aplicada").length).toBeGreaterThanOrEqual(1);
-    // El link "Ver detalle" (card) es distinto del "Ver hoja de vida"
-    // (parcela detail link). Verificamos que ambos están.
-    expect(screen.getByText("Volumen")).toBeInTheDocument();
-    expect(screen.getByText("Producto")).toBeInTheDocument();
-    expect(screen.getByText("Operador")).toBeInTheDocument();
-    // El mock del mapa recibió selectedEventId="F-2"
-    const lastProps = mockGeoMapProps[mockGeoMapProps.length - 1];
-    expect(lastProps.selectedEventId).toBe("F-2");
+    expect(screen.getByTestId("geovisor-inspector")).toBeInTheDocument();
+    expect(screen.getByTestId("inspector-tab-fumigaciones")).toHaveAttribute("aria-selected", "true");
+    const f2 = screen.getByTestId("geovisor-event-F-2");
+    const f1 = screen.getByTestId("geovisor-event-F-1");
+    // F-2 (2026-09-01) aparece antes que F-1 (2026-08-15) en el DOM.
+    expect(f2.compareDocumentPosition(f1) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("el card incluye un link a la hoja de vida de la parcela", async () => {
+  it("el modo Parcelas lista las parcelas", async () => {
+    const user = userEvent.setup();
+    render(<GeovisorClient payload={buildPayload()} />);
+    await user.click(screen.getByTestId("inspector-tab-parcelas"));
+    expect(screen.getByTestId("geovisor-parcel-P-1")).toBeInTheDocument();
+    expect(screen.getByTestId("geovisor-parcel-P-2")).toBeInTheDocument();
+  });
+
+  it("contexto vacío cuando no hay selección", async () => {
+    const user = userEvent.setup();
+    render(<GeovisorClient payload={buildPayload()} />);
+    await user.click(screen.getByTestId("inspector-tab-contexto"));
+    expect(screen.getByTestId("inspector-empty")).toBeInTheDocument();
+  });
+
+  it("seleccionar una parcela muestra su ficha y solo SUS fumigaciones", async () => {
+    const user = userEvent.setup();
+    render(<GeovisorClient payload={buildPayload()} />);
+    await user.click(screen.getByTestId("inspector-tab-parcelas"));
+    await user.click(screen.getByTestId("geovisor-parcel-P-1"));
+    expect(screen.getByTestId("inspector-parcel-summary")).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("inspector-parcel-summary")).getByText("Lote 12")
+    ).toBeInTheDocument();
+    // F-1 es de P-1; F-2 es de P-2 → no debe aparecer en el contexto.
+    expect(screen.getByTestId("geovisor-event-F-1")).toBeInTheDocument();
+    expect(screen.queryByTestId("geovisor-event-F-2")).not.toBeInTheDocument();
+  });
+
+  it("parcela sin fumigaciones muestra el empty state del contexto", async () => {
+    const user = userEvent.setup();
+    render(<GeovisorClient payload={buildPayload()} />);
+    await user.click(screen.getByTestId("inspector-tab-parcelas"));
+    await user.click(screen.getByTestId("geovisor-parcel-P-3"));
+    expect(screen.getByTestId("inspector-parcel-summary")).toBeInTheDocument();
+    expect(screen.getByText(/Sin fumigaciones en el rango/i)).toBeInTheDocument();
+  });
+
+  it("seleccionar una fumigación muestra el detalle y 'volver' regresa", async () => {
+    const user = userEvent.setup();
+    render(<GeovisorClient payload={buildPayload()} />);
+    await user.click(screen.getByTestId("geovisor-event-F-2"));
+    expect(screen.getByTestId("inspector-fumigation-detail")).toBeInTheDocument();
+    expect(screen.getByText("Volumen")).toBeInTheDocument();
+    expect(screen.getByText("Dron")).toBeInTheDocument();
+    await user.click(screen.getByTestId("inspector-back"));
+    expect(screen.queryByTestId("inspector-fumigation-detail")).not.toBeInTheDocument();
+  });
+
+  it("el detalle de una fumigación con parcela ofrece la hoja de vida", async () => {
     const user = userEvent.setup();
     render(<GeovisorClient payload={buildPayload()} />);
     await user.click(screen.getByTestId("geovisor-event-F-1"));
-    // El componente renderiza el <Link> dentro de un <Button>, lo que
-    // pone role="button" en el anchor. Verificamos por role button
-    // con el aria-label del Link.
     const btn = screen.getByRole("button", { name: /Ver hoja de vida/i });
     expect(btn).toHaveAttribute("href", "/parcelas/P-1");
   });
-});
 
-describe("GeovisorClient — GeoMap recibe props correctas", () => {
-  it("pasa los eventos filtrados y los parcels correctos al mapa", () => {
+  it("cambiar de parcela actualiza las fumigaciones del contexto", async () => {
+    const user = userEvent.setup();
     render(<GeovisorClient payload={buildPayload()} />);
-    const lastProps = mockGeoMapProps[mockGeoMapProps.length - 1];
-    // Los events en el mapa son los del rango temporal
-    const events = lastProps.events as Array<{ id: string }>;
-    expect(events.map((e) => e.id)).toContain("F-1");
-    expect(events.map((e) => e.id)).toContain("F-2");
-    // parcels en el mapa son los que matchean
-    const parcels = lastProps.parcels as Array<{ id: string }>;
-    expect(parcels.map((p) => p.id)).toContain("P-1");
-    expect(parcels.map((p) => p.id)).toContain("P-2");
-  });
-
-  it("pasa is_orphan y assignment_note al mapa para las huérfanas", () => {
-    render(<GeovisorClient payload={buildPayload()} />);
-    const lastProps = mockGeoMapProps[mockGeoMapProps.length - 1];
-    const events = lastProps.events as Array<{
-      id: string;
-      is_orphan?: boolean;
-      assignment_note?: string | null;
-    }>;
-    const orphan = events.find((e) => e.id === "300");
-    expect(orphan?.is_orphan).toBe(true);
-    expect(orphan?.assignment_note).toContain("5 vuelos sin parcela");
+    await user.click(screen.getByTestId("inspector-tab-parcelas"));
+    await user.click(screen.getByTestId("geovisor-parcel-P-1"));
+    expect(screen.getByTestId("geovisor-event-F-1")).toBeInTheDocument();
+    await user.click(screen.getByTestId("inspector-tab-parcelas"));
+    await user.click(screen.getByTestId("geovisor-parcel-P-2"));
+    expect(screen.getByTestId("geovisor-event-F-2")).toBeInTheDocument();
+    expect(screen.queryByTestId("geovisor-event-F-1")).not.toBeInTheDocument();
   });
 });
 
 // =====================================================================
-// Huérfanas (2026-09-20)
+// Huérfanas
 // =====================================================================
 
 describe("GeovisorClient — fumigaciones huérfanas", () => {
-  it("muestra la huérfana en la lista con badge 'Sin asignar'", () => {
+  it("muestra la huérfana en la lista con 'Sin asignar'", () => {
     render(<GeovisorClient payload={buildPayload()} />);
     const panel = screen.getByTestId("geovisor-events-panel");
     expect(within(panel).getByTestId("geovisor-event-300")).toBeInTheDocument();
-    expect(within(panel).getByText("Sin asignar")).toBeInTheDocument();
+    expect(within(panel).getByText(/Sin asignar/)).toBeInTheDocument();
   });
 
   it("sin canAssign: no muestra el botón de asignar", async () => {
@@ -329,7 +331,6 @@ describe("GeovisorClient — fumigaciones huérfanas", () => {
     render(<GeovisorClient payload={buildPayload()} canAssign={false} />);
     await user.click(screen.getByTestId("geovisor-event-300"));
     expect(screen.queryByTestId("assign-parcel-300")).not.toBeInTheDocument();
-    // Pero sí ofrece ver la fumigación.
     expect(screen.getByRole("button", { name: /Ver detalle de la fumigación/i })).toBeInTheDocument();
   });
 
@@ -351,51 +352,31 @@ describe("GeovisorClient — fumigaciones huérfanas", () => {
 });
 
 // =====================================================================
-// Sidebar dual — dynamic boxes (2026-09-20)
+// GeoMap props
 // =====================================================================
 
-describe("GeovisorClient — sidebar dual (dynamic boxes)", () => {
-  beforeEach(() => {
-    window.localStorage.clear();
+describe("GeovisorClient — GeoMap recibe props correctas", () => {
+  it("pasa los eventos filtrados y los parcels al mapa", () => {
+    render(<GeovisorClient payload={buildPayload()} />);
+    const lastProps = mockGeoMapProps[mockGeoMapProps.length - 1];
+    const events = lastProps.events as Array<{ id: string }>;
+    expect(events.map((e) => e.id)).toContain("F-1");
+    expect(events.map((e) => e.id)).toContain("F-2");
+    const parcels = lastProps.parcels as Array<{ id: string }>;
+    expect(parcels.map((p) => p.id)).toContain("P-1");
+    expect(parcels.map((p) => p.id)).toContain("P-2");
   });
 
-  it("renderiza las cajas Parcelas y Fumigaciones con drag handle", () => {
+  it("pasa is_orphan y assignment_note al mapa para las huérfanas", () => {
     render(<GeovisorClient payload={buildPayload()} />);
-    expect(screen.getByTestId("sidebar-box-parcelas")).toBeInTheDocument();
-    expect(screen.getByTestId("sidebar-box-fumigaciones")).toBeInTheDocument();
-    expect(screen.getByTestId("sidebar-drag-parcelas")).toBeInTheDocument();
-    expect(screen.getByTestId("sidebar-drag-fumigaciones")).toBeInTheDocument();
-    // La caja de parcelas lista las parcelas del payload.
-    expect(screen.getByTestId("geovisor-parcel-P-1")).toBeInTheDocument();
-    expect(screen.getByTestId("geovisor-parcel-P-2")).toBeInTheDocument();
-  });
-
-  it("el chip de visibilidad oculta y vuelve a mostrar la caja", async () => {
-    const user = userEvent.setup();
-    render(<GeovisorClient payload={buildPayload()} />);
-    await user.click(screen.getByTestId("sidebar-toggle-parcelas"));
-    expect(screen.queryByTestId("sidebar-box-parcelas")).not.toBeInTheDocument();
-    await user.click(screen.getByTestId("sidebar-toggle-parcelas"));
-    expect(screen.getByTestId("sidebar-box-parcelas")).toBeInTheDocument();
-  });
-
-  it("el botón de ocultar persiste la visibilidad en localStorage", async () => {
-    const user = userEvent.setup();
-    render(<GeovisorClient payload={buildPayload()} />);
-    await user.click(screen.getByTestId("sidebar-hide-fumigaciones"));
-    const raw = window.localStorage.getItem("afm-geovisor-sidebar-boxes");
-    expect(raw).toBeTruthy();
-    const parsed = JSON.parse(raw as string) as { hidden: string[] };
-    expect(parsed.hidden).toContain("fumigaciones");
-  });
-
-  it("lee el orden + visibilidad persistidos al montar", () => {
-    window.localStorage.setItem(
-      "afm-geovisor-sidebar-boxes",
-      JSON.stringify({ order: ["fumigaciones", "parcelas"], hidden: ["parcelas"] })
-    );
-    render(<GeovisorClient payload={buildPayload()} />);
-    expect(screen.queryByTestId("sidebar-box-parcelas")).not.toBeInTheDocument();
-    expect(screen.getByTestId("sidebar-box-fumigaciones")).toBeInTheDocument();
+    const lastProps = mockGeoMapProps[mockGeoMapProps.length - 1];
+    const events = lastProps.events as Array<{
+      id: string;
+      is_orphan?: boolean;
+      assignment_note?: string | null;
+    }>;
+    const orphan = events.find((e) => e.id === "300");
+    expect(orphan?.is_orphan).toBe(true);
+    expect(orphan?.assignment_note).toContain("5 vuelos sin parcela");
   });
 });

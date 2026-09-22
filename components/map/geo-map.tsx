@@ -1,6 +1,6 @@
 "use client"
 
-import type { Map as MlMap, Popup as MlPopup, StyleSpecification } from "maplibre-gl"
+import type { Map as MlMap, StyleSpecification } from "maplibre-gl"
 import { useEffect, useRef, useState } from "react"
 import { STATUS_META } from "@/lib/data-constants"
 import type { ComplianceStatus } from "@/lib/types"
@@ -197,17 +197,6 @@ function parcelsToFeatures(parcels: MapParcel[]) {
   }
 }
 
-/** s8.8 (2026-07-31): helper para escapar HTML en campos user-provided
- *  (product, operator, notes) antes de inyectarlos en el popup. */
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;")
-}
-
 /** Polígono chico (~radio m) alrededor de un punto, para eventos sin hull. */
 function pointFallbackPolygon(
   lng: number,
@@ -223,23 +212,6 @@ function pointFallbackPolygon(
   }
   ring.push(ring[0])
   return { type: "Polygon", coordinates: [ring] }
-}
-
-/** Punto de anclaje (centroide aprox. del anillo exterior) de un polígono. */
-function polygonAnchor(poly: GeoJSON.Polygon): [number, number] | null {
-  const ring = poly.coordinates?.[0]
-  if (!ring || ring.length === 0) return null
-  let lng = 0
-  let lat = 0
-  let n = 0
-  for (const p of ring) {
-    if (Array.isArray(p) && p.length >= 2) {
-      lng += p[0]
-      lat += p[1]
-      n++
-    }
-  }
-  return n === 0 ? null : [lng / n, lat / n]
 }
 
 function eventsToFeatures(events: MapEvent[]) {
@@ -290,11 +262,9 @@ interface GeoMapProps {
   selectedId: string | null
   onSelect: (id: string | null) => void
   /**
-   * s8.8 (2026-07-31) — id del event seleccionado (popup abierto).
-   * Cuando se setea, GeoMap muestra un popup MapLibre anclado al
-   * punto. Cuando se setea a null, el popup se cierra.
+   * 2026-09-21 — click en una fumigación del mapa. El detalle ya no se
+   * muestra en un popup MapLibre: lo maneja el InspectorPanel del geovisor.
    */
-  selectedEventId?: string | null
   onSelectEvent?: (id: string | null) => void
 }
 
@@ -307,7 +277,6 @@ export function GeoMap({
   baseMap,
   selectedId,
   onSelect,
-  selectedEventId = null,
   onSelectEvent,
 }: GeoMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -317,7 +286,6 @@ export function GeoMap({
   selectRef.current = onSelect
   const selectEventRef = useRef(onSelectEvent)
   selectEventRef.current = onSelectEvent
-  const popupRef = useRef<MlPopup | null>(null)
 
   useEffect(() => {
     let map: MlMap | null = null
@@ -504,91 +472,9 @@ export function GeoMap({
     map.setLayoutProperty("events-line-orphan", "visibility", showEvents ? "visible" : "none")
   }, [showParcels, showEvents, showLabels, ready])
 
-  // s8.8 (2026-07-31): sincronizar el popup MapLibre con selectedEventId.
-  // Cuando se setea un id, buscamos el feature en el source "events",
-  // creamos un popup MapLibre con HTML, y lo mostramos anclado al
-  // punto. Cuando es null, removemos el popup.
-  useEffect(() => {
-    const map = mapRef.current
-    if (!map || !ready) return
-    // Cierra el popup previo si existe
-    if (popupRef.current) {
-      popupRef.current.remove()
-      popupRef.current = null
-    }
-    if (!selectedEventId) return
-    const event = events.find((e) => e.id === selectedEventId)
-    if (!event) return
-    // Ancla del popup: lng/lat si existen; si no, el centroide del hull
-    // (la fumigación ahora se dibuja como polígono, sin punto).
-    const anchor: [number, number] | null =
-      typeof event.lng === "number" && typeof event.lat === "number"
-        ? [event.lng, event.lat]
-        : event.hull
-          ? polygonAnchor(event.hull)
-          : null
-    if (!anchor) return
-    ;(async () => {
-      const maplibregl = await import("maplibre-gl")
-      const date = new Date(event.executed_at)
-      const dateLabel = isNaN(date.getTime())
-        ? event.executed_at
-        : date.toLocaleDateString("es-CO", { day: "2-digit", month: "short", year: "numeric", timeZone: "America/Bogota" })
-      const areaLabel = event.area_treated_ha.toFixed(2)
-      const volumeLabel = event.volume_l.toFixed(1)
-      const product = event.product || "Sin producto"
-      const operator = event.operator || "Sin asignar"
-      const matchInfo = event.n_matched_flights != null
-        ? `<div class="event-popup__row"><span class="event-popup__lbl">Vuelos asociados</span><span class="event-popup__val">${event.n_matched_flights}</span></div>`
-        : ""
-      const notesHtml = event.notes
-        ? `<div class="event-popup__notes">${escapeHtml(event.notes)}</div>`
-        : ""
-      const orphan = event.is_orphan === true
-      const orphanBadge = orphan
-        ? `<span class="event-popup__src" style="background:#a855f7;color:#fff">Sin asignar</span>`
-        : ""
-      const assignmentInfo =
-        orphan && event.assignment_note
-          ? `<div class="event-popup__notes">${escapeHtml(event.assignment_note)}</div>`
-          : ""
-      const parcelLink = orphan
-        ? ""
-        : `<a class="event-popup__link" href="/parcelas/${event.parcel_id}">Ver hoja de vida de la parcela →</a>`
-      const html = `
-        <div class="event-popup">
-          <div class="event-popup__head">
-            <span class="event-popup__date">${dateLabel}</span>
-            ${orphanBadge}
-            <span class="event-popup__src">${event.source}</span>
-          </div>
-          <div class="event-popup__row"><span class="event-popup__lbl">Producto</span><span class="event-popup__val">${escapeHtml(product)}</span></div>
-          <div class="event-popup__row"><span class="event-popup__lbl">Área tratada</span><span class="event-popup__val">${areaLabel} ha</span></div>
-          <div class="event-popup__row"><span class="event-popup__lbl">Volumen</span><span class="event-popup__val">${volumeLabel} L</span></div>
-          <div class="event-popup__row"><span class="event-popup__lbl">Operador</span><span class="event-popup__val">${escapeHtml(operator)}</span></div>
-          ${event.drone_nickname ? `<div class="event-popup__row"><span class="event-popup__lbl">Dron</span><span class="event-popup__val">${escapeHtml(event.drone_nickname)}</span></div>` : ""}
-          ${matchInfo}
-          ${notesHtml}
-          ${assignmentInfo}
-          ${parcelLink}
-        </div>
-      `
-      const popup = new maplibregl.Popup({
-        closeButton: true,
-        closeOnClick: true,
-        maxWidth: "320px",
-        offset: 12,
-        className: "event-popup-container",
-      })
-        .setLngLat(anchor)
-        .setHTML(html)
-        .addTo(map)
-      popupRef.current = popup
-      popup.on("close", () => {
-        if (selectEventRef.current) selectEventRef.current(null)
-      })
-    })()
-  }, [selectedEventId, events, ready])
+  // 2026-09-21 — se ELIMINÓ el popup MapLibre por fumigación. El detalle
+  // ahora vive en el InspectorPanel del geovisor (un único contexto por
+  // parcela). El mapa solo resalta la parcela y centra (ver efecto abajo).
 
   // Basemap
   //

@@ -52,8 +52,7 @@
  *     Limpiar el payload es una tarea separada.
  */
 
-import { ArrowUpRight, Droplets, Layers, MapPin, Plane, Search, SlidersHorizontal, Sprout, X } from "lucide-react";
-import Link from "next/link";
+import { Droplets, Layers, MapPin, Plane, Search, SlidersHorizontal, Sprout } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Panel,
@@ -61,14 +60,12 @@ import {
   PanelResizeHandle,
   type ImperativePanelHandle
 } from "react-resizable-panels";
-import { ParcelPanel } from "@/components/geovisor/parcel-panel";
-import { AssignParcelDialog } from "@/components/fumigations/assign-parcel-dialog";
-import { SidebarBoxes } from "@/components/geovisor/sidebar-boxes";
+import { InspectorPanel, type InspectorTab } from "@/components/geovisor/inspector-panel";
 import { type BaseMap, GeoMap, USE_MAPTILER, type MapParcel } from "@/components/map/geo-map";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { fmtDate, fmtDec, fmtInt, fmtLiters, SOURCE_LABEL } from "@/lib/format";
+import { fmtDate, fmtDec, fmtInt } from "@/lib/format";
 import type { GeovisorPayload } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -146,10 +143,11 @@ export function GeovisorClient({
   }, [showFilters]);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  // QA-02: el id del EVENTO (fumigación) seleccionado desde la lista
-  // o desde el mapa. Cuando se setea, el mapa centra en la parcela +
-  // abre el popup del evento.
+  // Id de la FUMIGACIÓN seleccionada dentro del contexto de la parcela.
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
+  // Modo del Inspector (2026-09-21). Al seleccionar en el mapa salta a
+  // "contexto"; por defecto muestra la lista general de fumigaciones.
+  const [tab, setTab] = useState<InspectorTab>("fumigaciones");
 
   // Rango temporal como timestamps (ms). Si el usuario tipea algo
   // inválido, parseLocalISODate devuelve null y usamos null en el
@@ -263,26 +261,32 @@ export function GeovisorClient({
     };
   }, [sortedEvents, eventsByParcel]);
 
-  // Evento seleccionado: si hay, derivamos su parcela para el card
-  // del sidebar.
-  const selectedEvent = useMemo(
-    () => sortedEvents.find((e) => e.id === selectedEventId) ?? null,
-    [sortedEvents, selectedEventId]
-  );
-  const selectedEventParcel = selectedEvent
-    ? filteredParcelsById.get(selectedEvent.parcel_id) ?? null
-    : null;
+  // Selección de parcela (desde el mapa o la lista "Parcelas"): fija la
+  // parcela, limpia la fumigación y muestra el contexto. `null` = click en
+  // el fondo del mapa → limpia todo.
+  function handleSelectParcel(id: string | null) {
+    if (id === null) {
+      setSelectedId(null);
+      setSelectedEventId(null);
+      setTab("fumigaciones");
+      return;
+    }
+    setSelectedId(id);
+    setSelectedEventId(null);
+    setTab("contexto");
+  }
 
-  // QA-02: cuando el usuario hace click en un item de la lista,
-  // centramos el mapa en la parcela y abrimos el popup. El componente
-  // `GeoMap` acepta `selectedEventId` y abre el popup en el feature
-  // del source "events". Para centrar el mapa, hacemos flyTo al
-  // centroide de la parcela.
-  function handleEventClick(eventId: string) {
+  // Selección de fumigación (desde el mapa o la lista "Fumigaciones"):
+  // mantiene la jerarquía parcela → fumigación.
+  function handleSelectEvent(eventId: string | null) {
+    if (eventId === null) {
+      setSelectedEventId(null);
+      return;
+    }
     const ev = sortedEvents.find((e) => e.id === eventId);
-    if (!ev) return;
+    if (ev) setSelectedId(ev.parcel_id);
     setSelectedEventId(eventId);
-    setSelectedId(ev.parcel_id);
+    setTab("contexto");
   }
 
   // Si el usuario cambia el rango temporal y el evento seleccionado
@@ -293,20 +297,6 @@ export function GeovisorClient({
       setSelectedEventId(null);
     }
   }, [selectedEventId, sortedEvents]);
-
-  // Card-resumen cuando hay evento seleccionado: incluye los datos
-  // del V0 que el operador quiere ver.
-  // 2026-09-19 — parcela seleccionada en el mapa (panel A del geovisor).
-  // Cómputo plano (sin hook) para no alterar el orden de hooks del
-  // componente: hay `return` tempranos más arriba.
-  const selectedParcel = selectedId
-    ? payload.parcels.find((p) => p.id === selectedId) ?? null
-    : null;
-
-  const selectedCardData = selectedEvent ? {
-    event: selectedEvent,
-    parcel: selectedEventParcel
-  } : null;
 
   return (
     // PR-3a: `h-full + min-h-0` ata el geovisor a la altura del Workspace.
@@ -551,9 +541,8 @@ export function GeovisorClient({
           showLabels={showLabels}
           baseMap={baseMap}
           selectedId={selectedId}
-                onSelect={setSelectedId}
-          selectedEventId={selectedEventId}
-          onSelectEvent={setSelectedEventId}
+          onSelect={handleSelectParcel}
+          onSelectEvent={handleSelectEvent}
         />
 
         {/* QA-02: KPIs simplificados — Fumigaciones / Parcelas / Área / Última */}
@@ -609,241 +598,21 @@ export function GeovisorClient({
         className="relative flex flex-col border-t border-border bg-card lg:border-l lg:border-t-0"
         data-testid="geovisor-events-panel"
       >
-        {/* 2026-09-21 — propuesta 4: las listas (SidebarBoxes) ocupan TODO
-            el alto del panel y el detalle (fumigación o parcela) aparece
-            como tarjeta FLOTANTE abajo (overlay), con ✕ para cerrar. Así el
-            detalle y las listas no compiten por la altura. */}
-        {selectedCardData || selectedParcel ? (
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 p-2">
-            <div className="pointer-events-auto max-h-[75%] overflow-y-auto rounded-lg border border-border bg-card shadow-lg">
-              <div className="flex justify-end px-1.5 pt-1.5">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedEventId(null);
-                    setSelectedId(null);
-                  }}
-                  aria-label="Cerrar detalle"
-                  className="flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-muted"
-                >
-                  <X className="size-3.5" aria-hidden />
-                </button>
-              </div>
-              {selectedCardData ? (
-                <div className="flex flex-col gap-2 px-4 pb-4">
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <p className="text-[11px] uppercase tracking-wider text-muted-foreground">
-                        {selectedCardData.parcel?.farm_name ?? "Sin parcela asignada"}
-                      </p>
-                      <h3 className="text-base font-bold tracking-tight">
-                        {selectedCardData.parcel?.name ?? "Fumigación huérfana"}
-                      </h3>
-                      <p className="text-xs text-muted-foreground">
-                        {fmtDate(selectedCardData.event.executed_at)}
-                      </p>
-                    </div>
-                    {selectedCardData.event.needs_parcel_assignment ? (
-                      <Badge className="shrink-0 border-transparent bg-[#a855f7] text-white">
-                        Sin asignar
-                      </Badge>
-                    ) : (
-                      <Badge variant="secondary" className="shrink-0">
-                        {SOURCE_LABEL[selectedCardData.event.source]}
-                      </Badge>
-                    )}
-                  </div>
-                  <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
-                    <div className="flex flex-col">
-                      <dt className="text-[10px] uppercase tracking-wider text-muted-foreground">Área aplicada</dt>
-                      <dd className="font-mono font-medium">
-                        {fmtDec(selectedCardData.event.area_treated_ha)} ha
-                      </dd>
-                    </div>
-                    <div className="flex flex-col">
-                      <dt className="text-[10px] uppercase tracking-wider text-muted-foreground">Volumen</dt>
-                      <dd className="font-mono font-medium">
-                        {fmtLiters(selectedCardData.event.volume_l)}
-                      </dd>
-                    </div>
-                    <div className="flex flex-col">
-                      <dt className="text-[10px] uppercase tracking-wider text-muted-foreground">Producto</dt>
-                      <dd className="font-medium">{selectedCardData.event.product || "—"}</dd>
-                    </div>
-                    <div className="flex flex-col">
-                      <dt className="text-[10px] uppercase tracking-wider text-muted-foreground">Operador</dt>
-                      <dd className="font-medium">{selectedCardData.event.operator || "—"}</dd>
-                    </div>
-                  </dl>
-                  {selectedCardData.event.needs_parcel_assignment &&
-                  selectedCardData.event.assignment_note ? (
-                    <p className="rounded-md bg-muted p-2 text-[11px] text-muted-foreground">
-                      {selectedCardData.event.assignment_note}
-                    </p>
-                  ) : null}
-                  {selectedCardData.parcel ? (
-                    <Button
-                      render={
-                        <Link
-                          href={`/parcelas/${selectedCardData.parcel.id}`}
-                          aria-label="Ver hoja de vida de la parcela"
-                        />
-                      }
-                      nativeButton={false}
-                      size="sm"
-                      className="w-full"
-                    >
-                      Ver detalle
-                      <ArrowUpRight className="size-3.5" />
-                    </Button>
-                  ) : (
-                    <div className="flex flex-wrap gap-2">
-                      {canAssign ? (
-                        <AssignParcelDialog
-                          fumigationId={Number(selectedCardData.event.id)}
-                          note={selectedCardData.event.assignment_note}
-                        />
-                      ) : null}
-                      <Button
-                        render={
-                          <Link
-                            href={`/fumigaciones/${selectedCardData.event.id}`}
-                            aria-label="Ver detalle de la fumigación"
-                          />
-                        }
-                        nativeButton={false}
-                        variant="outline"
-                        size="sm"
-                      >
-                        Ver fumigación
-                        <ArrowUpRight className="size-3.5" />
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              ) : selectedParcel ? (
-                <div className="px-3 pb-3">
-                  <ParcelPanel parcel={selectedParcel} onClose={() => setSelectedId(null)} />
-                </div>
-              ) : null}
-            </div>
-          </div>
-        ) : null}
+        {/* 2026-09-21 — el detalle (parcela/fumigación) y las listas viven
+            en el InspectorPanel único (abajo). El mapa ya no abre popups. */}
 
-        <SidebarBoxes
-          storageKey="afm-geovisor-sidebar-boxes"
-          boxes={[
-            {
-              id: "parcelas",
-              title: "Parcelas",
-              badge: (
-                <Badge variant="secondary" className="font-mono text-[10px]">
-                  {fmtInt(filteredParcels.length)}
-                </Badge>
-              ),
-              content: (
-                <ul className="flex flex-col gap-2 p-2">
-                  {filteredParcels.map((p) => {
-                    const agg = eventsByParcel.get(p.id);
-                    const active = p.id === selectedId;
-                    const isAuto = p.name.startsWith("Auto ");
-                    return (
-                      <li key={p.id}>
-                        <button
-                          type="button"
-                          onClick={() => setSelectedId(p.id)}
-                          aria-pressed={active}
-                          data-testid={`geovisor-parcel-${p.id}`}
-                          className={cn(
-                            "flex w-full items-start gap-3 rounded-lg border border-border border-l-4 bg-card px-3 py-2.5 text-left transition hover:shadow-sm",
-                            isAuto ? "border-l-[#a855f7]" : "border-l-[#f59e0b]",
-                            active && "ring-1 ring-primary"
-                          )}
-                        >
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate text-[13px] font-semibold">
-                              {p.name}
-                            </span>
-                            <span className="block truncate text-[11px] text-muted-foreground">
-                              {[p.farm_name, p.municipality]
-                                .filter((v) => v && v !== "Sin asignar")
-                                .join(" · ") || "Sin municipio"}
-                              {agg ? ` · ${fmtInt(agg.count)} fum.` : ""}
-                            </span>
-                          </span>
-                          <span className="shrink-0 text-right text-[10px] text-muted-foreground">
-                            <span className="block font-mono">{fmtDec(p.area_ha)} ha</span>
-                          </span>
-                        </button>
-                      </li>
-                    );
-                  })}
-                  {filteredParcels.length === 0 && (
-                    <li className="p-4 text-xs text-muted-foreground">
-                      Sin parcelas para la búsqueda.
-                    </li>
-                  )}
-                </ul>
-              ),
-            },
-            {
-              id: "fumigaciones",
-              title: "Fumigaciones",
-              badge: (
-                <Badge variant="secondary" className="font-mono text-[10px]">
-                  {fmtInt(sortedEvents.length)}
-                </Badge>
-              ),
-              content: (
-                <ul className="flex flex-col gap-2 p-2">
-                  {sortedEvents.map((e) => {
-                    const parcel = filteredParcelsById.get(e.parcel_id);
-                    const active = e.id === selectedEventId;
-                    const isOrphan = e.needs_parcel_assignment === true;
-                    return (
-                      <li key={e.id}>
-                        <button
-                          type="button"
-                          onClick={() => handleEventClick(e.id)}
-                          aria-pressed={active}
-                          data-testid={`geovisor-event-${e.id}`}
-                          className={cn(
-                            "flex w-full items-start gap-3 rounded-lg border border-border border-l-4 bg-card px-3 py-2.5 text-left transition hover:shadow-sm",
-                            isOrphan ? "border-l-[#a855f7]" : "border-l-[#06b6d4]",
-                            active && "ring-1 ring-primary"
-                          )}
-                        >
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate text-[13px] font-semibold">
-                              {parcel?.name ?? "Fumigación sin parcela"}
-                            </span>
-                            <span className="block truncate text-[11px] text-muted-foreground">
-                              {fmtDate(e.executed_at)} · {fmtInt(e.flights_count)} vuelos · {fmtLiters(e.volume_l)}
-                            </span>
-                          </span>
-                          <span className="shrink-0 text-right">
-                            <span className="block font-mono text-[10px] text-muted-foreground">
-                              {fmtDec(e.area_treated_ha)} ha
-                            </span>
-                            {isOrphan ? (
-                              <Badge className="mt-1 border-transparent bg-[#a855f7] text-[9px] text-white">
-                                Sin asignar
-                              </Badge>
-                            ) : null}
-                          </span>
-                        </button>
-                      </li>
-                    );
-                  })}
-                  {sortedEvents.length === 0 && (
-                    <li className="p-4 text-sm text-muted-foreground">
-                      No hay fumigaciones en el rango seleccionado.
-                    </li>
-                  )}
-                </ul>
-              ),
-            },
-          ]}
+        <InspectorPanel
+          tab={tab}
+          onTabChange={setTab}
+          parcels={filteredParcels}
+          selectedParcelId={selectedId}
+          onSelectParcel={handleSelectParcel}
+          events={sortedEvents}
+          selectedEventId={selectedEventId}
+          onSelectEvent={handleSelectEvent}
+          onClearEvent={() => setSelectedEventId(null)}
+          canAssign={canAssign}
+          counts={{ parcels: filteredParcels.length, events: sortedEvents.length }}
         />
       </Panel>
     </PanelGroup>
