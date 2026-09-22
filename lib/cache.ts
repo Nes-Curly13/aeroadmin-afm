@@ -38,6 +38,7 @@ import {
 } from "@/lib/dji-fumigations-aggregate";
 import { toDateString } from "@/lib/format";
 import {
+  FUMIGATION_STATUS_ORDER,
   computeNextDueDate,
   daysUntilNextDue,
   getFumigationStatus
@@ -500,7 +501,7 @@ async function fetchUpcomingFumigationsRaw(limit: number): Promise<UpcomingFumig
     };
   });
   enriched.sort((a, b) => {
-    const order = { overdue: 0, due_soon: 1, ok: 2, no_history: 3 };
+    const order = FUMIGATION_STATUS_ORDER;
     if (order[a.status] !== order[b.status]) return order[a.status] - order[b.status];
     const aDays = a.days_until_next_due ?? 0;
     const bDays = b.days_until_next_due ?? 0;

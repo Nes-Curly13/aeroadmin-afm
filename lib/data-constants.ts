@@ -17,6 +17,7 @@
 // usando la convención del V0 mockup (`import { NOW } from "@/lib/data"`).
 
 import type { ComplianceStatus, DroneModelId } from "@/lib/types";
+import { severityFromDays } from "@/lib/fumigation-cadence";
 
 /** Fecha de referencia para "ahora". En el server, computa `new Date()`;
  *  en el client, se re-asigna en cada render (es la fecha del request,
@@ -34,11 +35,15 @@ export const droneModel = (id: DroneModelId) =>
   DRONE_MODELS.find((m) => m.id === id) ?? DRONE_MODELS[0];
 
 export function complianceStatus(daysToDue: number | null): ComplianceStatus {
-  if (daysToDue === null) return "critico";
-  if (daysToDue > 5) return "al_dia";
-  if (daysToDue >= 0) return "por_vencer";
-  if (daysToDue >= -10) return "vencido";
-  return "critico";
+  // CAD-001 (2026-09-21): umbrales unificados en `lib/fumigation-cadence.ts`.
+  // Proyección del estado canónico al vocabulario de la tabla/mapa/geovisor:
+  //   no_history | critical → critico ; overdue → vencido ;
+  //   due_soon → por_vencer ; ok → al_dia.
+  const status = severityFromDays(daysToDue);
+  if (status === "no_history" || status === "critical") return "critico";
+  if (status === "overdue") return "vencido";
+  if (status === "due_soon") return "por_vencer";
+  return "al_dia";
 }
 
 export const STATUS_META: Record<

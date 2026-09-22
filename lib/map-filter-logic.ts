@@ -28,7 +28,6 @@ import type {
   MapKpis,
   MapParcelView
 } from "@/lib/map-filter-types";
-import { CADENCE_STATUS_META } from "@/lib/map-filter-types";
 
 /** Defaults de cadencia (en días) por tipo de parcela. Espejo de `getDefaultCadence`. */
 const CADENCE_DEFAULTS: Record<"Farmland" | "Orchards" | string, number> = {
@@ -40,21 +39,24 @@ const CADENCE_DEFAULTS: Record<"Farmland" | "Orchards" | string, number> = {
 const FALLBACK_CADENCE_DAYS = 14;
 
 /**
- * Mapea el `FumigationStatus` interno al `CadenceStatus` de UI del V0.
- * Es una proyección 1:1 entre los 4 valores de cada enum (vía el campo
- * `internal` en `CADENCE_STATUS_META`, NO por string-compare del label —
- * los labels son UI-only y pueden cambiar sin que la lógica se entere).
+ * Mapea el `FumigationStatus` canónico al `CadenceStatus` de UI del V0.
+ *
+ * CAD-001 (2026-09-21): `critical` (muy vencida) y `no_history` (sin
+ * registros) colapsan a `critico` — ambos requieren atención del operador.
+ * Los labels/colores por estado siguen en `CADENCE_STATUS_META`.
  */
 export function toCadenceStatus(s: FumigationStatus): CadenceStatus {
-  for (const [cadence, meta] of Object.entries(CADENCE_STATUS_META) as Array<
-    [CadenceStatus, (typeof CADENCE_STATUS_META)[CadenceStatus]]
-  >) {
-    if (meta.internal === s) return cadence;
+  switch (s) {
+    case "no_history":
+    case "critical":
+      return "critico";
+    case "overdue":
+      return "vencido";
+    case "due_soon":
+      return "por_vencer";
+    case "ok":
+      return "al_dia";
   }
-  // Fallback defensivo. No debería dispararse nunca porque los enums
-  // son cerrados, pero si en el futuro se agrega un estado nuevo al
-  // FumigationStatus sin actualizar este map, no rompemos la UI.
-  return "al_dia";
 }
 
 /**

@@ -1,5 +1,7 @@
 export type AlertLevel = "LOW" | "MEDIUM" | "HIGH";
 
+import type { FumigationStatus } from "@/lib/fumigation-cadence";
+
 /**
  * DjiParcelRecord — modelo normalizado (Opción B).
  * Una fila por campo/parcela, con columnas planas en lugar de JSONB.
@@ -568,7 +570,7 @@ export interface UpcomingFumigation {
   last_fumigation_date: string | null;
   next_due_date: string | null;
   days_until_next_due: number | null;
-  status: "ok" | "due_soon" | "overdue" | "no_history";
+  status: FumigationStatus;
   drone_model_name: string | null;
 }
 

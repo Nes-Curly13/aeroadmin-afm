@@ -22,28 +22,34 @@
 //   - El sort es específico de esta vista; no es reusable en otros
 //     contexts (el dashboard usa el orden por status, la página
 //     /parcels/overdue usa este sort).
+//
+// CAD-001 (2026-09-21): los umbrales se unificaron en
+// `lib/fumigation-cadence.ts#severityFromDays`. Este módulo dejó de tener
+// su propia definición de "vencida/due_soon" y ahora proyecta el estado
+// canónico (critical → overdue).
+
+import { severityFromDays } from "@/lib/fumigation-cadence";
 
 export type OverdueSeverity = "overdue" | "due_soon" | "ok" | "no_history";
 
 /**
  * Severidad de prioridad de fumigación para una parcela.
  *
+ * CAD-001 (2026-09-21): los umbrales viven en `lib/fumigation-cadence.ts`
+ * (`severityFromDays`). Acá solo proyectamos el estado canónico al
+ * vocabulario de 4 valores de esta lista: `critical` se pliega a `overdue`
+ * (la lista no distingue "muy vencida"; el orden por días ya prioriza).
+ *
  * - `overdue`   — `days_until_next_due < 0` (vencida).
  * - `due_soon`  — `0 <= days_until_next_due <= 7` (vence esta semana).
  * - `ok`        — `days_until_next_due > 7` (no urge).
  * - `no_history` — no hay `last_fumigation_date` (no sabemos cadencia).
- *
- * El umbral de 7 días para "due_soon" es arbitrario. Si en producción
- * el operador fumigador típico va al campo cada 14 días, podríamos
- * ajustar a 14. Por ahora 7 es un default razonable.
  */
 export function computeSeverity(
   daysUntilNextDue: number | null
 ): OverdueSeverity {
-  if (daysUntilNextDue === null) return "no_history";
-  if (daysUntilNextDue < 0) return "overdue";
-  if (daysUntilNextDue <= 7) return "due_soon";
-  return "ok";
+  const status = severityFromDays(daysUntilNextDue);
+  return status === "critical" ? "overdue" : status;
 }
 
 /**

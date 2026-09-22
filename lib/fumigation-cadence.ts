@@ -15,7 +15,41 @@ import {
 } from "@/lib/crop-cycle";
 import { cadenceMultiplierForSeason, type Season } from "@/lib/season";
 
-export type FumigationStatus = "no_history" | "ok" | "due_soon" | "overdue";
+/**
+ * Estado de cadencia CANÓNICO (fuente de verdad única).
+ *
+ * Unificación CAD-001 (2026-09-21): antes existían 3 definiciones
+ * incompatibles de "vencida" (1d / 7d / 10d). Ahora todo se computa acá y
+ * los consumidores PROYECTAN a su vocabulario de UI:
+ *   - Tabla/geovisor (`ComplianceStatus`): no_history|critical → "critico".
+ *   - Dot del mapa (`CadenceStatus`):        no_history|critical → "critico".
+ *   - Lista "Faltan por fumigar" (`OverdueSeverity`): critical → "overdue".
+ *
+ * Bands (ver `CADENCE_THRESHOLDS`):
+ *   - no_history → sin última fumigación.
+ *   - critical   → más de `CRITICAL_DAYS` días vencida.
+ *   - overdue    → 1..`CRITICAL_DAYS` días vencida.
+ *   - due_soon   → 0..`DUE_SOON_DAYS` días por vencer (incluye hoy).
+ *   - ok         → más de `DUE_SOON_DAYS` días por vencer.
+ */
+export type FumigationStatus = "no_history" | "critical" | "overdue" | "due_soon" | "ok";
+
+/** Umbrales canónicos de cadencia (días). Cambiar acá, no en cada consumidor. */
+export const CADENCE_THRESHOLDS = {
+  /** Días hacia adelante que cuentan como "por vencer". */
+  DUE_SOON_DAYS: 7,
+  /** Días de atraso a partir de los cuales una parcela es "crítica". */
+  CRITICAL_DAYS: 10
+} as const;
+
+/** Orden canónico por urgencia (menor = más prioritario). */
+export const FUMIGATION_STATUS_ORDER: Record<FumigationStatus, number> = {
+  critical: 0,
+  overdue: 1,
+  due_soon: 2,
+  ok: 3,
+  no_history: 4
+};
 
 export interface CadenceDefaults {
   /** "Caña de azúcar" / "Frutales" / etc. */
@@ -142,18 +176,79 @@ export function computeNextDueDate(
 }
 
 /**
- * Compara la fecha objetivo contra `now` y devuelve el estado.
+ * Clasifica una cantidad de días hasta el próximo vencimiento en el estado
+ * canónico. Única implementación de los umbrales (CAD-001).
+ *
+ *   null            → no_history
+ *   >  DUE_SOON     → ok
+ *   0..DUE_SOON     → due_soon
+ *   -CRITICAL..-1   → overdue
+ *   < -CRITICAL     → critical
+ */
+export function severityFromDays(days: number | null): FumigationStatus {
+  if (days === null) return "no_history";
+  if (days > CADENCE_THRESHOLDS.DUE_SOON_DAYS) return "ok";
+  if (days >= 0) return "due_soon";
+  if (days < -CADENCE_THRESHOLDS.CRITICAL_DAYS) return "critical";
+  return "overdue";
+}
+
+export interface CadenceState {
+  /** Estado canónico. */
+  status: FumigationStatus;
+  /** Días hasta el próximo vencimiento (positivo futuro, negativo vencido). null = sin historial. */
+  daysUntilDue: number | null;
+  /** Fecha objetivo de la próxima fumigación. null = sin historial. */
+  nextDue: Date | null;
+  /** Cadencia efectiva usada (base ajustada por fase/estación). */
+  cadenceDays: number;
+}
+
+/**
+ * Calcula el estado de cadencia COMPLETO desde la última fumigación.
+ *
+ * Es la función canónica: `getFumigationStatus`, `computeSeverity`
+ * (`lib/overdue-parcels.ts`) y `complianceStatus` (`lib/data-constants.ts`)
+ * son proyecciones de esto.
+ *
+ * Si se pasa `phase` y/o `season`, la cadencia efectiva se calcula vía
+ * `effectiveCadence()` (con `cropType` opcional). Si ambos son null/undefined,
+ * se usa `cadenceDays` tal cual (backward compat).
+ */
+export function getCadenceState(
+  lastFumigation: Date | string | null | undefined,
+  cadenceDays: number,
+  now: Date = new Date(),
+  phase?: CyclePhase | null,
+  season?: Season | null,
+  cropType?: string | null
+): CadenceState {
+  const effective =
+    phase != null || season != null
+      ? effectiveCadence(cadenceDays, phase, season, cropType)
+      : cadenceDays;
+  const next = computeNextDueDate(lastFumigation, effective);
+  if (!next) {
+    return { status: "no_history", daysUntilDue: null, nextDue: null, cadenceDays: effective };
+  }
+  const daysUntilDue = Math.ceil((next.getTime() - now.getTime()) / MS_PER_DAY);
+  return {
+    status: severityFromDays(daysUntilDue),
+    daysUntilDue,
+    nextDue: next,
+    cadenceDays: effective
+  };
+}
+
+/**
+ * Estado canónico de cadencia (proyección directa de `getCadenceState`).
  *
  * Estados:
  *   - "no_history"  → no hay última fumigación registrada
- *   - "ok"          → todavía falta para la próxima fumigación
- *   - "due_soon"    → vence hoy o en los próximos 7 días
- *   - "overdue"     → pasó la fecha objetivo (>= 1 día de atraso)
- *
- * Si se pasa `opts.phase` o `opts.season`, la cadencia efectiva se calcula
- * vía `effectiveCadence()` y se usa ESA en lugar de `cadenceDays`. Si ambos
- * son null/undefined, el comportamiento es idéntico al previo (backward
- * compat con los tests existentes que no pasan opts).
+ *   - "critical"    → pasó la fecha objetivo por más de `CRITICAL_DAYS`
+ *   - "overdue"     → pasó la fecha objetivo (1..`CRITICAL_DAYS` días)
+ *   - "due_soon"    → vence hoy o dentro de los próximos `DUE_SOON_DAYS`
+ *   - "ok"          → todavía falta más de `DUE_SOON_DAYS`
  */
 export function getFumigationStatus(
   lastFumigation: Date | string | null | undefined,
@@ -162,17 +257,7 @@ export function getFumigationStatus(
   phase?: CyclePhase | null,
   season?: Season | null
 ): FumigationStatus {
-  const effective =
-    phase != null || season != null
-      ? effectiveCadence(cadenceDays, phase, season)
-      : cadenceDays;
-  const next = computeNextDueDate(lastFumigation, effective);
-  if (!next) return "no_history";
-  const diffMs = now.getTime() - next.getTime();
-  const diffDays = Math.floor(diffMs / MS_PER_DAY);
-  if (diffDays >= 1) return "overdue";
-  if (diffDays >= -7) return "due_soon";
-  return "ok";
+  return getCadenceState(lastFumigation, cadenceDays, now, phase, season).status;
 }
 
 /**
@@ -184,9 +269,7 @@ export function daysUntilNextDue(
   cadenceDays: number,
   now: Date = new Date()
 ): number | null {
-  const next = computeNextDueDate(lastFumigation, cadenceDays);
-  if (!next) return null;
-  return Math.ceil((next.getTime() - now.getTime()) / MS_PER_DAY);
+  return getCadenceState(lastFumigation, cadenceDays, now).daysUntilDue;
 }
 
 /**
@@ -195,8 +278,9 @@ export function daysUntilNextDue(
 export function statusLabel(status: FumigationStatus): string {
   switch (status) {
     case "no_history": return "Sin historial";
-    case "ok": return "En fecha";
-    case "due_soon": return "Vence pronto";
+    case "critical": return "Crítica";
     case "overdue": return "Vencida";
+    case "due_soon": return "Vence pronto";
+    case "ok": return "En fecha";
   }
 }

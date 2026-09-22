@@ -184,30 +184,33 @@ const DEFAULTS = {
 ### Reglas de cálculo (lib/fumigation-cadence.ts)
 
 ```ts
-export function computeNextDueDate(
-  lastFumigation: Date | null,
-  cadenceDays: number
-): Date | null {
-  if (!lastFumigation) return null;
-  const next = new Date(lastFumigation);
-  next.setDate(next.getDate() + cadenceDays);
-  return next;
-}
+// Fuente ÚNICA: lib/fumigation-cadence.ts (CAD-001, 2026-09-21).
+// Los umbrales viven en CADENCE_THRESHOLDS y NO se duplican en ningún consumidor.
 
-export function getFumigationStatus(
-  lastFumigation: Date | null,
-  cadenceDays: number,
-  now: Date = new Date()
-): "no_history" | "ok" | "due_soon" | "overdue" {
-  if (!lastFumigation) return "no_history";
-  const next = computeNextDueDate(lastFumigation, cadenceDays);
-  if (!next) return "no_history";
-  const diffDays = Math.floor((now.getTime() - next.getTime()) / 86_400_000);
-  if (diffDays >= 7) return "overdue";      // 1+ semana vencida
-  if (diffDays >= 0) return "due_soon";     // vence hoy o esta semana
-  return "ok";
+export const CADENCE_THRESHOLDS = { DUE_SOON_DAYS: 7, CRITICAL_DAYS: 10 } as const;
+
+export function severityFromDays(days: number | null): FumigationStatus {
+  if (days === null) return "no_history";
+  if (days > CADENCE_THRESHOLDS.DUE_SOON_DAYS) return "ok";        // > 7 días
+  if (days >= 0) return "due_soon";                                // 0..7 días
+  if (days < -CADENCE_THRESHOLDS.CRITICAL_DAYS) return "critical"; // > 10 días vencida
+  return "overdue";                                                // 1..10 días vencida
 }
 ```
+
+`getCadenceState()` computa `nextDue` + `daysUntilDue` + `status` (aplicando
+`effectiveCadence` por fase/estación). Las tres vistas **proyectan** ese estado:
+
+| Vista | `no_history` | `critical` | `overdue` | `due_soon` | `ok` |
+|---|---|---|---|---|---|
+| Tabla / geovisor (`ComplianceStatus`) | critico | critico | vencido | por_vencer | al_dia |
+| Dot del mapa (`CadenceStatus`) | critico | critico | vencido | por_vencer | al_dia |
+| Lista "Faltan por fumigar" (`OverdueSeverity`) | no_history | overdue | overdue | due_soon | ok |
+
+> Unificación CAD-001: antes había 3 definiciones incompatibles (overdue a
+> 1d / 7d / 10d, y `critico` significaba "sin historial" en el mapa pero
+> ">10d vencida" en la tabla). Ahora el mapa y la tabla coinciden.
+
 
 ---
 
