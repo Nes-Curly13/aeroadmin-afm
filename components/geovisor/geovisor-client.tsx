@@ -52,7 +52,7 @@
  *     Limpiar el payload es una tarea separada.
  */
 
-import { ArrowUpRight, Droplets, Layers, MapPin, Plane, Search, SlidersHorizontal, Sprout } from "lucide-react";
+import { ArrowUpRight, Droplets, Layers, MapPin, Plane, Search, SlidersHorizontal, Sprout, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -606,110 +606,127 @@ export function GeovisorClient({
       <Panel
         defaultSize={26}
         minSize={16}
-        className="flex flex-col border-t border-border bg-card lg:border-l lg:border-t-0"
+        className="relative flex flex-col border-t border-border bg-card lg:border-l lg:border-t-0"
         data-testid="geovisor-events-panel"
       >
-        {/* 2026-09-19 — panel de la parcela seleccionada (opción A). */}
-        {selectedParcel ? (
-          <div className="border-b border-border p-3">
-            <ParcelPanel
-              parcel={selectedParcel}
-              onClose={() => setSelectedId(null)}
-            />
-          </div>
-        ) : null}
-        {/* Card del evento seleccionado (opcional) */}
-        {selectedCardData ? (
-          <div className="flex flex-col gap-2 border-b border-border p-4">
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <p className="text-[11px] uppercase tracking-wider text-muted-foreground">
-                  {selectedCardData.parcel?.farm_name ?? "Sin parcela asignada"}
-                </p>
-                <h3 className="text-base font-bold tracking-tight">
-                  {selectedCardData.parcel?.name ?? "Fumigación huérfana"}
-                </h3>
-                <p className="text-xs text-muted-foreground">
-                  {fmtDate(selectedCardData.event.executed_at)}
-                </p>
-              </div>
-              {selectedCardData.event.needs_parcel_assignment ? (
-                <Badge className="shrink-0 border-transparent bg-[#a855f7] text-white">
-                  Sin asignar
-                </Badge>
-              ) : (
-                <Badge variant="secondary" className="shrink-0">
-                  {SOURCE_LABEL[selectedCardData.event.source]}
-                </Badge>
-              )}
-            </div>
-            <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
-              <div className="flex flex-col">
-                <dt className="text-[10px] uppercase tracking-wider text-muted-foreground">Área aplicada</dt>
-                <dd className="font-mono font-medium">
-                  {fmtDec(selectedCardData.event.area_treated_ha)} ha
-                </dd>
-              </div>
-              <div className="flex flex-col">
-                <dt className="text-[10px] uppercase tracking-wider text-muted-foreground">Volumen</dt>
-                <dd className="font-mono font-medium">
-                  {fmtLiters(selectedCardData.event.volume_l)}
-                </dd>
-              </div>
-              <div className="flex flex-col">
-                <dt className="text-[10px] uppercase tracking-wider text-muted-foreground">Producto</dt>
-                <dd className="font-medium">{selectedCardData.event.product || "—"}</dd>
-              </div>
-              <div className="flex flex-col">
-                <dt className="text-[10px] uppercase tracking-wider text-muted-foreground">Operador</dt>
-                <dd className="font-medium">{selectedCardData.event.operator || "—"}</dd>
-              </div>
-            </dl>
-            {selectedCardData.event.needs_parcel_assignment &&
-            selectedCardData.event.assignment_note ? (
-              <p className="rounded-md bg-muted p-2 text-[11px] text-muted-foreground">
-                {selectedCardData.event.assignment_note}
-              </p>
-            ) : null}
-            {selectedCardData.parcel ? (
-              <Button
-                render={
-                  <Link
-                    href={`/parcelas/${selectedCardData.parcel.id}`}
-                    aria-label="Ver hoja de vida de la parcela"
-                  />
-                }
-                nativeButton={false}
-                size="sm"
-                className="w-full"
-              >
-                Ver detalle
-                <ArrowUpRight className="size-3.5" />
-              </Button>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                {canAssign ? (
-                  <AssignParcelDialog
-                    fumigationId={Number(selectedCardData.event.id)}
-                    note={selectedCardData.event.assignment_note}
-                  />
-                ) : null}
-                <Button
-                  render={
-                    <Link
-                      href={`/fumigaciones/${selectedCardData.event.id}`}
-                      aria-label="Ver detalle de la fumigación"
-                    />
-                  }
-                  nativeButton={false}
-                  variant="outline"
-                  size="sm"
+        {/* 2026-09-21 — propuesta 4: las listas (SidebarBoxes) ocupan TODO
+            el alto del panel y el detalle (fumigación o parcela) aparece
+            como tarjeta FLOTANTE abajo (overlay), con ✕ para cerrar. Así el
+            detalle y las listas no compiten por la altura. */}
+        {selectedCardData || selectedParcel ? (
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 p-2">
+            <div className="pointer-events-auto max-h-[75%] overflow-y-auto rounded-lg border border-border bg-card shadow-lg">
+              <div className="flex justify-end px-1.5 pt-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedEventId(null);
+                    setSelectedId(null);
+                  }}
+                  aria-label="Cerrar detalle"
+                  className="flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-muted"
                 >
-                  Ver fumigación
-                  <ArrowUpRight className="size-3.5" />
-                </Button>
+                  <X className="size-3.5" aria-hidden />
+                </button>
               </div>
-            )}
+              {selectedCardData ? (
+                <div className="flex flex-col gap-2 px-4 pb-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                        {selectedCardData.parcel?.farm_name ?? "Sin parcela asignada"}
+                      </p>
+                      <h3 className="text-base font-bold tracking-tight">
+                        {selectedCardData.parcel?.name ?? "Fumigación huérfana"}
+                      </h3>
+                      <p className="text-xs text-muted-foreground">
+                        {fmtDate(selectedCardData.event.executed_at)}
+                      </p>
+                    </div>
+                    {selectedCardData.event.needs_parcel_assignment ? (
+                      <Badge className="shrink-0 border-transparent bg-[#a855f7] text-white">
+                        Sin asignar
+                      </Badge>
+                    ) : (
+                      <Badge variant="secondary" className="shrink-0">
+                        {SOURCE_LABEL[selectedCardData.event.source]}
+                      </Badge>
+                    )}
+                  </div>
+                  <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
+                    <div className="flex flex-col">
+                      <dt className="text-[10px] uppercase tracking-wider text-muted-foreground">Área aplicada</dt>
+                      <dd className="font-mono font-medium">
+                        {fmtDec(selectedCardData.event.area_treated_ha)} ha
+                      </dd>
+                    </div>
+                    <div className="flex flex-col">
+                      <dt className="text-[10px] uppercase tracking-wider text-muted-foreground">Volumen</dt>
+                      <dd className="font-mono font-medium">
+                        {fmtLiters(selectedCardData.event.volume_l)}
+                      </dd>
+                    </div>
+                    <div className="flex flex-col">
+                      <dt className="text-[10px] uppercase tracking-wider text-muted-foreground">Producto</dt>
+                      <dd className="font-medium">{selectedCardData.event.product || "—"}</dd>
+                    </div>
+                    <div className="flex flex-col">
+                      <dt className="text-[10px] uppercase tracking-wider text-muted-foreground">Operador</dt>
+                      <dd className="font-medium">{selectedCardData.event.operator || "—"}</dd>
+                    </div>
+                  </dl>
+                  {selectedCardData.event.needs_parcel_assignment &&
+                  selectedCardData.event.assignment_note ? (
+                    <p className="rounded-md bg-muted p-2 text-[11px] text-muted-foreground">
+                      {selectedCardData.event.assignment_note}
+                    </p>
+                  ) : null}
+                  {selectedCardData.parcel ? (
+                    <Button
+                      render={
+                        <Link
+                          href={`/parcelas/${selectedCardData.parcel.id}`}
+                          aria-label="Ver hoja de vida de la parcela"
+                        />
+                      }
+                      nativeButton={false}
+                      size="sm"
+                      className="w-full"
+                    >
+                      Ver detalle
+                      <ArrowUpRight className="size-3.5" />
+                    </Button>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {canAssign ? (
+                        <AssignParcelDialog
+                          fumigationId={Number(selectedCardData.event.id)}
+                          note={selectedCardData.event.assignment_note}
+                        />
+                      ) : null}
+                      <Button
+                        render={
+                          <Link
+                            href={`/fumigaciones/${selectedCardData.event.id}`}
+                            aria-label="Ver detalle de la fumigación"
+                          />
+                        }
+                        nativeButton={false}
+                        variant="outline"
+                        size="sm"
+                      >
+                        Ver fumigación
+                        <ArrowUpRight className="size-3.5" />
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              ) : selectedParcel ? (
+                <div className="px-3 pb-3">
+                  <ParcelPanel parcel={selectedParcel} onClose={() => setSelectedId(null)} />
+                </div>
+              ) : null}
+            </div>
           </div>
         ) : null}
 
@@ -725,10 +742,11 @@ export function GeovisorClient({
                 </Badge>
               ),
               content: (
-                <ul className="divide-y divide-border">
+                <ul className="flex flex-col gap-2 p-2">
                   {filteredParcels.map((p) => {
                     const agg = eventsByParcel.get(p.id);
                     const active = p.id === selectedId;
+                    const isAuto = p.name.startsWith("Auto ");
                     return (
                       <li key={p.id}>
                         <button
@@ -737,26 +755,24 @@ export function GeovisorClient({
                           aria-pressed={active}
                           data-testid={`geovisor-parcel-${p.id}`}
                           className={cn(
-                            "flex w-full items-start gap-3 px-4 py-2 text-left hover:bg-muted",
-                            active && "bg-muted"
+                            "flex w-full items-start gap-3 rounded-lg border border-border border-l-4 bg-card px-3 py-2.5 text-left transition hover:shadow-sm",
+                            isAuto ? "border-l-[#a855f7]" : "border-l-[#f59e0b]",
+                            active && "ring-1 ring-primary"
                           )}
                         >
-                          <span
-                            className="mt-0.5 size-2.5 shrink-0 rounded-sm"
-                            style={{ backgroundColor: "#f59e0b" }}
-                            aria-hidden
-                          />
                           <span className="min-w-0 flex-1">
-                            <span className="block truncate text-sm font-semibold">
+                            <span className="block truncate text-[13px] font-semibold">
                               {p.name}
                             </span>
                             <span className="block truncate text-[11px] text-muted-foreground">
-                              {[p.farm_name, p.municipality].filter(Boolean).join(" · ")}
+                              {[p.farm_name, p.municipality]
+                                .filter((v) => v && v !== "Sin asignar")
+                                .join(" · ") || "Sin municipio"}
+                              {agg ? ` · ${fmtInt(agg.count)} fum.` : ""}
                             </span>
                           </span>
                           <span className="shrink-0 text-right text-[10px] text-muted-foreground">
                             <span className="block font-mono">{fmtDec(p.area_ha)} ha</span>
-                            {agg ? <span className="block">{fmtInt(agg.count)} fum.</span> : null}
                           </span>
                         </button>
                       </li>
@@ -779,7 +795,7 @@ export function GeovisorClient({
                 </Badge>
               ),
               content: (
-                <ul className="divide-y divide-border">
+                <ul className="flex flex-col gap-2 p-2">
                   {sortedEvents.map((e) => {
                     const parcel = filteredParcelsById.get(e.parcel_id);
                     const active = e.id === selectedEventId;
@@ -792,37 +808,29 @@ export function GeovisorClient({
                           aria-pressed={active}
                           data-testid={`geovisor-event-${e.id}`}
                           className={cn(
-                            "flex w-full items-start gap-3 px-4 py-2.5 text-left hover:bg-muted",
-                            active && "bg-muted"
+                            "flex w-full items-start gap-3 rounded-lg border border-border border-l-4 bg-card px-3 py-2.5 text-left transition hover:shadow-sm",
+                            isOrphan ? "border-l-[#a855f7]" : "border-l-[#06b6d4]",
+                            active && "ring-1 ring-primary"
                           )}
                         >
-                          <span
-                            className="mt-0.5 size-2.5 shrink-0 rounded-full"
-                            style={
-                              isOrphan
-                                ? { backgroundColor: "#a855f7", border: "1px dashed rgba(255,255,255,0.8)" }
-                                : { backgroundColor: "#06b6d4", border: "1px solid rgba(31,41,55,0.5)" }
-                            }
-                            aria-hidden
-                          />
                           <span className="min-w-0 flex-1">
-                            <span className="block truncate text-sm font-semibold">
+                            <span className="block truncate text-[13px] font-semibold">
                               {parcel?.name ?? "Fumigación sin parcela"}
                             </span>
                             <span className="block truncate text-[11px] text-muted-foreground">
-                              {fmtDate(e.executed_at)} · {fmtDec(e.area_treated_ha)} ha
-                              {e.product ? ` · ${e.product}` : ""}
+                              {fmtDate(e.executed_at)} · {fmtInt(e.flights_count)} vuelos · {fmtLiters(e.volume_l)}
                             </span>
                           </span>
-                          {isOrphan ? (
-                            <Badge className="shrink-0 border-transparent bg-[#a855f7] text-[10px] text-white">
-                              Sin asignar
-                            </Badge>
-                          ) : (
-                            <Badge variant="secondary" className="shrink-0 text-[10px]">
-                              {SOURCE_LABEL[e.source]}
-                            </Badge>
-                          )}
+                          <span className="shrink-0 text-right">
+                            <span className="block font-mono text-[10px] text-muted-foreground">
+                              {fmtDec(e.area_treated_ha)} ha
+                            </span>
+                            {isOrphan ? (
+                              <Badge className="mt-1 border-transparent bg-[#a855f7] text-[9px] text-white">
+                                Sin asignar
+                              </Badge>
+                            ) : null}
+                          </span>
                         </button>
                       </li>
                     );
