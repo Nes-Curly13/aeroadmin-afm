@@ -5,7 +5,15 @@
 
 AeroAdmin AFM es la plataforma admin para el operador de drones cañero en Valle del Cauca, Colombia. Lee datos de la nube de DJI SmartFarm, los persiste en PostGIS, y los expone vía Next.js. Cliente: 1 piloto, ~1200 parcelas, ~16k vuelos, ~17k fumigaciones. Single contributor (1 dev).
 
-**Estado actual (2026-09-08)**: sprints **S11+ cerrado (V2 plan completo)** + **Quality Gauntlet #1 (zod) cerrado** + **Sprint QA closeout cerrado** (PRs #60-#66) + **Bug 2 fix** (PR #67 `6a9fa06`) + **SVG 400 fix** (PR #68 `abb6f34`) + **QA-13 desktop-first UX** (PR #70 `320073f`) + **Cerrar producto roadmap (Fase 0-8)** (PRs #71-#77). Master `b0e9bcb` (post-merge de PR #76 Fase 3.2 catalog). Cobertura de tests ~2130+ verde, arch:check 0 errors, tsc 0 errors. **Release Candidate.**
+**Estado actual (2026-09-21)**: **Release Candidate + pipeline de fumigaciones reconstruido**. Se importaron los **tracks KML** (10.281 LineStrings) a `dji_flight_tracks` + `dji_flights.track`, y las fumigaciones se reagruparon por **día + DBSCAN espacial (~330 m)** con **cobertura real** (`coverage` = `ST_UnaryUnion(ST_Buffer(track::geography, 2 m))`, simplificada ~22 m para el payload; `mv_fumigation_hulls` queda como fallback). Resultado en prod: **523 fumigaciones, 523 con parcela, 0 huérfanas** (220 asignadas por intersección cobertura∩parcela + 100 auto-parcelas `source='imported'`, `data_validity='needs_review'`). El geovisor tiene un **Inspector unificado** (modos Contexto / Parcelas / Fumigaciones) y **el mapa ya no abre popups**. Cadencia unificada (**CAD-001**): `lib/fumigation-cadence.ts` es la fuente única. Backfills de `clients`/`farms` y `cycles` corridos en prod. Master `6ec4b63`. Tests verdes, arch:check 0 errors, tsc 0 errors.
+
+**Pipeline de fumigaciones (2026-09-21)** — reconstruido desde los KML del scraper. Orden de scripts (todos dry-run por defecto, escriben con `--apply`; `DATABASE_URL` = prod en `.env.local`):
+1. `node scripts/import-flight-tracks.js --in djiag_exports/tracks.geojson --apply` — ingesta de tracks a `dji_flight_tracks` + `dji_flights.track` (acepta `.geojson` FeatureCollection, carpeta de `.geojson`/`.kml`, o un `.kml`).
+2. `node scripts/regroup-fumigations-dbscan.js --apply [--eps 0.003]` — reagrupa por día + DBSCAN (`eps` en grados; 0.003 ≈ 330 m), setea `coverage`/`flight_count`/`area_m2_total`/`spray_usage_total` y `session_key='dbscan|día|minFlightId'`.
+3. `node scripts/assign-orphan-parcels.js --min-frac 0.05 --apply` — asigna a la parcela con mayor solape cobertura∩parcela (pref `dji`).
+4. `node scripts/create-auto-parcels.js --apply` — crea una parcela por cada huérfana restante con su cobertura (fallback hull). `external_id='cov-auto-<fumId>'`.
+5. `node scripts/refresh-fumigations.js` — refresca MVs.
+Reproceso seguro: `regroup --apply` borra y recrea solo `source='import' AND session_key IS NOT NULL`. Previews: `scripts/preview-tracks.js`, `preview-track-groups.js`, `preview-prod-fumigations.js` (HTML autocontenido). Nota: `djiag_exports/tracks.geojson` (~53 MB) está gitignored.
 
 Sprints cerrados anteriores:
 - **S5** (2026-07-28): migración a MapLibre + port del mockup V0
@@ -107,12 +115,14 @@ PRs:
 **Candidates (próximos, en orden de prioridad):**
 1. ~~Bug 2 auth — diagnosticar `/geovisor` accesible sin login~~ — **CERRADO en PR #67 (2026-09-08)**.
 2. ~~Fases 1-8 del roadmap "cerrar producto"~~ — **CERRADO en PRs #71-#77 (2026-09-08)**. Producto en estado Release Candidate.
-3. Correr backfills de `clients/farms` y `cycles` en cada ambiente (manual del user).
+3. ~~Correr backfills de `clients/farms` y `cycles`~~ — **CORRIDO en prod (2026-09-21)**: 400 farms, 445 ciclos.
 4. Regla de cadencia formal — definir el threshold de "vencido/crítico" antes de reintroducir el `CompliancePanel` en el dashboard. (Fase 6, deferred.)
 5. Quality Gauntlet compuertas 5-7 (StrykerJS, BDD Gherkin, smoke DB, métricas continuas) — requiere deps nuevas (autorización explícita del user).
 6. Pagination server-side completa de fumigaciones (largo plazo) — el cap 200 actual es suficiente para el Valle del Cauca, pero si se expande a otros clientes, considerar `?from=&to=&parcel=&page=&pageSize=`.
 7. Combobox typeahead para catalog Cliente/Hacienda — actualmente son SELECTs nativos. Para catalogs grandes (>50 clientes) mejorar UX.
-8. Cleanup e2e tests broken post-QA-01 (geovisor-ui-changes.spec.ts) — ~30 min.
+8. ~~Cleanup e2e tests broken post-QA-01 (geovisor-ui-changes.spec.ts)~~ — **CERRADO (2026-09-21)**: `tests/e2e/geovisor-and-parcels.spec.ts` reescrito para el Inspector unificado.
+9. **`scripts/djiag/`** (scraper viejo con `export_kml`) y `docs/assets/*` / `docs/TG/*` quedan **untracked** — decidir si se versionan.
+10. Tracks: 258 tracks sin vuelo correspondiente y 452 vuelos sin track (los que no están en el KML) — completar si se re-scrapea.
 
 ---
 
@@ -300,5 +310,5 @@ Un PR de un agente está listo para merge cuando:
 
 ---
 
-**Última actualización:** 2026-09-06 (S11+ V2 plan completo: PRs #40-#55. Quality Gauntlet #1 zod: PRs #56-#58. Master `4da38d9`, 2042/2042 tests verde).
+**Última actualización:** 2026-09-21 (pipeline de fumigaciones reconstruido: tracks KML → `coverage` + agrupado día+DBSCAN + auto-parcelas; Inspector unificado; cadencia unificada CAD-001. Master `6ec4b63`).
 **Mantenedor:** @agFab (single contributor, dev actual en transición — ver `docs/HANDOFF-2026-09-02.md`).

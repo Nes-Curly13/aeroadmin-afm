@@ -157,6 +157,8 @@ playwright-report/
 /tmp-*.js
 /tmp-*.log
 /tmp-*.err
+/tmp-*.html
+/tmp-*.png
 /tmp-trash/
 # ============================================================
 # S11+ (2026-09-05): local PR/commit drafts and handoff notes

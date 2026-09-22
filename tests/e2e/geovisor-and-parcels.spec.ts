@@ -1,12 +1,17 @@
-// E2E Playwright — Geovisor + Parcelas V0.
-// Sprint S8.2 (2026-07-29): actualizado para el V0 rebuild.
+// E2E Playwright — Geovisor + Parcelas.
 //
-// Cobertura del flow secundario del operador:
-//   1. /geovisor carga despues de login y muestra el mapa
-//   2. /geovisor: toggle "Satelite" / "Callejero" visible
-//   3. /geovisor: panel de filtros visible (Cliente, Estado, etc.)
-//   4. /parcelas: tabla de parcelas con cadencia
-//   5. /parcelas/[id]: ficha tecnica de la primera parcela
+// Actualizado 2026-09-21: el geovisor pasó a un **Inspector unificado**
+// (Contexto / Parcelas / Fumigaciones) y el mapa ya no abre popups. Los
+// filtros de cadencia/cliente/hacienda/drone/source no existen (QA-02).
+//
+// Cobertura:
+//   1. /geovisor carga tras login y muestra el mapa + el Inspector
+//   2. /geovisor: toggle de Mapa base (Satélite / Calles)
+//   3. /geovisor: rail de filtros (búsqueda + rango + capas + leyenda)
+//   4. /geovisor: cambiar a Calles no rompe
+//   5. /parcelas: tabla de parcelas
+//   6. /parcelas: filtro de búsqueda
+//   7. /parcelas/[id]: ficha de parcela #1
 
 import { expect, test, type Page } from "@playwright/test";
 
@@ -21,97 +26,83 @@ async function login(page: Page) {
   await page.waitForURL((u) => !u.toString().includes("/login"), { timeout: 15_000 });
 }
 
-test.describe("Geovisor V0 (S8.2)", () => {
-  test("1. /geovisor carga despues de login", async ({ page }) => {
+test.describe("Geovisor (Inspector unificado)", () => {
+  test("1. /geovisor carga y muestra el mapa + Inspector", async ({ page }) => {
     await login(page);
     await page.goto("/geovisor");
     await expect(page).toHaveURL("/geovisor");
-    // El mapa MapLibre tiene un canvas (con role=application en el container)
-    const mapContainer = page.locator('[aria-label="Mapa de parcelas de caña"]');
-    await expect(mapContainer).toBeVisible();
+    await expect(page.locator('[aria-label="Mapa de parcelas de caña"]')).toBeVisible();
+    await expect(page.getByTestId("geovisor-inspector")).toBeVisible();
+    // El mapa ya no muestra popups: el detalle vive en el Inspector.
+    await expect(page.getByTestId("inspector-tab-contexto")).toBeVisible();
+    await expect(page.getByTestId("inspector-tab-parcelas")).toBeVisible();
+    await expect(page.getByTestId("inspector-tab-fumigaciones")).toBeVisible();
   });
 
-  test("2. /geovisor: toggle Mapa base con 'Satelite' y 'Callejero'", async ({ page }) => {
+  test("2. /geovisor: toggle de Mapa base (Satélite / Calles)", async ({ page }) => {
     await login(page);
     await page.goto("/geovisor");
-    // El fieldset de Mapa base tiene los dos toggles (V0 GeoMap)
-    const basemapLegend = page.locator("legend", { hasText: /Mapa base/i });
-    await expect(basemapLegend).toBeVisible();
-    // Buscamos los botones dentro del fieldset
-    const basemapFieldset = basemapLegend.locator("..");
-    await expect(basemapFieldset.getByText("Satélite")).toBeVisible();
-    await expect(basemapFieldset.getByText("Callejero")).toBeVisible();
+    const legend = page.locator("legend", { hasText: /Mapa base/i });
+    await expect(legend).toBeVisible();
+    const fieldset = legend.locator("..");
+    await expect(fieldset.getByText("Satélite")).toBeVisible();
+    await expect(fieldset.getByText("Calles")).toBeVisible();
   });
 
-  test("3. /geovisor: panel de filtros Cliente / Estado visible", async ({ page }) => {
+  test("3. /geovisor: rail de filtros (búsqueda, rango, capas, leyenda)", async ({ page }) => {
     await login(page);
     await page.goto("/geovisor");
-    // Filtros del V0 GeoMap. El "Cliente" del V0 se llama
-    // "Cliente / Ingenio" (label completo del FieldSelect). Las
-    // toggles de visibilidad se llaman "Polígonos de parcelas" /
-    // "Etiquetas de suerte" en el V0 mockup.
-    await expect(page.getByText(/Cliente\s*\/\s*Ingenio/i).first()).toBeVisible();
-    await expect(page.getByText(/Estado de cadencia/i).first()).toBeVisible();
+    await expect(page.getByTestId("geovisor-search")).toBeVisible();
+    await expect(page.getByTestId("geovisor-from")).toBeVisible();
+    await expect(page.getByTestId("geovisor-to")).toBeVisible();
     await expect(page.getByText(/Pol[íi]gonos de parcelas/i).first()).toBeVisible();
-    await expect(page.getByText(/Etiquetas de suerte/i).first()).toBeVisible();
+    await expect(page.getByText(/Aplicaciones en el rango/i).first()).toBeVisible();
+    await expect(page.getByText(/Leyenda/i).first()).toBeVisible();
   });
 
-  test("4. /geovisor: cambiar a Callejero cambia el basemap", async ({ page }) => {
+  test("4. /geovisor: cambiar a Calles no rompe", async ({ page }) => {
     await login(page);
     await page.goto("/geovisor");
-    // El boton Callejero existe y se puede clickear
-    const callejeroBtn = page.getByRole("button", { name: /Callejero/i });
-    await expect(callejeroBtn).toBeVisible();
-    await callejeroBtn.click();
-    // No crashea — verificamos que el mapa sigue visible
-    const mapContainer = page.locator('[aria-label="Mapa de parcelas de caña"]');
-    await expect(mapContainer).toBeVisible();
+    const calles = page.getByRole("button", { name: /^Calles$/ });
+    await expect(calles).toBeVisible();
+    await calles.click();
+    await expect(page.locator('[aria-label="Mapa de parcelas de caña"]')).toBeVisible();
+  });
+
+  test("5. /geovisor: seleccionar una parcela abre su contexto en el Inspector", async ({ page }) => {
+    await login(page);
+    await page.goto("/geovisor");
+    await page.getByTestId("inspector-tab-parcelas").click();
+    const firstParcel = page.locator('[data-testid^="geovisor-parcel-"]').first();
+    await expect(firstParcel).toBeVisible();
+    await firstParcel.click();
+    await expect(page.getByTestId("inspector-parcel-summary")).toBeVisible();
   });
 });
 
-test.describe("Parcelas V0 (S8.2)", () => {
-  test("5. /parcelas: tabla de parcelas renderiza", async ({ page }) => {
+test.describe("Parcelas", () => {
+  test("6. /parcelas: tabla de parcelas renderiza", async ({ page }) => {
     await login(page);
     await page.goto("/parcelas");
     await expect(page).toHaveURL("/parcelas");
-    // Heading del V0
     await expect(page.getByText(/Inventario de parcelas/i)).toBeVisible();
-    // Tabla con al menos 1 fila de parcela
-    const rows = page.locator("tbody tr");
-    expect(await rows.count()).toBeGreaterThan(0);
+    expect(await page.locator("tbody tr").count()).toBeGreaterThan(0);
   });
 
-  test("6. /parcelas: filtro de busqueda funciona", async ({ page }) => {
+  test("7. /parcelas: filtro de búsqueda no rompe", async ({ page }) => {
     await login(page);
     await page.goto("/parcelas");
     const search = page.getByPlaceholder(/Buscar parcela/i);
     await expect(search).toBeVisible();
-    // Filtramos por algo generico
-    await search.fill("GUACHICONA");
-    // La tabla sigue mostrando filas (o el empty state, pero no crashea)
-    await page.waitForTimeout(500); // debounce del filter
-    const rows = page.locator("tbody tr");
-    expect(await rows.count()).toBeGreaterThan(0);
+    await search.fill("ste");
+    await page.waitForTimeout(500);
+    expect(await page.locator("tbody tr").count()).toBeGreaterThan(0);
   });
 
-  test("7. /parcelas/[id]: ficha tecnica de parcela #1 renderiza", async ({ page }) => {
+  test("8. /parcelas/[id]: ficha de parcela #1 renderiza sin 500", async ({ page }) => {
     await login(page);
     await page.goto("/parcelas/1");
-    // /parcelas/[id] ahora existe (es el V0 detalle). El parcel puede
-    // existir (ID 1 = GUACHICONA) o no — si no existe, redirige a 404.
-    // Lo que validamos es que el server no tira 500.
-    const status = page.url().includes("/parcelas/1") ? 200 : (page.url().includes("/404") ? 404 : 0);
-    // Si la URL sigue siendo /parcelas/1 (no 404), el page renderizo
-    if (page.url().endsWith("/parcelas/1")) {
-      // Titulo V0: el nombre de la parcela
-      const body = await page.locator("body").innerText();
-      // Contiene al menos un identificador (parcela #1 o su nombre)
-      expect(body.length).toBeGreaterThan(500);
-    } else {
-      // 404 esperado si el parcel no existe en la BD de test
-      expect(page.url()).toMatch(/\/(parcelas\/1|404)/);
-    }
-    // Validamos que el status code no fue 500
-    expect(status).not.toBe(500);
+    const body = await page.locator("body").innerText();
+    expect(body.length).toBeGreaterThan(300);
   });
 });
