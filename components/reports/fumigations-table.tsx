@@ -74,16 +74,20 @@ export function FumigationsTable({
         </div>
       </CardHeader>
       <CardContent>
-        <div className="max-h-[40rem] overflow-y-auto">
-          <table className="w-full text-sm">
+        {/* UI-L1 (auditoría UI 2026-09-21): se quitó el scroll vertical
+            anidado (`max-h-[40rem]`). Ahora es un scroller HORIZONTAL
+            acotado (para tablas anchas en mobile) y la página es la
+            única dueña del scroll vertical. */}
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px] text-sm">
             <thead className="sticky top-0 bg-card">
               <tr className="border-b border-border text-[11px] uppercase tracking-wide text-muted-foreground">
-                <th className="py-2 text-left font-semibold">Fecha</th>
-                <th className="py-2 text-left font-semibold">Parcela</th>
-                <th className="py-2 text-left font-semibold">Piloto</th>
-                <th className="py-2 text-right font-semibold">Área (ha)</th>
-                <th className="py-2 text-right font-semibold">Vol (L)</th>
-                <th className="py-2 text-left font-semibold">Producto</th>
+                <th scope="col" className="py-2 text-left font-semibold">Fecha</th>
+                <th scope="col" className="py-2 text-left font-semibold">Parcela</th>
+                <th scope="col" className="py-2 text-left font-semibold">Piloto</th>
+                <th scope="col" className="py-2 text-right font-semibold">Área (ha)</th>
+                <th scope="col" className="py-2 text-right font-semibold">Vol (L)</th>
+                <th scope="col" className="py-2 text-left font-semibold">Producto</th>
               </tr>
             </thead>
             <tbody>
