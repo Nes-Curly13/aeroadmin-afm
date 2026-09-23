@@ -66,6 +66,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { fmtDate, fmtDec, fmtInt } from "@/lib/format";
+import { MAP_COLORS } from "@/lib/map-palette";
 import type { GeovisorPayload } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -133,7 +134,7 @@ export function GeovisorClient({
   }, []);
   const [showEvents, setShowEvents] = useState(true);
   const [showLabels, setShowLabels] = useState(false);
-  const [showFilters, setShowFilters] = useState(true);
+  const [showFilters, setShowFilters] = useState(false);
   // El toggle "Ocultar filtros" ahora colapsa/expande el panel (PR-3b).
   useEffect(() => {
     const p = filtersPanelRef.current;
@@ -315,6 +316,7 @@ export function GeovisorClient({
         collapsedSize={0}
         defaultSize={22}
         minSize={isDesktop ? 14 : 28}
+        maxSize={isDesktop ? 28 : 45}
         className="flex flex-col gap-5 overflow-y-auto border-b border-border bg-card p-4 lg:border-b-0 lg:border-r"
       >
         <div className="flex items-center gap-2">
@@ -380,7 +382,7 @@ export function GeovisorClient({
                   sym: (
                     <span
                       className="size-3.5 rounded-sm border border-foreground/20"
-                      style={{ backgroundColor: "#f59e0b" }}
+                      style={{ backgroundColor: MAP_COLORS.parcel }}
                       aria-hidden
                     />
                   )
@@ -392,7 +394,7 @@ export function GeovisorClient({
                   sym: (
                     <span
                       className="size-3.5 rounded-sm border border-foreground/30"
-                      style={{ backgroundColor: "#06b6d4" }}
+                      style={{ backgroundColor: MAP_COLORS.event }}
                       aria-hidden
                     />
                   )
@@ -417,7 +419,7 @@ export function GeovisorClient({
                 type="button"
                 onClick={() => l.set(!l.value)}
                 aria-pressed={l.value}
-                className="flex items-center justify-between gap-2 rounded-md border border-border px-2.5 py-1.5 text-xs hover:bg-muted"
+                className="flex items-center justify-between gap-2 rounded-md border border-border px-2.5 py-1.5 text-xs hover:bg-muted focus-visible:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
               >
                 <span className="flex items-center gap-2">
                   {l.sym}
@@ -447,23 +449,23 @@ export function GeovisorClient({
           </legend>
           <ul className="flex flex-col gap-1.5 text-[11px] text-muted-foreground">
             <li className="flex items-center gap-2">
-              <span className="h-0.5 w-4 shrink-0 rounded" style={{ backgroundColor: "#f59e0b" }} aria-hidden />
+              <span className="h-0.5 w-4 shrink-0 rounded" style={{ backgroundColor: MAP_COLORS.parcel }} aria-hidden />
               Parcela (borde ámbar)
             </li>
             <li className="flex items-center gap-2">
-              <span className="size-3 shrink-0 rounded-sm" style={{ backgroundColor: "#06b6d4", opacity: 0.5 }} aria-hidden />
+              <span className="size-3 shrink-0 rounded-sm" style={{ backgroundColor: MAP_COLORS.event, opacity: 0.5 }} aria-hidden />
               Fumigación (relleno cian)
             </li>
             <li className="flex items-center gap-2">
               <span
                 className="size-3 shrink-0 rounded-sm border border-dashed"
-                style={{ backgroundColor: "#a855f7", opacity: 0.5, borderColor: "#7e22ce" }}
+                style={{ backgroundColor: MAP_COLORS.orphan, opacity: 0.5, borderColor: MAP_COLORS.orphanLine }}
                 aria-hidden
               />
               Sin asignar (magenta, borde punteado)
             </li>
             <li className="flex items-center gap-2">
-              <span className="h-0.5 w-4 shrink-0 rounded" style={{ backgroundColor: "#2563eb" }} aria-hidden />
+              <span className="h-0.5 w-4 shrink-0 rounded" style={{ backgroundColor: MAP_COLORS.parcelSelected }} aria-hidden />
               Parcela seleccionada (azul)
             </li>
           </ul>
@@ -505,7 +507,7 @@ export function GeovisorClient({
       />
 
       {/* Mapa */}
-      <Panel className="relative min-h-0">
+      <Panel minSize={isDesktop ? 55 : 40} className="relative min-h-0">
         <GeoMap
           parcels={mapParcels}
           events={sortedEvents
@@ -595,6 +597,7 @@ export function GeovisorClient({
       <Panel
         defaultSize={26}
         minSize={16}
+        maxSize={isDesktop ? 34 : 50}
         className="relative flex flex-col border-t border-border bg-card lg:border-l lg:border-t-0"
         data-testid="geovisor-events-panel"
       >
