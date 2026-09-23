@@ -52,12 +52,12 @@ export function FarmsTable({
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border text-[11px] uppercase tracking-wide text-muted-foreground">
-              <th className="py-2 text-left font-semibold">Parcela</th>
-              <th className="py-2 text-left font-semibold">Hacienda</th>
-              <th className="py-2 text-right font-semibold">#</th>
-              <th className="py-2 text-right font-semibold">Área (ha)</th>
-              <th className="py-2 text-right font-semibold">Litros (L)</th>
-              <th className="py-2 text-left font-semibold">Última</th>
+              <th scope="col" className="py-2 text-left font-semibold">Parcela</th>
+              <th scope="col" className="py-2 text-left font-semibold">Hacienda</th>
+              <th scope="col" className="py-2 text-right font-semibold">#</th>
+              <th scope="col" className="py-2 text-right font-semibold">Área (ha)</th>
+              <th scope="col" className="py-2 text-right font-semibold">Litros (L)</th>
+              <th scope="col" className="py-2 text-left font-semibold">Última</th>
             </tr>
           </thead>
           <tbody>

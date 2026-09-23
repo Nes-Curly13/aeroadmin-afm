@@ -20,6 +20,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Sprout, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 export function AutoFocusFumigation() {
   const [showBanner, setShowBanner] = useState(false);
@@ -61,14 +62,16 @@ export function AutoFocusFumigation() {
         Ya podés registrar la fumigación inicial abajo. El producto, dosis y demás
         datos son los de esta aplicación.
       </p>
-      <button
+      <Button
         type="button"
+        variant="ghost"
+        size="icon"
         onClick={() => setShowBanner(false)}
         aria-label="Cerrar aviso"
-        className="text-primary/60 hover:text-primary"
+        className="shrink-0 text-primary/70 hover:text-primary"
       >
         <X className="size-4" aria-hidden />
-      </button>
+      </Button>
     </div>
   );
 }
