@@ -107,7 +107,7 @@ export function DataQualityBanner({ parcelaId }: DataQualityBannerProps) {
   // ya está en el design system (primary/5, destructive/5, etc.).
   const colorClasses: Record<WarningSeverity, string> = {
     error: "border-destructive/40 bg-destructive/5 text-destructive",
-    warning: "border-amber-500/40 bg-amber-500/5 text-amber-700 dark:text-amber-300",
+    warning: "border-warning/40 bg-warning/5 text-warning-foreground",
     info: "border-primary/30 bg-primary/5 text-foreground"
   };
 

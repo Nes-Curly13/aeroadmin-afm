@@ -223,7 +223,7 @@ export function applicationStatusChipClass(status: ApplicationStatus): string {
     case "al_dia":
       return "border-chart-1/40 bg-chart-1/5 text-chart-1";
     case "pendiente":
-      return "border-amber-500/40 bg-amber-500/5 text-amber-700 dark:text-amber-300";
+      return "border-warning/40 bg-warning/5 text-warning-foreground";
     case "vencida":
       return "border-destructive/40 bg-destructive/5 text-destructive";
     case "programada":

@@ -2,6 +2,7 @@
 
 import type { Map as MlMap } from "maplibre-gl"
 import { useEffect, useRef, useState } from "react"
+import { MAP_COLORS } from "@/lib/map-palette"
 
 interface FlightPoint {
   id: string
@@ -108,7 +109,7 @@ export function ParcelMap({
           source: "flights",
           paint: {
             "circle-radius": 3.6,
-            "circle-color": "#f5e839",
+            "circle-color": MAP_COLORS.brandLime,
             "circle-opacity": 0.9,
             "circle-stroke-color": "rgba(32,33,37,0.7)",
             "circle-stroke-width": 0.6,
