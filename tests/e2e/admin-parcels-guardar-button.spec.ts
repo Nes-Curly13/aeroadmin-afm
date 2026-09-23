@@ -53,6 +53,15 @@ function loadDatabaseUrl(): string {
   return url;
 }
 
+/** pg Client que respeta DATABASE_SSL (local = false). */
+function makeClient(dbUrl: string): Client {
+  const useSsl = (process.env.DATABASE_SSL ?? "").toLowerCase() === "true";
+  return new Client({
+    connectionString: dbUrl,
+    ...(useSsl ? { ssl: { rejectUnauthorized: false } } : {})
+  });
+}
+
 test.describe("Admin /admin/parcels — user story: cambiar y guardar via UI (2026-08-02)", () => {
   test("1. Editar input + click Guardar persiste el cambio y se ve en el badge", async ({ page }) => {
     const TEST_VALUE = `E2E-US-${Date.now()}`;
@@ -63,7 +72,7 @@ test.describe("Admin /admin/parcels — user story: cambiar y guardar via UI (20
     let original: { client_name: string | null } | null = null;
     const cleanup = async () => {
       if (original !== null) {
-        const c = new Client({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });
+        const c = makeClient(dbUrl);
         await c.connect();
         await c.query("UPDATE dji_parcels SET client_name = $1 WHERE id = $2", [
           original!.client_name,
@@ -88,11 +97,11 @@ test.describe("Admin /admin/parcels — user story: cambiar y guardar via UI (20
       // de búsqueda por su external_id o land_name.
       // Para este test asumimos que id=1 (GUACHICONA) está en la primera
       // página (suele estar). Si no, fallamos con un mensaje claro.
-      const firstRowClient = page.locator('input[aria-label$="client_name"]').first();
+      const firstRowClient = page.locator('input[aria-label*="Cliente (denormalizado)"]').first();
       await expect(firstRowClient).toBeVisible({ timeout: 10_000 });
 
       // Capturar el original desde la BD para cleanup.
-      const c0 = new Client({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });
+      const c0 = makeClient(dbUrl);
       await c0.connect();
       const r0 = await c0.query(
         "SELECT client_name FROM dji_parcels WHERE id = $1",
@@ -118,7 +127,7 @@ test.describe("Admin /admin/parcels — user story: cambiar y guardar via UI (20
       });
 
       // 5) Verificar en la BD que el cambio persistió
-      const c1 = new Client({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });
+      const c1 = makeClient(dbUrl);
       await c1.connect();
       const r1 = await c1.query(
         "SELECT client_name FROM dji_parcels WHERE id = $1",
@@ -140,7 +149,7 @@ test.describe("Admin /admin/parcels — user story: cambiar y guardar via UI (20
       // Usamos `all()` + iteración para leer todos los inputValue()
       // (Playwright no tiene allInputValues() — hay que iterar).
       const allLocators = await page
-        .locator('input[aria-label$="client_name"]')
+        .locator('input[aria-label*="Cliente (denormalizado)"]')
         .all();
       const allValues: string[] = [];
       for (const loc of allLocators) {
@@ -168,7 +177,7 @@ test.describe("Admin /admin/parcels — user story: cambiar y guardar via UI (20
     await expect(guardarBtn).toBeDisabled();
 
     // Apenas el usuario escribe algo, debe habilitarse.
-    const clientInput = page.locator('input[aria-label$="client_name"]').first();
+    const clientInput = page.locator('input[aria-label*="Cliente (denormalizado)"]').first();
     await clientInput.fill("cambio-temporal");
     await expect(guardarBtn).toBeEnabled();
 
@@ -191,7 +200,7 @@ test.describe("Admin /admin/parcels — user story: cambiar y guardar via UI (20
     let original: { client_name: string | null } | null = null;
 
     try {
-      const c0 = new Client({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });
+      const c0 = makeClient(dbUrl);
       await c0.connect();
       const r0 = await c0.query(
         "SELECT client_name FROM dji_parcels WHERE id = $1",
@@ -203,7 +212,7 @@ test.describe("Admin /admin/parcels — user story: cambiar y guardar via UI (20
       await login(page);
       await page.goto("/admin/parcels");
 
-      const clientInput = page.locator('input[aria-label$="client_name"]').first();
+      const clientInput = page.locator('input[aria-label*="Cliente (denormalizado)"]').first();
       // Setear a un valor NO vacío primero, luego cambiar a vacío.
       // (Si arrancamos vacío, el botón está disabled y no podemos guardar.)
       await clientInput.fill("temp-set");
@@ -219,7 +228,7 @@ test.describe("Admin /admin/parcels — user story: cambiar y guardar via UI (20
       await expect(page.getByText("Guardado").first()).toBeVisible({ timeout: 10_000 });
 
       // Verificar en BD: el valor debe ser string vacío '' (no NULL).
-      const c1 = new Client({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });
+      const c1 = makeClient(dbUrl);
       await c1.connect();
       const r1 = await c1.query(
         "SELECT client_name FROM dji_parcels WHERE id = $1",
@@ -230,7 +239,7 @@ test.describe("Admin /admin/parcels — user story: cambiar y guardar via UI (20
       await c1.end();
     } finally {
       if (original !== null) {
-        const c = new Client({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });
+        const c = makeClient(dbUrl);
         await c.connect();
         await c.query("UPDATE dji_parcels SET client_name = $1 WHERE id = $2", [
           original!.client_name,

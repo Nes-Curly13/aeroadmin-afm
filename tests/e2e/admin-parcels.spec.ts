@@ -46,12 +46,21 @@ function loadDatabaseUrl(): string {
   return url;
 }
 
+/** pg Client que respeta DATABASE_SSL (local = false). */
+function makeClient(dbUrl: string): Client {
+  const useSsl = (process.env.DATABASE_SSL ?? "").toLowerCase() === "true";
+  return new Client({
+    connectionString: dbUrl,
+    ...(useSsl ? { ssl: { rejectUnauthorized: false } } : {})
+  });
+}
+
 test.describe("Admin /admin/parcels (S8.2)", () => {
   test("1. /admin/parcels renderiza con tabla de parcelas", async ({ page }) => {
     await login(page);
     await page.goto("/admin/parcels");
     await expect(page).toHaveURL(/\/admin\/parcels/);
-    await expect(page.getByText(/Admin · Parcelas/i)).toBeVisible();
+    await expect(page.getByText(/Admin .{1,3}Parcelas/i).first()).toBeVisible();
     // La tabla tiene al menos 1 fila
     const rows = page.locator("tbody tr");
     expect(await rows.count()).toBeGreaterThan(0);
@@ -61,17 +70,18 @@ test.describe("Admin /admin/parcels (S8.2)", () => {
     await login(page);
     await page.goto("/admin/parcels");
     const firstRow = page.locator("tbody tr").first();
-    // 4 inputs con aria-label que contiene el nombre del campo
-    const clientInput = firstRow.locator('input[aria-label$="client_name"]');
-    const farmInput = firstRow.locator('input[aria-label$="farm_name"]');
-    const muniInput = firstRow.locator('input[aria-label$="municipality"]');
-    const varietyInput = firstRow.locator('input[aria-label$="variety"]');
-    await expect(clientInput).toBeVisible();
-    await expect(farmInput).toBeVisible();
-    await expect(muniInput).toBeVisible();
-    await expect(varietyInput).toBeVisible();
-    // Cada input es editable (no disabled)
-    await expect(clientInput).toBeEnabled();
+    // Campos editables por fila: Cliente/Finca (FK) + Cliente/Finca
+    // denormalizados + Municipio + Variedad.
+    const clientField = firstRow.locator('[aria-label*="Cliente"]').first();
+    const farmField = firstRow.locator('[aria-label*="Finca"]').first();
+    const muniField = firstRow.locator('[aria-label*="Municipio"]').first();
+    const varietyField = firstRow.locator('[aria-label*="Variedad"]').first();
+    await expect(clientField).toBeVisible();
+    await expect(farmField).toBeVisible();
+    await expect(muniField).toBeVisible();
+    await expect(varietyField).toBeVisible();
+    // El campo Cliente (FK) es editable (no disabled)
+    await expect(clientField).toBeEnabled();
   });
 
   test("3. Editar un campo y Guardar persiste el cambio en la BD", async ({ page }) => {
@@ -91,7 +101,7 @@ test.describe("Admin /admin/parcels (S8.2)", () => {
       // encontrar el ID de forma robusta, usamos el primer input visible
       // y leemos el parcel via API (no por DOM).
       const firstRow = page.locator("tbody tr").first();
-      const clientInput = firstRow.locator('input[aria-label$="client_name"]');
+      const clientInput = firstRow.locator('input[aria-label*="Cliente (denormalizado)"]');
       await expect(clientInput).toBeVisible();
 
       // Capturamos el original desde la BD (1 parcel random de la primera
@@ -104,7 +114,7 @@ test.describe("Admin /admin/parcels (S8.2)", () => {
       testParcelId = 1;
 
       // Capturar el valor original para cleanup
-      const c = new Client({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });
+      const c = makeClient(dbUrl);
       await c.connect();
       const r = await c.query(
         "SELECT client_name, farm_name, municipality, variety FROM dji_parcels WHERE id = $1",
@@ -136,7 +146,7 @@ test.describe("Admin /admin/parcels (S8.2)", () => {
       expect(patchRes.status).toBe(200);
 
       // Verificar en la BD
-      const c2 = new Client({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });
+      const c2 = makeClient(dbUrl);
       await c2.connect();
       const r2 = await c2.query(
         "SELECT client_name FROM dji_parcels WHERE id = $1",
@@ -147,7 +157,7 @@ test.describe("Admin /admin/parcels (S8.2)", () => {
     } finally {
       // Revertir el cambio para que el test sea idempotente
       if (testParcelId !== null && originalValues) {
-        const c = new Client({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });
+        const c = makeClient(dbUrl);
         await c.connect();
         await c.query(
           "UPDATE dji_parcels SET client_name = $1 WHERE id = $2",
@@ -162,7 +172,7 @@ test.describe("Admin /admin/parcels (S8.2)", () => {
     await login(page);
     await page.goto("/admin/parcels");
     const firstRow = page.locator("tbody tr").first();
-    const clientInput = firstRow.locator('input[aria-label$="client_name"]');
+    const clientInput = firstRow.locator('input[aria-label*="Cliente (denormalizado)"]');
     const originalValue = await clientInput.inputValue();
 
     // Editar
@@ -182,9 +192,12 @@ test.describe("Admin /admin/parcels (S8.2)", () => {
     // El footer de paginacion dice "Página 1 de N"
     const footer = page.getByText(/Página 1 de \d+/);
     await expect(footer).toBeVisible();
-
-    const nextBtn = page.getByRole("button", { name: /Siguiente/i });
-    if (await nextBtn.isEnabled()) {
+    // Solo ejercitamos "Siguiente" si hay más de una página.
+    const totalPages = Number(
+      (await footer.innerText()).match(/de\s+(\d+)/)?.[1] ?? "1"
+    );
+    if (totalPages > 1) {
+      const nextBtn = page.getByRole("button", { name: /Siguiente/i });
       await nextBtn.click();
       await page.waitForURL(/page=2/);
       await expect(page.getByText(/Página 2 de \d+/)).toBeVisible();

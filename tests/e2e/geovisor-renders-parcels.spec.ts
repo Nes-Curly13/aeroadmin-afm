@@ -25,6 +25,11 @@ async function login(page: Page) {
 }
 
 test("/geovisor renderiza los 1213 polígonos sintéticos", async ({ page }) => {
+  // Requiere el dataset completo (1213 parcelas).
+  test.skip(
+    !process.env.E2E_FULL_DATASET,
+    "requiere el dataset completo (1213 parcelas) — set E2E_FULL_DATASET=1"
+  );
   await login(page);
   await page.goto("/geovisor");
   await expect(page).toHaveURL(/\/geovisor/);
