@@ -29,6 +29,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { AssignParcelDialog } from "@/components/fumigations/assign-parcel-dialog"
 import { fmtDate, fmtDec, fmtInt, fmtLiters, SOURCE_LABEL } from "@/lib/format"
+import { MAP_COLORS } from "@/lib/map-palette"
 import type { GeovisorPayload } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -317,7 +318,7 @@ function FumigationRow({
         selected && "bg-muted"
       )}
     >
-      <span className={cn("mt-1 size-2 shrink-0 rounded-full", orphan ? "bg-[#a855f7]" : "bg-[#06b6d4]")} aria-hidden />
+      <span className="mt-1 size-2 shrink-0 rounded-full" style={{ backgroundColor: orphan ? MAP_COLORS.orphan : MAP_COLORS.event }} aria-hidden />
       <span className="min-w-0 flex-1">
         <span className="block text-[13px] font-semibold">{fmtDate(event.executed_at)}</span>
         <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
@@ -440,9 +441,9 @@ function ParcelListView({
               onClick={() => onSelectParcel(p.id)}
               aria-pressed={active}
               data-testid={`geovisor-parcel-${p.id}`}
+              style={{ borderLeftColor: isAuto ? MAP_COLORS.orphan : MAP_COLORS.parcel }}
               className={cn(
                 "flex w-full items-start gap-3 border-t border-border border-l-2 px-3 py-2.5 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-                isAuto ? "border-l-[#a855f7]" : "border-l-[#f59e0b]",
                 active && "bg-muted"
               )}
             >

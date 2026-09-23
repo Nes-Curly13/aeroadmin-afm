@@ -314,7 +314,7 @@ export function GeoMap({
       // map.querySourceFeatures / queryRenderedFeatures. Inocuo
       // en prod (solo expone la misma instancia que vive en mapRef).
       ;(window as unknown as { __afmMap?: unknown }).__afmMap = map
-      map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right")
+      map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right")
       map.addControl(new maplibregl.ScaleControl({ maxWidth: 100, unit: "metric" }), "bottom-left")
 
       map.on("load", () => {
