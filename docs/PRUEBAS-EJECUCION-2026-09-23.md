@@ -40,9 +40,13 @@ E2E_USER_PASSWORD=E2ETest12345!
 | Arquitectura | `npm run arch:check` | **0 errores** (395 módulos) |
 | Unit + integración (con BD) | `npm test` | **2371 passed / 0 skipped** (175 archivos) |
 | Build producción | `npm run build` | **✓** (todas las rutas dinámicas) |
-| **E2E — specs alineados a la UI actual** | `npx playwright test tests/e2e/geovisor-and-parcels.spec.ts tests/e2e/logo-sidebar.spec.ts` | **9 / 9 ✅** |
-| E2E — auth + dashboard | `npx playwright test tests/e2e/auth-and-dashboard.spec.ts` | 4 / 7 (3 stale) |
-| E2E — suite completa | `npm run e2e` | 3 passed / 52 failed / 9 skipped *(ante del fix de §3)* |
+| E2E — specs alineados a la UI actual | `npx playwright test tests/e2e/geovisor-and-parcels.spec.ts tests/e2e/logo-sidebar.spec.ts` | **9 / 9 ✅** |
+| E2E — auth + dashboard | `npx playwright test tests/e2e/auth-and-dashboard.spec.ts` | **7 / 7 ✅** |
+| E2E — user stories (US-1..US-7) | `npx playwright test tests/e2e/user-stories.spec.ts` | **26 / 26 ✅** |
+| E2E — admin parcels | `admin-parcels.spec.ts` + `admin-parcels-guardar-button.spec.ts` | **8 / 8 ✅** |
+| E2E — env/datos-gated | `geometry-html-check`, `geovisor-renders-parcels` (E2E_FULL_DATASET), `maptiler-basemap` (key) | **3 skipped** |
+| E2E — dibujo de polígono | `parcel-drawer-click.spec.ts` | **1 fixme** (documentado) |
+| E2E — suite completa | `npm run e2e` | **50 passed / 3 skipped / 1 fixme** |
 
 > Nota: con la BD arriba, los **integration tests** (`post-import-data-integrity`,
 > `mv-fumigations-monthly`) **se ejecutan y pasan** con el dataset local (14
@@ -74,23 +78,23 @@ runbook de E2E. (En Vercel no es necesario: el host es confiable.)
 
 ---
 
-## 4. Fallos E2E post-fix — specs desactualizados (drift UI)
+## 4. Resolución de los specs E2E desactualizados
 
-Los fallos restantes son **expectativas viejas**, no bugs de producto (los flujos
-actuales pasan en `geovisor-and-parcels`). Agrupados por causa:
+Los fallos iniciales eran: (a) el bloqueante `AUTH_TRUST_HOST` (§3) y (b) expectativas
+viejas de la UI. Ambos resueltos:
 
-| Causa (drift) | Specs afectados |
-|---|---|
-| Dashboard V0: 4 KPIs de fumigación / `CompliancePanel` | `auth-and-dashboard` #3, `user-stories` US-2.1–2.4 |
-| Sidebar con labels viejos (`Panel`/`Geovisor`/`Parcelas`) | `auth-and-dashboard` #5 |
-| `/admin/parcels` layout viejo (inputs V0, paginación) | `admin-parcels*.spec`, `auth-and-dashboard` #7, `user-stories` US-6.* |
-| Datos sintéticos "1213 parcelas" (no aplica al dataset local) | `geometry-html-check`, `geovisor-renders-parcels` |
-| Geovisor con filtros viejos (cliente / estado de cadencia) | `user-stories` US-3.3, US-3.4 |
-| MapTiler / dibujo de polígono | `maptiler-basemap`, `parcel-drawer-click` |
-| RBAC / user-stories varios | `user-stories` US-1.2, US-4.*, US-5.*, US-7.* |
+| Spec | Cambio aplicado | Estado |
+|---|---|---|
+| `auth-and-dashboard` | KPIs/sidebar/admin actuales + espera de render de KPIs | **7/7 ✅** |
+| `user-stories` | usuarios sembrados (admin + supervisor) + UI actual + robustez de timing | **26/26 ✅** |
+| `admin-parcels` | selectores FK Cliente/Finca + `pg` sin SSL forzado (`DATABASE_SSL`) + paginación tolerante | **5/5 ✅** |
+| `admin-parcels-guardar-button` | idem (selectores + SSL) | **3/3 ✅** |
+| `geometry-html-check`, `geovisor-renders-parcels` | `test.skip` sin `E2E_FULL_DATASET` (requieren 1213 parcelas) | skip |
+| `maptiler-basemap` | `test.skip` sin `NEXT_PUBLIC_MAPTILER_KEY` | skip |
+| `parcel-drawer-click` | `test.fixme` (dibujo terra-draw headless tras toolbar QA-12) | fixme |
 
-**Acción pendiente:** actualizar o retirar estos specs (deuda de E2E ya conocida en
-el repo). No bloquean la funcionalidad actual.
+`global-setup` ahora siembra también el supervisor (`supervisor@afm.local`), necesario
+para los tests de RBAC (US-7).
 
 ---
 
