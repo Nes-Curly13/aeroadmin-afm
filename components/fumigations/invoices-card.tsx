@@ -28,6 +28,15 @@ import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SpinnerInline } from "@/components/ui/loading";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from "@/components/ui/alert-dialog";
 import { Receipt, Plus, X, Ban } from "lucide-react";
 import { fmtDate, fmtCop } from "@/lib/format";
 import type { FumigationInvoice } from "@/lib/types";
@@ -46,6 +55,10 @@ export function InvoicesCard({ fumigationId, invoices, canEdit }: InvoicesCardPr
   const [error, setError] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<number | null>(null);
   const [, startTransition] = useTransition();
+  // UI-O1 (auditoría UI 2026-09-21): la confirmación pasó de
+  // `window.confirm()` al primitivo AlertDialog. `cancelTarget` guarda
+  // la factura pendiente de confirmar.
+  const [cancelTarget, setCancelTarget] = useState<FumigationInvoice | null>(null);
 
   // Total facturado (solo facturas NO canceladas).
   const totalActive = invoices
@@ -88,8 +101,7 @@ export function InvoicesCard({ fumigationId, invoices, canEdit }: InvoicesCardPr
     }
   }
 
-  async function onCancel(invoiceId: number) {
-    if (!confirm("¿Cancelar esta factura? La acción no se puede deshacer.")) return;
+  async function cancelInvoice(invoiceId: number) {
     setError(null);
     setCancellingId(invoiceId);
     try {
@@ -159,7 +171,7 @@ export function InvoicesCard({ fumigationId, invoices, canEdit }: InvoicesCardPr
                     type="button"
                     variant="ghost"
                     size="sm"
-                    onClick={() => onCancel(inv.id)}
+                    onClick={() => setCancelTarget(inv)}
                     disabled={cancellingId === inv.id}
                     aria-label={`Cancelar factura ${inv.invoice_number}`}
                     className="h-6 px-2 text-[10px]"
@@ -277,6 +289,50 @@ export function InvoicesCard({ fumigationId, invoices, canEdit }: InvoicesCardPr
           </div>
         </form>
       ) : null}
+
+      <AlertDialog
+        open={cancelTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setCancelTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Cancelar esta factura?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {cancelTarget
+                ? `La factura ${cancelTarget.invoice_number} quedará marcada como cancelada. `
+                : ""}
+              Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={cancellingId !== null}>
+              Volver
+            </AlertDialogCancel>
+            <Button
+              type="button"
+              variant="default"
+              disabled={cancellingId !== null}
+              className="bg-destructive text-white hover:bg-destructive/90"
+              onClick={() => {
+                const target = cancelTarget;
+                setCancelTarget(null);
+                if (target) void cancelInvoice(target.id);
+              }}
+            >
+              {cancellingId !== null ? (
+                <>
+                  <SpinnerInline />
+                  Cancelando…
+                </>
+              ) : (
+                "Cancelar factura"
+              )}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

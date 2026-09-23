@@ -3,18 +3,22 @@
 // Test unitario del componente `DeleteFumigationButton`
 // (feature/fumigacion-detail-v2 / sub-4).
 //
+// UI-O1 (auditoría UI 2026-09-21): la confirmación migró de
+// `window.confirm()` al primitivo `AlertDialog` (role="alertdialog").
+// Los tests ahora abren el diálogo y confirman/cancelan con sus botones.
+//
 // Cubre:
 //   - Render: aria-label incluye el id
-//   - Click dispara `window.confirm` (mockeado)
-//   - Si confirm = false: no hace fetch
-//   - Si confirm = true: hace DELETE al endpoint correcto
+//   - Click abre el AlertDialog con id + descripción + soft-delete
+//   - Cancelar: no hace fetch
+//   - Confirmar: hace DELETE al endpoint correcto
 //   - Fetch OK: redirige a /fumigaciones (mockear useRouter)
 //   - Fetch error: muestra error inline
 //   - Durante el fetch: botón disabled con spinner
 
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 const mockPush = vi.fn();
@@ -33,24 +37,33 @@ const { DeleteFumigationButton } = await import(
 
 const mockFetch = vi.fn();
 const originalFetch = global.fetch;
-const originalConfirm = window.confirm;
-const confirmMock = vi.fn();
 
 beforeEach(() => {
   global.fetch = mockFetch as unknown as typeof fetch;
   vi.clearAllMocks();
-  // Default: confirm devuelve true (operador confirma el delete).
-  confirmMock.mockReturnValue(true);
-  window.confirm = confirmMock as unknown as typeof window.confirm;
 });
 
 afterEach(() => {
   global.fetch = originalFetch;
-  window.confirm = originalConfirm;
 });
 
 const FUMIGATION_ID = 1234;
 const DESCRIPTION = "Lote 12 · Glifosato 48%";
+const TRIGGER_NAME = `Eliminar fumigación #${FUMIGATION_ID} (${DESCRIPTION})`;
+
+function getTrigger() {
+  return screen.getByRole("button", { name: TRIGGER_NAME });
+}
+
+async function openDialog(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(getTrigger());
+  return await screen.findByRole("alertdialog");
+}
+
+async function confirmDelete(user: ReturnType<typeof userEvent.setup>) {
+  const dialog = await openDialog(user);
+  await user.click(within(dialog).getByRole("button", { name: "Eliminar fumigación" }));
+}
 
 describe("DeleteFumigationButton — render", () => {
   it("renderiza el botón con aria-label que incluye el id y la descripción", () => {
@@ -60,11 +73,7 @@ describe("DeleteFumigationButton — render", () => {
         description={DESCRIPTION}
       />
     );
-    const btn = screen.getByRole("button");
-    expect(btn).toHaveAttribute(
-      "aria-label",
-      `Eliminar fumigación #${FUMIGATION_ID} (${DESCRIPTION})`
-    );
+    expect(getTrigger()).toHaveAttribute("aria-label", TRIGGER_NAME);
   });
 
   it("el botón muestra el texto 'Eliminar fumigación' cuando no está pending", () => {
@@ -74,7 +83,7 @@ describe("DeleteFumigationButton — render", () => {
         description={DESCRIPTION}
       />
     );
-    expect(screen.getByRole("button")).toHaveTextContent(/Eliminar fumigación/);
+    expect(getTrigger()).toHaveTextContent(/Eliminar fumigación/);
   });
 
   it("el botón no está disabled al inicio", () => {
@@ -84,12 +93,12 @@ describe("DeleteFumigationButton — render", () => {
         description={DESCRIPTION}
       />
     );
-    expect(screen.getByRole("button")).not.toBeDisabled();
+    expect(getTrigger()).not.toBeDisabled();
   });
 });
 
-describe("DeleteFumigationButton — click y confirm", () => {
-  it("click dispara window.confirm con un mensaje que incluye el id y la descripción", async () => {
+describe("DeleteFumigationButton — confirmación (AlertDialog)", () => {
+  it("click abre el alertdialog con el id, la descripción y el aviso de soft-delete", async () => {
     const user = userEvent.setup();
     render(
       <DeleteFumigationButton
@@ -97,16 +106,13 @@ describe("DeleteFumigationButton — click y confirm", () => {
         description={DESCRIPTION}
       />
     );
-    await user.click(screen.getByRole("button"));
-    expect(confirmMock).toHaveBeenCalledTimes(1);
-    const confirmMessage = confirmMock.mock.calls[0][0] as string;
-    expect(confirmMessage).toContain(`#${FUMIGATION_ID}`);
-    expect(confirmMessage).toContain(DESCRIPTION);
-    expect(confirmMessage).toMatch(/soft-delete/i);
+    const dialog = await openDialog(user);
+    expect(dialog).toHaveTextContent(`#${FUMIGATION_ID}`);
+    expect(dialog).toHaveTextContent(DESCRIPTION);
+    expect(dialog).toHaveTextContent(/soft-delete/i);
   });
 
-  it("si confirm devuelve false → no hace fetch", async () => {
-    confirmMock.mockReturnValueOnce(false);
+  it("Cancelar cierra el diálogo y NO hace fetch", async () => {
     const user = userEvent.setup();
     render(
       <DeleteFumigationButton
@@ -114,13 +120,16 @@ describe("DeleteFumigationButton — click y confirm", () => {
         description={DESCRIPTION}
       />
     );
-    await user.click(screen.getByRole("button"));
+    const dialog = await openDialog(user);
+    await user.click(within(dialog).getByRole("button", { name: "Cancelar" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    });
     expect(mockFetch).not.toHaveBeenCalled();
-    // Tampoco redirige.
     expect(mockPush).not.toHaveBeenCalled();
   });
 
-  it("si confirm devuelve true → hace DELETE al endpoint correcto", async () => {
+  it("Confirmar hace DELETE al endpoint correcto", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       status: 200,
@@ -133,7 +142,7 @@ describe("DeleteFumigationButton — click y confirm", () => {
         description={DESCRIPTION}
       />
     );
-    await user.click(screen.getByRole("button"));
+    await confirmDelete(user);
     await waitFor(() => {
       expect(mockFetch).toHaveBeenCalledTimes(1);
     });
@@ -157,7 +166,7 @@ describe("DeleteFumigationButton — fetch OK", () => {
         description={DESCRIPTION}
       />
     );
-    await user.click(screen.getByRole("button"));
+    await confirmDelete(user);
     await waitFor(() => {
       expect(mockPush).toHaveBeenCalledWith("/fumigaciones");
     });
@@ -178,19 +187,18 @@ describe("DeleteFumigationButton — fetch OK", () => {
         description={DESCRIPTION}
       />
     );
-    await user.click(screen.getByRole("button"));
+    await confirmDelete(user);
     await waitFor(() => {
       expect(screen.getByRole("alert")).toHaveTextContent(/BD caída/);
     });
 
     // Segundo fetch OK → limpia el error
-    confirmMock.mockReturnValueOnce(true);
     mockFetch.mockResolvedValueOnce({
       ok: true,
       status: 200,
       json: async () => ({ fumigation: { id: FUMIGATION_ID } })
     } as Response);
-    await user.click(screen.getByRole("button"));
+    await confirmDelete(user);
     await waitFor(() => {
       expect(mockPush).toHaveBeenCalledWith("/fumigaciones");
     });
@@ -211,11 +219,10 @@ describe("DeleteFumigationButton — fetch error", () => {
         description={DESCRIPTION}
       />
     );
-    await user.click(screen.getByRole("button"));
+    await confirmDelete(user);
     await waitFor(() => {
       expect(screen.getByRole("alert")).toHaveTextContent(/rol insuficiente/);
     });
-    // No redirige.
     expect(mockPush).not.toHaveBeenCalled();
   });
 
@@ -234,7 +241,7 @@ describe("DeleteFumigationButton — fetch error", () => {
         description={DESCRIPTION}
       />
     );
-    await user.click(screen.getByRole("button"));
+    await confirmDelete(user);
     await waitFor(() => {
       expect(screen.getByRole("alert")).toHaveTextContent(/HTTP 500/);
     });
@@ -249,11 +256,10 @@ describe("DeleteFumigationButton — fetch error", () => {
         description={DESCRIPTION}
       />
     );
-    await user.click(screen.getByRole("button"));
+    await confirmDelete(user);
     await waitFor(() => {
       expect(screen.getByRole("alert")).toHaveTextContent(/NetworkError/);
     });
-    // No redirige.
     expect(mockPush).not.toHaveBeenCalled();
   });
 
@@ -270,12 +276,11 @@ describe("DeleteFumigationButton — fetch error", () => {
         description={DESCRIPTION}
       />
     );
-    await user.click(screen.getByRole("button"));
+    await confirmDelete(user);
     await waitFor(() => {
       expect(screen.getByRole("alert")).toBeInTheDocument();
     });
-    // Después del error, el botón debe volver a estar enabled.
-    expect(screen.getByRole("button")).not.toBeDisabled();
+    expect(getTrigger()).not.toBeDisabled();
   });
 });
 
@@ -296,12 +301,11 @@ describe("DeleteFumigationButton — estado pending durante el fetch", () => {
         description={DESCRIPTION}
       />
     );
-    await user.click(screen.getByRole("button"));
-    // Después del click, el botón debe estar disabled.
+    await confirmDelete(user);
     await waitFor(() => {
-      expect(screen.getByRole("button")).toBeDisabled();
+      expect(getTrigger()).toBeDisabled();
     });
-    expect(screen.getByRole("button")).toHaveTextContent(/Eliminando/);
+    expect(getTrigger()).toHaveTextContent(/Eliminando/);
     // Cleanup: resolvemos el fetch para no dejar promise pendiente.
     resolveFn({
       ok: true,
@@ -335,7 +339,7 @@ describe("DeleteFumigationButton — no renderiza error si no hay error", () => 
         description={DESCRIPTION}
       />
     );
-    await user.click(screen.getByRole("button"));
+    await confirmDelete(user);
     await waitFor(() => {
       expect(mockPush).toHaveBeenCalled();
     });
