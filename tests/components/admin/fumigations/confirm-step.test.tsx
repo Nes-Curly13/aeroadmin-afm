@@ -20,6 +20,13 @@ import userEvent from "@testing-library/user-event";
 import { NewFumigationPageClient } from "@/components/admin/fumigations/new-fumigation-page-client";
 import type { ParcelPickerRow } from "@/api/repositories";
 
+// UI-P0a/P0b: espías hoisted para verificar que el step Confirm dispara
+// el submit del form y que el form NO se desmonta al ir y volver.
+const { triggerSubmitSpy, mountCounter } = vi.hoisted(() => ({
+  triggerSubmitSpy: vi.fn(() => Promise.resolve()),
+  mountCounter: { value: 0 }
+}));
+
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn() })
 }));
@@ -54,9 +61,12 @@ vi.mock("@/components/parcels/register-fumigation-form", async () => {
       }>
     ) {
       const lastData = React.useRef<Record<string, unknown> | null>(null);
+      React.useEffect(() => {
+        mountCounter.value += 1;
+      }, []);
       React.useImperativeHandle(ref, () => ({
         getFormData: () => lastData.current,
-        triggerSubmit: () => Promise.resolve()
+        triggerSubmit: triggerSubmitSpy
       }));
       return React.createElement(
         "div",
@@ -104,6 +114,8 @@ const originalFetch = global.fetch;
 beforeEach(() => {
   global.fetch = mockFetch as unknown as typeof fetch;
   vi.clearAllMocks();
+  mountCounter.value = 0;
+  triggerSubmitSpy.mockClear();
   mockFetch.mockResolvedValue({
     ok: true,
     json: () =>
@@ -174,8 +186,9 @@ describe("NewFumigationPageClient — Confirm step (Fase 1.3)", () => {
     // El botón "Revisar y confirmar" viene del form (mock)
     const reviewButton = screen.getByTestId("mock-review-button");
     await user.click(reviewButton);
-    // Step 3 ahora: el form ya NO está visible (se reemplaza por el summary)
-    expect(screen.queryByTestId("register-fumigation-form")).not.toBeInTheDocument();
+    // Step 3: el form sigue MONTADO pero oculto (UI-P0a) para que su
+    // handle imperativo siga vivo y pueda disparar el POST final.
+    expect(screen.getByTestId("register-fumigation-form")).not.toBeVisible();
     // El stepper marca step 3 como activo
     const step3 = screen.getByTestId("step-confirm");
     expect(step3).toHaveAttribute("aria-current", "step");
@@ -239,8 +252,8 @@ describe("NewFumigationPageClient — Confirm step (Fase 1.3)", () => {
     // Click en "Atrás"
     const backButtons = screen.getAllByRole("button", { name: /atr[áa]s/i });
     await user.click(backButtons[0]);
-    // Vuelve a step 2: form visible de nuevo
-    expect(screen.getByTestId("register-fumigation-form")).toBeInTheDocument();
+    // Vuelve a step 2: el form vuelve a estar visible
+    expect(screen.getByTestId("register-fumigation-form")).toBeVisible();
     expect(screen.getByTestId("step-como")).toHaveAttribute("aria-current", "step");
   });
 
@@ -255,12 +268,31 @@ describe("NewFumigationPageClient — Confirm step (Fase 1.3)", () => {
     );
     await goToStep2(user);
     await user.click(screen.getByTestId("mock-review-button"));
-    // Estamos en step 3 — buscar el botón "Confirmar"
+    // Estamos en step 3 — el botón "Confirmar" debe disparar el submit
+    // del form vía el handle imperativo (UI-P0a).
     const confirmButton = screen.getByRole("button", { name: /confirmar/i });
     await user.click(confirmButton);
-    // El test verifica que el botón existe y se puede clickear sin throw.
-    // (Validar que triggerSubmit fue llamado requeriría exponer el spy
-    // desde el mock; el mock resuelve la promise y el test verifica
-    // que la UI está conectada al ref.)
+    await waitFor(() => {
+      expect(triggerSubmitSpy).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("12. Step 3 'Atrás' NO desmonta el form (preserva lo tipeado, UI-P0b)", async () => {
+    const user = userEvent.setup();
+    render(
+      <NewFumigationPageClient
+        initialParcelId={null}
+        recentParcels={recentParcels}
+        isAdmin
+      />
+    );
+    await goToStep2(user);
+    const mountsAfterStep2 = mountCounter.value;
+    await user.click(screen.getByTestId("mock-review-button"));
+    expect(screen.getByTestId("step-confirm")).toHaveAttribute("aria-current", "step");
+    const backButtons = screen.getAllByRole("button", { name: /atr[áa]s/i });
+    await user.click(backButtons[0]);
+    // Mismo número de mounts → el form no se remontó (estado preservado).
+    expect(mountCounter.value).toBe(mountsAfterStep2);
   });
 });

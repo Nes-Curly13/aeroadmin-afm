@@ -35,9 +35,24 @@ vi.mock("@/components/parcels/fumigation-map", () => ({
   FumigationMap: () => <div data-testid="fumigation-map" />
 }));
 
-vi.mock("@/components/parcels/register-fumigation-form", () => ({
-  RegisterFumigationForm: () => <div data-testid="register-fumigation-form" />
-}));
+vi.mock("@/components/parcels/register-fumigation-form", async () => {
+  const React = await import("react");
+  return {
+    RegisterFumigationForm: React.forwardRef(function MockRegisterFumigationForm(
+      _props: unknown,
+      ref: React.Ref<unknown>
+    ) {
+      React.useImperativeHandle(ref, () => ({
+        getFormData: () => null,
+        triggerSubmit: () => Promise.resolve(),
+        setFormData: () => {}
+      }));
+      return React.createElement("div", {
+        "data-testid": "register-fumigation-form"
+      });
+    })
+  };
+});
 
 vi.mock("@/components/fumigations/dji-flight-picker", () => ({
   DjiFlightPicker: () => <div data-testid="dji-flight-picker" />

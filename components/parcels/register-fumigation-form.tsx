@@ -123,6 +123,15 @@ interface RegisterFumigationFormProps {
    * fumigación" final vive en el step 3 (Confirm step), no en el form.
    */
   onRequestReview?: (formData: FormState) => void;
+  /**
+   * Se llama cuando el POST/PATCH terminó OK. El wizard de
+   * `/fumigaciones/nueva` lo usa para navegar a `/fumigaciones` después
+   * de registrar (el form vive oculto en el step Confirm, así que su
+   * banner de éxito no sería visible).
+   *
+   * UI-P0a (auditoría UI 2026-09-21).
+   */
+  onSuccess?: (info: { mode: "create" | "edit"; id?: number }) => void;
 }
 
 export interface FormState {
@@ -219,7 +228,7 @@ export const RegisterFumigationForm = forwardRef<
   RegisterFumigationFormHandle,
   RegisterFumigationFormProps
 >(function RegisterFumigationForm(
-  { parcelId, mode = "create", initialFumigation, onRequestReview },
+  { parcelId, mode = "create", initialFumigation, onRequestReview, onSuccess },
   ref
 ) {
   const router = useRouter();
@@ -480,6 +489,16 @@ export const RegisterFumigationForm = forwardRef<
         return;
       }
       const data = (await res.json()) as { fumigation?: { id: number } };
+      // UI-P0a (auditoría UI 2026-09-21): el parent (wizard) puede
+      // tomar el control post-éxito. En el wizard el form vive oculto en
+      // el step Confirm, así que su banner de éxito no se vería.
+      if (onSuccess) {
+        onSuccess({
+          mode: mode === "edit" && initialFumigation ? "edit" : "create",
+          id: data.fumigation?.id ?? initialFumigation?.id
+        });
+        return;
+      }
       if (mode === "edit" && initialFumigation) {
         setSuccess(`Fumigación #${initialFumigation.id} actualizada. Volviendo al detalle…`);
         // Esperar 600ms para que el usuario vea el banner OK y luego

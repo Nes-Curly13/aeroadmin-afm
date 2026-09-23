@@ -35,6 +35,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
   Check,
@@ -102,6 +103,7 @@ export function NewFumigationPageClient({
   recentParcels,
   isAdmin
 }: NewFumigationPageClientProps) {
+  const router = useRouter();
   /**
    * Fase 4 — si el URL trae `?parcel=N`, el operator ya sabe qué
    * parcela. Saltamos al step 2 ("¿Con qué se fumigó?") y pre-llenamos
@@ -314,80 +316,96 @@ export function NewFumigationPageClient({
           onPickFlight={handlePickFlight}
           onContinue={goToComo}
         />
-      ) : phase === "como" && chosenParcel ? (
-        <>
-          <ParcelSummaryCard parcel={chosenParcel} onChange={resetParcel} />
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
-            <div className="lg:col-span-3">
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <Plus className="size-4 text-primary" aria-hidden />
-                    Datos de la fumigación
-                  </CardTitle>
-                  <CardDescription>
-                    Llená los datos. En el próximo paso vas a poder revisarlos
-                    antes de registrar la fumigación.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {formValidationError ? (
-                    <div
-                      role="alert"
-                      data-testid="form-validation-error"
-                      className="mb-4 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
-                    >
-                      {/* UI-09: reemplazar emoji ⚠️ por AlertTriangle de lucide
-                          (consistente con el resto del design system). */}
-                      <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
-                      <div>
-                        <strong>Revisá el formulario antes de continuar:</strong>{" "}
-                        {formValidationError}
+      ) : null}
+
+      {phase !== "que" && chosenParcel ? (
+        <ParcelSummaryCard parcel={chosenParcel} onChange={resetParcel} />
+      ) : null}
+
+      {/*
+       * UI-P0a/P0b (auditoría UI 2026-09-21): el form queda MONTADO
+       * entre los steps 2 y 3 (oculto con el atributo `hidden`). Así el
+       * handle imperativo sigue vivo en el step Confirm (el botón
+       * "Confirmar y registrar" puede hacer el POST real) y los datos
+       * tipeados sobreviven al ir y volver entre pasos.
+       */}
+      {chosenParcel ? (
+        <div hidden={phase !== "como"}>
+          <div className="flex flex-col gap-6">
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
+              <div className="lg:col-span-3">
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      <Plus className="size-4 text-primary" aria-hidden />
+                      Datos de la fumigación
+                    </CardTitle>
+                    <CardDescription>
+                      Llená los datos. En el próximo paso vas a poder revisarlos
+                      antes de registrar la fumigación.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {formValidationError ? (
+                      <div
+                        role="alert"
+                        data-testid="form-validation-error"
+                        className="mb-4 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+                      >
+                        {/* UI-09: reemplazar emoji ⚠️ por AlertTriangle de lucide
+                            (consistente con el resto del design system). */}
+                        <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
+                        <div>
+                          <strong>Revisá el formulario antes de continuar:</strong>{" "}
+                          {formValidationError}
+                        </div>
                       </div>
-                    </div>
-                  ) : null}
-                  <RegisterFumigationForm
-                    ref={formRef}
-                    parcelId={chosenParcel.id || 0}
-                    onRequestReview={handleRequestReview}
-                  />
-                </CardContent>
-              </Card>
-            </div>
-            {parcelGeom ? (
-              <div className="lg:col-span-2">
-                <div className="sticky top-20 flex flex-col gap-3">
-                  <h3 className="flex items-center gap-2 text-sm font-semibold">
-                    <MapPin className="size-4 text-primary" aria-hidden />
-                    Ubicación de la fumigación
-                  </h3>
-                  <p className="text-xs text-muted-foreground">
-                    Verificá que la parcela seleccionada corresponde al área
-                    donde se realizó la aplicación.
-                  </p>
-                  <FumigationMap
-                    parcelGeom={parcelGeom}
-                    fumigationPoint={null}
-                    flights={[]}
-                    className="h-[420px] lg:h-[500px]"
-                  />
-                </div>
+                    ) : null}
+                    <RegisterFumigationForm
+                      ref={formRef}
+                      parcelId={chosenParcel.id || 0}
+                      onRequestReview={handleRequestReview}
+                      onSuccess={() => router.push("/fumigaciones")}
+                    />
+                  </CardContent>
+                </Card>
               </div>
-            ) : null}
+              {parcelGeom ? (
+                <div className="lg:col-span-2">
+                  <div className="sticky top-20 flex flex-col gap-3">
+                    <h3 className="flex items-center gap-2 text-sm font-semibold">
+                      <MapPin className="size-4 text-primary" aria-hidden />
+                      Ubicación de la fumigación
+                    </h3>
+                    <p className="text-xs text-muted-foreground">
+                      Verificá que la parcela seleccionada corresponde al área
+                      donde se realizó la aplicación.
+                    </p>
+                    <FumigationMap
+                      parcelGeom={parcelGeom}
+                      fumigationPoint={null}
+                      flights={[]}
+                      className="h-[420px] lg:h-[500px]"
+                    />
+                  </div>
+                </div>
+              ) : null}
+            </div>
+            <div className="flex items-center justify-between border-t border-border pt-4">
+              <Button variant="ghost" onClick={resetParcel}>
+                <ChevronLeft className="size-4" aria-hidden />
+                Cambiar parcela
+              </Button>
+              <p className="text-xs text-muted-foreground">
+                Paso 2 de {STEPS.length}. Revisá los datos y avanzá al paso 3.
+              </p>
+            </div>
           </div>
-          <div className="flex items-center justify-between border-t border-border pt-4">
-            <Button variant="ghost" onClick={resetParcel}>
-              <ChevronLeft className="size-4" aria-hidden />
-              Cambiar parcela
-            </Button>
-            <p className="text-xs text-muted-foreground">
-              Paso 2 de {STEPS.length}. Revisá los datos y avanzá al paso 3.
-            </p>
-          </div>
-        </>
-      ) : phase === "confirm" && chosenParcel && pendingFormData ? (
+        </div>
+      ) : null}
+
+      {phase === "confirm" && chosenParcel && pendingFormData ? (
         <>
-          <ParcelSummaryCard parcel={chosenParcel} onChange={resetParcel} />
           <ConfirmStep
             formData={pendingFormData}
             onBack={backToComo}
