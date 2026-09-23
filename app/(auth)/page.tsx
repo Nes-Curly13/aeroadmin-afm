@@ -204,19 +204,6 @@ async function DashboardContent({
         />
       </div>
 
-      {k.por_revisar > 0 ? (
-        <Link
-          href="/admin/calidad"
-          className="flex items-center gap-2 rounded-lg border border-amber-500/40 bg-amber-700/15 px-3 py-2 text-xs text-amber-700 hover:bg-amber-700/20 dark:text-amber-300"
-        >
-          <span className="font-semibold">{fmtInt(k.por_revisar)}</span>
-          <span>
-            fumigaciones sobre parcelas automáticas <span className="font-medium">por revisar</span>.
-          </span>
-          <span className="ml-auto font-semibold">Revisar →</span>
-        </Link>
-      ) : null}
-
       {/* Tendencia (2/3) + cumplimiento de planificación (1/3). */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="flex flex-col lg:col-span-2">
