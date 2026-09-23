@@ -789,7 +789,52 @@ export async function getParcelSummaries(): Promise<ParcelSummary[]> {
 
 export async function getParcelSummary(id: string): Promise<ParcelSummary | null> {
   const summaries = await getSummaries();
-  return summaries.find((s) => s.parcel.id === id) ?? null;
+  const found = summaries.find((s) => String(s.parcel.id) === String(id));
+  if (found) return found;
+  // Fallback: la parcela quedó fuera de la ventana top-2000 que carga
+  // `loadDataset` (limitada por el techo de 2MB de unstable_cache; hoy hay
+  // 4701 parcelas). Sin esto, la hoja de vida de una parcela recién creada
+  // (o cualquiera fuera del top por `land_name`) daba `notFound()` → 404.
+  // Acá la traemos puntualmente por id (query de 1 fila).
+  return getParcelSummaryById(id);
+}
+
+/**
+ * Construye el `ParcelSummary` de UNA parcela desde queries puntuales.
+ * Usado por `getParcelSummary` cuando la parcela no está en el dataset
+ * top-2000 del V0. No reemplaza a `loadDataset` para listados agregados.
+ */
+async function getParcelSummaryById(id: string): Promise<ParcelSummary | null> {
+  const parcelIdNum = Number(id);
+  if (!Number.isFinite(parcelIdNum) || parcelIdNum <= 0) return null;
+
+  const [record, schedulesMap, events, flights, hulls] = await Promise.all([
+    getParcelById(parcelIdNum),
+    getAllFumigationSchedules(),
+    getRecentFumigations(2000),
+    getFlightPoints(2000),
+    getFlightHullsByParcel()
+  ]);
+  if (!record) return null;
+
+  const schedule = schedulesMap.get(parcelIdNum) ?? null;
+  const hull = hulls.find((h) => h.parcelId === parcelIdNum) ?? null;
+  const hullShape = hull
+    ? {
+        flightCount: hull.flightCount,
+        centroid: hull.centroid,
+        hullGeometry: hull.hullGeometry
+      }
+    : null;
+
+  const parcel = adaptParcel(record, schedule, hullShape);
+  const summaries = buildSummaries(
+    [parcel],
+    schedule ? { [parcelIdNum]: schedule } : {},
+    events,
+    flights
+  );
+  return summaries[0] ?? null;
 }
 
 export async function getFumigationsByParcel(id: string): Promise<DjiFumigationV0[]> {
