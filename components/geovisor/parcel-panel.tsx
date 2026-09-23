@@ -1,5 +1,7 @@
 "use client"
 
+import { X } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import type { GeovisorPayload } from "@/lib/types"
 
 type PayloadParcel = GeovisorPayload["parcels"][number]
@@ -115,14 +117,16 @@ export function ParcelPanel({
             {num(String(parcel.area_ha))} ha
           </span>
           {onClose ? (
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="icon-xs"
               onClick={onClose}
               aria-label="Cerrar panel de parcela"
-              className="rounded-md px-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+              className="shrink-0 text-muted-foreground hover:text-foreground"
             >
-              ×
-            </button>
+              <X className="size-3.5" aria-hidden />
+            </Button>
           ) : null}
         </div>
       </div>

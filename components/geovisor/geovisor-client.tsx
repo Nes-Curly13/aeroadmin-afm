@@ -52,15 +52,9 @@
  *     Limpiar el payload es una tarea separada.
  */
 
-import { ArrowUpRight, Droplets, Layers, MapPin, Plane, Search, SlidersHorizontal, Sprout } from "lucide-react";
+import { ArrowUpRight, Droplets, Layers, List, MapPin, Plane, Search, SlidersHorizontal, Sprout } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  Panel,
-  PanelGroup,
-  PanelResizeHandle,
-  type ImperativePanelHandle
-} from "react-resizable-panels";
+import { useEffect, useMemo, useState } from "react";
 import { ParcelPanel } from "@/components/geovisor/parcel-panel";
 import { AssignParcelDialog } from "@/components/fumigations/assign-parcel-dialog";
 import { SidebarBoxes } from "@/components/geovisor/sidebar-boxes";
@@ -69,6 +63,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { fmtDate, fmtDec, fmtInt, fmtLiters, SOURCE_LABEL } from "@/lib/format";
+import { MAP_COLORS } from "@/lib/map-palette";
 import type { GeovisorPayload } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -122,11 +117,13 @@ export function GeovisorClient({
   const [baseMap, setBaseMap] = useState<BaseMap>("satelite");
   const [showParcels, setShowParcels] = useState(true);
 
-  // PR-3b (auditoría UI): paneles redimensionables. En desktop el
-  // workspace es horizontal (filtros | mapa | eventos); en mobile se
-  // apila vertical. `autoSaveId` persiste los tamaños en localStorage.
+  // UI-M1 (auditoría UI 2026-09-21): el mapa es la **capa base**
+  // full-bleed (`absolute inset-0`). Filtros y eventos son overlays
+  // flotantes (`absolute`, z-20). En desktop arrancan abiertos; en
+  // mobile cerrados (mapa limpio, se abren desde los toggles).
+  // Reemplaza al layout de 3 paneles redimensionables de PR-3b, que
+  // repartía el ancho 22% / 52% / 26% y dejaba al mapa como una celda más.
   const [isDesktop, setIsDesktop] = useState(false);
-  const filtersPanelRef = useRef<ImperativePanelHandle>(null);
   useEffect(() => {
     const mq = window.matchMedia("(min-width: 1024px)");
     const sync = () => setIsDesktop(mq.matches);
@@ -134,16 +131,16 @@ export function GeovisorClient({
     mq.addEventListener("change", sync);
     return () => mq.removeEventListener("change", sync);
   }, []);
+  const [filtersOpen, setFiltersOpen] = useState(true);
+  const [eventsOpen, setEventsOpen] = useState(true);
+  // Al determinar el breakpoint, abrimos los overlays solo en desktop.
+  useEffect(() => {
+    setFiltersOpen(isDesktop);
+    setEventsOpen(isDesktop);
+  }, [isDesktop]);
+
   const [showEvents, setShowEvents] = useState(true);
   const [showLabels, setShowLabels] = useState(false);
-  const [showFilters, setShowFilters] = useState(true);
-  // El toggle "Ocultar filtros" ahora colapsa/expande el panel (PR-3b).
-  useEffect(() => {
-    const p = filtersPanelRef.current;
-    if (!p) return;
-    if (showFilters) p.expand();
-    else p.collapse();
-  }, [showFilters]);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // QA-02: el id del EVENTO (fumigación) seleccionado desde la lista
@@ -309,23 +306,16 @@ export function GeovisorClient({
   } : null;
 
   return (
-    // PR-3a: `h-full + min-h-0` ata el geovisor a la altura del Workspace.
-    // PR-3b: los 3 paneles (filtros | mapa | eventos) son redimensionables
-    // (horizontal en desktop, vertical en mobile) y persisten en
-    // localStorage via `autoSaveId`.
-    <PanelGroup
-      direction={isDesktop ? "horizontal" : "vertical"}
-      autoSaveId="afm-geovisor-layout"
-      className="h-full min-h-0"
-    >
-      {/* Rail de filtros */}
-      <Panel
-        ref={filtersPanelRef}
-        collapsible
-        collapsedSize={0}
-        defaultSize={22}
-        minSize={isDesktop ? 14 : 28}
-        className="flex flex-col gap-5 overflow-y-auto border-b border-border bg-card p-4 lg:border-b-0 lg:border-r"
+    // UI-M1: el geovisor es un workbench canvas-first. El mapa llena el
+    // contenedor; los paneles flotan encima y no compiten por el layout.
+    <div className="relative h-full min-h-0 w-full overflow-hidden">
+      {/* Filtros — overlay flotante */}
+      <aside
+        aria-label="Filtros del geovisor"
+        className={cn(
+          "absolute bottom-3 left-3 top-20 z-20 w-72 max-w-[85vw] flex-col gap-5 overflow-y-auto rounded-lg border border-border bg-card/95 p-4 shadow-lg backdrop-blur",
+          filtersOpen ? "flex" : "hidden"
+        )}
       >
         <div className="flex items-center gap-2">
           <SlidersHorizontal className="size-4 text-primary" aria-hidden />
@@ -390,7 +380,7 @@ export function GeovisorClient({
                   sym: (
                     <span
                       className="size-3.5 rounded-sm border border-foreground/20"
-                      style={{ backgroundColor: "#f59e0b" }}
+                      style={{ backgroundColor: MAP_COLORS.parcel }}
                       aria-hidden
                     />
                   )
@@ -402,7 +392,7 @@ export function GeovisorClient({
                   sym: (
                     <span
                       className="size-3.5 rounded-sm border border-foreground/30"
-                      style={{ backgroundColor: "#06b6d4" }}
+                      style={{ backgroundColor: MAP_COLORS.event }}
                       aria-hidden
                     />
                   )
@@ -427,7 +417,7 @@ export function GeovisorClient({
                 type="button"
                 onClick={() => l.set(!l.value)}
                 aria-pressed={l.value}
-                className="flex items-center justify-between gap-2 rounded-md border border-border px-2.5 py-1.5 text-xs hover:bg-muted"
+                className="flex items-center justify-between gap-2 rounded-md border border-border px-2.5 py-1.5 text-xs hover:bg-muted focus-visible:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
               >
                 <span className="flex items-center gap-2">
                   {l.sym}
@@ -457,23 +447,23 @@ export function GeovisorClient({
           </legend>
           <ul className="flex flex-col gap-1.5 text-[11px] text-muted-foreground">
             <li className="flex items-center gap-2">
-              <span className="h-0.5 w-4 shrink-0 rounded" style={{ backgroundColor: "#f59e0b" }} aria-hidden />
+              <span className="h-0.5 w-4 shrink-0 rounded" style={{ backgroundColor: MAP_COLORS.parcel }} aria-hidden />
               Parcela (borde ámbar)
             </li>
             <li className="flex items-center gap-2">
-              <span className="size-3 shrink-0 rounded-sm" style={{ backgroundColor: "#06b6d4", opacity: 0.5 }} aria-hidden />
+              <span className="size-3 shrink-0 rounded-sm" style={{ backgroundColor: MAP_COLORS.event, opacity: 0.5 }} aria-hidden />
               Fumigación (relleno cian)
             </li>
             <li className="flex items-center gap-2">
               <span
                 className="size-3 shrink-0 rounded-sm border border-dashed"
-                style={{ backgroundColor: "#a855f7", opacity: 0.5, borderColor: "#7e22ce" }}
+                style={{ backgroundColor: MAP_COLORS.orphan, opacity: 0.5, borderColor: MAP_COLORS.orphanLine }}
                 aria-hidden
               />
               Sin asignar (magenta, borde punteado)
             </li>
             <li className="flex items-center gap-2">
-              <span className="h-0.5 w-4 shrink-0 rounded" style={{ backgroundColor: "#2563eb" }} aria-hidden />
+              <span className="h-0.5 w-4 shrink-0 rounded" style={{ backgroundColor: MAP_COLORS.parcelSelected }} aria-hidden />
               Parcela seleccionada (azul)
             </li>
           </ul>
@@ -506,16 +496,10 @@ export function GeovisorClient({
               ))}
           </div>
         </fieldset>
-      </Panel>
-      <PanelResizeHandle
-        className={cn(
-          "shrink-0 bg-border/70 transition-colors hover:bg-primary/50 data-[resize-handle-state=drag]:bg-primary",
-          isDesktop ? "w-1" : "h-1 w-full"
-        )}
-      />
+      </aside>
 
-      {/* Mapa */}
-      <Panel className="relative min-h-0">
+      {/* Mapa — capa base full-bleed */}
+      <div className="absolute inset-0">
         <GeoMap
           parcels={mapParcels}
           events={sortedEvents
@@ -557,7 +541,7 @@ export function GeovisorClient({
         />
 
         {/* QA-02: KPIs simplificados — Fumigaciones / Parcelas / Área / Última */}
-        <div className="pointer-events-none absolute inset-x-3 top-3 flex flex-wrap gap-2">
+        <div className="pointer-events-none absolute inset-x-3 top-3 z-30 flex flex-wrap items-start gap-2">
           <div className="pointer-events-auto flex flex-wrap items-stretch divide-x divide-border overflow-hidden rounded-md border border-border bg-card/95 shadow-sm backdrop-blur">
             {[
               { icon: Sprout, label: "Fumigaciones", value: fmtInt(kpis.events) },
@@ -584,30 +568,35 @@ export function GeovisorClient({
             type="button"
             variant="outline"
             size="sm"
-            // UI-10: quitar el `hidden ... lg:inline-flex`. Antes el
-            // boton de mostrar/ocultar filtros solo aparecia en lg+;
-            // mobile users no podian colapsar el rail de filtros.
+            aria-pressed={filtersOpen}
             className="pointer-events-auto bg-card/95 backdrop-blur"
-            onClick={() => setShowFilters((v) => !v)}
+            onClick={() => setFiltersOpen((v) => !v)}
           >
-            <SlidersHorizontal className="size-3.5" />
-            {showFilters ? "Ocultar filtros" : "Mostrar filtros"}
+            <SlidersHorizontal className="size-3.5" aria-hidden />
+            {filtersOpen ? "Ocultar filtros" : "Mostrar filtros"}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            aria-pressed={eventsOpen}
+            className="pointer-events-auto bg-card/95 backdrop-blur"
+            onClick={() => setEventsOpen((v) => !v)}
+          >
+            <List className="size-3.5" aria-hidden />
+            {eventsOpen ? "Ocultar eventos" : "Mostrar eventos"}
           </Button>
         </div>
-      </Panel>
-      <PanelResizeHandle
-        className={cn(
-          "shrink-0 bg-border/70 transition-colors hover:bg-primary/50 data-[resize-handle-state=drag]:bg-primary",
-          isDesktop ? "w-1" : "h-1 w-full"
-        )}
-      />
+      </div>
 
-      {/* Panel de resultados: lista de fumigaciones */}
-      <Panel
-        defaultSize={26}
-        minSize={16}
-        className="flex flex-col border-t border-border bg-card lg:border-l lg:border-t-0"
+      {/* Eventos — overlay derecho */}
+      <aside
+        aria-label="Resultados del geovisor"
         data-testid="geovisor-events-panel"
+        className={cn(
+          "absolute bottom-3 right-3 top-20 z-20 w-80 max-w-[85vw] flex-col overflow-hidden rounded-lg border border-border bg-card/95 shadow-lg backdrop-blur",
+          eventsOpen ? "flex" : "hidden"
+        )}
       >
         {/* 2026-09-19 — panel de la parcela seleccionada (opción A). */}
         {selectedParcel ? (
@@ -634,7 +623,7 @@ export function GeovisorClient({
                 </p>
               </div>
               {selectedCardData.event.needs_parcel_assignment ? (
-                <Badge className="shrink-0 border-transparent bg-[#a855f7] text-white">
+                <Badge className="shrink-0 border-transparent bg-orphan text-orphan-foreground">
                   Sin asignar
                 </Badge>
               ) : (
@@ -737,13 +726,13 @@ export function GeovisorClient({
                           aria-pressed={active}
                           data-testid={`geovisor-parcel-${p.id}`}
                           className={cn(
-                            "flex w-full items-start gap-3 px-4 py-2 text-left hover:bg-muted",
+                            "flex w-full items-start gap-3 px-4 py-2 text-left hover:bg-muted focus-visible:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50",
                             active && "bg-muted"
                           )}
                         >
                           <span
                             className="mt-0.5 size-2.5 shrink-0 rounded-sm"
-                            style={{ backgroundColor: "#f59e0b" }}
+                            style={{ backgroundColor: MAP_COLORS.parcel }}
                             aria-hidden
                           />
                           <span className="min-w-0 flex-1">
@@ -792,7 +781,7 @@ export function GeovisorClient({
                           aria-pressed={active}
                           data-testid={`geovisor-event-${e.id}`}
                           className={cn(
-                            "flex w-full items-start gap-3 px-4 py-2.5 text-left hover:bg-muted",
+                            "flex w-full items-start gap-3 px-4 py-2.5 text-left hover:bg-muted focus-visible:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50",
                             active && "bg-muted"
                           )}
                         >
@@ -800,8 +789,8 @@ export function GeovisorClient({
                             className="mt-0.5 size-2.5 shrink-0 rounded-full"
                             style={
                               isOrphan
-                                ? { backgroundColor: "#a855f7", border: "1px dashed rgba(255,255,255,0.8)" }
-                                : { backgroundColor: "#06b6d4", border: "1px solid rgba(31,41,55,0.5)" }
+                                ? { backgroundColor: MAP_COLORS.orphan, border: "1px dashed rgba(255,255,255,0.8)" }
+                                : { backgroundColor: MAP_COLORS.event, border: "1px solid rgba(31,41,55,0.5)" }
                             }
                             aria-hidden
                           />
@@ -815,7 +804,7 @@ export function GeovisorClient({
                             </span>
                           </span>
                           {isOrphan ? (
-                            <Badge className="shrink-0 border-transparent bg-[#a855f7] text-[10px] text-white">
+                            <Badge className="shrink-0 border-transparent bg-orphan text-[10px] text-orphan-foreground">
                               Sin asignar
                             </Badge>
                           ) : (
@@ -837,7 +826,7 @@ export function GeovisorClient({
             },
           ]}
         />
-      </Panel>
-    </PanelGroup>
+      </aside>
+    </div>
   );
 }

@@ -80,3 +80,26 @@ npm run dev            # localhost:3000
 #   - desktop 1400x850: sidebar visible, sin botón de menú
 npm run arch:check && npx vitest run
 ```
+
+---
+
+## 7. UI-M1 (2026-09-21) — Geovisor map-first (supersede PR-3b)
+
+El geovisor dejó de repartir el ancho en 3 paneles redimensionables
+(22% filtros / 52% mapa / 26% eventos, PR-3b). Ahora el **mapa es la capa
+base full-bleed** (`absolute inset-0`) y los filtros/eventos son
+**overlays flotantes** (`absolute`, `z-20`):
+
+- `components/geovisor/geovisor-client.tsx`: removido
+  `react-resizable-panels` y `ImperativePanelHandle`. Filtros = `<aside>`
+  izquierdo; eventos = `<aside>` derecho (conserva
+  `data-testid="geovisor-events-panel"`). KPIs + toggles ("Filtros",
+  "Eventos") en un overlay superior `z-30`.
+- Defaults por breakpoint: en `lg+` ambos overlays abiertos; en mobile
+  cerrados (mapa limpio) y se abren desde los toggles.
+- `react-resizable-panels` queda **sin uso** en el repo (candidato a
+  remover en un cleanup de deps / knip).
+
+Verificación: `tsc` 0 · `arch:check` 0 · `geovisor-client.test.tsx` 19/19
+· suite completa 2340 passed · `npm run build` ✓.
+

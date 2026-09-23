@@ -143,7 +143,7 @@ export function SidebarBoxes({
               aria-pressed={!isHidden}
               data-testid={`sidebar-toggle-${id}`}
               className={cn(
-                "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors",
+                "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
                 isHidden
                   ? "border-border text-muted-foreground hover:bg-muted"
                   : "border-primary/40 bg-primary/10 text-primary"
@@ -235,7 +235,7 @@ function SortableBox({
           {...listeners}
           aria-label={`Mover ${title}`}
           data-testid={`sidebar-drag-${id}`}
-          className="flex size-6 shrink-0 cursor-grab items-center justify-center rounded text-muted-foreground hover:bg-muted active:cursor-grabbing"
+          className="flex size-6 shrink-0 cursor-grab items-center justify-center rounded text-muted-foreground hover:bg-muted focus-visible:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 active:cursor-grabbing"
         >
           <GripVertical className="size-4" aria-hidden />
         </button>
@@ -246,7 +246,7 @@ function SortableBox({
           onClick={onHide}
           aria-label={`Ocultar ${title}`}
           data-testid={`sidebar-hide-${id}`}
-          className="ml-auto flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-muted"
+          className="ml-auto flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-muted focus-visible:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
         >
           <X className="size-3.5" aria-hidden />
         </button>
