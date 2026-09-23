@@ -34,12 +34,13 @@ export const ROLE_LABELS: Record<AppRole, string> = {
 };
 
 /**
- * Paleta por role. La task pide admin = verde olivo, supervisor = gris.
- * Los hex están alineados con `lib/ui-tokens.ts` (paleta del proyecto).
+ * Paleta por role. admin = verde de marca (primary), supervisor = gris
+ * (muted-foreground). UI-T2 (auditoría UI 2026-09-21): migrado de hex
+ * (`#0b5f2d`/`#4a5b50`) a tokens semánticos.
  */
 export const ROLE_BADGE_CLASS: Record<AppRole, string> = {
-  admin: "bg-[#0b5f2d] text-white", // verde olivo
-  supervisor: "bg-[#4a5b50] text-white" // gris
+  admin: "bg-primary text-primary-foreground",
+  supervisor: "bg-muted-foreground text-background"
 };
 
 /**

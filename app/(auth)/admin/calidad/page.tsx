@@ -118,11 +118,11 @@ export default async function CalidadDatosPage() {
                 <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
                   Avisos
                 </p>
-                <p className="mt-1 font-mono text-xl font-bold tabular-nums text-amber-700 dark:text-amber-300">
+                <p className="mt-1 font-mono text-xl font-bold tabular-nums text-warning-foreground">
                   {fmtInt(bySeverity.warning)}
                 </p>
               </div>
-              <AlertTriangle className="size-4 shrink-0 text-amber-600" aria-hidden />
+              <AlertTriangle className="size-4 shrink-0 text-warning" aria-hidden />
             </CardContent>
           </Card>
           <Card>
@@ -196,7 +196,7 @@ export default async function CalidadDatosPage() {
                           worst === "error"
                             ? "border-destructive/40 bg-destructive/5 text-destructive"
                             : worst === "warning"
-                              ? "border-amber-500/40 bg-amber-500/5 text-amber-700 dark:text-amber-300"
+                              ? "border-warning/40 bg-warning/5 text-warning-foreground"
                               : "border-primary/30 bg-primary/5"
                         }
                       >

@@ -34,6 +34,7 @@
 
 import type { Map as MlMap } from "maplibre-gl";
 import { useEffect, useRef, useState } from "react";
+import { MAP_COLORS } from "@/lib/map-palette";
 
 interface FlightPoint {
   id: number | string;
@@ -170,8 +171,8 @@ export function FumigationMap({
         polygons.forEach((p, idx) => {
           const sourceId = `parcel-${idx}`;
           const isPrimary = p.isPrimary;
-          const fillColor = isPrimary ? "#16a34a" : "#86efac";
-          const lineColor = isPrimary ? "#15803d" : "#22c55e";
+          const fillColor = isPrimary ? MAP_COLORS.primaryFill : MAP_COLORS.secondaryFill;
+          const lineColor = isPrimary ? MAP_COLORS.primaryLine : MAP_COLORS.secondaryLine;
           const lineWidth = isPrimary ? 2.4 : 1.6;
           const fillOpacity = isPrimary ? 0.25 : 0.18;
 
@@ -219,8 +220,8 @@ export function FumigationMap({
             "width: 22px",
             "height: 22px",
             "border-radius: 50%",
-            "background: #f5e839",
-            "border: 3px solid #1f2937",
+            `background: ${MAP_COLORS.brandLime}`,
+            `border: 3px solid ${MAP_COLORS.ink}`,
             "box-shadow: 0 0 0 4px rgba(245,232,57,0.35)",
             "cursor: pointer"
           ].join(";");
@@ -252,9 +253,9 @@ export function FumigationMap({
             source: "flights",
             paint: {
               "circle-radius": 3,
-              "circle-color": "#fff",
+              "circle-color": MAP_COLORS.white,
               "circle-opacity": 0.9,
-              "circle-stroke-color": "#1f2937",
+              "circle-stroke-color": MAP_COLORS.ink,
               "circle-stroke-width": 1
             }
           });

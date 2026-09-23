@@ -3,6 +3,7 @@
 import type { Map as MlMap, Popup as MlPopup, StyleSpecification } from "maplibre-gl"
 import { useEffect, useRef, useState } from "react"
 import { STATUS_META } from "@/lib/data-constants"
+import { MAP_COLORS } from "@/lib/map-palette"
 import type { ComplianceStatus } from "@/lib/types"
 
 export type BaseMap = "satelite" | "hibrido" | "calles" | "topo"
@@ -362,7 +363,7 @@ export function GeoMap({
             // 2026-09-20 — simbología del geovisor: las parcelas son
             // borde ámbar fino (relleno casi nulo para no tapar el
             // satélite).
-            "fill-color": "#f59e0b",
+            "fill-color": MAP_COLORS.parcel,
             "fill-opacity": 0.06,
           },
         })
@@ -372,7 +373,7 @@ export function GeoMap({
           source: "parcels",
           paint: {
             // 2026-09-20 — borde ámbar fino; seleccionada = azul.
-            "line-color": ["case", ["boolean", ["feature-state", "selected"], false], "#2563eb", "#f59e0b"],
+            "line-color": ["case", ["boolean", ["feature-state", "selected"], false], MAP_COLORS.parcelSelected, MAP_COLORS.parcel],
             "line-width": ["case", ["boolean", ["feature-state", "selected"], false], 3.5, 1.2],
             "line-opacity": 0.95,
           },
@@ -388,7 +389,7 @@ export function GeoMap({
             "text-allow-overlap": false,
           },
           paint: {
-            "text-color": "#ffffff",
+            "text-color": MAP_COLORS.white,
             "text-halo-color": "rgba(20,30,20,0.85)",
             "text-halo-width": 1.4,
           },
@@ -400,7 +401,7 @@ export function GeoMap({
           paint: {
             // 2026-09-20 — simbología: fumigaciones cian translúcido;
             // huérfanas (sin parcela) magenta.
-            "fill-color": ["case", ["boolean", ["get", "is_orphan"], false], "#a855f7", "#06b6d4"],
+            "fill-color": ["case", ["boolean", ["get", "is_orphan"], false], MAP_COLORS.orphan, MAP_COLORS.event],
             "fill-opacity": 0.28,
           },
         })
@@ -414,7 +415,7 @@ export function GeoMap({
           source: "events",
           filter: ["!=", ["get", "is_orphan"], true],
           paint: {
-            "line-color": "#0891b2",
+            "line-color": MAP_COLORS.eventLine,
             "line-width": 1.6,
             "line-opacity": 0.95,
           },
@@ -425,7 +426,7 @@ export function GeoMap({
           source: "events",
           filter: ["==", ["get", "is_orphan"], true],
           paint: {
-            "line-color": "#7e22ce",
+            "line-color": MAP_COLORS.orphanLine,
             "line-width": 1.8,
             "line-opacity": 0.95,
             "line-dasharray": [2, 1.5],
@@ -546,7 +547,7 @@ export function GeoMap({
         : ""
       const orphan = event.is_orphan === true
       const orphanBadge = orphan
-        ? `<span class="event-popup__src" style="background:#a855f7;color:#fff">Sin asignar</span>`
+        ? `<span class="event-popup__src" style="background:${MAP_COLORS.orphan};color:${MAP_COLORS.white}">Sin asignar</span>`
         : ""
       const assignmentInfo =
         orphan && event.assignment_note

@@ -96,8 +96,8 @@ const ACTION_META: Record<FumigationAuditAction, ActionMeta> = {
   restored: {
     label: "Fumigación restaurada",
     icon: RotateCcw,
-    colorClass: "text-amber-700 dark:text-amber-300",
-    bgClass: "bg-amber-500/10 border-amber-500/40"
+    colorClass: "text-warning-foreground",
+    bgClass: "bg-warning/10 border-warning/40"
   }
 };
 
@@ -281,7 +281,7 @@ function AuditEventRow({ event }: AuditEventRowProps) {
             {isBackfill ? (
               <Badge
                 variant="outline"
-                className="border-amber-500/60 bg-amber-50 text-[10px] font-semibold uppercase tracking-wide text-amber-700"
+                className="border-warning/60 bg-warning/10 text-[10px] font-semibold uppercase tracking-wide text-warning-foreground"
                 title="Reconstruido a partir del estado actual de la BD por el script de backfill. No es un evento registrado cuando el operador hizo click en Guardar."
               >
                 Reconstruido

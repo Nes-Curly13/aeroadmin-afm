@@ -30,6 +30,10 @@
   --color-input: var(--input);
   --color-border: var(--border);
   --color-destructive: var(--destructive);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-orphan: var(--orphan);
+  --color-orphan-foreground: var(--orphan-foreground);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
@@ -91,6 +95,17 @@
   --ring: oklch(0.57 0.085 190);
 
   --destructive: oklch(0.55 0.2 26);
+  /* UI-T1 (auditoría UI 2026-09-21): token de advertencia semántico.
+     Antes los estados "warning" usaban la paleta cruda de Tailwind
+     (`amber-*`) esparcida en 9 archivos. `warning` es el color base
+     (bordes/íconos/strips) y `warning-foreground` el texto legible. */
+  --warning: oklch(0.769 0.16 70);
+  --warning-foreground: oklch(0.52 0.13 55);
+  /* UI-T2 (auditoría UI 2026-09-21): token de "huérfana" (fumigación
+     sin parcela asignada). Antes era `#a855f7` hardcodeado en el banner
+     de fumigaciones, los badges del geovisor y la leyenda. */
+  --orphan: oklch(0.63 0.22 305);
+  --orphan-foreground: oklch(0.985 0.005 305);
 
   --chart-1: oklch(0.52 0.11 151);
   --chart-2: oklch(0.57 0.085 190);

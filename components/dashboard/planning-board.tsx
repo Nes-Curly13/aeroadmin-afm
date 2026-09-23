@@ -119,7 +119,7 @@ function PlanRow({
           className={
             plan.is_overdue
               ? "text-[10px] border-destructive/40 bg-destructive/5 text-destructive"
-              : "text-[10px] border-amber-500/40 bg-amber-500/5 text-amber-700 dark:text-amber-300"
+              : "text-[10px] border-warning/40 bg-warning/5 text-warning-foreground"
           }
         >
           {plan.is_overdue ? "Vencida" : "Planificada"}
