@@ -44,19 +44,21 @@ test.describe("Auth + Dashboard V0 (S8.2)", () => {
     await expect(alert).toContainText(/incorrectos/i);
   });
 
-  test("3. Login como admin -> dashboard V0 con 4 KPIs de fumigación", async ({ page }) => {
+  test("3. Login como admin -> dashboard con KPIs de fumigación", async ({ page }) => {
     await login(page);
     await expect(page).toHaveURL("/");
-    // 4 KPIs del V0 (labels del KpiCard del dashboard)
-    await expect(page.getByText(/Hect[áa]reas tratadas/i).first()).toBeVisible();
-    await expect(page.getByText(/Aplicaciones/i).first()).toBeVisible();
-    await expect(page.getByText(/Vuelos/i).first()).toBeVisible();
-    await expect(page.getByText(/Volumen aplicado/i).first()).toBeVisible();
+    // KPIs actuales del dashboard (Fase 6 dashboard).
+    await expect(page.getByText(/Fumigaciones/i).first()).toBeVisible();
+    await expect(page.getByText(/Área aplicada/i).first()).toBeVisible();
+    await expect(page.getByText(/Cobertura real/i).first()).toBeVisible();
+    await expect(page.getByText(/Volumen/i).first()).toBeVisible();
   });
 
   test("4. Los valores de KPIs son numéricos (no [object Object])", async ({ page }) => {
     await login(page);
     await expect(page).toHaveURL("/");
+    // Esperar al render de los KPIs (si no, innerText lee "Cargando…").
+    await expect(page.getByText(/Cobertura real/i).first()).toBeVisible();
     const body = await page.locator("body").innerText();
     // Bugs clasicos del pasado: render de objetos en vez de valores
     expect(body).not.toContain("[object Object]");
@@ -66,13 +68,13 @@ test.describe("Auth + Dashboard V0 (S8.2)", () => {
     expect(body).toMatch(/\d/);
   });
 
-  test("5. Sidebar V0 muestra Panel / Geovisor / Parcelas", async ({ page }) => {
+  test("5. Sidebar muestra Inicio / Parcelas / Geovisor", async ({ page }) => {
     await login(page);
     const nav = page.locator('nav[aria-label="Navegación principal"]');
     await expect(nav).toBeVisible();
-    await expect(nav.getByText("Panel")).toBeVisible();
-    await expect(nav.getByText("Geovisor")).toBeVisible();
+    await expect(nav.getByText("Inicio")).toBeVisible();
     await expect(nav.getByText("Parcelas")).toBeVisible();
+    await expect(nav.getByText("Geovisor")).toBeVisible();
   });
 
   test("6. Clear cookies -> /login (logout flow)", async ({ page }) => {
@@ -100,13 +102,11 @@ test.describe("Auth + Dashboard V0 (S8.2)", () => {
   test("7. /admin/parcels accesible para admin", async ({ page }) => {
     await login(page);
     // E2E_USER es admin (seed), la ruta /admin/* deja pasar.
-    // La page renderiza con la tabla de edicion inline.
     const resp = await page.goto("/admin/parcels");
     expect(resp?.status()).toBe(200);
-    // Heading V0
-    await expect(page.getByText(/Admin · Parcelas/i)).toBeVisible();
-    // El form de edicion inline tiene inputs para los 4 campos
-    const inputs = page.locator('input[aria-label*="client_name"]');
-    expect(await inputs.count()).toBeGreaterThan(0);
+    // Heading del admin de parcelas (acepta "–" o "·").
+    await expect(page.getByText(/Admin .{1,3}Parcelas/i).first()).toBeVisible();
+    // La barra de búsqueda server-side está presente.
+    await expect(page.getByLabel("Buscar parcela")).toBeVisible();
   });
 });
