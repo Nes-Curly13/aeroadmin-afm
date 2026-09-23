@@ -23,7 +23,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { InvoicesCard } from "@/components/fumigations/invoices-card";
 import type { FumigationInvoice } from "@/lib/types";
@@ -205,16 +205,16 @@ describe("InvoicesCard — crear factura", () => {
   });
 });
 
-describe("InvoicesCard — cancelar factura", () => {
-  it("click en Cancelar dispara PATCH y refresh (con confirm)", async () => {
+describe("InvoicesCard — cancelar factura (AlertDialog, UI-O1)", () => {
+  it("Confirmar dispara PATCH y refresh", async () => {
     const user = userEvent.setup();
-    // Mock del window.confirm
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     mockFetchOk({ invoice: makeInvoice({ id: 1, cancelled: true }) }, 200);
     const invs = [makeInvoice({ id: 1 })];
     render(<InvoicesCard fumigationId={100} invoices={invs} canEdit={true} />);
 
     await user.click(screen.getByRole("button", { name: /Cancelar factura FVE-2051/ }));
+    const dialog = await screen.findByRole("alertdialog");
+    await user.click(within(dialog).getByRole("button", { name: "Cancelar factura" }));
 
     await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
     const [url, init] = mockFetch.mock.calls[0];
@@ -223,13 +223,14 @@ describe("InvoicesCard — cancelar factura", () => {
     expect(mockRouterRefresh).toHaveBeenCalled();
   });
 
-  it("no llama PATCH si el usuario cancela el confirm", async () => {
+  it("si el usuario cancela el diálogo no llama PATCH", async () => {
     const user = userEvent.setup();
-    vi.spyOn(window, "confirm").mockReturnValue(false);
     const invs = [makeInvoice({ id: 1 })];
     render(<InvoicesCard fumigationId={100} invoices={invs} canEdit={true} />);
 
     await user.click(screen.getByRole("button", { name: /Cancelar factura FVE-2051/ }));
+    const dialog = await screen.findByRole("alertdialog");
+    await user.click(within(dialog).getByRole("button", { name: "Volver" }));
 
     expect(mockFetch).not.toHaveBeenCalled();
   });
