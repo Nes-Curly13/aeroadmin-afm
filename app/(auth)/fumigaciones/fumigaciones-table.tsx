@@ -37,12 +37,22 @@
  *     fetch, mismo patrón que login-page).
  */
 
-import { Calendar, ChevronRight, Droplets, History, Sprout } from "lucide-react";
+import { Calendar, ChevronRight, Droplets, History, Sprout, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogMedia,
+  AlertDialogTitle
+} from "@/components/ui/alert-dialog";
 import { FUMIGATION_CATEGORIES } from "@/lib/data-constants";
 import { fmtDate, fmtDateTime, fmtDec, fmtInt } from "@/lib/format";
 import type { DjiFumigationEvent } from "@/lib/types";
@@ -82,6 +92,10 @@ export function FumigacionesTableClient({
   const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set());
   const [isPending, setIsPending] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+  // UI-TB1 (auditoría UI 2026-09-21): confirmaciones destructivas con
+  // AlertDialog en vez de `window.confirm()`.
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [categoryTarget, setCategoryTarget] = useState<{ categoryId: number | null; label: string } | null>(null);
 
   // Filtrado (mismo algoritmo que la versión inline anterior).
   const filtered = useMemo(() => {
@@ -166,21 +180,8 @@ export function FumigacionesTableClient({
     });
   };
 
-  const handleBulkDelete = async () => {
+  const runBulkDelete = async () => {
     if (selectedIds.size === 0) return;
-    const count = selectedIds.size;
-    if (
-      // UI-T4: tildes + jerga dev suavizada. "BD" → "base de datos";
-      // "reversible solo desde la BD (audit log conservado)" →
-      // explicacion en espanol del soft-delete + reversibilidad.
-      !window.confirm(
-        `¿Borrar ${count} fumigacion${count === 1 ? "" : "es"}? ` +
-          `Las fumigaciones se marcan como borradas y desaparecen de los listados. ` +
-          `Quedan en la base de datos para auditoría (un admin puede restaurarlas).`
-      )
-    ) {
-      return;
-    }
     setIsPending(true);
     setActionMessage(null);
     try {
@@ -209,21 +210,8 @@ export function FumigacionesTableClient({
     }
   };
 
-  const handleBulkCategory = async (categoryId: number | null) => {
+  const runBulkCategory = async (categoryId: number | null) => {
     if (selectedIds.size === 0) return;
-    const count = selectedIds.size;
-    const target =
-      categoryId == null
-        ? "Sin clasificar"
-        : FUMIGATION_CATEGORIES.find((c) => c.id === categoryId)?.label ?? `#${categoryId}`;
-    if (
-      // UI-T4: tildes. "fumigaciones" → "fumigación/es" con tilde.
-      !window.confirm(
-        `¿Asignar "${target}" a ${count} fumigación${count === 1 ? "" : "es"}?`
-      )
-    ) {
-      return;
-    }
     setIsPending(true);
     setActionMessage(null);
     try {
@@ -258,7 +246,7 @@ export function FumigacionesTableClient({
         <table className="w-full min-w-[900px] text-sm">
           <thead className="border-y border-border bg-muted/60 text-xs uppercase tracking-wide text-muted-foreground">
             <tr>
-              <th className="px-3 py-2.5 text-left font-semibold">
+              <th scope="col" className="px-3 py-2.5 text-left font-semibold">
                 <input
                   type="checkbox"
                   aria-label="Seleccionar todas las fumigaciones de esta página"
@@ -268,13 +256,13 @@ export function FumigacionesTableClient({
                   className="size-4 cursor-pointer disabled:cursor-not-allowed"
                 />
               </th>
-              <th className="px-3 py-2.5 text-left font-semibold">Fecha</th>
-              <th className="px-3 py-2.5 text-left font-semibold">Parcela</th>
-              <th className="px-3 py-2.5 text-left font-semibold">Producto</th>
-              <th className="px-3 py-2.5 text-right font-semibold">Dosis</th>
-              <th className="px-3 py-2.5 text-right font-semibold">Área</th>
-              <th className="px-3 py-2.5 text-left font-semibold">Fuente</th>
-              <th className="px-3 py-2.5 text-left font-semibold">Registrado por</th>
+              <th scope="col" className="px-3 py-2.5 text-left font-semibold">Fecha</th>
+              <th scope="col" className="px-3 py-2.5 text-left font-semibold">Parcela</th>
+              <th scope="col" className="px-3 py-2.5 text-left font-semibold">Producto</th>
+              <th scope="col" className="px-3 py-2.5 text-right font-semibold">Dosis</th>
+              <th scope="col" className="px-3 py-2.5 text-right font-semibold">Área</th>
+              <th scope="col" className="px-3 py-2.5 text-left font-semibold">Fuente</th>
+              <th scope="col" className="px-3 py-2.5 text-left font-semibold">Registrado por</th>
             </tr>
           </thead>
           <tbody>
@@ -305,8 +293,17 @@ export function FumigacionesTableClient({
         <BulkActionBar
           count={selectedIds.size}
           isPending={isPending}
-          onDelete={handleBulkDelete}
-          onCategory={handleBulkCategory}
+          onDelete={() => setDeleteOpen(true)}
+          onCategory={(categoryId) =>
+            setCategoryTarget({
+              categoryId,
+              label:
+                categoryId == null
+                  ? "Sin clasificar"
+                  : FUMIGATION_CATEGORIES.find((c) => c.id === categoryId)?.label ??
+                    `#${categoryId}`
+            })
+          }
         />
       ) : null}
 
@@ -320,6 +317,69 @@ export function FumigacionesTableClient({
       <p className="border-t border-border px-3 py-2 text-center font-mono text-[11px] text-muted-foreground">
         {`página ${safePage} de ${totalPages} · ${fmtInt(total)} resultados`}
       </p>
+
+      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogMedia className="bg-destructive/10 text-destructive">
+              <Trash2 aria-hidden />
+            </AlertDialogMedia>
+            <AlertDialogTitle>
+              {`¿Borrar ${selectedIds.size} fumigación${selectedIds.size === 1 ? "" : "es"}?`}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Se marcan como borradas y desaparecen de los listados. Quedan en
+              la base de datos para auditoría (un admin puede restaurarlas).
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isPending}>Cancelar</AlertDialogCancel>
+            <Button
+              type="button"
+              disabled={isPending}
+              className="bg-destructive text-white hover:bg-destructive/90"
+              onClick={() => {
+                setDeleteOpen(false);
+                void runBulkDelete();
+              }}
+            >
+              {isPending ? "Procesando…" : `Borrar ${selectedIds.size}`}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {categoryTarget ? (
+        <AlertDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setCategoryTarget(null);
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>¿Asignar categoría?</AlertDialogTitle>
+              <AlertDialogDescription>
+                {`Se asignará "${categoryTarget.label}" a ${selectedIds.size} fumigación${selectedIds.size === 1 ? "" : "es"}.`}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={isPending}>Cancelar</AlertDialogCancel>
+              <Button
+                type="button"
+                disabled={isPending}
+                onClick={() => {
+                  const c = categoryTarget.categoryId;
+                  setCategoryTarget(null);
+                  void runBulkCategory(c);
+                }}
+              >
+                Asignar
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      ) : null}
     </>
   );
 }

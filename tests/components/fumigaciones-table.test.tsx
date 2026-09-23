@@ -7,8 +7,11 @@
  *   - Toggle de checkbox individual
  *   - "Select all" del header
  *   - Barra de bulk actions aparece cuando hay selección
- *   - Click en "Borrar N" → confirm() + fetch + router.refresh
- *   - Click en "Asignar categoría" → confirm() + fetch + router.refresh
+ *   - Click en "Borrar N" → AlertDialog + fetch + router.refresh
+ *   - Click en "Asignar categoría" → AlertDialog + fetch + router.refresh
+ *
+ * UI-TB1 (auditoría UI 2026-09-21): las confirmaciones migraron de
+ * `window.confirm()` al primitivo `AlertDialog` (role="alertdialog").
  *
  * No testeamos la presentación detallada (clases Tailwind, copy
  * de aria-label, etc.) — esos son detalles visuales. El comportamiento
@@ -16,7 +19,7 @@
  */
 
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within, cleanup } from "@testing-library/react";
 
 // Mocks
 const mockRefresh = vi.fn();
@@ -31,19 +34,15 @@ import type { DjiFumigationEvent } from "@/lib/types";
 
 const mockFetch = vi.fn();
 const originalFetch = global.fetch;
-const originalConfirm = window.confirm;
 
 beforeEach(() => {
   global.fetch = mockFetch as unknown as typeof fetch;
   mockFetch.mockReset();
   mockRefresh.mockReset();
-  // Default: confirm siempre true (happy path)
-  window.confirm = vi.fn(() => true);
 });
 
 afterEach(() => {
   global.fetch = originalFetch;
-  window.confirm = originalConfirm;
   cleanup();
 });
 
@@ -86,6 +85,12 @@ const baseProps = {
   rawSearchParams: {} as Record<string, string | undefined>
 };
 
+/** Espera el AlertDialog y clickea el botón de acción indicado. */
+async function clickDialogAction(name: string | RegExp) {
+  const dialog = await screen.findByRole("alertdialog");
+  fireEvent.click(within(dialog).getByRole("button", { name }));
+}
+
 describe("FumigacionesTableClient — bulk operations UI", () => {
   it("1. render: muestra la tabla con checkbox por fila + select-all en header", () => {
     const events = [makeEvent({ id: 1 }), makeEvent({ id: 2 })];
@@ -127,7 +132,7 @@ describe("FumigacionesTableClient — bulk operations UI", () => {
     expect(screen.queryByRole("region", { name: /acciones en bulk/i })).toBeNull();
   });
 
-  it("4. click en 'Borrar N' → confirm + POST /bulk-delete + router.refresh", async () => {
+  it("4. click en 'Borrar N' → AlertDialog + POST /bulk-delete + router.refresh", async () => {
     const events = [makeEvent({ id: 1 }), makeEvent({ id: 2 })];
     mockFetch.mockResolvedValueOnce({
       ok: true,
@@ -136,11 +141,13 @@ describe("FumigacionesTableClient — bulk operations UI", () => {
     render(<FumigacionesTableClient events={events} {...baseProps} />);
     // Seleccionar todo
     fireEvent.click(screen.getByLabelText(/seleccionar todas/i));
-    // Click en Borrar
-    const deleteBtn = screen.getByRole("button", { name: /borrar fumigaciones seleccionadas/i });
-    fireEvent.click(deleteBtn);
-    // confirm() fue llamado
-    expect(window.confirm).toHaveBeenCalled();
+    // Click en Borrar → abre el diálogo
+    fireEvent.click(
+      screen.getByRole("button", { name: /borrar fumigaciones seleccionadas/i })
+    );
+    expect(await screen.findByRole("alertdialog")).toBeInTheDocument();
+    // Confirmar
+    await clickDialogAction(/^Borrar 2$/);
     // fetch se llamó con la URL correcta
     await waitFor(() => {
       expect(mockFetch).toHaveBeenCalledWith(
@@ -157,7 +164,7 @@ describe("FumigacionesTableClient — bulk operations UI", () => {
     });
   });
 
-  it("5. click en categoría → confirm + POST /bulk-category", async () => {
+  it("5. click en categoría → AlertDialog + POST /bulk-category", async () => {
     const events = [makeEvent({ id: 1 })];
     mockFetch.mockResolvedValueOnce({
       ok: true,
@@ -166,9 +173,11 @@ describe("FumigacionesTableClient — bulk operations UI", () => {
     render(<FumigacionesTableClient events={events} {...baseProps} />);
     // Seleccionar
     fireEvent.click(screen.getByLabelText("Seleccionar fumigación #1"));
-    // Click en "Asignar Herbicida" (id=1, label=Herbicida)
-    const herbicidaBtn = screen.getByRole("button", { name: /asignar categor[ií]a herbicida/i });
-    fireEvent.click(herbicidaBtn);
+    // Click en "Asignar Herbicida" (id=1, label=Herbicida) → abre el diálogo
+    fireEvent.click(
+      screen.getByRole("button", { name: /asignar categor[ií]a herbicida/i })
+    );
+    await clickDialogAction(/^Asignar$/);
     await waitFor(() => {
       expect(mockFetch).toHaveBeenCalledWith(
         "/api/admin/fumigations/bulk-category",
@@ -192,6 +201,7 @@ describe("FumigacionesTableClient — bulk operations UI", () => {
     fireEvent.click(
       screen.getByRole("button", { name: /asignar 'sin clasificar'/i })
     );
+    await clickDialogAction(/^Asignar$/);
     await waitFor(() => {
       expect(mockFetch).toHaveBeenCalledWith(
         "/api/admin/fumigations/bulk-category",
@@ -202,14 +212,14 @@ describe("FumigacionesTableClient — bulk operations UI", () => {
     });
   });
 
-  it("7. confirm cancela: no fetchea nada", async () => {
+  it("7. cancelar el diálogo de borrado: no fetchea nada", async () => {
     const events = [makeEvent({ id: 1 })];
-    window.confirm = vi.fn(() => false);
     render(<FumigacionesTableClient events={events} {...baseProps} />);
     fireEvent.click(screen.getByLabelText("Seleccionar fumigación #1"));
     fireEvent.click(
       screen.getByRole("button", { name: /borrar fumigaciones seleccionadas/i })
     );
+    await clickDialogAction(/^Cancelar$/);
     // No fetch, no refresh
     expect(mockFetch).not.toHaveBeenCalled();
     expect(mockRefresh).not.toHaveBeenCalled();
@@ -227,6 +237,7 @@ describe("FumigacionesTableClient — bulk operations UI", () => {
     fireEvent.click(
       screen.getByRole("button", { name: /borrar fumigaciones seleccionadas/i })
     );
+    await clickDialogAction(/^Borrar 1$/);
     await waitFor(() => {
       expect(screen.getByRole("status")).toHaveTextContent(/rol insuficiente/i);
     });
