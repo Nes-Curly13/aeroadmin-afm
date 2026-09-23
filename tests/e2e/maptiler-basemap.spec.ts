@@ -26,6 +26,12 @@ async function login(page: Page) {
 }
 
 test("geovisor usa MapTiler cuando NEXT_PUBLIC_MAPTILER_KEY esta seteada", async ({ page }) => {
+  // Solo corre cuando hay key de MapTiler configurada (si no, el geovisor
+  // cae al basemap EOX Sentinel-2 y el test no aplica).
+  test.skip(
+    !process.env.NEXT_PUBLIC_MAPTILER_KEY,
+    "requiere NEXT_PUBLIC_MAPTILER_KEY"
+  );
   const maptilerRequests: string[] = []
   const eoxRequests: string[] = []
 
