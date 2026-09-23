@@ -633,7 +633,10 @@ export default async function ParcelaPage({ params }: { params: Promise<{ id: st
                     : "Sin registros."}
                 </CardDescription>
               </CardHeader>
-              <CardContent className="max-h-[32rem] overflow-y-auto">
+              {/* UI-L1 (auditoría UI 2026-09-21): se quitó el scroll
+                  anidado (`max-h-[32rem] overflow-y-auto`). El timeline
+                  crece con la página; el shell ya es el único scroll owner. */}
+              <CardContent>
                 <FumigationTimeline
                   fumigations={fumigations}
                   flights={flights}

@@ -445,9 +445,9 @@ export function AdminParcelsClient({
         <div
           role="status"
           aria-live="polite"
-          className="flex flex-col gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-3 sm:flex-row sm:items-center sm:justify-between"
+          className="flex flex-col gap-2 rounded-md border border-warning/30 bg-warning/5 p-3 sm:flex-row sm:items-center sm:justify-between"
         >
-          <div className="flex items-center gap-2 text-amber-700 dark:text-amber-300">
+          <div className="flex items-center gap-2 text-warning-foreground">
             <AlertTriangle className="size-4 shrink-0" aria-hidden />
             <p className="text-sm">
               <strong>{unassignedCount}</strong>{" "}
@@ -581,15 +581,15 @@ export function AdminParcelsClient({
             <table className="w-full min-w-[1400px] text-sm">
               <thead className="border-y border-border bg-muted/60 text-xs uppercase tracking-wide text-muted-foreground">
                 <tr>
-                  <th className="px-3 py-2.5 text-left font-semibold">Parcela</th>
-                  <th className="px-3 py-2.5 text-left font-semibold">Cliente (FK)</th>
-                  <th className="px-3 py-2.5 text-left font-semibold">Hacienda (FK)</th>
-                  <th className="px-3 py-2.5 text-left font-semibold">Cliente (denorm)</th>
-                  <th className="px-3 py-2.5 text-left font-semibold">Hacienda (denorm)</th>
-                  <th className="px-3 py-2.5 text-left font-semibold">Municipio</th>
-                  <th className="px-3 py-2.5 text-left font-semibold">Variedad</th>
-                  <th className="px-3 py-2.5 text-left font-semibold">Vigencia</th>
-                  <th className="px-3 py-2.5 text-right font-semibold">Acciones</th>
+                  <th scope="col" className="px-3 py-2.5 text-left font-semibold">Parcela</th>
+                  <th scope="col" className="px-3 py-2.5 text-left font-semibold">Cliente (FK)</th>
+                  <th scope="col" className="px-3 py-2.5 text-left font-semibold">Hacienda (FK)</th>
+                  <th scope="col" className="px-3 py-2.5 text-left font-semibold">Cliente (denorm)</th>
+                  <th scope="col" className="px-3 py-2.5 text-left font-semibold">Hacienda (denorm)</th>
+                  <th scope="col" className="px-3 py-2.5 text-left font-semibold">Municipio</th>
+                  <th scope="col" className="px-3 py-2.5 text-left font-semibold">Variedad</th>
+                  <th scope="col" className="px-3 py-2.5 text-left font-semibold">Vigencia</th>
+                  <th scope="col" className="px-3 py-2.5 text-right font-semibold">Acciones</th>
                 </tr>
               </thead>
               <tbody>
@@ -751,7 +751,7 @@ export function AdminParcelsClient({
                             className={cn(
                               "h-8 w-full max-w-[140px] appearance-none rounded-md border pl-2 pr-7 text-sm",
                               draft.data_validity === "fresh" && "border-emerald-500/40 bg-emerald-500/5",
-                              draft.data_validity === "needs_review" && "border-amber-500/40 bg-amber-500/5",
+                              draft.data_validity === "needs_review" && "border-warning/40 bg-warning/5",
                               draft.data_validity === "stale" && "border-red-500/40 bg-red-500/5",
                               draft.data_validity === "unknown" && "border-input bg-background"
                             )}

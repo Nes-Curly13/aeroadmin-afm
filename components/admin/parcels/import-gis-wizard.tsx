@@ -470,10 +470,10 @@ function PreviewTable({
         <table className="w-full min-w-[600px] text-sm">
           <thead className="border-y border-border bg-muted/60 text-xs uppercase tracking-wide text-muted-foreground">
             <tr>
-              <th className="px-3 py-2 text-left font-semibold">#</th>
-              <th className="px-3 py-2 text-left font-semibold">Nombre</th>
-              <th className="px-3 py-2 text-left font-semibold">Tipo</th>
-              <th className="px-3 py-2 text-right font-semibold">Área est.</th>
+              <th scope="col" className="px-3 py-2 text-left font-semibold">#</th>
+              <th scope="col" className="px-3 py-2 text-left font-semibold">Nombre</th>
+              <th scope="col" className="px-3 py-2 text-left font-semibold">Tipo</th>
+              <th scope="col" className="px-3 py-2 text-right font-semibold">Área est.</th>
             </tr>
           </thead>
           <tbody>

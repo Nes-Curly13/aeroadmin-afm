@@ -125,7 +125,7 @@ export function ParcelsTable({
         <button
           type="button"
           onClick={() => toggleSort(k)}
-          className="inline-flex items-center gap-1 hover:text-foreground"
+          className="inline-flex items-center gap-1 rounded hover:text-foreground focus-visible:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
           aria-label={`Ordenar por ${label}`}
         >
           {label}

@@ -253,9 +253,9 @@ export default async function FumigacionPage({ params }: PageProps) {
       {fumigation.needs_parcel_assignment ? (
         <div
           role="status"
-          className="flex flex-wrap items-center gap-3 rounded-md border border-[#a855f7]/50 bg-[#a855f7]/10 px-3 py-2 text-xs"
+          className="flex flex-wrap items-center gap-3 rounded-md border border-orphan/50 bg-orphan/10 px-3 py-2 text-xs"
         >
-          <Badge className="border-transparent bg-[#a855f7] text-white">
+          <Badge className="border-transparent bg-orphan text-orphan-foreground">
             Sin asignar
           </Badge>
           <span className="min-w-0 flex-1 text-muted-foreground">
@@ -770,16 +770,16 @@ export default async function FumigacionPage({ params }: PageProps) {
               <table className="w-full min-w-[760px] text-sm">
                 <thead className="border-b border-border bg-muted/40 text-[11px] uppercase tracking-wider text-muted-foreground">
                   <tr>
-                    <th className="px-3 py-2 text-left font-semibold">ID de vuelo</th>
-                    <th className="px-3 py-2 text-left font-semibold">Inicio</th>
+                    <th scope="col" className="px-3 py-2 text-left font-semibold">ID de vuelo</th>
+                    <th scope="col" className="px-3 py-2 text-left font-semibold">Inicio</th>
                     {isPlan ? (
-                      <th className="px-3 py-2 text-left font-semibold">Suerte</th>
+                      <th scope="col" className="px-3 py-2 text-left font-semibold">Suerte</th>
                     ) : null}
-                    <th className="px-3 py-2 text-left font-semibold">Piloto</th>
-                    <th className="px-3 py-2 text-left font-semibold">Dron</th>
-                    <th className="px-3 py-2 text-right font-semibold">Área</th>
-                    <th className="px-3 py-2 text-right font-semibold">Duración</th>
-                    <th className="px-3 py-2 text-right font-semibold">Volumen</th>
+                    <th scope="col" className="px-3 py-2 text-left font-semibold">Piloto</th>
+                    <th scope="col" className="px-3 py-2 text-left font-semibold">Dron</th>
+                    <th scope="col" className="px-3 py-2 text-right font-semibold">Área</th>
+                    <th scope="col" className="px-3 py-2 text-right font-semibold">Duración</th>
+                    <th scope="col" className="px-3 py-2 text-right font-semibold">Volumen</th>
                   </tr>
                 </thead>
                 <tbody>
