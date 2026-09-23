@@ -105,12 +105,12 @@ export function severityLabel(severity: OverdueSeverity): string {
 export function severityChipClass(severity: OverdueSeverity): string {
   switch (severity) {
     case "overdue":
-      return "bg-[#a93232]/15 text-[#a93232]";
+      return "bg-destructive/15 text-destructive";
     case "due_soon":
-      return "bg-[#d4b23c]/20 text-[#7a5f0d]";
+      return "bg-warning/20 text-warning-foreground";
     case "ok":
-      return "bg-[#0b5f2d]/10 text-[#0b5f2d]";
+      return "bg-primary/10 text-primary";
     case "no_history":
-      return "bg-[#cfd8d3] text-[#4a5b50]";
+      return "bg-muted text-muted-foreground";
   }
 }

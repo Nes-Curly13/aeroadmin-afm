@@ -135,15 +135,15 @@ describe("severityLabel (UI copy)", () => {
 
 describe("severityChipClass (estilos inline consistentes con parcel-fumigations)", () => {
   it("overdue usa rojo danger", () => {
-    expect(severityChipClass("overdue")).toContain("a93232");
+    expect(severityChipClass("overdue")).toContain("destructive");
   });
   it("due_soon usa amarillo warning", () => {
-    expect(severityChipClass("due_soon")).toContain("d4b23c");
+    expect(severityChipClass("due_soon")).toContain("warning");
   });
   it("ok usa verde primary", () => {
-    expect(severityChipClass("ok")).toContain("0b5f2d");
+    expect(severityChipClass("ok")).toContain("primary");
   });
   it("no_history usa gris neutral", () => {
-    expect(severityChipClass("no_history")).toContain("cfd8d3");
+    expect(severityChipClass("no_history")).toContain("muted");
   });
 });

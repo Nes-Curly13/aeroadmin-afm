@@ -222,14 +222,14 @@ export function phaseLabel(phase: CyclePhase | null | undefined): string {
 export function phaseChipClass(phase: CyclePhase | null | undefined): string {
   switch (phase) {
     case "vegetativa":
-      return "bg-[#0b5f2d]/10 text-[#0b5f2d] border-[#0b5f2d]/30";
+      return "bg-primary/10 text-primary border-primary/30";
     case "establecimiento":
-      return "bg-[#16847e]/10 text-[#16847e] border-[#16847e]/30";
+      return "bg-chart-2/10 text-chart-2 border-chart-2/30";
     case "madurante":
-      return "bg-[#d4b23c]/20 text-[#7a5f0d] border-[#d4b23c]/40";
+      return "bg-warning/20 text-warning-foreground border-warning/40";
     case "cosecha":
       return "bg-muted text-muted-foreground border-border";
     default:
-      return "bg-[#cfd8d3] text-[#4a5b50] border-border";
+      return "bg-muted text-muted-foreground border-border";
   }
 }

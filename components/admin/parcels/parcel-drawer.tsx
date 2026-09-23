@@ -97,6 +97,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { geometriesOverlap } from "@/lib/geometry";
+import { MAP_COLORS } from "@/lib/map-palette";
 
 /** Geometría GeoJSON Polygon (formato compartido con la API y lib/types). */
 type PolygonGeom = { type: "Polygon"; coordinates: number[][][] };
@@ -412,14 +413,14 @@ export function ParcelDrawer({
           id: CTX_FILL,
           type: "fill",
           source: CTX_SOURCE,
-          paint: { "fill-color": "#f59e0b", "fill-opacity": 0.1 }
+          paint: { "fill-color": MAP_COLORS.parcel, "fill-opacity": 0.1 }
         });
         map.addLayer({
           id: CTX_LINE,
           type: "line",
           source: CTX_SOURCE,
           paint: {
-            "line-color": "#b45309",
+            "line-color": MAP_COLORS.parcelLine,
             "line-width": 1.2,
             "line-opacity": 0.75
           }
@@ -502,11 +503,11 @@ export function ParcelDrawer({
         modes: [
           new TerraDrawPolygonMode({
             styles: {
-              fillColor: "#16a34a",
+              fillColor: MAP_COLORS.primaryFill,
               fillOpacity: 0.2,
-              outlineColor: "#15803d",
+              outlineColor: MAP_COLORS.primaryLine,
               outlineWidth: 2,
-              closingPointColor: "#15803d"
+              closingPointColor: MAP_COLORS.primaryLine
             }
           }),
           new TerraDrawSelectMode({
@@ -523,9 +524,9 @@ export function ParcelDrawer({
               }
             },
             styles: {
-              selectedPolygonColor: "#16a34a",
+              selectedPolygonColor: MAP_COLORS.primaryFill,
               selectedPolygonFillOpacity: 0.25,
-              selectedPolygonOutlineColor: "#15803d",
+              selectedPolygonOutlineColor: MAP_COLORS.primaryLine,
               selectedPolygonOutlineWidth: 2
             }
           })
@@ -1006,7 +1007,7 @@ export function ParcelDrawer({
         <div
           role="alert"
           data-testid="drawer-overlap-warning"
-          className="absolute left-1/2 top-3 z-30 flex max-w-[90%] -translate-x-1/2 items-start gap-1.5 rounded-lg border border-amber-500/50 bg-amber-50/95 px-3 py-1.5 text-[11px] font-medium text-amber-900 shadow-lg backdrop-blur dark:border-amber-500/40 dark:bg-amber-950/90 dark:text-amber-100"
+          className="absolute left-1/2 top-3 z-30 flex max-w-[90%] -translate-x-1/2 items-start gap-1.5 rounded-lg border border-warning/50 bg-warning/15 px-3 py-1.5 text-[11px] font-medium text-warning-foreground shadow-lg backdrop-blur"
         >
           <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
           <span>

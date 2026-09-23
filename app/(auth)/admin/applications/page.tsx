@@ -104,9 +104,9 @@ export default async function ApplicationsAdminPage() {
         </Card>
         <Card>
           <p className="text-xs text-muted-foreground">Huérfanas (score &lt; 0.5)</p>
-          {/* Issue #39 (Fase E, 2026-09-12): text-amber-700 ya estaba alineado
+          {/* Issue #39 (Fase E, 2026-09-12): text-warning-foreground ya estaba alineado
               con el token de warning. Sin cambios necesarios. */}
-          <p className="text-2xl font-bold text-amber-700">{orphans}</p>
+          <p className="text-2xl font-bold text-warning-foreground">{orphans}</p>
         </Card>
       </div>
 
@@ -154,7 +154,7 @@ export default async function ApplicationsAdminPage() {
                         // text-emerald-700).
                         <Badge className="bg-emerald-700/15 text-emerald-700">exacto</Badge>
                       ) : a.match_method === "fuzzy" ? (
-                        <Badge variant="outline" className="border-amber-500 text-amber-700">
+                        <Badge variant="outline" className="border-warning text-warning-foreground">
                           aproximado
                         </Badge>
                       ) : (

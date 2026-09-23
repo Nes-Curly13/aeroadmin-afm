@@ -21,6 +21,7 @@ import maplibregl, {
 import { useEffect, useRef, useState } from "react";
 import { AlertTriangle, Loader2, MapPin } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { MAP_COLORS } from "@/lib/map-palette";
 import type { ParcelPickerRow } from "@/api/repositories";
 
 const MAPTILER_KEY = process.env.NEXT_PUBLIC_MAPTILER_KEY || "";
@@ -74,7 +75,7 @@ function Overlay({
       className={cn(
         "pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-center gap-1.5 px-3 py-2 text-[11px] shadow-[0_-6px_12px_-8px_rgba(0,0,0,0.3)]",
         tone === "warn"
-          ? "bg-amber-50/95 text-amber-900"
+          ? "bg-warning/15 text-warning-foreground"
           : "bg-card/95 text-muted-foreground"
       )}
     >
@@ -135,14 +136,14 @@ export function ParcelMapPicker({
         id: FILL,
         type: "fill",
         source: SRC,
-        paint: { "fill-color": "#16a34a", "fill-opacity": 0.08 }
+        paint: { "fill-color": MAP_COLORS.primaryFill, "fill-opacity": 0.08 }
       });
       map.addLayer({
         id: LINE,
         type: "line",
         source: SRC,
         paint: {
-          "line-color": "#15803d",
+          "line-color": MAP_COLORS.primaryLine,
           "line-width": 1.2,
           "line-opacity": 0.85
         }
@@ -151,7 +152,7 @@ export function ParcelMapPicker({
         id: SELECTED,
         type: "line",
         source: SRC,
-        paint: { "line-color": "#f59e0b", "line-width": 3 },
+        paint: { "line-color": MAP_COLORS.parcel, "line-width": 3 },
         filter: ["==", ["get", "id"], selectedIdRef.current ?? -1]
       });
 
