@@ -23,11 +23,23 @@ import { execSync } from "node:child_process";
 
 const email = process.env.E2E_USER_EMAIL ?? "e2e@aeroadmin.local";
 const password = process.env.E2E_USER_PASSWORD ?? "E2ETest12345!";
+const supEmail = process.env.E2E_SUPERVISOR_EMAIL ?? "supervisor@afm.local";
+const supPassword = process.env.E2E_SUPERVISOR_PASSWORD ?? "Supervisor!2026";
 
 export default async function globalSetup(): Promise<void> {
   console.log(`[playwright global-setup] seeding admin user: ${email}`);
   execSync(
     `node scripts/seed-admin-user.js --email=${email} --password=${password} --role=admin`,
+    {
+      stdio: "inherit",
+      env: {
+        ...process.env
+      }
+    }
+  );
+  console.log(`[playwright global-setup] seeding supervisor user: ${supEmail}`);
+  execSync(
+    `node scripts/seed-admin-user.js --email=${supEmail} --password=${supPassword} --role=supervisor`,
     {
       stdio: "inherit",
       env: {

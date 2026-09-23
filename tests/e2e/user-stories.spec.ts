@@ -7,23 +7,18 @@
 // bug en la implementacion que hay que arreglar. Si pasan, la
 // feature esta validada end-to-end en el browser.
 //
-// Estructura: 7 grupos (uno por historia de usuario), 22 tests en
-// total. Cada test verifica UNA asercion de comportamiento, no
-// detalles de implementacion (e.g. "el KPI se ve" no "el texto
-// exacto del KPI es 'X hectareas'").
+// 2026-09-23 — actualizados a la UI actual (dashboard nuevo, geovisor
+// con Inspector sin filtros de cadencia, admin/parcels con FK
+// Cliente/Finca) y a los usuarios que `global-setup` siembra
+// (admin `e2e@aeroadmin.local` + supervisor `supervisor@afm.local`).
 //
-// Usuarios de test (sembrados en global-setup o antes de la suite):
-//   - test@afm.local / TestPass!2026     (admin)
-//   - supervisor@afm.local / Supervisor!2026 (supervisor)
-//
-// Asume el server de production en :3000 (o lo que diga BASE_URL).
-// Si el server no esta corriendo, playwright.config.ts lo levanta.
+// Asume el server de production en BASE_URL (default :3001).
 
 import { expect, test, type Page } from "@playwright/test";
 
 const ADMIN = {
-  email: process.env.E2E_ADMIN_EMAIL ?? "test@afm.local",
-  password: process.env.E2E_ADMIN_PASSWORD ?? "TestPass!2026"
+  email: process.env.E2E_USER_EMAIL ?? "e2e@aeroadmin.local",
+  password: process.env.E2E_USER_PASSWORD ?? "E2ETest12345!"
 };
 const SUPERVISOR = {
   email: process.env.E2E_SUPERVISOR_EMAIL ?? "supervisor@afm.local",
@@ -36,10 +31,6 @@ async function loginAs(page: Page, user: { email: string; password: string }) {
   await page.fill('input[name="password"]', user.password);
   await page.click('button[type="submit"]');
   await page.waitForURL((u) => !u.toString().includes("/login"), { timeout: 15_000 });
-}
-
-async function logout(page: Page) {
-  await page.context().clearCookies();
 }
 
 // =============================================================================
@@ -76,34 +67,23 @@ test.describe("US-2: Dashboard", () => {
     await loginAs(page, ADMIN);
   });
 
-  test("2.1 Como operador, veo 4 KPIs de fumigacion en el dashboard", async ({ page }) => {
-    await expect(page.getByText(/Hect[áa]reas tratadas/i).first()).toBeVisible();
-    await expect(page.getByText(/Aplicaciones/i).first()).toBeVisible();
-    await expect(page.getByText(/Vuelos/i).first()).toBeVisible();
-    await expect(page.getByText(/Volumen aplicado/i).first()).toBeVisible();
+  test("2.1 Como operador, veo los KPIs de fumigacion en el dashboard", async ({ page }) => {
+    await expect(page.getByText(/Fumigaciones/i).first()).toBeVisible();
+    await expect(page.getByText(/[ÁA]rea aplicada/i).first()).toBeVisible();
+    await expect(page.getByText(/Cobertura real/i).first()).toBeVisible();
+    await expect(page.getByText(/Volumen/i).first()).toBeVisible();
   });
 
-  test("2.2 Como operador, veo el grafico de serie mensual (12 meses)", async ({ page }) => {
-    // El MonthlyChart tiene el titulo "Hectareas tratadas por mes"
-    // (V0 mockup CardTitle).
-    await expect(page.getByText(/Hect[áa]reas tratadas por mes/i).first()).toBeVisible();
+  test("2.2 Como operador, veo el grafico de tendencia", async ({ page }) => {
+    await expect(page.getByText(/Tendencia/i).first()).toBeVisible();
   });
 
-  test("2.3 Como operador, veo el panel de cumplimiento con estados", async ({ page }) => {
-    await expect(page.getByText(/Cumplimiento/i).first()).toBeVisible();
-    // Al menos uno de los 4 estados aparece (al dia, por vencer, vencido, critico)
-    const hasAnyStatus =
-      (await page.getByText(/Al d[íi]a/i).count()) > 0 ||
-      (await page.getByText(/Por vencer/i).count()) > 0 ||
-      (await page.getByText(/Vencido/i).count()) > 0 ||
-      (await page.getByText(/Cr[íi]tico/i).count()) > 0;
-    expect(hasAnyStatus).toBeTruthy();
+  test("2.3 Como operador, veo el panel de cumplimiento de planificacion", async ({ page }) => {
+    await expect(page.getByText(/Cumplimiento de planificaci[óo]n/i).first()).toBeVisible();
   });
 
-  test("2.4 Como operador, veo la actividad reciente (ultimas fumigaciones)", async ({ page }) => {
-    // El RecentActivity tiene el titulo "Ultimas aplicaciones registradas"
-    // (V0 mockup CardTitle).
-    await expect(page.getByText(/[ÚU]ltimas aplicaciones registradas/i).first()).toBeVisible();
+  test("2.4 Como operador, veo la planificacion de fumigaciones", async ({ page }) => {
+    await expect(page.getByText(/Planificaci[óo]n de fumigaciones/i).first()).toBeVisible();
   });
 });
 
@@ -119,40 +99,35 @@ test.describe("US-3: Geovisor", () => {
   test("3.1 Como operador, veo el mapa con el contenedor MapLibre", async ({ page }) => {
     const map = page.locator('[aria-label="Mapa de parcelas de caña"]');
     await expect(map).toBeVisible();
-    // El mapa MapLibre inserta un <canvas> cuando inicializa. Le damos
-    // hasta 15s para que cargue (puede tardar si las tiles de EOX/OSM
-    // son lentas en el primer fetch).
     const canvas = page.locator("canvas");
     await expect(canvas.first()).toBeVisible({ timeout: 15_000 });
   });
 
-  test("3.2 Como operador, puedo alternar entre Satelite y Callejero", async ({ page }) => {
-    // El boton "Satelite" existe y es clickeable
+  test("3.2 Como operador, puedo alternar el mapa base", async ({ page }) => {
     const sateliteBtn = page.getByRole("button", { name: /Sat[ée]lite/i });
-    const callejeroBtn = page.getByRole("button", { name: /Callejero/i });
+    const callesBtn = page.getByRole("button", { name: /Calles/i });
     await expect(sateliteBtn).toBeVisible();
-    await expect(callejeroBtn).toBeVisible();
-    // Cambio a Callejero
-    await callejeroBtn.click();
-    // El mapa sigue visible (no crashea)
-    const map = page.locator('[aria-label="Mapa de parcelas de caña"]');
-    await expect(map).toBeVisible();
+    await expect(callesBtn).toBeVisible();
+    await callesBtn.click();
+    await expect(page.locator('[aria-label="Mapa de parcelas de caña"]')).toBeVisible();
   });
 
-  test("3.3 Como operador, puedo filtrar por Cliente / Ingenio", async ({ page }) => {
-    const clienteFilter = page.getByText(/Cliente\s*\/\s*Ingenio/i).first();
-    await expect(clienteFilter).toBeVisible();
-    // El filter es un FieldSelect (combobox)
-    const select = page.locator("select").first();
-    expect(await select.count()).toBeGreaterThan(0);
+  test("3.3 Como operador, puedo buscar parcelas por texto", async ({ page }) => {
+    const search = page.getByLabel("Buscar parcela");
+    await expect(search).toBeVisible();
   });
 
-  test("3.4 Como operador, puedo filtrar por Estado de cadencia", async ({ page }) => {
-    await expect(page.getByText(/Estado de cadencia/i).first()).toBeVisible();
+  test("3.4 Como operador, veo las capas del mapa", async ({ page }) => {
+    // El rail de filtros arranca colapsado; abrirlo si hace falta.
+    const toggle = page.getByRole("button", { name: /Mostrar filtros/i });
+    if (await toggle.count()) {
+      await toggle.first().click();
+    }
+    await expect(page.getByText(/Capas/i).first()).toBeVisible();
   });
 
-  test("3.5 Como operador, veo el contador de parcelas en el filtro", async ({ page }) => {
-    await expect(page.getByText(/parcelas en el filtro/i).first()).toBeVisible();
+  test("3.5 Como operador, veo el contador de parcelas del filtro", async ({ page }) => {
+    await expect(page.getByText(/\d+\s*parcelas/i).first()).toBeVisible();
   });
 
   test("3.6 Como operador, puedo togglear la visibilidad de poligonos y etiquetas", async ({ page }) => {
@@ -170,9 +145,8 @@ test.describe("US-4: Inventario de parcelas", () => {
     await page.goto("/parcelas");
   });
 
-  test("4.1 Como operador, veo la tabla de parcelas con su cadencia", async ({ page }) => {
+  test("4.1 Como operador, veo la tabla de parcelas", async ({ page }) => {
     await expect(page.getByText(/Inventario de parcelas/i)).toBeVisible();
-    // La tabla tiene al menos 1 fila
     const rows = page.locator("tbody tr");
     expect(await rows.count()).toBeGreaterThan(0);
   });
@@ -180,20 +154,18 @@ test.describe("US-4: Inventario de parcelas", () => {
   test("4.2 Como operador, puedo buscar parcelas por texto", async ({ page }) => {
     const search = page.getByPlaceholder(/Buscar parcela/i);
     await expect(search).toBeVisible();
-    await search.fill("GUACHICONA");
-    await page.waitForTimeout(500); // debounce del filter
-    // Sigue mostrando filas (o empty state, pero no error)
+    // "Demostración" existe en el dataset demo local.
+    await search.fill("Demostraci");
+    await page.waitForTimeout(600); // debounce del filter
     const rows = page.locator("tbody tr");
     expect(await rows.count()).toBeGreaterThan(0);
   });
 
   test("4.3 Como operador, puedo filtrar por cliente (dropdown)", async ({ page }) => {
-    const clienteLabel = page.getByText(/^Cliente$/i).first();
-    await expect(clienteLabel).toBeVisible();
+    await expect(page.getByText(/^Cliente$/i).first()).toBeVisible();
   });
 
   test("4.4 Como operador, puedo hacer click en una parcela para ir al detalle", async ({ page }) => {
-    // El primer link de parcela del body
     const firstLink = page.locator("tbody a").first();
     await expect(firstLink).toBeVisible();
     const href = await firstLink.getAttribute("href");
@@ -208,10 +180,9 @@ test.describe("US-5: Detalle de parcela", () => {
   test("5.1 Como operador, /parcelas/1 renderiza la ficha tecnica", async ({ page }) => {
     await loginAs(page, ADMIN);
     const resp = await page.goto("/parcelas/1");
-    // Si la parcela no existe, redirige a 404; si existe, renderiza el detalle
     expect(resp?.status() ?? 0).toBeLessThan(500);
-    if (!page.url().endsWith("/404")) {
-      // Contiene el nombre de la parcela o el id
+    if (resp?.status() === 200) {
+      await expect(page.getByRole("heading").first()).toBeVisible();
       const body = await page.locator("body").innerText();
       expect(body.length).toBeGreaterThan(500);
     }
@@ -219,49 +190,41 @@ test.describe("US-5: Detalle de parcela", () => {
 
   test("5.2 Como operador, el detalle tiene un link 'Volver al inventario'", async ({ page }) => {
     await loginAs(page, ADMIN);
-    await page.goto("/parcelas/1");
-    if (!page.url().endsWith("/404")) {
-      // El link "Volver al inventario" apunta a /parcelas
+    const resp = await page.goto("/parcelas/1");
+    if (resp?.status() === 200) {
       const link = page.getByRole("link", { name: /Volver al inventario/i });
       await expect(link).toBeVisible();
-      const href = await link.getAttribute("href");
-      expect(href).toBe("/parcelas");
+      expect(await link.getAttribute("href")).toBe("/parcelas");
     }
   });
 });
 
 // =============================================================================
-// US-6: Admin — Edición de metadata V0
+// US-6: Admin — Edición de metadata
 // =============================================================================
-test.describe("US-6: Admin edita metadata V0", () => {
+test.describe("US-6: Admin edita metadata", () => {
   test.beforeEach(async ({ page }) => {
     await loginAs(page, ADMIN);
   });
 
   test("6.1 Como admin, /admin/parcels me muestra la tabla de parcelas", async ({ page }) => {
     await page.goto("/admin/parcels");
-    await expect(page.getByText(/Admin · Parcelas/i)).toBeVisible();
+    await expect(page.getByText(/Admin .{1,3}Parcelas/i).first()).toBeVisible();
     const rows = page.locator("tbody tr");
     expect(await rows.count()).toBeGreaterThan(0);
   });
 
-  test("6.2 Como admin, los 4 inputs V0 (cliente, hacienda, municipio, variedad) son editables", async ({ page }) => {
+  test("6.2 Como admin, los campos editables por fila se renderizan", async ({ page }) => {
     await page.goto("/admin/parcels");
     const firstRow = page.locator("tbody tr").first();
-    const inputs = [
-      firstRow.locator('input[aria-label$="client_name"]'),
-      firstRow.locator('input[aria-label$="farm_name"]'),
-      firstRow.locator('input[aria-label$="municipality"]'),
-      firstRow.locator('input[aria-label$="variety"]')
-    ];
-    for (const inp of inputs) {
-      await expect(inp).toBeVisible();
-      await expect(inp).toBeEnabled();
+    // La fila de edición inline expone Cliente/Finca (FK), Municipio y Variedad.
+    // (Finca es un select en cascada que puede estar disabled sin cliente.)
+    for (const label of ["Cliente", "Finca", "Municipio", "Variedad"]) {
+      await expect(firstRow.locator(`[aria-label*="${label}"]`).first()).toBeVisible();
     }
   });
 
   test("6.3 Como admin, puedo editar y guardar un campo (con cleanup automatico)", async ({ page }) => {
-    // PATCH directo a la API (mas robusto que UI para tests de servidor)
     const cookies = await page.context().cookies();
     const cookieHeader = cookies
       .filter((c) => c.domain.includes("localhost"))
@@ -316,15 +279,12 @@ test.describe("US-7: RBAC", () => {
 
   test("7.2 Como supervisor, /admin/parcels me redirige a /login (gated por middleware)", async ({ page }) => {
     await loginAs(page, SUPERVISOR);
-    // El middleware (proxy.ts) detecta role=supervisor y redirige a /login
     await page.goto("/admin/parcels");
     await expect(page).toHaveURL(/\/login/);
   });
 
   test("7.3 Como supervisor, /api/admin/parcels/[id]/metadata devuelve 403 (gated por handler)", async ({ page }) => {
     await loginAs(page, SUPERVISOR);
-    // Bypasseando el middleware (curl directo al handler): debe tirar 403
-    // por requireRole("admin") en el handler.
     const cookies = await page.context().cookies();
     const cookieHeader = cookies
       .filter((c) => c.domain.includes("localhost"))
@@ -341,7 +301,6 @@ test.describe("US-7: RBAC", () => {
       },
       { id: 1, cookie: cookieHeader }
     );
-    // El handler debe devolver 403 (requireRole tira FORBIDDEN)
     expect(resp.status).toBe(403);
   });
 });
