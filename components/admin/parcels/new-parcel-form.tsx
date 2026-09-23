@@ -377,8 +377,11 @@ export function NewParcelForm() {
       const dest = form.fumigar_ahora
         ? `/parcelas/${data.parcel.id}?action=fumigar`
         : `/parcelas/${data.parcel.id}`;
+      // NO llamamos `router.refresh()` acá: encadenado inmediatamente al
+      // `push` puede cancelar/retrasar la navegación (race con el refresh
+      // del route que estamos dejando). El destino es dinámico y el
+      // mutation ya invalida los tags (`invalidateAfterParcelMutation`).
       router.push(dest);
-      router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "error de red");
     } finally {

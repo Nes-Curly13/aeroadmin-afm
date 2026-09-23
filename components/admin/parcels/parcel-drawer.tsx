@@ -1002,12 +1002,16 @@ export function ParcelDrawer({
         </Button>
       </div>
 
-      {/* Aviso de solape con parcelas vecinas. */}
+      {/* Aviso de solape con parcelas vecinas.
+          `pointer-events-none` + debajo del toolbar (`top-16`): si no, el
+          banner (z-30) intercepta los clicks del toolbar (z-10) y el
+          operador no puede cerrar/editar el polígono. Bug reportado en
+          /admin/parcels/new (2026-09-23). */}
       {overlaps.length > 0 ? (
         <div
           role="alert"
           data-testid="drawer-overlap-warning"
-          className="absolute left-1/2 top-3 z-30 flex max-w-[90%] -translate-x-1/2 items-start gap-1.5 rounded-lg border border-warning/50 bg-warning/15 px-3 py-1.5 text-[11px] font-medium text-warning-foreground shadow-lg backdrop-blur"
+          className="pointer-events-none absolute left-1/2 top-16 z-30 flex max-w-[min(90%,420px)] -translate-x-1/2 items-start gap-1.5 rounded-lg border border-warning/50 bg-warning/15 px-3 py-1.5 text-[11px] font-medium text-warning-foreground shadow-lg backdrop-blur"
         >
           <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
           <span>
