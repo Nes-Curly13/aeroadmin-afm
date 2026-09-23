@@ -5,6 +5,15 @@ import { useRouter } from "next/navigation";
 import { Plus, RotateCcw, Save, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from "@/components/ui/alert-dialog";
 import type { PhaseApplicationRule } from "@/lib/phase-applications";
 
 /**
@@ -63,6 +72,11 @@ export function PhaseRulesEditor({ initialRules }: PhaseRulesEditorProps) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [savedId, setSavedId] = useState<number | null>(null);
+  // UI-O1 (auditoría UI 2026-09-21): confirmaciones destructivas con
+  // AlertDialog en vez de `window.confirm()` (delete) y sin confirmación
+  // (reset — se agrega ahora).
+  const [deleteTarget, setDeleteTarget] = useState<number | null>(null);
+  const [resetOpen, setResetOpen] = useState(false);
 
   function patchLocal(id: number, patch: Partial<Draft>) {
     setRules((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch } : r)));
@@ -116,11 +130,10 @@ export function PhaseRulesEditor({ initialRules }: PhaseRulesEditorProps) {
     });
   }
 
-  function onDelete(id: number) {
-    // UI-16: confirm antes de borrar (accion destructiva).
-    if (!window.confirm("¿Eliminar esta regla? Esta accion no se puede deshacer.")) {
-      return;
-    }
+  function confirmDelete() {
+    const id = deleteTarget;
+    setDeleteTarget(null);
+    if (id === null) return;
     startTransition(async () => {
       setError(null);
       try {
@@ -183,7 +196,7 @@ export function PhaseRulesEditor({ initialRules }: PhaseRulesEditorProps) {
               <Plus className="size-3.5" aria-hidden />
               Agregar
             </Button>
-            <Button type="button" size="sm" variant="outline" onClick={onReset} disabled={pending}>
+            <Button type="button" size="sm" variant="outline" onClick={() => setResetOpen(true)} disabled={pending}>
               <RotateCcw className="size-3.5" aria-hidden />
               Restaurar recomendados
             </Button>
@@ -200,15 +213,15 @@ export function PhaseRulesEditor({ initialRules }: PhaseRulesEditorProps) {
           <table className="w-full min-w-[860px] text-sm">
             <thead className="border-b border-border text-[11px] uppercase tracking-wider text-muted-foreground">
               <tr>
-                <th className="px-2 py-2 text-left font-semibold">Fase</th>
-                <th className="px-2 py-2 text-left font-semibold">Categoría</th>
-                <th className="px-2 py-2 text-left font-semibold">Tipo</th>
-                <th className="px-2 py-2 text-right font-semibold">Desde (d)</th>
-                <th className="px-2 py-2 text-right font-semibold">Hasta (d)</th>
-                <th className="px-2 py-2 text-right font-semibold">Cadencia (d)</th>
-                <th className="px-2 py-2 text-center font-semibold">Obligatoria</th>
-                <th className="px-2 py-2 text-left font-semibold">Notas</th>
-                <th className="px-2 py-2 text-right font-semibold">Acción</th>
+                <th scope="col" className="px-2 py-2 text-left font-semibold">Fase</th>
+                <th scope="col" className="px-2 py-2 text-left font-semibold">Categoría</th>
+                <th scope="col" className="px-2 py-2 text-left font-semibold">Tipo</th>
+                <th scope="col" className="px-2 py-2 text-right font-semibold">Desde (d)</th>
+                <th scope="col" className="px-2 py-2 text-right font-semibold">Hasta (d)</th>
+                <th scope="col" className="px-2 py-2 text-right font-semibold">Cadencia (d)</th>
+                <th scope="col" className="px-2 py-2 text-center font-semibold">Obligatoria</th>
+                <th scope="col" className="px-2 py-2 text-left font-semibold">Notas</th>
+                <th scope="col" className="px-2 py-2 text-right font-semibold">Acción</th>
               </tr>
             </thead>
             <tbody>
@@ -339,7 +352,7 @@ export function PhaseRulesEditor({ initialRules }: PhaseRulesEditorProps) {
                           type="button"
                           size="icon-xs"
                           variant="ghost"
-                          onClick={() => onDelete(r.id)}
+                          onClick={() => setDeleteTarget(r.id)}
                           disabled={pending}
                           aria-label="Eliminar"
                         >
@@ -354,6 +367,58 @@ export function PhaseRulesEditor({ initialRules }: PhaseRulesEditorProps) {
           </table>
         </div>
       </CardContent>
+
+      <AlertDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar esta regla?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={pending}>Cancelar</AlertDialogCancel>
+            <Button
+              type="button"
+              disabled={pending}
+              className="bg-destructive text-white hover:bg-destructive/90"
+              onClick={confirmDelete}
+            >
+              Eliminar
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={resetOpen} onOpenChange={setResetOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Restaurar los valores recomendados?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Reemplaza TODAS las reglas de caña por los valores recomendados.
+              Los ajustes manuales se pierden.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={pending}>Cancelar</AlertDialogCancel>
+            <Button
+              type="button"
+              disabled={pending}
+              onClick={() => {
+                setResetOpen(false);
+                onReset();
+              }}
+            >
+              Restaurar
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 }
