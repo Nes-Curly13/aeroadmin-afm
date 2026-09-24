@@ -238,10 +238,9 @@ dji_vehicles (lookup)
 
 - **`client_name`/`farm_name` vs FK** (#49): la app mantiene el nombre
   denormalizado en sync (`updateParcelMetadata`) y hay un sync one-time
-  (`20260910000002_*`). El drift residual se detecta en
-  `/api/data-quality/invariants` con `parcela_cliente_nombre_desincronizado` /
-  `parcela_finca_nombre_desincronizado` (visible en `/admin/calidad`).
-  Las parcelas **sin FK** conservan free-text a propósito.
+  (`20260910000002_*`). El chequeo de drift (`/api/data-quality/invariants` +
+  página `/admin/calidad`) se **retiró el 2026-09-24**; las parcelas **sin FK**
+  conservan free-text a propósito.
 - **`flight_ids[]`** (#52): no admite FK (es array). Monitorear huérfanos con
   `npm run check:flight-integrity` (read-only; exit 2 si hay). Si aparecen,
   evaluar la join table `fumigation_flights` (ver

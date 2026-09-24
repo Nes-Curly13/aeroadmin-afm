@@ -123,7 +123,7 @@ components/      React components, reciben datos por props
   ├── geovisor/      Vista V0 del geovisor (geovisor-client, time-range)
   ├── map/           Wrappers del mapa (MapLibre). Hoy: geo-map.tsx
   ├── parcels/       Inventario y detalle de parcela
-  ├── dashboard/     Paneles del dashboard (kpi-card, health-panel, ...)
+  ├── dashboard/     Paneles del dashboard (kpi-card, trend-chart, ...)
   ├── app-shell.tsx, nav-links.tsx, page-header.tsx
 scripts/         CLI del pipeline DJI
 db/migrations/   SQL migrations (las 25 viven acá desde 2026-07-29)

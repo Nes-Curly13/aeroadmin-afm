@@ -121,9 +121,7 @@ Completá **Resultado** y **Evidencia** (captura, video, nota, issue#).
 | ADM-02 | `/admin/parcels` búsqueda server-side | | |
 | ADM-03 | `/admin/parcels` edición inline + guardar | | |
 | ADM-04 | `/admin/parcels/new` + import GIS | | |
-| ADM-05 | `/admin/calidad` (limpio vs error) | | |
-| ADM-06 | `/admin/pipeline` health | | |
-| ADM-07 | `/admin/reglas-fitosanitarias` CRUD + restore | | |
+| ADM-05 | `/admin/reglas-fitosanitarias` CRUD + restore | | |
 
 ### Transversales (a11y / estados / responsive)
 

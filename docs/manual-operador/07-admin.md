@@ -41,13 +41,6 @@ control de Diatraea, madurante, etc.) con su ventana de días y cadencia.
 - La planificación del inicio y la tarjeta "Manejo fitosanitario" se recalculan
   automáticamente.
 
-## Calidad de datos
-Muestra problemas del dataset: parcelas sin cliente, sin finca, sin ciclo,
-fumigaciones con problemas, etc. Sirve para limpiar la base.
-
-## Aplicaciones importadas
-Lista de fumigaciones que entraron desde el Excel del operador.
-
 ## Si esto no funciona
 - Si al dibujar el polígono el botón no avanza, revisá que el polígono esté cerrado.
 - Si el importador rechaza el archivo, revisá el tamaño (el mensaje indica el máximo).
