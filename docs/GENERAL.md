@@ -1,160 +1,103 @@
 # AeroAdmin AFM — Documentación general
 
-> **Fecha**: 2026-08-10
-> **Versión**: 1.0
-> **Estado del proyecto**: master en producción (`9c72fd4`)
+> **Fecha:** 2026-09-24 · **Versión:** 2.0 · **Estado:** Release Candidate.
+> Reactualizado al `master` vigente (pipeline de fumigaciones reconstruido, geovisor
+> Inspector, auditoría+mejora de UI).
 
 ## ¿Qué es AeroAdmin AFM?
 
-Plataforma de gestión para un operador de drones de fumigación en el
-Valle del Cauca, Colombia. **Un solo cliente**, **~1.213 parcelas**,
-**~16k vuelos** y **~17k fumigaciones** registradas.
+Plataforma de gestión para un operador de drones de fumigación en el Valle del Cauca,
+Colombia. **Single-tenant** (un cliente), **~1.200 parcelas**, **~16k vuelos** y
+**~500 fumigaciones** reconstruidas (día + DBSCAN sobre los tracks).
 
-**Funcionalidades core**:
+**Funcionalidades core:**
 
-- Inventario de parcelas con geometría PostGIS (EPSG:4326)
-- Visualización en mapa (MapLibre + EOX Sentinel-2 cloudless 2020)
-- Registro de fumigaciones manuales y desde scraper DJI
-- Alertas de cadencia (vencidas, por vencer, al día)
-- Reportes PDF + CSV por parcela individual o agregados por hacienda
-- Importación GIS de fincas (SHP / KML / KMZ)
-- **Audit log de fumigaciones** — quién creó/editó/eliminó/restauró qué cuándo (sprint `feature/fumigation-audit-log`, 2026-08-15)
+- Inventario de parcelas con geometría PostGIS (EPSG:4326) + ficha/hoja de vida.
+- Geovisor **map-first** (MapLibre + EOX Sentinel-2 / MapTiler) con **Inspector**
+  unificado (parcela + fumigaciones) y **cobertura real** de cada aplicación.
+- Registro de fumigaciones: **wizard de 3 pasos** (importar vuelo DJI o manual).
+- **Ciclos productivos y fase** del cultivo (siembra/corte) → base de la cadencia.
+- **Reportes PDF/CSV** por parcela y agregados por hacienda.
+- **Importación GIS** de parcelas (KML/SHP/GPKG) + alta manual con dibujo de polígono.
+- **Audit log** de fumigaciones (quién creó/editó/eliminó/restauró).
+- **Planificación** de fumigaciones (agenda manual) en el dashboard.
 
-**Stack**: Next.js 16 + React 19 + TypeScript 5 + PostGIS + NextAuth v5 + Playwright.
+**Stack:** Next.js 16 + React 19 + TypeScript 5 + Tailwind v4 + PostGIS + NextAuth v5 +
+Playwright (scraper + E2E) + Vitest.
 
-**Single-tenant**, **single-contributor** (@agFab). El cliente (operador
-cañero) consume la plataforma y descarga los reportes PDF/CSV para
-presentarlos a sus clientes finales y para auditoría ICA.
+**Single-contributor** (@agFab). El cliente (operador cañero) consume la plataforma y
+descarga reportes PDF/CSV para sus clientes y para auditoría ICA.
 
 ---
 
 ## Interfaz — capturas de pantalla
 
+> Capturas ilustrativas de sprints previos (`screenshots/`). La UI evolucionó; validar
+> contra la app corriendo.
+
 ### Dashboard (`/`)
 
-El panel principal muestra KPIs, tendencia y planificación de fumigaciones, con
-filtros por período/hacienda/dron/estado. Carga con Suspense boundaries.
+KPIs (Fumigaciones, Área aplicada, Cobertura real, Volumen, Vuelos) con filtros por
+período/hacienda/dron/estado, tendencia, cumplimiento de planificación, flota, mix por
+categoría y agenda de fumigaciones.
 
-![Dashboard cargado con KPIs y planificación](../screenshots/32-dashboard-loaded.png)
+![Dashboard cargado](../screenshots/32-dashboard-loaded.png)
 
 ### Inventario de parcelas (`/parcelas`)
 
-Lista de las 1.213 parcelas con filtros (estado, municipio, hacienda,
-variedad). Botones "PDF" y "CSV" por parcela para reportes
-individuales.
+Lista de parcelas con búsqueda y filtros (cliente, estado); botones admin de importar/crear.
 
-![Listado de parcelas con botones PDF y CSV](../screenshots/32-parcelas-loaded.png)
+![Listado de parcelas](../screenshots/32-parcelas-loaded.png)
 
-### Detail page de una parcela (`/parcelas/[id]`)
+### Ficha de parcela (`/parcelas/[id]`)
 
-Ficha técnica completa: geometría, vuelos georreferenciados, ritmo de
-aplicación, historial de trabajos, cambios de cadencia, formulario
-de fumigación manual.
+Ficha técnica: mapa, KPIs, ciclo/fase, historial de fumigaciones (timeline), cadencia y
+sus cambios, manejo fitosanitario, form de fumigación y reportes PDF/CSV.
 
-![Detail page de una parcela con sus secciones](../screenshots/04-parcela-detail.png)
-
-### Detail page con feature de reportes (post-sprint 2026-08-08)
-
-Después del sprint `feature/reports-level-1`, las parcelas tienen
-botones "PDF" y "CSV" en el header. El PDF incluye imagen satelital
-real (EOX Sentinel-2) con el polígono de la parcela.
-
-![Detail page con callout 'Reportes disponibles' y botones PDF/CSV](features/reports/screenshots/03-detail-page-with-callout.png)
-
-### Página de reportes (`/reportes`) — feature sprint 2026-08-08
-
-Nueva página con filtros (rango fechas + dropdown de hacienda) y
-descarga de reportes agregados. Vista default = "última fumigación
-destacada + form" con tabla por parcela.
-
-![Página /reportes — vista general con todas las haciendas](features/reports/screenshots/05-reportes-page-general.png)
-
-Filtrada por una hacienda específica:
-
-![Página /reportes filtrada por hacienda](features/reports/screenshots/07-reportes-page-filtered.png)
+![Detalle de parcela](../screenshots/04-parcela-detail.png)
 
 ### Geovisor (`/geovisor`)
 
-Vista de mapa con la capa de parcelas, agrupadas por hacienda, con
-filtros laterales.
+Mapa como **capa base** + **Inspector** (Contexto / Parcelas / Fumigaciones) + filtros
+overlay (búsqueda, rango de fechas, capas, leyenda, basemap).
 
-![Geovisor cargado con el mapa y la capa de parcelas](../screenshots/32-geovisor-loaded.png)
-
-### Wizard de importación GIS
-
-Para fincas nuevas, el operador sube un SHP / KML / KMZ y el
-sistema lo previsualiza antes de commitear. Múltiples pasos: upload
-→ preview → corrección de polígonos → commit.
-
-![Wizard step 2 — preview del shape file](../screenshots/14-wizard-step2.png)
-![Import preview con el shape cargado](../screenshots/16-import-preview.png)
-![Import success — parcelas creadas](../screenshots/17-import-success.png)
+![Geovisor](../screenshots/32-geovisor-loaded.png)
 
 ### Listado de fumigaciones (`/fumigaciones`)
 
-Todas las fumigaciones del operador en una sola tabla, con filtros
-(fecha, parcela, producto, ICA). Las fumigaciones manuales se
-registran desde el form del detail page de una parcela.
+Registro unificado (DJI + manual) con filtros server-side y operaciones en bulk.
 
 ![Listado de fumigaciones](../screenshots/03-fumigaciones.png)
 
-### Form de fumigación manual
+### Wizard de nueva fumigación (`/fumigaciones/nueva`)
 
-Cuando el operador fumigó algo que DJI no reportó (re-tratamiento,
-aplicación manual, etc.), registra la fumigación desde aquí.
-**Validación estricta** de ICA license y pilot license.
+Wizard 3 pasos: "¿Qué se fumigó?" → "¿Con qué se fumigó?" → "Confirmar".
 
-![Form de fumigación manual con los campos de compliance](../screenshots/28-fumigaciones-nueva-top.png)
+![Nueva fumigación](../screenshots/28-fumigaciones-nueva-top.png)
+
+### Importación GIS y alta manual de parcela
+
+`/admin/parcels/import` (upload → preview → commit) y `/admin/parcels/new` (dibujo de
+polígono con terra-draw).
+
+![Import GIS — preview](../screenshots/16-import-preview.png)
 
 ### Panel admin (`/admin/parcels`)
 
-Edición inline de `client_name`, `farm_name`, `municipality`,
-`variety` para corregir metadata de parcelas DJI mal importadas.
+Edición inline de Cliente/Finca (FK), municipio y variedad; búsqueda server-side.
 
-![Panel admin de parcelas con edición inline](../screenshots/30-fix-_admin_parcels.png)
+![Panel admin de parcelas](../screenshots/30-fix-_admin_parcels.png)
 
 ---
 
-## Reportes PDF (feature/reports-level-1+2)
+## Reportes PDF/CSV
 
-El operador fumigador descarga reportes PDF/CSV desde cualquier
-parcela (botones en el header) o desde la página `/reportes` con
-filtros por rango + hacienda.
+- **Por parcela**: botones PDF/CSV en la ficha; el PDF incluye imagen satelital real
+  (EOX Sentinel-2) con el polígono.
+- **Agregados**: página `/reportes` (2 tabs) con filtros de rango; PDF/CSV por hacienda.
+- **Audit log**: panel "Historial" en `/fumigaciones/[id]` (timeline + diff por campo).
 
-### PDF por parcela individual
-
-El PDF incluye resumen, ubicación (imagen satelital + coordenadas),
-fumigaciones del último mes, y totales. La imagen satelital se
-renderiza server-side con MapLibre + EOX Sentinel-2 cloudless 2020.
-
-Ejemplo del PDF final (última versión, con imagen satelital):
-
-![PDF por parcela individual con imagen satelital](features/reports/screenshots/04-pdf-nivel1-sub3-with-satellite.png)
-
-### PDF por hacienda / multi-hacienda
-
-Resumen de fumigaciones de una hacienda o de todas en el rango.
-Una fila por parcela con # fumigaciones, área total, litros,
-última fumigación.
-
-![PDF por hacienda — reporte general](features/reports/screenshots/06-pdf-nivel2-general.png)
-
-Detalle del feature completo (incluye decisiones de producto y
-deuda técnica) en `docs/features/reports/README.md`.
-
-### Audit log de fumigaciones (`/fumigaciones/[id]` → sección "Historial")
-
-Cada fumigación muestra una línea de tiempo con quién la creó,
-qué se editó (diff campo por campo), cuándo se eliminó, y cuándo
-se restauró. Append-only: la tabla `fumigation_audit_log` no se
-modifica ni se borra en operación normal.
-
-**Por qué existe**: el operador fumigador y el contador ICA
-necesitan trazabilidad para auditorías. Antes de este sprint, un
-edit borraba la historia — no se sabía quién había cambiado qué.
-
-Decisiones, shape de los datos, queries útiles y rollback en
-[`docs/audit/AUDIT_LOG.md`](audit/AUDIT_LOG.md).
+Detalle: `docs/features/reports/README.md`, `docs/audit/AUDIT_LOG.md`.
 
 ---
 
@@ -163,14 +106,14 @@ Decisiones, shape de los datos, queries útiles y rollback en
 | Capa | Tecnología | Versión |
 |---|---|---|
 | Framework | Next.js | 16.2.4 |
-| UI | React + Tailwind CSS 4 + @base-ui/react | 19.2.5 / 4.2.4 / 1.6 |
-| Mapas | MapLibre GL JS + EOX Sentinel-2 cloudless | 4.7.1 / 2020 |
+| UI | React / Tailwind CSS / @base-ui/react | 19.2.5 / 4.2.4 / 1.6 |
+| Mapas | MapLibre GL JS (+ EOX Sentinel-2 / MapTiler) | 4.7.1 |
 | Auth | NextAuth v5 (beta.31) + bcryptjs | — |
-| DB | Postgres 16 + PostGIS 3.4 (Supabase) | — |
-| ORM | `pg` driver puro + SQL hand-written | 8.20.0 |
-| Reportes | Playwright + @sparticuz/chromium (PDF) + PapaParse-style helpers | — |
-| Tests | Vitest 3.2.4 + @vitest/coverage-v8 + Playwright 1.61.1 | — |
-| Scraper DJI | Playwright headless (Coreano via `accept-language: zh-CN,zh`) | — |
+| DB | Postgres 16 + PostGIS 3.4 (Docker local / Supabase prod) | — |
+| Data access | `pg` puro + SQL (api/repositories + api/queries) | 8.20.0 |
+| Reportes | Playwright + @sparticuz/chromium (PDF) | — |
+| Tests | Vitest 3.2.4 + coverage-v8 + Playwright 1.61.1 | — |
+| Scraper DJI | Playwright headless (`accept-language: zh-CN,zh`) | — |
 | Deploy | Vercel | — |
 
 ---
@@ -178,180 +121,106 @@ Decisiones, shape de los datos, queries útiles y rollback en
 ## Arquitectura
 
 ```
-[ DJI SmartFarm Web ] → [ Playwright scraper ] → [ dji_flights + dji_fumigations ]
-                                                    ↓
-[ Operador fumigador ] → [ Form manual ] ───────→ [ dji_fumigations (source='manual') ]
-                                                    ↓
-                                       [ Spatial join (PostGIS) ] ←─── [ dji_parcels ]
-                                                    ↓
-                                [ Triggers: schedule + cadencia + alerts ]
-                                                    ↓
-[ API /api/* ] ←─── [ Vercel Edge/Node ] ──→ [ V0 adapter ] → [ Pages (server) ]
-        ↓                                                            ↓
-[ Components (UI) ]                                          [ Reportes PDF/CSV ]
+[ DJI SmartFarm Web ] →(Playwright)→ djiag_exports/*.json →(scripts/pipeline)→ PostGIS
+[ Operador ] →(UI: wizard/alta/ciclos) → /api/admin/* ────────────────────→ PostGIS
+PostGIS → api/repositories+queries (cache) → app/ (server) → components/ (UI)
+                                      └→ lib/reports (PDF/CSV)
 ```
 
-**Capas de la app**:
+**Capas:**
 
-- `app/` — pages (server) + route handlers (API). Auth + data fetching.
-- `api/` — capa de data access (`repositories.ts` + `queries.ts`).
-- `lib/` — lógica de negocio pura: cadencia, alertas, agregaciones,
-  parsers, reports.
-- `lib/data.ts` — V0 adapter (port del mockup V0). Mapea
-  `DjiParcelRecord` a shape V0.
-- `components/` — React components. Reciben data por props.
-- `lib/reports/` — generación de PDF/CSV. Server-only.
-- `scripts/` — CLI del pipeline DJI.
-- `db/migrations/` — migrations SQL. Aplicadas con `npm run db:migrate`.
+- `app/` — pages (server) + route handlers (`/api/**`). Auth + fetching.
+- `api/` — data access (`repositories.ts`, `queries.ts`).
+- `lib/` — lógica pura: `fumigation-cadence.ts` (CAD-001), `crop-cycle.ts`,
+  `overdue-parcels.ts`, `format.ts`, `reports/`.
+- `components/` — React; reciben datos por props; **no** importan `api/**` ni `lib/db.ts`.
+- `scripts/` — CLI del pipeline DJI + mantenimiento.
+- `db/migrations/` — migrations SQL.
 
-**Convenciones clave**:
+**Convenciones:** `pg` nunca desde `app/`/`components/`; componentes por props; auth con
+`requireRole(...)`; fechas al usuario por `lib/format.ts` (TZ `America/Bogota`); map-first.
 
-- `pg` NUNCA se importa desde `app/` ni `components/`. Solo `api/` y
-  `lib/db.ts`.
-- Components reciben data por props. No importan `api/`.
-- Auth en API: `requireRole(["admin", "supervisor"])` o `requireRole("admin")`.
-- Tests con TDD: rojo → verde → refactor. Coverage global ≥ 75% lines
-  / 70% branches.
-
-Ver `docs/ARCHITECTURE.md`, `docs/TDD.md`, `docs/STACK.md` para
-detalles técnicos completos.
+Ver `docs/ARCHITECTURE.md`, `docs/TDD.md`, `docs/STACK.md`, `docs/ACTUALIZACION-DATOS.md`.
 
 ---
 
-## Estado actual (master, 2026-08-10)
+## Estado actual (Release Candidate)
 
 | Métrica | Valor |
 |---|---|
-| Tests | 1235/1235 verde |
+| Tests (Vitest) | **2371 verde** (175 archivos, con BD) |
 | Arch:check | 0 errors |
-| Build | ✅ verde en CI |
-| Cobertura | ~80% (umbral 75%) |
-| Endpoints API | ~30 (admin + health + reports + auth) |
-| Pages | 8 (`/`, `/login`, `/parcelas`, `/parcelas/[id]`, `/admin/parcels`, `/geovisor`, `/fumigaciones`, `/reportes`) |
-| Migrations SQL | 32 archivos en `db/migrations/` |
-| Parcelas | ~1.213 |
-| Fumigaciones | ~17.000 (640 importadas DJI + 2 manuales) |
-| Vuelos | ~8.759 (`dji_flights`) |
-| Última fumigación registrada | 2026-08-05 |
+| Build | ✅ verde |
+| E2E (Playwright) | 50 passed / 3 skipped (env) / 1 fixme |
+| Pages | `/`, `/parcelas`, `/parcelas/[id]`, `/fumigaciones`, `/fumigaciones/nueva`, `/fumigaciones/[id]`, `/fumigaciones/[id]/editar`, `/geovisor`, `/reportes`, `/login`, `/admin/**` |
+| Migrations | `db/migrations/` (54+) |
+| Parcelas | ~1.200 |
+| Fumigaciones | ~500 reconstruidas (día + DBSCAN) |
+| Vuelos | ~16k (`dji_flights`) |
+| Cobertura | gate global 45% lines / 65% branches |
 
-**Sprint 2026-08-08 (feature/reports-level-1+2)** cerrado y pusheado:
-
-- ✅ Reportes PDF + CSV por parcela individual (`/api/admin/parcels/[id]/report.{pdf,csv}`)
-- ✅ Imagen satelital real (EOX + MapLibre + Playwright screenshot)
-- ✅ Página `/reportes` con filtros (rango + hacienda) y reportes agregados
-- ✅ Callout "Reportes disponibles" en detail page
-- ✅ Sidebar: link "Reportes" nuevo
-- ✅ Documentación: `docs/features/reports/README.md` + `docs/audit/DOSE_FIELDS_BACKFILL.md`
-
-**Sprint 2026-08-10 (chore + fix)** cerrado y pusheado:
-
-- ✅ `nativeButton={false}` en 14 Buttons con `render={<a/>}` (accessibility)
-- ✅ 21 archivos `tmp-*.js/log/err` movidos a `tmp-trash/`
-- ✅ `.gitignore` actualizado con 4 patrones nuevos
-
-**Sprint 2026-08-15 (feature/fumigation-audit-log)** cerrado:
-
-- ✅ Tabla `fumigation_audit_log` (append-only, FK CASCADE a `dji_fumigations`)
-- ✅ 4 actions: `created | edited | deleted | restored` (CHECK en BD + código)
-- ✅ Hook audit en POST/PATCH/DELETE/restore (fire-and-forget, no rompe response)
-- ✅ Helper `lib/fumigation-audit.ts` con snapshot/diff + `safeAuditInsert`
-- ✅ UI: panel "Historial" en `/fumigaciones/[id]` con timeline + diff expandible
-- ✅ 41 tests nuevos (11 repo + 16 API + 14 componente), 1504/1504 verde
-- ✅ `docs/audit/AUDIT_LOG.md` con shape de `changes`, queries útiles, rollback
-
-**Sprint 2026-08-18 (feature/backfill-audit-log)** cerrado:
-
-- ✅ `scripts/backfill-audit-log.js` — popula `fumigation_audit_log` con eventos `created` + `deleted` históricos
-- ✅ Idempotente (chequea existencia antes de cada insert, re-ejecutable)
-- ✅ --dry-run para preview, --limit=N para smoke test
-- ✅ Snapshot del estado actual de la fumigación (no del estado al momento del evento)
-- ✅ Tag `_backfill: true` en `changes` para que la UI pueda diferenciar de eventos reales
-- ✅ 17 tests nuevos (8 parseArgs + 3 backfillSnapshot + 6 backfillAuditLog), 1521/1521 verde
-- ✅ `docs/audit/AUDIT_LOG.md` actualizado con sección "Backfill inicial"
-- ✅ Operator runbook: `node scripts/backfill-audit-log.js --dry-run` primero, luego sin flag
+**Sprints recientes (2026-09):** pipeline de fumigaciones reconstruido (tracks KML →
+cobertura real + regroup día+DBSCAN), geovisor con Inspector unificado, cadencia
+unificada (CAD-001), **auditoría y mejora de UI** (shadcn, P0 del wizard, overlays,
+map-first, tokens), plan de pruebas.
 
 ---
 
 ## Cómo correrlo en dev
 
 ```bash
-# 1. Levantar la BD local
-npm run db:up
+npm ci
+npm run db:up            # Postgres/PostGIS (Docker)
 npm run db:migrate
-
-# 2. Instalar deps
-npm install
-
-# 3. (Opcional) Crear el admin de test
-$env:AUTH_SEED_EMAIL = "admin@test.local"
-$env:AUTH_SEED_PASSWORD = "TestAdmin2026!"
-npm run auth:seed
-
-# 4. Levantar el dev server
-npm run dev
-# → http://localhost:3000
-# Login: admin@test.local / TestAdmin2026!
+npm run auth:seed        # admin inicial (AUTH_SEED_*)
+npm run dev              # http://localhost:3000
 ```
 
-**Para producción**: deploy a Vercel con las env vars del template
-(`.env.local` documentado en `AGENTS.md`).
+Producción: deploy a Vercel con las env vars del template (`.env.example`). E2E local
+requiere `.env.local` con `AUTH_TRUST_HOST=true` y una BD con datos.
 
-**Para correr el pipeline DJI**:
+Pipeline DJI:
 
 ```bash
-npm run pipeline:djiag           # pipeline completo
-npm run scrape:djiag:smoke       # smoke test (1 día)
-npm run health:watchdog          # watchdog manual
+npm run pipeline:djiag
+npm run refresh:fumigations
+npm run health:watchdog
 ```
 
 ---
 
 ## Roadmap
 
-### ✅ Hecho (último sprint)
+### 🟡 Backlog cercano
 
-- Reportes PDF + CSV con imagen satelital
-- Página `/reportes` con filtros
+1. Regla de cadencia **formal** (umbral vencido/crítico) antes de reintroducir un panel de cumplimiento de cadencia.
+2. Re-validar el **dibujo de polígono** (terra-draw) tras el rediseño de la toolbar (E2E `fixme`).
+3. **Estado de error del mapa** en el geovisor (hoy solo loading).
+4. Migración de tablas a `ui/table` + **card mobile** (responsive de datos densos).
+5. `Sheets` reales en mobile para el geovisor (hoy rebalanceo por `minSize`).
 
-### 🟡 Próximos (backlog inmediato)
+### 🔵 Refinamiento (con data de campo)
 
-1. **`/parcels/overdue` page** — lista de parcelas vencidas, top-of-mind para el fumigador al iniciar el día
-2. **"Mark as fumigated" button** en el dashboard, para registrar fumigación rápida sobre parcela vencida
-3. **`/admin/djiag-health` UI** — el operador ve si el scraper DJI está caído
-4. **Geometry audit UI** — 1.213 parcelas con `spray_geom` NULL tras import incompleto
-5. **User management UI** — alta/baja de usuarios desde la app (hoy solo CLI)
-6. **Password reset** — flujo "olvidé mi contraseña"
-
-### 🟢 A largo plazo (sprints siguientes)
-
-7. **Tabla `products`** con catálogo curado (Roundup, Glifosato, etc.) + FK en `dji_fumigations`. Resuelve la deuda de `product_used` y `dose_l_per_ha` (ver `docs/audit/DOSE_FIELDS_BACKFILL.md`).
-8. **Detalle de vuelos** — el endpoint DJI `/flight_records/{id}` (detail) podría traer el producto y dosis que el list no expone. Requiere captura con auth real.
-9. **Watchdog de health** arreglado — necesita `HEALTH_TOKEN` secret en Vercel deploy.
-
-### 🔵 Refinamiento (cuando haya data real)
-
-10. Cultivos reales por parcela (no solo "Farmland") — espera confirmación del cliente
-11. Cadencias operativas reales por parcela
-12. Productos comerciales usados por parcela
+6. Cadencias reales por parcela y **fecha de siembra** levantada en campo (base de la fase).
+7. Productos comerciales por parcela (catálogo `products`).
 
 ---
 
 ## Deuda técnica documentada
 
-- **`docs/audit/DOSE_FIELDS_BACKFILL.md`** — `product_used` y
-  `dose_l_per_ha` no se capturan del scraper DJI (limitación del
-  backend externo). El form manual SÍ los captura. Las 640
-  fumigaciones del dataset histórico DJI siguen con esos campos
-  NULL. La solución definitiva es una tabla `products` curada (sprint
-  aparte).
-- **`docs/SPEC.md`** + **`docs/FUMIGATION_CADENCE.md`** — defaults
-  conservadores hasta que el cliente confirme cadencias reales.
+- **`product_used` / `dose_l_per_ha`**: el scraper DJI no los trae; el catálogo `products`
+  y el form manual los cubren parcialmente. Ver `docs/audit/DOSE_FIELDS_BACKFILL.md`.
+- **Backfills operacionales** (una vez por ambiente): `scripts/backfill-clients-farms.js`
+  y `POST /api/admin/cycles/backfill`.
+- **Tracks**: 258 tracks sin vuelo y 452 vuelos sin track (completar si se re-scrapea).
+- **Cadencia**: defaults conservadores hasta confirmar cadencias reales con el cliente
+  (`docs/FUMIGATION_CADENCE.md`).
 
 ---
 
 ## Contacto
 
-- **Repo**: `https://github.com/Nes-Curly13/aeroadmin-afm.git`
-- **Operador fumigador**: cliente del Valle del Cauca, Colombia
-- **Dev**: @agFab (single-contributor)
-- **Última actualización**: 2026-08-10
+- **Repo**: `https://github.com/Nes-Curly13/aeroadmin-afm`
+- **Operador fumigador**: cliente del Valle del Cauca, Colombia.
+- **Dev**: @agFab (single-contributor).
+- **Última actualización**: 2026-09-24.
