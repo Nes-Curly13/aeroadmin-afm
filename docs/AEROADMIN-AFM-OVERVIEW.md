@@ -20,7 +20,7 @@ Casos de uso núcleo:
 1. "Hoy, ¿qué hay que fumigar y qué se fumigó?" → **Dashboard + /parcels/overdue**
 2. "¿Dónde está cada parcela y cómo se fumigó?" → **/map + /parcels/[id]**
 3. "¿Qué drones/pilotos fumigaron este mes?" → **/task-history + /history**
-4. "¿El sync con DJI está al día?" → **SyncBanner** en el dashboard + **/api/admin/djiag-health**
+4. "¿El sync con DJI está al día?" → **GET /api/admin/djiag-health** + watchdog (la UI de salud se retiró 2026-09-24)
 5. "¿Hay fumigaciones que no se pudieron asignar a una parcela?" → **/admin/orphan-fumigations**
 
 ---

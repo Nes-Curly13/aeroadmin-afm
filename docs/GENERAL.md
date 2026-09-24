@@ -32,10 +32,10 @@ presentarlos a sus clientes finales y para auditoría ICA.
 
 ### Dashboard (`/`)
 
-El panel principal muestra KPIs, salud del pipeline, y actividad
-reciente. Carga con Suspense boundaries.
+El panel principal muestra KPIs, tendencia y planificación de fumigaciones, con
+filtros por período/hacienda/dron/estado. Carga con Suspense boundaries.
 
-![Dashboard cargado con KPIs y salud del pipeline](../screenshots/32-dashboard-loaded.png)
+![Dashboard cargado con KPIs y planificación](../screenshots/32-dashboard-loaded.png)
 
 ### Inventario de parcelas (`/parcelas`)
 

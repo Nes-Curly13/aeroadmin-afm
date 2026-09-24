@@ -62,7 +62,6 @@
 | `/api/admin/djiag-health` | GET | admin | Health check del scraper DJI (last_success, last_failure, circuit) |
 | `/api/admin/dji-vehicles` | GET, POST | admin | Vehicle catalog (placa, descripción) |
 | `/api/admin/products` | GET, POST | admin | Product catalog (catalogado de fumigación) |
-| `/api/admin/applications/import` | POST | admin | Import applications (legacy) |
 
 ## 5. Reports (admin)
 
@@ -72,11 +71,9 @@
 | `/api/admin/reports/farms/report.pdf` | GET | admin | Farms report PDF |
 | `/api/admin/reports/flights/export.csv` | GET | admin | Wide flights export CSV (39 cols) |
 
-## 6. Data quality (público*)
+## 6. (Retirado 2026-09-24) Data quality
 
-| Path | Methods | Auth | Purpose |
-|---|---|---|---|
-| `/api/data-quality/invariants` | GET | admin | 5 patrones de data quality (parcela sin cliente, sin finca, sin ciclo, fumigación en ciclo cerrado, etc) |
+`/api/data-quality/invariants` se removió junto con la página `/admin/calidad` (feature sin utilidad para el operador).
 
 ## 7. DJI (read-only, data feed)
 

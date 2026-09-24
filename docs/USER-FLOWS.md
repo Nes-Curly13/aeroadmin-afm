@@ -44,9 +44,13 @@ KPIs:
 - Hectáreas fumigadas (30d)
 
 Paneles:
-- **Cumplimiento de cadencia**: % parcelas en estado `al_dia` / `por_vencer` / `vencido` / `crítico`
-- **Salud del pipeline DJI**: último run, próximas runs, fallos consecutivos
-- **Lotes recientes**: últimas 24h
+- **Tendencia (semanal)**: hectáreas tratadas + fumigaciones registradas
+- **Cumplimiento de planificación**: planes agendados vs ejecutados
+- **Planificación de fumigaciones**: agenda manual (esta semana / hechas recientes)
+
+> Nota (2026-09-24): se retiraron los paneles **Cumplimiento de cadencia** y
+> **Salud del pipeline DJI** del dashboard (Fase 6 y limpieza de features). La salud del
+> pipeline queda disponible vía API/watchdog (`GET /api/admin/djiag-health`).
 
 ## 3. Geovisor (`/geovisor`)
 
@@ -171,17 +175,11 @@ Exports:
 - CSV (39 cols, cap 50k rows)
 - PDF (Chromium, puede fallar en dev)
 
-## 11. Data quality (`/admin/calidad`)
+## 11. (Feature retirada) Data quality
 
-**Path**: `/admin/calidad` (AppShell, admin only)
-**Files**: `app/(auth)/admin/calidad/page.tsx`
-
-Lee `/api/data-quality/invariants` que reporta 5 patrones:
-1. Parcela sin cliente
-2. Parcela sin finca
-3. Parcela sin ciclo activo
-4. Fumigación en ciclo cerrado
-5. Ciclo sin phase_rule
+La página `/admin/calidad`, el endpoint `/api/data-quality/invariants` y el banner de
+calidad de datos (`data-quality-banner`) se **retiraron el 2026-09-24** (features sin
+utilidad para el operador).
 
 ## 12. Admin GIS import (`/admin/parcels/import`)
 
@@ -222,11 +220,10 @@ Helpers: `requireRole(['admin', 'supervisor'])` en route handlers, `getViewerRol
 | `/parcelas` | AppShell | Inventario |
 | `/parcelas/[id]` | AppShell | Detalle de finca |
 | `/fumigaciones` | AppShell | Lista de fumigaciones |
-| `/fumigaciones/nueva` | AppShell | Wizard 4 steps |
+| `/fumigaciones/nueva` | AppShell | Wizard 3 steps |
 | `/fumigaciones/[id]` | AppShell | Detalle de fumigación |
 | `/fumigaciones/[id]/editar` | AppShell | Editar fumigación |
-| `/reportes` | AppShell | Reportes (3 tabs) |
-| `/admin/calidad` | admin | Data quality |
+| `/reportes` | AppShell | Reportes (2 tabs) |
 | `/admin/parcels/new` | admin | Crear parcela manual |
 | `/admin/parcels/import` | admin | Import GIS |
 | `/admin/parcels/[id]/metadata` | admin | Editar metadata |

@@ -195,9 +195,10 @@ Tipo: `H` happy path · `E` borde/edge · `N` negativo.
 | ADM-02 | H | `/admin/parcels`: búsqueda server-side | Filtra sobre el dataset completo (no solo la página) |
 | ADM-03 | H | `/admin/parcels`: edición inline + guardar | Persiste por fila; feedback de guardado/error |
 | ADM-04 | H | `/admin/parcels/new` + `/import` (wizard GIS) | Preview → commit; validaciones; estado vacío/errores |
-| ADM-05 | H | `/admin/calidad` | Distingue "dataset limpio" de error de consulta |
-| ADM-06 | H | `/admin/pipeline` | Health del pipeline DJI visible |
-| ADM-07 | H | `/admin/reglas-fitosanitarias` | CRUD + "Restaurar recomendados" con confirmación |
+| ADM-05 | H | `/admin/reglas-fitosanitarias` | CRUD + "Restaurar recomendados" con confirmación |
+
+> Nota (2026-09-24): se retiraron `/admin/calidad` (calidad de datos), `/admin/pipeline`
+> (salud del pipeline) y `/admin/applications` (Excel). Ya no son features del producto.
 
 ### Transversales (a11y / estados / responsive)
 
@@ -294,5 +295,4 @@ Tipo: `H` happy path · `E` borde/edge · `N` negativo.
 - **Rutas de la app:** `/`, `/parcelas`, `/parcelas/[id]`, `/fumigaciones`,
   `/fumigaciones/nueva`, `/fumigaciones/[id]`, `/fumigaciones/[id]/editar`, `/geovisor`,
   `/reportes`, `/login`, `/admin`, `/admin/parcels`, `/admin/parcels/new`,
-  `/admin/parcels/import`, `/admin/applications`, `/admin/calidad`, `/admin/pipeline`,
-  `/admin/reglas-fitosanitarias`.
+  `/admin/parcels/import`, `/admin/reglas-fitosanitarias`.

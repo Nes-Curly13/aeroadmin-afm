@@ -109,7 +109,7 @@ para los tests de RBAC (US-7).
 | FUM-01..12 | unit (wizard P0, overlays, bulk, invoices, delete) | ✅ automatizado; E2E end-to-end pendiente |
 | GEO-01..09 | unit (`geovisor-client` 19) + E2E geovisor-and-parcels (8) | ✅ (GEO-09 error de mapa sigue pendiente) |
 | REP-01..03 | unit (`reports-tabs`) | ⚠️ export PDF/CSV manual pendiente |
-| ADM-01..07 | unit varios | ⚠️ E2E admin stale |
+| ADM-01..05 | unit varios + E2E admin-parcels | ✅ (features análisis/pipeline retiradas 2026-09-24) |
 | X-01..05 (a11y/estados/responsive) | unit (`shell-layout-drawer`, focus-visible en tests) | parcial; verificación manual 320/768/1024/1440 pendiente |
 
 ---

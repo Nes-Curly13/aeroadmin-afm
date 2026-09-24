@@ -19,12 +19,12 @@
 | Capacidad | Implementación | Evidencia |
 |---|---|---|
 | **Estructuración** | PostGIS 3.4 / SRID 4326; 47 migrations; tablas `dji_parcels` (geometrías `spray_geom`/`reference_point`/`waypoints_geometry`), `dji_flights`, `dji_fumigations`, `clients`/`farms`/`cycles`/`cycle_events`, catálogos, audit log | `db/migrations/`, `docs/DATA-MODEL.md` |
-| **Gestión** | UI admin de parcelas (alta, edición, geometría), catálogos (clientes/fincas/productos/vehículos), calidad de datos | `app/(auth)/admin/**` |
+| **Gestión** | UI admin de parcelas (alta, edición, geometría), catálogos (clientes/fincas/productos/vehículos) | `app/(auth)/admin/**` |
 | **Visualización** | Geovisor MapLibre 4.7.1 con parcelas y fumigaciones; mapas de detalle; reportes con mapa satelital | `app/(auth)/geovisor`, `components/map/geo-map.tsx` |
-| **Análisis** | Cadencia/vencimiento, cobertura por período, volumen mensual, fases de ciclo, calidad de datos (invariantes) | `lib/fumigation-cadence.ts`, `lib/overdue-parcels.ts`, `lib/crop-cycle.ts`, `/api/data-quality/invariants` |
+| **Análisis** | Cadencia/vencimiento, cobertura por período, volumen mensual, fases de ciclo | `lib/fumigation-cadence.ts`, `lib/overdue-parcels.ts`, `lib/crop-cycle.ts` |
 | **Planificación** | Panel de planificación en el dashboard (vencidas / por vencer) + columna "Próxima" por parcela | `components/dashboard/planning-panel.tsx`, `docs/FUMIGATION_CADENCE.md` (regla ratificada) |
 | **Registro** | Wizard de fumigación (3 pasos, importar vuelo DJI o manual), alta de parcela, import SIG | `app/(auth)/fumigaciones/nueva`, `app/(auth)/admin/parcels/**` |
-| **Seguimiento / decisión** | Dashboard con KPIs, últimas aplicaciones, salud del pipeline, reportes PDF/CSV, audit log | `app/(auth)/page.tsx`, `app/(auth)/reportes`, `fumigation_audit_log` |
+| **Seguimiento / decisión** | Dashboard con KPIs, últimas aplicaciones, reportes PDF/CSV, audit log; salud del pipeline vía API/watchdog | `app/(auth)/page.tsx`, `app/(auth)/reportes`, `fumigation_audit_log`, `GET /api/admin/djiag-health` |
 
 ---
 
