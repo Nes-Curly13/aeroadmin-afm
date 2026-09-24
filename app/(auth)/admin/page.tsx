@@ -1,10 +1,8 @@
 import Link from "next/link";
 import {
-  Activity,
   CalendarClock,
   Database,
   FileSpreadsheet,
-  ListChecks,
   MapPlus,
   Sparkles
 } from "lucide-react";
@@ -15,10 +13,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
  * /admin — landing de administración.
  *
  * Fase 8 (2026-09-08): creado como destino del link "Administración" en
- * el sidebar (NavLinks). Hasta ahora no existía — los sub-links de admin
- * (`/admin/parcels`, `/admin/calidad`, `/admin/applications`,
- * `/admin/parcels/import`) solo eran accesibles vía URL directa o
- * desde el banner de calidad de datos.
+ * el sidebar (NavLinks). Los sub-links de admin (`/admin/parcels`,
+ * `/admin/applications`, `/admin/parcels/import`,
+ * `/admin/reglas-fitosanitarias`) viven acá.
  *
  * Esta página es server-rendered, no fetchea data (es un índice puro).
  * El role gate es el mismo que el resto de `/admin/*` — el `proxy.ts`
@@ -57,15 +54,6 @@ const ADMIN_LINKS: AdminLink[] = [
     icon: FileSpreadsheet
   },
   {
-    // UI-12: descripcion suavizada ("5 patrones de data quality" -> "problemas
-    // de calidad de datos"). El operador fumigador no es dev; "data quality"
-    // sin contexto no le dice nada.
-    href: "/admin/calidad",
-    title: "Calidad de datos",
-    description: "Problemas de calidad de datos en el dataset (parcelas sin cliente, sin finca, sin ciclo activo, fumigaciones en ciclo cerrado, etc.).",
-    icon: ListChecks
-  },
-  {
     // UI-12: descripcion suavizada ("source='import_excel'" -> "del Excel").
     href: "/admin/applications",
     title: "Aplicaciones importadas",
@@ -77,12 +65,6 @@ const ADMIN_LINKS: AdminLink[] = [
     title: "Reglas fitosanitarias",
     description: "Aplicaciones recomendadas por fase del cultivo. Ajustá ventanas y cadencias; la planificación se recalcula automáticamente.",
     icon: CalendarClock
-  },
-  {
-    href: "/admin/pipeline",
-    title: "Salud del pipeline DJI",
-    description: "Estado del scraper DJI AG y últimos lotes importados. Monitoreo técnico.",
-    icon: Activity
   }
 ];
 

@@ -62,8 +62,8 @@ describe("NavLinks — Fase 8 active state", () => {
     expect(link).toHaveAttribute("aria-current", "page");
   });
 
-  it("marca 'Administración' como active en /admin/calidad (sub-ruta)", () => {
-    renderAt("/admin/calidad");
+  it("marca 'Administración' como active en un sub-ruta (/admin/parcels)", () => {
+    renderAt("/admin/parcels");
     const link = screen.getByRole("link", { name: "Administración" });
     expect(link).toHaveAttribute("aria-current", "page");
   });

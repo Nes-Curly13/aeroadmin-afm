@@ -37,12 +37,6 @@ describe("AdminLandingPage — /admin landing (Fase 8)", () => {
     expect(link).toHaveAttribute("href", "/admin/parcels/import");
   });
 
-  it("incluye link a /admin/calidad (data quality)", () => {
-    render(<AdminLandingPage />);
-    const link = screen.getByRole("link", { name: /Calidad de datos/i });
-    expect(link).toHaveAttribute("href", "/admin/calidad");
-  });
-
   it("incluye link a /admin/applications (Excel import)", () => {
     render(<AdminLandingPage />);
     const link = screen.getByRole("link", { name: /Aplicaciones importadas/i });
@@ -57,6 +51,5 @@ describe("AdminLandingPage — /admin landing (Fase 8)", () => {
     // NO esta presente.
     render(<AdminLandingPage />);
     expect(screen.queryByText("/admin/parcels")).not.toBeInTheDocument();
-    expect(screen.queryByText("/admin/calidad")).not.toBeInTheDocument();
   });
 });

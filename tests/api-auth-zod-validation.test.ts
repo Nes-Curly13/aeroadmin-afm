@@ -37,9 +37,6 @@ vi.mock("@/lib/auth/role", () => ({
 
 // Importar handlers DESPUÉS de los mocks para que tomen los mocks
 const { GET: djiFlightsGET } = await import("@/app/api/dji-flights/search/route");
-const { GET: dataQualityGET } = await import(
-  "@/app/api/data-quality/invariants/route"
-);
 const { GET: parcelsSearchGET } = await import(
   "@/app/api/admin/parcels/search/route"
 );
@@ -91,23 +88,7 @@ describe("auth-gated endpoints — zod error shape (anti-Bug-2)", () => {
     expect(parsed.error).toBeDefined();
   });
 
-  it("3. /api/data-quality/invariants sin sesion → 401 con body zod-valid", async () => {
-    mockRequireRole.mockRejectedValueOnce({
-      code: "UNAUTHENTICATED",
-      message: "no auth"
-    });
-    const res = await dataQualityGET(
-      makeRequest("/api/data-quality/invariants") as unknown as import(
-        "next/server"
-      ).NextRequest
-    );
-    expect(res.status).toBe(401);
-    const body = await res.json();
-    const parsed = errorResponseSchema.parse(body);
-    expect(parsed.error).toBeDefined();
-  });
-
-  it("4. /api/admin/parcels/search sin sesion → 401 con body zod-valid", async () => {
+  it("3. /api/admin/parcels/search sin sesion → 401 con body zod-valid", async () => {
     mockRequireRole.mockRejectedValueOnce({
       code: "UNAUTHENTICATED",
       message: "no auth"
@@ -123,7 +104,7 @@ describe("auth-gated endpoints — zod error shape (anti-Bug-2)", () => {
     expect(parsed.error).toBeDefined();
   });
 
-  it("5. /api/admin/cycles/backfill sin sesion → 401 con body zod-valid", async () => {
+  it("4. /api/admin/cycles/backfill sin sesion → 401 con body zod-valid", async () => {
     mockRequireRole.mockRejectedValueOnce({
       code: "UNAUTHENTICATED",
       message: "no auth"

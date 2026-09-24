@@ -44,7 +44,7 @@ export function NavLinks() {
       {LINKS.map(({ href, label, icon: Icon }) => {
         // Active match:
         //   - "/" matchea solo la home exacta
-        //   - "/admin" matchea "/admin", "/admin/parcels", "/admin/calidad", etc.
+        //   - "/admin" matchea "/admin", "/admin/parcels", "/admin/applications", etc.
         //   - resto matchea prefijo
         const active =
           href === "/"
