@@ -45,6 +45,7 @@ export default defineConfig({
       "**/.next/**",
       "tests/e2e/**",
       "tests/user-story-dashboard-e2e.test.ts",
+      "tmp-trash/**",
     ],
     // Componentes con Next/Image y Leaflet demoran en transform bajo concurrencia.
     // Subimos el timeout default para evitar flakiness cuando hay 34 archivos en suite.

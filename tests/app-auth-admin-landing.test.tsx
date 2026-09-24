@@ -37,12 +37,6 @@ describe("AdminLandingPage — /admin landing (Fase 8)", () => {
     expect(link).toHaveAttribute("href", "/admin/parcels/import");
   });
 
-  it("incluye link a /admin/applications (Excel import)", () => {
-    render(<AdminLandingPage />);
-    const link = screen.getByRole("link", { name: /Aplicaciones importadas/i });
-    expect(link).toHaveAttribute("href", "/admin/applications");
-  });
-
   it("no muestra la URL cruda en el render (UI-12)", () => {
     // UI-12: el operador fumigador no es dev; mostrar "/admin/parcels"
     // en monospace era ruido. La URL queda en el href del <Link>

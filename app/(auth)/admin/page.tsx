@@ -54,13 +54,6 @@ const ADMIN_LINKS: AdminLink[] = [
     icon: FileSpreadsheet
   },
   {
-    // UI-12: descripcion suavizada ("source='import_excel'" -> "del Excel").
-    href: "/admin/applications",
-    title: "Aplicaciones importadas",
-    description: "Lista de fumigaciones importadas del Excel del operador fumigador.",
-    icon: Database
-  },
-  {
     href: "/admin/reglas-fitosanitarias",
     title: "Reglas fitosanitarias",
     description: "Aplicaciones recomendadas por fase del cultivo. Ajustá ventanas y cadencias; la planificación se recalcula automáticamente.",
